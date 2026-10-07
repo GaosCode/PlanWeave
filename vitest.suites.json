@@ -138,6 +138,7 @@
         "collaborationSessionState.test.ts",
         "commentViewModels.test.ts",
         "commentsPanel.test.tsx",
+        "activityPanelController.test.ts",
         "commentsPanelController.test.ts",
         "commentsPanelPagination.test.ts",
         "credentialStorageSettingsView.test.tsx",

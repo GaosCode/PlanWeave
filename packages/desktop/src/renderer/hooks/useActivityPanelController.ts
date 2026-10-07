@@ -41,6 +41,23 @@ export type UseActivityPanelControllerResult = {
 
 type ActivityCursor = { occurredAt: string; activityId: string };
 
+type ActivityRequest = {
+  generation: number;
+  mode: "replace" | "append";
+  initialActivityIds: Set<string>;
+  arrivals: Map<string, ActivityRecord>;
+};
+
+function mergeActivity(...groups: ActivityRecord[][]): ActivityRecord[] {
+  const byId = new Map<string, ActivityRecord>();
+  for (const group of groups) {
+    for (const item of group) byId.set(item.activityId, item);
+  }
+  return [...byId.values()].sort(
+    (a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.activityId.localeCompare(a.activityId)
+  );
+}
+
 function mapBoundaryError(error: unknown): CollaborationBoundaryErrorView {
   if (
     error &&
@@ -69,7 +86,7 @@ export function useActivityPanelController(
 ): UseActivityPanelControllerResult {
   const api = args.api === undefined ? collaborationBridge : args.api;
   const { status } = useCollaborationStatus({ api });
-  const { snapshot } = useCollaborationReadModels({
+  const { snapshot, controller } = useCollaborationReadModels({
     api,
     profileId: null,
     projectId: null,
@@ -85,80 +102,134 @@ export function useActivityPanelController(
   const [loadingMore, setLoadingMore] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const generationRef = useRef(0);
+  const requestRef = useRef<ActivityRequest | null>(null);
+  const cursorRef = useRef<ActivityCursor | null>(null);
+  const activeProfileId = status?.session.activeProfileId ?? null;
+  const activeProjectId =
+    status?.profiles.find((profile) => profile.profileId === activeProfileId)?.projectId ?? null;
+  const scopeConnected =
+    sessionConnected &&
+    snapshot.profileId === activeProfileId &&
+    snapshot.projectId === activeProjectId &&
+    snapshot.projectId !== null;
+  const filterActivity = useCallback(
+    (records: ActivityRecord[]) =>
+      records.filter((record) => {
+        if (record.projectId !== snapshot.projectId) return false;
+        if (!args.workItem) return true;
+        const item = record.workItem ?? record.summary.workItem;
+        return item != null && workItemKey(item) === workKey;
+      }),
+    [args.workItem, snapshot.projectId, workKey]
+  );
 
   const loadPage = useCallback(
     async (mode: "replace" | "append") => {
-      if (!api || !args.open || !sessionConnected) return;
-      const generation = generationRef.current;
-      if (mode === "replace") setLoading(true);
-      else setLoadingMore(true);
+      if (!api || !controller || !args.open || !scopeConnected) return;
+      if (mode === "append" && (requestRef.current || !cursorRef.current)) return;
+      const request: ActivityRequest = {
+        generation: generationRef.current,
+        mode,
+        initialActivityIds: new Set(
+          controller.getSnapshot().activity.map((item) => item.activityId)
+        ),
+        arrivals: new Map()
+      };
+      requestRef.current = request;
+      setLoading(mode === "replace");
+      setLoadingMore(mode === "append");
       setActionError(null);
+      const isCurrent = () =>
+        requestRef.current === request &&
+        request.generation === generationRef.current &&
+        controller.getSnapshot().profileId === snapshot.profileId &&
+        controller.getSnapshot().projectId === snapshot.projectId;
       try {
         const page = await api.listCollaborationActivity({
           workItem: args.workItem ?? undefined,
           limit: ACTIVITY_LIST_PAGE_DEFAULT,
-          cursor: mode === "append" && nextCursor ? nextCursor : undefined
+          cursor: mode === "append" ? (cursorRef.current ?? undefined) : undefined
         });
-        if (generation !== generationRef.current) return;
-        setItems((prev) => {
-          if (mode === "replace") return page.items;
-          const seen = new Set(prev.map((item) => item.activityId));
-          const merged = [...prev];
-          for (const item of page.items) {
-            if (!seen.has(item.activityId)) merged.push(item);
+        if (!isCurrent()) return;
+        if (mode === "replace") {
+          for (const item of filterActivity(controller.getSnapshot().activity)) {
+            if (!request.initialActivityIds.has(item.activityId)) {
+              request.arrivals.set(item.activityId, item);
+            }
           }
-          merged.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
-          return merged;
-        });
+        }
+        setItems((prev) =>
+          mode === "replace"
+            ? mergeActivity(page.items, [...request.arrivals.values()])
+            : mergeActivity(prev, page.items)
+        );
+        cursorRef.current = page.nextCursor;
         setNextCursor(page.nextCursor);
       } catch (error) {
-        if (generation !== generationRef.current) return;
+        if (!isCurrent()) return;
         setActionError(collaborationErrorMessage(mapBoundaryError(error)));
       } finally {
-        if (generation === generationRef.current) {
+        if (isCurrent()) {
+          requestRef.current = null;
           setLoading(false);
           setLoadingMore(false);
         }
       }
     },
-    [api, args.open, args.workItem, nextCursor, sessionConnected]
+    [
+      api,
+      controller,
+      args.open,
+      args.workItem,
+      scopeConnected,
+      snapshot.profileId,
+      snapshot.projectId,
+      filterActivity
+    ]
   );
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional scope-driven reload
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only scope changes retire history requests
   useEffect(() => {
     generationRef.current += 1;
+    requestRef.current = null;
+    cursorRef.current = null;
     setItems([]);
     setNextCursor(null);
     setActionError(null);
-    if (!args.open || !sessionConnected || !api) return;
+    setLoading(false);
+    setLoadingMore(false);
     void loadPage("replace");
-    // workKey/projectId remount the page; loadPage is stable enough via generation guard.
-  }, [args.open, workKey, sessionConnected, api, snapshot.projectId]);
+    return () => {
+      generationRef.current += 1;
+      requestRef.current = null;
+    };
+  }, [
+    args.open,
+    workKey,
+    scopeConnected,
+    api,
+    snapshot.projectId,
+    snapshot.profileId,
+    activeProfileId,
+    activeProjectId,
+    controller
+  ]);
 
-  // Merge hub project activity snapshots for the open scope (typed summaries only).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: updatedAt forces hub merge without churn
+  // Hub records are immutable. Only IDs first observed after this request started
+  // survive its replacement; prior history remains governed by the server page.
   useEffect(() => {
-    if (!args.open) return;
-    if (!snapshot.activity.length) return;
-    setItems((prev) => {
-      const filtered = args.workItem
-        ? snapshot.activity.filter((record) => {
-            const key = record.workItem
-              ? workItemKey(record.workItem)
-              : record.summary.workItem
-                ? workItemKey(record.summary.workItem)
-                : null;
-            return key === workKey;
-          })
-        : snapshot.activity;
-      if (filtered.length === 0) return prev;
-      const byId = new Map(prev.map((item) => [item.activityId, item]));
+    if (!args.open || !scopeConnected) return;
+    const filtered = filterActivity(snapshot.activity);
+    const request = requestRef.current;
+    if (request?.mode === "replace") {
       for (const item of filtered) {
-        byId.set(item.activityId, item);
+        if (!request.initialActivityIds.has(item.activityId)) {
+          request.arrivals.set(item.activityId, item);
+        }
       }
-      return [...byId.values()].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
-    });
-  }, [args.open, args.workItem, snapshot.activity, snapshot.updatedAt, workKey]);
+    }
+    if (filtered.length) setItems((prev) => mergeActivity(prev, filtered));
+  }, [args.open, scopeConnected, snapshot.activity, filterActivity]);
 
   const rows = useMemo(() => items.map(buildActivityRowViewModel), [items]);
 
@@ -172,15 +243,12 @@ export function useActivityPanelController(
   });
 
   const refresh = useCallback(async () => {
-    generationRef.current += 1;
-    setNextCursor(null);
     await loadPage("replace");
   }, [loadPage]);
 
   const loadMore = useCallback(async () => {
-    if (!nextCursor || loadingMore) return;
     await loadPage("append");
-  }, [loadPage, loadingMore, nextCursor]);
+  }, [loadPage]);
 
   return {
     mode,
