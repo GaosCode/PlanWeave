@@ -5,6 +5,7 @@ import { affectedTaskIdsForManifestChange } from "./affectedTasks.js";
 import { compileTaskGraph } from "./compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { manifestSchema } from "../schema/manifest.js";
 import {
@@ -186,10 +187,10 @@ export async function commitPlanPackageGraphMutation(options: {
     };
   }
   const { workspace } = await loadPackage(options.projectRoot);
-  await applyMutationSideEffectsWithRollback(
-    workspace.packageDir,
-    options.mutation.sideEffects,
-    () => writeJsonFile(workspace.manifestFile, prepared.value.manifest)
+  await withPackageFileConsistency([workspace.packageDir], () =>
+    applyMutationSideEffectsWithRollback(workspace.packageDir, options.mutation.sideEffects, () =>
+      writeJsonFile(workspace.manifestFile, prepared.value.manifest)
+    )
   );
   return result(prepared.value.manifest, options.mutation.affectedTasks, [], prepared.value.graph);
 }

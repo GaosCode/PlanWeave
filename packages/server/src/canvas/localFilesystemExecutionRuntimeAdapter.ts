@@ -2,6 +2,7 @@ import {
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   capturePackageSnapshot,
+  packageSnapshotGraphFingerprint,
   readAuthorizedCanvasRuntimeStatus,
   readRuntimeResetReceipt,
   resetRuntimeState,
@@ -60,6 +61,7 @@ export class LocalFilesystemExecutionRuntimeAdapter
           });
           if (
             before.snapshot.sourceRevision !== command.expectedSourceRevision ||
+            packageSnapshotGraphFingerprint(before.snapshot) !== command.expectedGraphFingerprint ||
             before.resolvedPackageDir !== location.packageDir
           ) {
             throw new CanvasRuntimeResetConflictError("source_drift");
@@ -100,7 +102,15 @@ export class LocalFilesystemExecutionRuntimeAdapter
             expectedPackageDir: location.packageDir,
             scope: canvasScopeRefSchema.parse(scope)
           });
-          if (status.packageFingerprint !== command.expectedGraphFingerprint) {
+          const after = await capturePackageSnapshot({
+            projectRoot: location.projectRoot,
+            canvasId: scope.canvasId
+          });
+          if (
+            status.packageFingerprint !== command.expectedGraphFingerprint ||
+            after.snapshot.sourceRevision !== command.expectedSourceRevision ||
+            packageSnapshotGraphFingerprint(after.snapshot) !== status.packageFingerprint
+          ) {
             throw new CanvasRuntimeResetConflictError("source_drift");
           }
           return {
@@ -128,7 +138,8 @@ export class LocalFilesystemExecutionRuntimeAdapter
                 });
                 if (
                   after.resolvedPackageDir !== location.packageDir ||
-                  after.snapshot.sourceRevision !== before.snapshot.sourceRevision
+                  after.snapshot.sourceRevision !== before.snapshot.sourceRevision ||
+                  packageSnapshotGraphFingerprint(after.snapshot) !== status.packageFingerprint
                 ) {
                   throw new CanvasRuntimeResetConflictError("source_drift");
                 }
@@ -182,6 +193,7 @@ export class LocalFilesystemExecutionRuntimeAdapter
     });
     if (
       snapshot.snapshot.sourceRevision !== command.expectedSourceRevision ||
+      packageSnapshotGraphFingerprint(snapshot.snapshot) !== status.packageFingerprint ||
       status.packageFingerprint !== command.expectedGraphFingerprint
     ) {
       return {

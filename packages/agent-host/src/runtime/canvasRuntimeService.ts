@@ -14,6 +14,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import {
   capturePackageSnapshot,
+  packageSnapshotGraphFingerprint,
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   readAuthorizedCanvasRuntimeStatus,
@@ -120,6 +121,8 @@ async function readCanvasRuntimeAvailability(resolved: ResolvedCanvasRuntime) {
       scope: canvasScopeRefSchema.parse(resolved.scope)
     })
   ]);
+  if (packageSnapshotGraphFingerprint(snapshot) !== status.packageFingerprint)
+    throw new CanvasRuntimeMaterializationEvidenceError();
   return {
     kind: "available" as const,
     status,

@@ -1,6 +1,7 @@
 import {
   captureAuthorizedCanvasContent,
   capturePackageSnapshot,
+  packageSnapshotGraphFingerprint,
   readAuthorizedCanvasRuntimeStatus,
   restorePackageSnapshot
 } from "@planweave-ai/runtime";
@@ -63,7 +64,10 @@ export function createLocalFilesystemCanvasRuntimeAdapter(
             reason: "runtime_not_attached"
           });
         }
-        if (before.snapshot.sourceRevision !== after.snapshot.sourceRevision) {
+        if (
+          before.snapshot.sourceRevision !== after.snapshot.sourceRevision ||
+          packageSnapshotGraphFingerprint(after.snapshot) !== status.packageFingerprint
+        ) {
           return canvasRuntimeExecutionAvailabilitySchema.parse({
             schemaVersion: "canvas-runtime-availability/v1",
             kind: "unavailable",

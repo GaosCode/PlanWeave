@@ -3,7 +3,11 @@ import {
   localWorkspaceExecutionHandleSchema,
   type LocalWorkspaceAuthorityBinding
 } from "./contracts.js";
-import { assertValidatedWorkspaceAuthorityBinding } from "./authorityBinding.js";
+import {
+  assertValidatedWorkspaceAuthorityBinding,
+  assertWorkspaceContentMatches,
+  createLocalPackageAuthoritySource
+} from "./authorityBinding.js";
 import type { LocalWorkspaceExecutionAdapter } from "./ports.js";
 
 export function createLocalWorkspaceExecutionAdapter(
@@ -17,6 +21,20 @@ export function createLocalWorkspaceExecutionAdapter(
         throw new Error("workspace_execution_local_binding_required");
       }
       const localBinding: LocalWorkspaceAuthorityBinding = binding;
+      const current = await createLocalPackageAuthoritySource().inspect(
+        {
+          kind: "local_package",
+          packageWorkspace: localBinding.packageWorkspace,
+          canvasId: localBinding.canvasId,
+          expected: {
+            contentRevision: localBinding.contentRevision,
+            graphFingerprint: localBinding.graphFingerprint
+          }
+        },
+        request.scope,
+        signal
+      );
+      assertWorkspaceContentMatches(localBinding, current);
       const result = await run({
         projectRoot: localBinding.packageWorkspace,
         scope: request.scope,

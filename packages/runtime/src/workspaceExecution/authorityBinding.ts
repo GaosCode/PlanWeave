@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { capturePackageSnapshot } from "../package/packageSnapshot.js";
+import {
+  capturePackageSnapshot,
+  packageSnapshotGraphFingerprint
+} from "../package/packageSnapshot.js";
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
-import { loadPlanGraphPackage } from "../plangraph/packageRepository.js";
 import { stableJson } from "../plangraph/hash.js";
 import { commandCanvasIdForWorkspace } from "../taskManager/canvasCommandScope.js";
 import {
@@ -110,7 +113,7 @@ function remoteBindingIdentityValue(
   };
 }
 
-function validateContent(
+export function assertWorkspaceContentMatches(
   expected: { contentRevision: string; graphFingerprint: string },
   actual: { contentRevision: string; graphFingerprint: string }
 ): void {
@@ -198,7 +201,7 @@ export function createWorkspaceAuthorityBindingResolver(input: {
         if (snapshot.packageWorkspace !== locator.packageWorkspace) {
           throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
         }
-        validateContent(locator.expected, snapshot);
+        assertWorkspaceContentMatches(locator.expected, snapshot);
         const withoutId = {
           version: "planweave.workspace-authority-binding/v1" as const,
           kind: "local" as const,
@@ -238,7 +241,7 @@ export function createWorkspaceAuthorityBindingResolver(input: {
         ) {
           throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
         }
-        validateContent(locator.expected, snapshot);
+        assertWorkspaceContentMatches(locator.expected, snapshot);
         const withoutId = {
           version: "planweave.workspace-authority-binding/v1" as const,
           kind: "remote" as const,
@@ -283,7 +286,7 @@ export function createWorkspaceAuthorityBindingResolver(input: {
         throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
       }
       if (locator.contentAuthority.kind === "package_snapshot") {
-        validateContent(locator.contentAuthority.expected, snapshot);
+        assertWorkspaceContentMatches(locator.contentAuthority.expected, snapshot);
       }
       const withoutId = {
         version: "planweave.workspace-authority-binding/v1" as const,
@@ -316,13 +319,13 @@ export function createLocalPackageAuthoritySource(): LocalWorkspaceAuthoritySour
         ? await resolveTaskCanvasWorkspace(locator.packageWorkspace, locator.canvasId)
         : locator.packageWorkspace;
       const captured = await capturePackageSnapshot({ projectRoot: workspace });
-      const loaded = await loadPlanGraphPackage(workspace);
+      const resolved = await resolvePackageWorkspace(workspace);
       return localAuthoritySnapshotSchema.parse({
         packageWorkspace: locator.packageWorkspace,
-        projectId: loaded.workspace.id,
-        canvasId: (await commandCanvasIdForWorkspace(loaded.workspace)) ?? "default",
+        projectId: resolved.id,
+        canvasId: (await commandCanvasIdForWorkspace(resolved)) ?? "default",
         contentRevision: captured.snapshot.sourceRevision,
-        graphFingerprint: loaded.graph.packageFingerprint
+        graphFingerprint: packageSnapshotGraphFingerprint(captured.snapshot)
       });
     }
   };

@@ -1,5 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
+import type { PackageFileEntry } from "../../package/packageFiles.js";
+
 const dist = new URL("../../../dist/", import.meta.url).href;
 
 export type Actor = {
@@ -14,7 +16,8 @@ export type Actor = {
 export function spawnPackageMutation(
   root: string,
   kind: "replace" | "canvas-aba" | "import-aba",
-  childTemp?: string
+  childTemp?: string,
+  replacementFiles?: PackageFileEntry[]
 ): Actor {
   const child = spawn(
     process.execPath,
@@ -36,7 +39,7 @@ export function spawnPackageMutation(
     const held = await fs.stat(lockPath).then(()=>true, error=>{if(error.code==='ENOENT')return false;throw error});
     const continued = new Promise(resolve=>{process.stdin.once('data',resolve);process.stdin.once('end',resolve)});
     if(held) process.stdout.write('held\\n');
-    const files=[{path:'a.md',content:'new-A',encoding:'utf8'},{path:'b.md',content:'new-B-long',encoding:'utf8'}];
+    const files=process.argv[4] ? JSON.parse(process.argv[4]) : [{path:'a.md',content:'new-A',encoding:'utf8'},{path:'b.md',content:'new-B-long',encoding:'utf8'}];
     if(kind==='replace') {
       await replacePackageFiles(root,files);
       if(!held)process.stdout.write('installed\\n');
@@ -72,7 +75,8 @@ export function spawnPackageMutation(
   `,
       root,
       kind,
-      dist
+      dist,
+      replacementFiles ? JSON.stringify(replacementFiles) : ""
     ],
     {
       stdio: ["pipe", "pipe", "pipe"],

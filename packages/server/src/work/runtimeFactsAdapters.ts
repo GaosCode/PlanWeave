@@ -5,6 +5,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/work/package-facts";
 import {
   capturePackageSnapshot,
+  packageSnapshotGraphFingerprint,
   loadPlanGraphPackage,
   resolveTaskCanvasWorkspace
 } from "@planweave-ai/runtime";
@@ -113,6 +114,11 @@ export class LocalFilesystemWorkRuntimeFactsAdapter implements WorkRuntimePackag
       projectRoot: location.projectRoot,
       canvasId: input.scope.canvasId
     });
+    if (
+      captured.resolvedPackageDir !== location.packageDir ||
+      packageSnapshotGraphFingerprint(captured.snapshot) !== loaded.graph.packageFingerprint
+    )
+      throw new WorkRuntimeUnavailableError("content_out_of_sync");
     return factsLease(input, {
       sourceRevision: captured.snapshot.sourceRevision,
       graphFingerprint: loaded.graph.packageFingerprint,

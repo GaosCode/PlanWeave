@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
@@ -17,6 +17,15 @@ import { loadPackage, resolvePackageWorkspace } from "./loadPackage.js";
 import { resolvePackagePath } from "./resolvePackagePath.js";
 import { resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
 import { ImportTransaction } from "./importTransaction.js";
+import { manifestSchema } from "../schema/manifest.js";
+import { packageFingerprintFromContent } from "../plangraph/hash.js";
+import { withPackageFileConsistency } from "./packageFileConsistency.js";
+import {
+  readSnapshotMember,
+  sameSnapshotFile,
+  snapshotConflict,
+  verifySnapshotMembers
+} from "./packageSnapshotRead.js";
 
 const sourceRevisionSchema = z
   .string()
@@ -52,6 +61,21 @@ export function packageSnapshotSourceRevision(
   );
 }
 
+/** Graph identity is derived from the captured closure, never from a later disk read. */
+export function packageSnapshotGraphFingerprint(snapshot: CapturedPackageSnapshot): string {
+  const manifestFile = snapshot.files.find((file) => file.path === "manifest.json");
+  if (!manifestFile) throw new Error("package_snapshot_manifest_missing");
+  const manifest = manifestSchema.parse(JSON.parse(manifestFile.content));
+  return packageFingerprintFromContent(
+    manifest,
+    new Map(
+      snapshot.files
+        .filter((file) => file.path !== "manifest.json")
+        .map((file) => [file.path, file.content])
+    )
+  );
+}
+
 function digest(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -60,7 +84,9 @@ function boundedUtf8(bytes: Uint8Array, path: string): string {
   if (bytes.byteLength > PACKAGE_SNAPSHOT_MAX_FILE_BYTES) {
     throw new Error(`package_snapshot_file_too_large:${path}`);
   }
-  return Buffer.from(bytes).toString("utf8");
+  const content = Buffer.from(bytes).toString("utf8");
+  if (!Buffer.from(content, "utf8").equals(bytes)) throw new Error("package_snapshot_invalid_utf8");
+  return content;
 }
 
 function referencedPromptPaths(
@@ -84,53 +110,62 @@ export async function capturePackageSnapshot(input: {
   const projectRoot = input.canvasId
     ? await resolveTaskCanvasWorkspace(String(input.projectRoot), input.canvasId)
     : input.projectRoot;
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  const paths = ["manifest.json", ...referencedPromptPaths(manifest)];
-  const files: PackageSnapshotFile[] = [];
-  let plannedTotalBytes = 0;
-  let totalBytes = 0;
-  for (const path of paths) {
-    const absolutePath = await resolvePackagePath(workspace.packageDir, path, {
-      requireExisting: true
+  const workspace = await resolvePackageWorkspace(projectRoot);
+  return withPackageFileConsistency([workspace.packageDir], async () => {
+    const rootBefore = await stat(workspace.packageDir, { bigint: true });
+    const manifestRead = await readSnapshotMember(
+      workspace.packageDir,
+      "manifest.json",
+      PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES
+    );
+    const manifest = manifestSchema.parse(
+      JSON.parse(boundedUtf8(manifestRead.bytes, "manifest.json"))
+    );
+    const paths = ["manifest.json", ...referencedPromptPaths(manifest)];
+    const files: PackageSnapshotFile[] = [];
+    const members = [];
+    let totalBytes = 0;
+    for (const path of paths) {
+      const member =
+        path === "manifest.json"
+          ? manifestRead
+          : await readSnapshotMember(
+              workspace.packageDir,
+              path,
+              PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES - totalBytes
+            );
+      members.push(member);
+      const bytes = member.bytes;
+      totalBytes += bytes.byteLength;
+      if (totalBytes > PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES) {
+        throw new Error("package_snapshot_total_bytes_exceeded");
+      }
+      const content = boundedUtf8(bytes, path);
+      files.push({ path, content, digestSha256: digest(bytes), sizeBytes: bytes.byteLength });
+    }
+    await verifySnapshotMembers(workspace.packageDir, members);
+    if (!sameSnapshotFile(rootBefore, await stat(workspace.packageDir, { bigint: true })))
+      throw snapshotConflict("directory");
+    const manifestFile = files[0];
+    if (!manifestFile) throw new Error("package_snapshot_manifest_missing");
+    const prompts = files.slice(1).map((file) => ({
+      path: file.path,
+      digest: { digestSha256: file.digestSha256, sizeBytes: file.sizeBytes }
+    }));
+    const digestManifest = packageSnapshotDigestManifestSchema.parse({
+      manifest: {
+        digestSha256: manifestFile.digestSha256,
+        sizeBytes: manifestFile.sizeBytes
+      },
+      prompts,
+      totalBytes
     });
-    const metadata = await stat(absolutePath);
-    if (metadata.size > PACKAGE_SNAPSHOT_MAX_FILE_BYTES) {
-      throw new Error("package_snapshot_file_too_large");
-    }
-    plannedTotalBytes += metadata.size;
-    if (plannedTotalBytes > PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES) {
-      throw new Error("package_snapshot_total_bytes_exceeded");
-    }
-    const bytes = await readFile(absolutePath);
-    totalBytes += bytes.byteLength;
-    if (totalBytes > PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES) {
-      throw new Error("package_snapshot_total_bytes_exceeded");
-    }
-    const content = boundedUtf8(bytes, path);
-    if (!Buffer.from(content, "utf8").equals(bytes)) {
-      throw new Error("package_snapshot_invalid_utf8");
-    }
-    files.push({ path, content, digestSha256: digest(bytes), sizeBytes: bytes.byteLength });
-  }
-  const manifestFile = files[0];
-  if (!manifestFile) throw new Error("package_snapshot_manifest_missing");
-  const prompts = files.slice(1).map((file) => ({
-    path: file.path,
-    digest: { digestSha256: file.digestSha256, sizeBytes: file.sizeBytes }
-  }));
-  const digestManifest = packageSnapshotDigestManifestSchema.parse({
-    manifest: {
-      digestSha256: manifestFile.digestSha256,
-      sizeBytes: manifestFile.sizeBytes
-    },
-    prompts,
-    totalBytes
+    const sourceRevision = packageSnapshotSourceRevision(digestManifest);
+    return {
+      snapshot: { sourceRevision, digestManifest, files },
+      resolvedPackageDir: workspace.packageDir
+    };
   });
-  const sourceRevision = packageSnapshotSourceRevision(digestManifest);
-  return {
-    snapshot: { sourceRevision, digestManifest, files },
-    resolvedPackageDir: workspace.packageDir
-  };
 }
 
 export async function restorePackageSnapshot(input: {
@@ -169,45 +204,51 @@ export async function restorePackageSnapshot(input: {
       throw new Error(`package_snapshot_digest_mismatch:${file.path}`);
     }
   }
-  await mkdir(dirname(workspace.packageDir), { recursive: true });
-  const staging = await mkdtemp(join(dirname(workspace.packageDir), ".planweave-snapshot-"));
-  const transaction = await ImportTransaction.create({ workspaceRoot: workspace.workspaceRoot });
-  try {
-    await cp(workspace.packageDir, staging, { recursive: true, force: true });
-    for (const file of snapshot.files) {
-      const target = await resolvePackagePath(staging, file.path, { forWrite: true });
-      const bytes = Buffer.from(file.content, "utf8");
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, bytes);
-    }
-    const stagedWorkspace = {
-      ...workspace,
-      packageDir: staging,
-      manifestFile: join(staging, "manifest.json")
-    };
-    await loadPackage(stagedWorkspace);
-    await input.beforeCommit?.();
-    await transaction.replacePath(workspace.packageDir, staging);
-    await transaction.commit();
-  } catch (error) {
-    let rollbackError: unknown;
+  await withPackageFileConsistency([workspace.packageDir], async () => {
+    await mkdir(dirname(workspace.packageDir), { recursive: true });
+    const staging = await mkdtemp(join(dirname(workspace.packageDir), ".planweave-snapshot-"));
+    const transaction = await ImportTransaction.create({ workspaceRoot: workspace.workspaceRoot });
     try {
-      await transaction.rollback();
-    } catch (failure) {
-      rollbackError = failure;
+      await cp(workspace.packageDir, staging, { recursive: true, force: true });
+      for (const file of snapshot.files) {
+        const target = await resolvePackagePath(staging, file.path, { forWrite: true });
+        const bytes = Buffer.from(file.content, "utf8");
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, bytes);
+      }
+      const stagedWorkspace = {
+        ...workspace,
+        packageDir: staging,
+        manifestFile: join(staging, "manifest.json")
+      };
+      await loadPackage(stagedWorkspace);
+      await input.beforeCommit?.();
+      await transaction.replacePath(workspace.packageDir, staging);
+      await transaction.commit();
+    } catch (error) {
+      let rollbackError: unknown;
+      try {
+        await transaction.rollback();
+      } catch (failure) {
+        rollbackError = failure;
+      }
+      let cleanupError: unknown;
+      try {
+        await rm(staging, { recursive: true, force: true });
+      } catch (failure) {
+        cleanupError = failure;
+      }
+      if (rollbackError || cleanupError) {
+        throw new AggregateError(
+          [
+            error,
+            ...(rollbackError ? [rollbackError] : []),
+            ...(cleanupError ? [cleanupError] : [])
+          ],
+          "package_snapshot_restore_failed"
+        );
+      }
+      throw error;
     }
-    let cleanupError: unknown;
-    try {
-      await rm(staging, { recursive: true, force: true });
-    } catch (failure) {
-      cleanupError = failure;
-    }
-    if (rollbackError || cleanupError) {
-      throw new AggregateError(
-        [error, ...(rollbackError ? [rollbackError] : []), ...(cleanupError ? [cleanupError] : [])],
-        "package_snapshot_restore_failed"
-      );
-    }
-    throw error;
-  }
+  });
 }

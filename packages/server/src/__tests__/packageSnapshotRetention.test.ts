@@ -309,6 +309,35 @@ describe("real snapshot restore and retention interleaving", () => {
         canvas = created.snapshot.immutable.registry.canvasRegistryId;
       }
     }
+    const capturePackageDir = join(f.workspace.root, "retention-capture-package");
+    await fs.cp(f.workspace.init.workspace.packageDir, capturePackageDir, { recursive: true });
+    await fs.writeFile(join(capturePackageDir, "nodes/T-001/prompt.md"), "# real revision 256\n");
+    const captureWorkspace = {
+      ...f.workspace.init.workspace,
+      packageDir: capturePackageDir,
+      manifestFile: join(capturePackageDir, "manifest.json")
+    };
+    // Retention publication can consume an independent complete capture while restore owns its target lock.
+    const publishing = new PackageSnapshotRepository(
+      f.database,
+      f.access,
+      data,
+      {
+        ...createLocalFilesystemCanvasRuntimeAdapter({
+          resolveExactCanvasLocation: () => ({
+            workspaceId: "w",
+            projectId: "p",
+            canvasId: "default",
+            projectRoot: f.workspace.root,
+            packageDir: f.workspace.init.workspace.packageDir
+          })
+        }),
+        captureSnapshot: async () =>
+          (await runtime.capturePackageSnapshot({ projectRoot: captureWorkspace })).snapshot
+      },
+      () => new Date(at),
+      diagnose
+    );
     const oldBacking = join(backingPath(data, oldest), "package.json");
     const originalBacking = await fs.readFile(oldBacking, "utf8");
     const entered = barrier();
@@ -342,7 +371,7 @@ describe("real snapshot restore and retention interleaving", () => {
         restoreMarker: "restore_pending"
       });
       await fs.writeFile(prompt, "# real revision 256\n", "utf8");
-      const newest = await f.snapshots.create(scope);
+      const newest = await publishing.create(scope);
       expect(newest.snapshot.immutable.snapshotId).not.toBe(oldest);
       expect(f.snapshots.read({ ...scope, snapshotId: oldest }).mutable).toMatchObject({
         state: "available",

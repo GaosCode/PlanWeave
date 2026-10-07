@@ -8,6 +8,7 @@ import {
   type PlanPackageGraphMutationSideEffect
 } from "../../graph/mutation.js";
 import { writeJsonFile } from "../../json.js";
+import { withPackageFileConsistency } from "../../package/packageFileConsistency.js";
 import { loadPackage } from "../../package/loadPackage.js";
 import type { GraphEditResult, PackageWorkspaceRef, ReviewHookDefinition } from "../../types.js";
 import type { DesktopPromptSaveOptions } from "../types.js";
@@ -166,7 +167,9 @@ export async function updateCanvasExecutionPolicy(
     return result;
   }
 
-  await writeJsonFile(workspace.manifestFile, nextManifest);
+  await withPackageFileConsistency([workspace.packageDir], () =>
+    writeJsonFile(workspace.manifestFile, nextManifest)
+  );
   invalidateDesktopProjectProjection(workspace);
   return result;
 }

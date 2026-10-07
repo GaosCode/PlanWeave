@@ -17,23 +17,25 @@ export async function writeManifestTitle(
   workspace: ProjectWorkspace,
   title: string
 ): Promise<string> {
-  const raw = asRecord(await readJsonFile<unknown>(workspace.manifestFile));
-  if (!raw) {
-    throw new Error(`Task canvas manifest '${workspace.manifestFile}' is not an object.`);
-  }
-  const project = asRecord(raw.project);
-  if (!project || typeof project.title !== "string") {
-    throw new Error(`Task canvas manifest '${workspace.manifestFile}' is missing project.title.`);
-  }
-  const previousTitle = project.title;
-  await writeJsonFile(workspace.manifestFile, {
-    ...raw,
-    project: {
-      ...project,
-      title
+  return withPackageFileConsistency([workspace.packageDir], async () => {
+    const raw = asRecord(await readJsonFile<unknown>(workspace.manifestFile));
+    if (!raw) {
+      throw new Error(`Task canvas manifest '${workspace.manifestFile}' is not an object.`);
     }
+    const project = asRecord(raw.project);
+    if (!project || typeof project.title !== "string") {
+      throw new Error(`Task canvas manifest '${workspace.manifestFile}' is missing project.title.`);
+    }
+    const previousTitle = project.title;
+    await writeJsonFile(workspace.manifestFile, {
+      ...raw,
+      project: {
+        ...project,
+        title
+      }
+    });
+    return previousTitle;
   });
-  return previousTitle;
 }
 
 async function copyOptionalCanvasLayout(

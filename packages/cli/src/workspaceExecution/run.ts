@@ -1,6 +1,7 @@
 import {
   WorkspaceExecutionCoordinator,
   capturePackageSnapshot,
+  packageSnapshotGraphFingerprint,
   createLocalPackageAuthoritySource,
   createLocalWorkspaceExecutionAdapter,
   createRemoteWorkspaceExecutionAdapter,
@@ -102,10 +103,9 @@ export async function executeWorkspaceRun(
     signal: options.signal
   });
   const captured = await capturePackageSnapshot({ projectRoot });
-  const graph = await loadPlanGraphPackage(projectRoot);
   const expected = {
     contentRevision: captured.snapshot.sourceRevision,
-    graphFingerprint: graph.graph.packageFingerprint
+    graphFingerprint: packageSnapshotGraphFingerprint(captured.snapshot)
   };
   let request: WorkspaceExecutionRequest;
   let coordinator: WorkspaceExecutionCoordinator;

@@ -205,6 +205,7 @@ export { resolvePackagePath, PackagePathError } from "./package/resolvePackagePa
 export {
   capturePackageSnapshot,
   packageSnapshotSourceRevision,
+  packageSnapshotGraphFingerprint,
   restorePackageSnapshot,
   type CapturePackageSnapshotResult,
   type CapturedPackageSnapshot,

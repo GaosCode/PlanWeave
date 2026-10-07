@@ -434,7 +434,8 @@
         "workspaceConnectionSelection.test.ts",
         "workspaceExecutionCharacterization.test.ts",
         "workspaceExecutionProcessBoundary.test.ts",
-        "workspaceSessionPreflight.test.ts"
+        "workspaceSessionPreflight.test.ts",
+        "workspaceCanvasPublishSnapshot.test.ts"
       ],
       "platform": ["agentToolsWindows.test.ts", "runtimeStateWatch.test.ts"],
       "performance": []
@@ -698,6 +699,7 @@
         "packageFileReadIntents.test.ts",
         "packageFiles.test.ts",
         "packageSnapshot.test.ts",
+        "packageSnapshotConsistency.test.ts",
         "paths.test.ts",
         "persistentRunnerInteractionChannel.test.ts",
         "plangraphCommand.test.ts",
@@ -744,7 +746,9 @@
         "workspaceExecutionArchitectureBoundaries.test.ts",
         "workspaceExecutionCoordinator.test.ts",
         "workspaceExecutionCoordinatorObserve.test.ts",
-        "workspaceExecutionInteractionCheckpoint.test.ts"
+        "workspaceExecutionInteractionCheckpoint.test.ts",
+        "packageSnapshotConsumers.test.ts",
+        "packageSnapshotProcessConsistency.test.ts"
       ],
       "platform": [
         "agentRunControlServer.test.ts",
@@ -876,7 +880,8 @@
         "remoteAcpExecutor.test.ts",
         "remoteExecutionHistory.test.ts",
         "resolveHostExecutable.test.ts",
-        "tlsTrust.test.ts"
+        "tlsTrust.test.ts",
+        "canvasRuntimeSnapshotEvidence.test.ts"
       ],
       "platform": [],
       "performance": []
@@ -1124,7 +1129,8 @@
         "workspaceIdentityHttp.test.ts",
         "workspaceIdentityMigration.test.ts",
         "wsServer.test.ts",
-        "wsServerErrorIsolation.test.ts"
+        "wsServerErrorIsolation.test.ts",
+        "localFilesystemSnapshotEvidence.test.ts"
       ],
       "platform": [],
       "performance": ["serverDataArchiveResources.test.ts"]
