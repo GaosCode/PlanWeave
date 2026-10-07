@@ -190,6 +190,29 @@ describe("Collaboration attachment HTTP body ownership", () => {
     await expect(request(client, "PUT")).rejects.toMatchObject({ kind: "protocol", code });
   });
 
+  it.each([
+    { method: "PUT", status: 401, kind: "auth" },
+    { method: "GET", status: 401, kind: "auth" },
+    { method: "PUT", status: 403, kind: "forbidden" },
+    { method: "GET", status: 403, kind: "forbidden" }
+  ] as const)("preserves $method HTTP $status for a non-UTF-8 error body", async ({
+    method,
+    status,
+    kind
+  }) => {
+    const client = await fixture((req, res) => {
+      req.resume();
+      res.writeHead(status, { "retry-after": "2" });
+      res.end(Buffer.from([0xff]));
+    }, 500);
+    await expect(request(client, method)).rejects.toMatchObject({
+      kind,
+      httpStatus: status,
+      code: `http_${status}`,
+      retryAfterMs: 2_000
+    });
+  });
+
   it("preserves HTTP error mapping and retry-after", async () => {
     const client = await fixture((req, res) => {
       req.resume();

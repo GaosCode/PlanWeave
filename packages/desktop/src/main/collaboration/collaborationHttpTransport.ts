@@ -117,13 +117,17 @@ export class CollaborationHttpTransport {
     if (options.auth !== false) {
       await this.applyAuth(headers);
     }
-    const { response, text } = await this.readJsonResponse(path, {
-      method,
-      headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: options.signal
-    });
     const accepted = normalizeAccepted(options.acceptedStatus);
+    const { response, text } = await this.readJsonResponse(
+      path,
+      {
+        method,
+        headers,
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        signal: options.signal
+      },
+      accepted
+    );
     if (!response.ok && !accepted.has(response.status)) {
       throw collaborationErrorFromHttp(response.status, text, response.headers.get("retry-after"));
     }
@@ -297,11 +301,12 @@ export class CollaborationHttpTransport {
       headers: Record<string, string>;
       body?: string | Uint8Array;
       signal?: AbortSignal;
-    }
+    },
+    accepted: ReadonlySet<number> = new Set()
   ): Promise<{ response: Response; text: string }> {
     return this.consumeResponse(path, init, async (response) => ({
       response,
-      text: await this.readTextLimited(response)
+      text: await this.readTextLimited(response, response.ok || accepted.has(response.status))
     }));
   }
 
@@ -373,10 +378,10 @@ export class CollaborationHttpTransport {
     }
   }
 
-  private async readTextLimited(response: Response): Promise<string> {
+  private async readTextLimited(response: Response, strictUtf8 = response.ok): Promise<string> {
     const bytes = await this.readBytesLimited(response, this.limits.jsonBodyMaxBytes);
     try {
-      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      return new TextDecoder("utf-8", { fatal: strictUtf8 }).decode(bytes);
     } catch (error) {
       throw new CollaborationClientError({
         kind: "protocol",

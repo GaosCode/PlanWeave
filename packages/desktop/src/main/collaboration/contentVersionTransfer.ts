@@ -47,10 +47,14 @@ async function* ndjsonFrames(response: Response) {
   const decoder = new TextDecoder();
   let pending = "";
   let wireBytes = 0;
+  let reachedEof = false;
   try {
     while (true) {
       const next = await reader.read();
-      if (next.done) break;
+      if (next.done) {
+        reachedEof = true;
+        break;
+      }
       wireBytes += next.value.byteLength;
       if (wireBytes > contentVersionTransferLimits.maxWireBytes) {
         throw protocolError("content_transfer_wire_too_large");
@@ -84,10 +88,8 @@ async function* ndjsonFrames(response: Response) {
     }
     pending += decoder.decode();
     if (pending.length > 0) throw protocolError("content_transfer_frame_unterminated");
-  } catch (error) {
-    cancelHttpBody(reader, error);
-    throw error;
   } finally {
+    if (!reachedEof) cancelHttpBody(reader);
     reader.releaseLock();
   }
 }

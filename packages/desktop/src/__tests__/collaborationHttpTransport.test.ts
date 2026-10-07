@@ -3,6 +3,23 @@ import { describe, expect, it, vi } from "vitest";
 import { CollaborationHttpTransport } from "../main/collaboration/collaborationHttpTransport.js";
 
 describe("CollaborationHttpTransport", () => {
+  it.each([200, 409])("strictly decodes HTTP %s contract bodies", async (status) => {
+    const transport = new CollaborationHttpTransport({
+      serverBaseUrl: "http://127.0.0.1:1/",
+      credential: { getDeviceToken: () => "test-only" },
+      request: async () => new Response(new Uint8Array([0xff]), { status })
+    });
+    try {
+      await expect(
+        transport.json("GET", "/status", z.object({ ok: z.boolean() }), {
+          acceptedStatus: 409
+        })
+      ).rejects.toMatchObject({ kind: "protocol", code: "collaboration_malformed_json" });
+    } finally {
+      transport.dispose();
+    }
+  });
+
   it("keeps the JSON request deadline active while reading the response body", async () => {
     const request = vi.fn<typeof fetch>(async (_input, init) => {
       const signal = init?.signal;
