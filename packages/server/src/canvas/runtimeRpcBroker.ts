@@ -182,6 +182,9 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
     const requestTimeoutMs = parseRequestTimeoutMs(
       requestOptions.requestTimeoutMs ?? this.options.requestTimeoutMs
     );
+    if (this.hosts.get(hostId)?.revokedAt !== undefined) {
+      throw new CanvasRuntimeRpcError("canvas_runtime_host_revoked", false, mutation);
+    }
     if (
       !this.isActive(hostId) ||
       (expectedAttachmentVersion !== undefined &&
@@ -327,8 +330,12 @@ export class CanvasRuntimeRpcBroker implements CanvasRuntimeHostSessionLookup {
       this.pending.delete(requestId);
       pending.reject(
         new CanvasRuntimeRpcError(
-          pending.mutation ? "canvas_runtime_reconcile_required" : `canvas_runtime_host_${reason}`,
-          true,
+          reason === "revoked"
+            ? "canvas_runtime_host_revoked"
+            : pending.mutation
+              ? "canvas_runtime_reconcile_required"
+              : `canvas_runtime_host_${reason}`,
+          reason !== "revoked",
           pending.mutation
         )
       );

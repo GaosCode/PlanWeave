@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { RemoteBlockRuntimeError, RemoteOwnershipConflictError } from "@planweave-ai/runtime";
 import { AgentEndpointCatalogError } from "../agentEndpointCatalog.js";
+import { CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
+import { RemoteCoordinatorCheckpointCrash } from "../remoteBlockCoordinatorPorts.js";
 import { classifyRemoteOperationDiagnosticRetryability } from "../remoteOperationDiagnosticRetryability.js";
 import {
   classifyReenterFailure,
@@ -35,6 +37,36 @@ describe("remoteReenterRecovery", () => {
     expect(classifyReenterFailure(error)).toBe("defer_host");
     expect(diagnostic).toEqual({ code: reason, message: reason });
     expect(classifyRemoteOperationDiagnosticRetryability(diagnostic.code)).toBe(true);
+  });
+
+  it.each([
+    ["canvas_runtime_rpc_deadline_exceeded", false],
+    ["canvas_runtime_host_offline", false],
+    ["canvas_runtime_host_disconnected", false],
+    ["canvas_runtime_host_superseded", false],
+    ["canvas_runtime_reconcile_required", true]
+  ] as const)("defers retryable RPC %s while retaining its diagnostic", (code, reconcileRequired) => {
+    const error = new CanvasRuntimeRpcError(code, true, reconcileRequired);
+    expect(classifyReenterFailure(error)).toBe("defer_host");
+    expect(diagnosticFromReenterFailure(error)).toEqual({ code, message: code });
+    expect(classifyRemoteOperationDiagnosticRetryability(code)).toBe(true);
+  });
+
+  it.each([
+    ["canvas_runtime_response_host_mismatch", false, false],
+    ["canvas_runtime_response_operation_mismatch", false, false],
+    ["canvas_runtime_reconcile_required", false, true],
+    ["canvas_runtime_host_revoked", true, false],
+    ["protocol_error", true, true],
+    ["unknown_peer_error", true, true],
+    ["canvas_runtime_rpc_deadline_exceeded", false, false]
+  ] as const)("keeps unsafe RPC %s fatal (%s, %s)", (code, retryable, reconcileRequired) => {
+    const error = new CanvasRuntimeRpcError(code, retryable, reconcileRequired);
+    expect(classifyReenterFailure(error)).toBe("fatal");
+    const diagnostic = diagnosticFromReenterFailure(error);
+    expect(diagnostic.code).toBe("protocol_error");
+    expect(diagnostic.message).toContain(code);
+    expect(classifyRemoteOperationDiagnosticRetryability(diagnostic.code)).toBe(false);
   });
 
   it("seals any writeback domain failure, not only one code", () => {
@@ -104,9 +136,9 @@ describe("remoteReenterRecovery", () => {
   });
 
   it("keeps crash-injection and aggregate infrastructure failures fatal", () => {
-    expect(classifyReenterFailure(new Error("injected_crash:after_runtime_writeback"))).toBe(
-      "fatal"
-    );
+    expect(
+      classifyReenterFailure(new RemoteCoordinatorCheckpointCrash("after_runtime_writeback"))
+    ).toBe("fatal");
     expect(
       classifyReenterFailure(new AggregateError([new Error("left"), new Error("right")]))
     ).toBe("fatal");

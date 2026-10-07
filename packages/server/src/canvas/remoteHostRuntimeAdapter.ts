@@ -86,6 +86,21 @@ type CanvasRuntimeAvailabilityOptions = {
   diagnosticSink?: CanvasRuntimeAvailabilityDiagnosticSink;
 };
 
+function runtimeRpcErrorFromPeer(
+  error: Pick<
+    Extract<RuntimeResponse, { outcome: "error" }>["error"],
+    "code" | "retryable" | "reconcileRequired"
+  >
+): CanvasRuntimeRpcError {
+  return new CanvasRuntimeRpcError(
+    error.reconcileRequired && error.code === "reconcile_required"
+      ? "canvas_runtime_reconcile_required"
+      : error.code,
+    error.retryable,
+    error.reconcileRequired === true
+  );
+}
+
 function responseError(response: RuntimeResponse): Error {
   if (response.outcome !== "error") throw new Error("canvas_runtime_response_error_expected");
   switch (response.error.code) {
@@ -102,11 +117,7 @@ function responseError(response: RuntimeResponse): Error {
     case "remote_ownership_source_drift":
       return new RemoteOwnershipConflictError(response.error.code, response.error.message);
   }
-  return new CanvasRuntimeRpcError(
-    response.error.reconcileRequired ? "canvas_runtime_reconcile_required" : response.error.code,
-    response.error.retryable,
-    response.error.reconcileRequired === true
-  );
+  return runtimeRpcErrorFromPeer(response.error);
 }
 
 function parseGenericResult<T>(
@@ -558,11 +569,7 @@ export class RemoteHostCanvasRuntimeAdapter
         throw new CanvasRuntimeRpcError("canvas_runtime_reconcile_required", true, true);
       }
       if (prior.kind === "failed") {
-        throw new CanvasRuntimeRpcError(
-          prior.error.reconcileRequired ? "canvas_runtime_reconcile_required" : prior.error.code,
-          prior.error.retryable,
-          prior.error.reconcileRequired === true
-        );
+        throw runtimeRpcErrorFromPeer(prior.error);
       }
       const response = await call({
         operation: "reset",

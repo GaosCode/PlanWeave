@@ -433,8 +433,37 @@ describe("CanvasRuntimeRpcBroker", () => {
 
     fixture.broker.detachHost(fixture.host.id, reason);
 
-    await expect(pending).rejects.toMatchObject({ code, reconcileRequired: false });
+    await expect(pending).rejects.toMatchObject({
+      code,
+      retryable: reason !== "revoked",
+      reconcileRequired: false
+    });
     expect(fixture.broker.pendingCount()).toBe(0);
+  });
+
+  it("keeps revoked mutations fatal even when their outcome requires reconciliation", async () => {
+    const fixture = await setup();
+    const operationId = randomUUID();
+    const operation = {
+      operation: "claim" as const,
+      runtimeLeaseId: randomUUID(),
+      evidence: {
+        operationId,
+        sourceRevision: `snapshot:${"a".repeat(64)}`,
+        graphFingerprint: `pkg-${"b".repeat(64)}`
+      },
+      input: { operationId }
+    };
+    const pending = fixture.broker.request(fixture.host.id, scope, operation);
+    fixture.hosts.revoke(fixture.host.id);
+    fixture.broker.detachHost(fixture.host.id, "revoked");
+    await expect(pending).rejects.toEqual(
+      new CanvasRuntimeRpcError("canvas_runtime_host_revoked", false, true)
+    );
+    await expect(fixture.broker.request(fixture.host.id, scope, operation)).rejects.toEqual(
+      new CanvasRuntimeRpcError("canvas_runtime_host_revoked", false, true)
+    );
+    expect(fixture.deliveries).toHaveLength(1);
   });
 
   it("invalidates an acquired attachment generation after detach", async () => {

@@ -1,6 +1,7 @@
 import { RemoteBlockRuntimeError, RemoteOwnershipConflictError } from "@planweave-ai/runtime";
 import { AgentEndpointCatalogError } from "./agentEndpointCatalog.js";
 import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
+import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
 import { RemoteCoordinatorCheckpointCrash } from "./remoteBlockCoordinatorPorts.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 
@@ -37,6 +38,20 @@ const OP_LOCAL_MESSAGE_CODES = new Set([
   "runtime_reconciliation_conflict"
 ]);
 
+const TRANSIENT_RPC_READ_CODES = new Set([
+  "canvas_runtime_host_offline",
+  "canvas_runtime_rpc_deadline_exceeded",
+  "canvas_runtime_host_disconnected",
+  "canvas_runtime_host_superseded"
+]);
+
+function isRecoverableRuntimeRpcFailure(error: CanvasRuntimeRpcError): boolean {
+  if (!error.retryable) return false;
+  return error.reconcileRequired
+    ? error.code === "canvas_runtime_reconcile_required"
+    : TRANSIENT_RPC_READ_CODES.has(error.code);
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -66,6 +81,14 @@ export function isReplacedActiveOwnership(error: unknown): boolean {
 }
 
 export function diagnosticFromReenterFailure(error: unknown): { code: string; message: string } {
+  if (error instanceof CanvasRuntimeRpcError) {
+    return isRecoverableRuntimeRpcFailure(error)
+      ? { code: error.code, message: error.message }
+      : {
+          code: "protocol_error",
+          message: `${error.code} (retryable=${error.retryable}, reconcileRequired=${error.reconcileRequired})`
+        };
+  }
   if (error instanceof AgentEndpointCatalogError) {
     return { code: error.code, message: error.message };
   }
@@ -90,6 +113,9 @@ export function diagnosticFromReenterFailure(error: unknown): { code: string; me
  * Checkpoint / crash-injection failures remain fatal so restart can continue from a consistent cut.
  */
 export function classifyReenterFailure(error: unknown): ReenterFailureDecision {
+  if (error instanceof CanvasRuntimeRpcError) {
+    return isRecoverableRuntimeRpcFailure(error) ? "defer_host" : "fatal";
+  }
   if (
     (error instanceof AgentEndpointCatalogError && error.code === "agent_endpoint_unavailable") ||
     error instanceof CanvasRuntimeUnavailableError

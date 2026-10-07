@@ -320,12 +320,17 @@ export class RemoteBlockCoordinator {
         this.options.finalAuthorize({ operation, reservation });
       }
     }
-    if (operation.state !== "preparing" && operation.state !== "reserved") {
+    let reconciledBinding: Awaited<ReturnType<RemoteBlockRuntimePort["reconcile"]>> | undefined;
+    if (
+      reusePersistedDispatch ||
+      (operation.state !== "preparing" && operation.state !== "reserved")
+    ) {
       try {
         const binding = await runtimeLease.runtime.reconcile({
           ref: operation.blockRef,
           operationId: operation.id
         });
+        reconciledBinding = binding;
         if (binding.divergenceReason && !binding.interruption) {
           this.options.operations.recordDiagnostic(
             operation.id,
@@ -370,7 +375,9 @@ export class RemoteBlockCoordinator {
       const persistedOutcome = await this.resumePersistedDispatch(
         operation,
         candidate,
-        runtimeLease
+        runtimeLease,
+        operation.envelopeDigest,
+        reconciledBinding
       );
       if (!persistedOutcome) throw new Error("remote_dispatch_persistence_missing");
       return persistedOutcome;
@@ -637,7 +644,8 @@ export class RemoteBlockCoordinator {
     operation: RemoteOperation,
     candidate: RemoteBlockDispatchCandidate,
     runtimeLease: CanvasExecutionRuntimeLease,
-    envelopeDigest = operation.envelopeDigest
+    envelopeDigest = operation.envelopeDigest,
+    reconciledBinding?: Awaited<ReturnType<RemoteBlockRuntimePort["reconcile"]>>
   ): Promise<RemoteDispatchOutcome | undefined> {
     if (!envelopeDigest) throw new Error("remote_operation_envelope_missing");
     const persisted = this.inspectPersistence(
@@ -664,7 +672,18 @@ export class RemoteBlockCoordinator {
       if (hashExecutionEnvelope(envelope) !== envelopeDigest) {
         this.recordInconsistency(operation, "The persisted dispatch envelope digest changed.");
       }
-      await runtimeLease.runtime.activate(remoteBlockIdentity(operation));
+      const ownership = reconciledBinding?.ownership;
+      if (
+        ownership?.phase !== "active" ||
+        ownership.operationId !== operation.id ||
+        ownership.dispatchId !== operation.dispatchId ||
+        ownership.executionAttemptId !== operation.executionAttemptId ||
+        ownership.sourceRevision !== operation.ownershipGeneration ||
+        ownership.graphFingerprint !== operation.sourceFingerprint ||
+        ownership.controlPlane !== runtimeControlPlane(operation.endpointSelection?.authority)
+      ) {
+        await runtimeLease.runtime.activate(remoteBlockIdentity(operation));
+      }
       await this.checkpoint("after_runtime_binding");
       const command = mailboxCommandSchema.parse({
         type: "execute_block",
@@ -683,6 +702,7 @@ export class RemoteBlockCoordinator {
         await this.checkpoint("after_mailbox_publish");
         this.options.dispatches.markMailboxPublished(delivery.message.messageId);
       }
+      this.options.operations.recordDiagnosticStage(operation.id, "dispatching");
       this.options.operations.clearDiagnostic(operation.id);
       return { operation: this.options.operations.getRequired(operation.id), status: "activated" };
     }

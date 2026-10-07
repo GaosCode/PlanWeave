@@ -1,5 +1,10 @@
 const RETRYABLE_DIAGNOSTIC_CODES = [
   "agent_endpoint_unavailable",
+  "canvas_runtime_host_offline",
+  "canvas_runtime_rpc_deadline_exceeded",
+  "canvas_runtime_host_disconnected",
+  "canvas_runtime_host_superseded",
+  "canvas_runtime_reconcile_required",
   "host_offline",
   "no_compatible_agent_host",
   "runtime_not_attached",
