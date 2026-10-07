@@ -346,6 +346,14 @@ export const workspaceMappingsInventory = [
     "Sync tests report empty mapping observations."
   ),
   inventoryEntry(
+    "wm-remoteBlockCoordinatorRuntimeAvailability-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/server/src/__tests__/remoteBlockCoordinatorRuntimeAvailability.test.ts",
+    "reportOnline readiness.workspaceMappings ready",
+    "Host A/B runtime recovery fixtures report the current workspace mapping ready."
+  ),
+  inventoryEntry(
     "wm-remoteBlockCoordinator-ready",
     "workspaceMappings",
     "endpoint_readiness",
