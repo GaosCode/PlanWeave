@@ -178,6 +178,7 @@ export { createEmptyState, ensureStateForManifest } from "./state.js";
 export { remoteBlockDispatchReadiness } from "./taskManager/remoteBlockDispatchReadiness.js";
 export type { RemoteBlockDispatchReadiness } from "./taskManager/remoteBlockDispatchReadiness.js";
 export {
+  AuthoritativeCanvasWorkspaceConflictError,
   createManagedProjectFromAuthoritativeContent,
   materializeAuthoritativeCanvasContent,
   materializeAuthoritativeCanvasWorkspace,
@@ -202,6 +203,7 @@ export { migrateBlockRunIndexes } from "./autoRun/blockRunIndex.js";
 export { editBlock, editTask } from "./package/manifestEdit.js";
 export { readMarkdown } from "./package/readMarkdown.js";
 export { resolvePackagePath, PackagePathError } from "./package/resolvePackagePath.js";
+export { PackageSnapshotConflictError } from "./package/packageSnapshotRead.js";
 export {
   capturePackageSnapshot,
   packageSnapshotSourceRevision,

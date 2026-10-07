@@ -1,5 +1,5 @@
 import { dirname } from "node:path";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type { ClaimResult, ExecutionGraphSession, PackageWorkspaceRef } from "../types.js";
@@ -21,9 +21,10 @@ export async function claimDispatchedBlock(options: {
   projectRoot: PackageWorkspaceRef;
   ref: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<ClaimResult> {
   const { workspace } = await loadPackage(options.projectRoot);
-  return withCanvasLock(dirname(workspace.stateFile), async () => {
+  return withExecutionStateLock(options, dirname(workspace.stateFile), async () => {
     const context = await loadRuntime(options);
     const { workspace: lockedWorkspace, manifest, graph, state } = context;
     const invalidScope = validateClaimScope({ kind: "block", blockRef: options.ref }, graph);

@@ -11,7 +11,7 @@ import type { ArtifactReference } from "../autoRun/runnerContractSchemas.js";
 import { allocateRunId } from "../autoRun/executorShared.js";
 import { upsertBlockRunInIndex } from "../autoRun/blockRunIndex.js";
 import { optionalReaddir } from "../fs/optionalFile.js";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
@@ -213,6 +213,7 @@ export async function submitBlockResult(options: {
   runId?: string;
   submissionAttemptId?: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<SubmitResult> {
   return submitBlockResultFromBytes(options, await readFile(options.reportPath));
 }
@@ -225,6 +226,7 @@ export async function submitBlockResultFromBytes(
     runId?: string;
     submissionAttemptId?: string;
     session?: ExecutionGraphSession;
+    executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   },
   reportBytes: Buffer
 ): Promise<SubmitResult> {
@@ -239,6 +241,7 @@ export async function submitVerifiedBlockResult(
     runId?: string;
     submissionAttemptId?: string;
     session?: ExecutionGraphSession;
+    executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   },
   artifact: { reference: ArtifactReference; bytes: Buffer },
   hooks: ArtifactMaterializationHooks = {}
@@ -331,6 +334,7 @@ async function submitBlockResultArtifact(
     runId?: string;
     submissionAttemptId?: string;
     session?: ExecutionGraphSession;
+    executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   },
   artifact: BlockSubmissionArtifact,
   hooks: ArtifactMaterializationHooks = {},
@@ -347,7 +351,7 @@ async function submitBlockResultArtifact(
     throw new Error("Verified implementation artifact reference does not match its bytes.");
   }
   const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
-  return withCanvasLock(dirname(lockWorkspace.stateFile), async () => {
+  return withExecutionStateLock(options, dirname(lockWorkspace.stateFile), async () => {
     const context = await loadRuntime(options);
     const { workspace, manifest, graph } = context;
     let { state } = context;

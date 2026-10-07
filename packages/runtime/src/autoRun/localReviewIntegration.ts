@@ -18,6 +18,7 @@ export const localReviewExecutor: DirectExecutor = {
     return runLocalReviewBlock({
       projectRoot: input.projectRoot,
       claim: input.claim,
+      executionSnapshot: input.executionSnapshot,
       prompt: input.prompt,
       executorName: input.executorName,
       profile: input.profile,

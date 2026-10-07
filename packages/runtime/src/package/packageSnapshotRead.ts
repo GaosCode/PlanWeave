@@ -21,21 +21,35 @@ export function sameSnapshotFile(left: BigIntStats, right: BigIntStats): boolean
   );
 }
 
-export function snapshotConflict(path: string, cause?: unknown): Error {
-  return new Error(`package_snapshot_conflict:${path}`, { cause });
+export class PackageSnapshotConflictError extends Error {
+  readonly code = "package_snapshot_conflict";
+  constructor(
+    readonly path: string,
+    cause?: unknown
+  ) {
+    super(`package_snapshot_conflict:${path}`, { cause });
+    this.name = "PackageSnapshotConflictError";
+  }
+}
+
+export function snapshotConflict(path: string, cause?: unknown): PackageSnapshotConflictError {
+  return new PackageSnapshotConflictError(path, cause);
 }
 
 /** Pin a validated real target and cap actual reads even if an external writer grows the file. */
 export async function readSnapshotMember(
   root: string,
   path: string,
-  remainingBytes: number
+  remainingBytes: number,
+  expected?: SnapshotMemberRead
 ): Promise<SnapshotMemberRead> {
   const candidate = await resolvePackagePath(root, path, { requireExisting: true });
   const target = await realpath(candidate);
   const realRoot = await realpath(root);
   await resolvePackagePath(realRoot, relative(realRoot, target), { requireExisting: true });
   const metadata = await stat(candidate, { bigint: true });
+  if (expected && (target !== expected.target || !sameSnapshotFile(metadata, expected.metadata)))
+    throw snapshotConflict(path);
   if (!metadata.isFile()) throw new Error(`package_snapshot_not_file:${path}`);
   if (metadata.size > BigInt(PACKAGE_SNAPSHOT_MAX_FILE_BYTES))
     throw new Error(`package_snapshot_file_too_large:${path}`);
@@ -53,6 +67,7 @@ export async function readSnapshotMember(
       const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
       if (bytesRead === 0) break;
       size += bytesRead;
+      if (expected && size > limit) throw snapshotConflict(path);
       if (size > PACKAGE_SNAPSHOT_MAX_FILE_BYTES)
         throw new Error(`package_snapshot_file_too_large:${path}`);
       if (size > remainingBytes) throw new Error("package_snapshot_total_bytes_exceeded");
@@ -73,7 +88,7 @@ export async function verifySnapshotMembers(
 ): Promise<void> {
   for (const member of members) {
     try {
-      const current = await readSnapshotMember(root, member.path, member.bytes.length);
+      const current = await readSnapshotMember(root, member.path, member.bytes.length, member);
       if (
         current.target !== member.target ||
         !sameSnapshotFile(current.metadata, member.metadata) ||
@@ -81,7 +96,14 @@ export async function verifySnapshotMembers(
       )
         throw snapshotConflict(member.path);
     } catch (error) {
-      throw snapshotConflict(member.path, error);
+      if (
+        error instanceof PackageSnapshotConflictError ||
+        (error instanceof Error &&
+          "code" in error &&
+          (error.code === "ENOENT" || error.code === "ENOTDIR"))
+      )
+        throw snapshotConflict(member.path, error);
+      throw error;
     }
   }
   for (const member of members) {
@@ -93,7 +115,14 @@ export async function verifySnapshotMembers(
       )
         throw snapshotConflict(member.path);
     } catch (error) {
-      throw snapshotConflict(member.path, error);
+      if (
+        error instanceof PackageSnapshotConflictError ||
+        (error instanceof Error &&
+          "code" in error &&
+          (error.code === "ENOENT" || error.code === "ENOTDIR"))
+      )
+        throw snapshotConflict(member.path, error);
+      throw error;
     }
   }
 }

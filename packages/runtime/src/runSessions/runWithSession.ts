@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import { loadPackage } from "../package/loadPackage.js";
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { getAutoRunStatus, runAutoRunStep } from "../taskManager/autoRun.js";
 import { ExecutorCancelledError, isExecutorCancelledError } from "../autoRun/executorShared.js";
 import type { AutoRunStatus, AutoRunStepResult, ClaimScope, ReviewVerdict } from "../types.js";
@@ -81,7 +81,7 @@ function feedbackId(step: AutoRunStepResult): string | null {
 }
 
 async function sessionWorkspace(projectRoot: RunWithSessionOptions["projectRoot"]) {
-  return (await loadPackage(projectRoot)).workspace;
+  return resolvePackageWorkspace(projectRoot);
 }
 
 async function blockRunRecordPath(
@@ -368,7 +368,10 @@ export async function runWithSession(
   const steps: AutoRunStepResult[] = [];
   const parallel = options.parallel === true;
   const stepLimit = options.stepLimit ?? defaultStepLimit;
-  let status = await getAutoRunStatus({ projectRoot: options.projectRoot });
+  let status = await getAutoRunStatus({
+    projectRoot: options.projectRoot,
+    executionSnapshot: options.executionSnapshot
+  });
   let latestSessionRecord: StepRecordLink | null = null;
 
   try {
@@ -382,7 +385,10 @@ export async function runWithSession(
         reason: options.reason,
         session
       });
-      status = await getAutoRunStatus({ projectRoot: options.projectRoot });
+      status = await getAutoRunStatus({
+        projectRoot: options.projectRoot,
+        executionSnapshot: options.executionSnapshot
+      });
     }
 
     await updateSessionAutoRunSummary({
@@ -430,7 +436,8 @@ export async function runWithSession(
         signal: options.signal,
         timeoutMs: options.timeoutMs,
         runSessionId: session.sessionId,
-        interactionObserver: options.interactionObserver
+        interactionObserver: options.interactionObserver,
+        executionSnapshot: options.executionSnapshot
       });
       const stepStartTracker = (async () => {
         while (!stepSettled) {
@@ -438,7 +445,10 @@ export async function runWithSession(
           if (stepSettled) {
             return;
           }
-          const pendingStatus = await getAutoRunStatus({ projectRoot: options.projectRoot });
+          const pendingStatus = await getAutoRunStatus({
+            projectRoot: options.projectRoot,
+            executionSnapshot: options.executionSnapshot
+          });
           const activeRecord = activeStatusRecord(pendingStatus);
           if (!activeRecord || activeRecord.recordId === startedRecordId) {
             continue;
@@ -479,7 +489,10 @@ export async function runWithSession(
         throw stepStartError;
       }
       steps.push(step);
-      status = await getAutoRunStatus({ projectRoot: options.projectRoot });
+      status = await getAutoRunStatus({
+        projectRoot: options.projectRoot,
+        executionSnapshot: options.executionSnapshot
+      });
       const recordLinks = await stepRecordLinks(options.projectRoot, step);
       const recoveredRecord = recordLinks.length === 0 ? completedStatusRecord(status, step) : null;
       if (recoveredRecord) recordLinks.push(recoveredRecord);
@@ -556,7 +569,9 @@ export async function runWithSession(
       terminalReason: terminalReasonForPhase(finalPhase, stopReason)
     };
   } catch (error) {
-    status = await getAutoRunStatus({ projectRoot: options.projectRoot });
+    status = await getAutoRunStatus({
+      projectRoot: options.projectRoot
+    });
     latestSessionRecord ??= scopedStatusRecord(status, options.scope);
     const message = errorMessage(error);
     const finishedAt = new Date().toISOString();

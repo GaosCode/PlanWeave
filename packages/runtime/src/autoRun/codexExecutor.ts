@@ -56,6 +56,7 @@ export const codexProtocol: ProtocolAdapter<CodexExecExecutorProfile> = {
 export async function runCodexBlock(options: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   prompt: string;
   executorName: string;
   profile: CodexExecExecutorProfile;

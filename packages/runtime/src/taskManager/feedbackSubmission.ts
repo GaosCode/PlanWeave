@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
@@ -121,6 +121,7 @@ export async function submitFeedback(options: {
   projectRoot: PackageWorkspaceRef;
   reportPath: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<SubmitFeedbackResult> {
   return submitFeedbackFromBytes(options, await readFile(options.reportPath));
 }
@@ -130,12 +131,13 @@ export async function submitFeedbackFromBytes(
     projectRoot: PackageWorkspaceRef;
     reportPath: string;
     session?: ExecutionGraphSession;
+    executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   },
   reportBytes: Buffer
 ): Promise<SubmitFeedbackResult> {
   const reportHash = createHash("sha256").update(reportBytes).digest("hex");
   const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
-  return withCanvasLock(dirname(lockWorkspace.stateFile), async () => {
+  return withExecutionStateLock(options, dirname(lockWorkspace.stateFile), async () => {
     const context = await loadRuntime(options);
     const { workspace, manifest, graph } = context;
     let { state } = context;

@@ -1,6 +1,7 @@
 import {
   captureAuthorizedCanvasContent,
   capturePackageSnapshot,
+  PackageSnapshotConflictError,
   packageSnapshotGraphFingerprint,
   readAuthorizedCanvasRuntimeStatus,
   restorePackageSnapshot
@@ -82,6 +83,13 @@ export function createLocalFilesystemCanvasRuntimeAdapter(
           graphFingerprint: status.packageFingerprint
         });
       } catch (error) {
+        if (error instanceof PackageSnapshotConflictError) {
+          return canvasRuntimeExecutionAvailabilitySchema.parse({
+            schemaVersion: "canvas-runtime-availability/v1",
+            kind: "unavailable",
+            reason: "content_out_of_sync"
+          });
+        }
         const code = filesystemErrorCode(error);
         const message = error instanceof Error ? error.message : "";
         if (

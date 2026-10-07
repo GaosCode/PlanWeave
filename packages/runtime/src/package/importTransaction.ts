@@ -236,6 +236,15 @@ async function readValidatedRecoveryFile(options: {
   return { workspaceRoot, recoveryRoot, recovery };
 }
 
+/** Validated disk targets for internal recovery lock acquisition. */
+export async function readImportTransactionRecoveryTargets(options: {
+  workspaceRoot: string;
+  transactionId: string;
+}): Promise<string[]> {
+  const { recovery } = await readValidatedRecoveryFile({ ...options, fs: nodeFileSystem });
+  return [...new Set(recovery.operations.map((operation) => operation.target))];
+}
+
 export async function readImportTransactionRecoverySummary(options: {
   workspaceRoot: string;
   transactionId: string;
@@ -364,6 +373,10 @@ export class ImportTransaction {
     await this.fs.rename(target, operation.backupPath);
     operation.phase = "backedUp";
     await this.writeRecoveryFile();
+  }
+
+  getRecoveryTargets(): readonly string[] {
+    return this.operations.map((operation) => operation.target);
   }
 
   async rollback(): Promise<void> {

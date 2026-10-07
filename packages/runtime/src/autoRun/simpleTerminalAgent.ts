@@ -29,6 +29,7 @@ export function simpleTerminalProtocol<Profile extends AgentCliExecutorProfile>(
 export function runSimpleTerminalAgentBlock<Profile extends AgentCliExecutorProfile>(options: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   prompt: string;
   executorName: string;
   profile: Profile;

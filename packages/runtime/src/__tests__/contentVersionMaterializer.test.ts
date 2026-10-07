@@ -19,7 +19,12 @@ import {
   saveDesktopLayout
 } from "../index.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
-import { resolveStagedContentVersionLayoutPath } from "../desktop/contentVersionMaterializer.js";
+import {
+  AuthoritativeCanvasWorkspaceConflictError,
+  recoverPendingAuthoritativeCanvasMaterialization,
+  withAuthoritativeCanvasWorkspaceLock,
+  resolveStagedContentVersionLayoutPath
+} from "../desktop/contentVersionMaterializer.js";
 import { ImportTransaction } from "../package/importTransaction.js";
 
 const directories: string[] = [];
@@ -335,6 +340,60 @@ describe("authoritative content materializer", () => {
     await expect(
       readdir(join(localCanvas.workspaceRoot, "desktop", "recovery", "package-import"))
     ).resolves.toEqual([]);
+  });
+
+  it("locks validated pending recovery targets outside the package before restoring them", async () => {
+    const fixture = await createTestWorkspace();
+    directories.push(fixture.home, fixture.root);
+    const workspace = fixture.init.workspace;
+    const target = join(workspace.workspaceRoot, "pending-member.txt");
+    const staged = join(workspace.workspaceRoot, "staged-member.txt");
+    await writeFile(target, "original");
+    await writeFile(staged, "interrupted");
+    const transaction = await ImportTransaction.create({ workspaceRoot: workspace.workspaceRoot });
+    await transaction.replacePath(target, staged);
+    await recoverPendingAuthoritativeCanvasMaterialization(workspace);
+    expect(await readFile(target, "utf8")).toBe("original");
+    expect(
+      await readdir(join(workspace.workspaceRoot, "desktop", "recovery", "package-import"))
+    ).toEqual([]);
+  });
+
+  it("rejects newly introduced recovery targets without rolling them back under the canvas lock", async () => {
+    const fixture = await createTestWorkspace();
+    directories.push(fixture.home, fixture.root);
+    const workspace = fixture.init.workspace;
+    const target = join(workspace.workspaceRoot, "new-pending-member.txt");
+    const staged = join(workspace.workspaceRoot, "new-staged-member.txt");
+    await writeFile(target, "original");
+    await writeFile(staged, "concurrent replacement");
+    const before = await readFile(workspace.manifestFile, "utf8");
+    const transaction = await ImportTransaction.create({ workspaceRoot: workspace.workspaceRoot });
+    let mutate!: () => void;
+    const mutationBarrier = new Promise<void>((resolve) => {
+      mutate = resolve;
+    });
+    // This writer begins outside the authority lock context, as an independent caller.
+    const writer = (async () => {
+      await mutationBarrier;
+      await transaction.replacePath(target, staged);
+    })();
+    try {
+      await expect(
+        withAuthoritativeCanvasWorkspaceLock(workspace, async () => {
+          mutate();
+          await writer;
+          await recoverPendingAuthoritativeCanvasMaterialization(workspace);
+        })
+      ).rejects.toBeInstanceOf(AuthoritativeCanvasWorkspaceConflictError);
+      expect(await readFile(target, "utf8")).toBe("concurrent replacement");
+      expect(await readFile(workspace.manifestFile, "utf8")).toBe(before);
+    } finally {
+      mutate();
+      await writer;
+      await transaction.rollback();
+    }
+    expect(await readFile(target, "utf8")).toBe("original");
   });
 
   it("rolls back explicit workspace package replacement when layout replacement fails", async () => {

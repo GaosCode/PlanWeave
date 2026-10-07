@@ -101,8 +101,9 @@ async function resolveProfileForClaim(options: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
   executorName?: string;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<{ name: string; profile: ExecutorProfile; source: "builtin" | "package" }> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { manifest } = options.executionSnapshot ?? (await loadPackage(options.projectRoot));
   const name = resolveBlockExecutorName(manifest, options.claim, options.executorName);
   const profile = profilesByName(manifest)[name];
   if (!profile) {
@@ -116,12 +117,14 @@ function createProfiledAdapter(options: {
   executorName?: string;
   runtime?: ExecutorRuntimeOptions;
   expectedIntegration?: ExecutorIntegrationName;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): ExecutorAdapter {
   return {
     async runBlock({ claim, prompt, executionWaveId }) {
       const { name, profile, source } = await resolveProfileForClaim({
         projectRoot: options.projectRoot,
         claim,
+        executionSnapshot: options.executionSnapshot,
         executorName: options.executorName
       });
       const integration = executorIntegrationForProfile(profile);
@@ -136,6 +139,7 @@ function createProfiledAdapter(options: {
         profile: { ...profile, source }
       });
       return runProfileBlock({
+        executionSnapshot: options.executionSnapshot,
         projectRoot: options.projectRoot,
         claim,
         prompt,
@@ -149,7 +153,8 @@ function createProfiledAdapter(options: {
       });
     },
     async runFeedback({ claim }) {
-      const { manifest, workspace } = await loadPackage(options.projectRoot);
+      const { manifest, workspace } =
+        options.executionSnapshot ?? (await loadPackage(options.projectRoot));
       const name = options.executorName ?? claim.effectiveExecutor;
       const profile = profilesByName(manifest)[name];
       if (!profile) {
@@ -236,6 +241,7 @@ export function createLocalReviewAdapter(options: {
 }
 
 export function createExecutorAdapter(options: {
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   projectRoot: PackageWorkspaceRef;
   executorName?: string;
   runtime?: ExecutorRuntimeOptions;

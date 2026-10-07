@@ -19,6 +19,7 @@ async function runManualBlock(input: ExecutorBlockInput): Promise<ExecutorAdapte
   const run = await prepareBlockRun({
     projectRoot: input.projectRoot,
     claim: input.claim,
+    executionSnapshot: input.executionSnapshot,
     executorName: input.executorName,
     adapter: "manual",
     profile: input.profile,

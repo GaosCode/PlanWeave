@@ -623,6 +623,7 @@
         "cliRunner.test.ts",
         "compileTaskGraph.test.ts",
         "contentVersionMaterializer.test.ts",
+        "authoritativeSnapshotStateLock.test.ts",
         "createCanvasWorkspace.test.ts",
         "dependencyEdit.test.ts",
         "desktopAgentCapabilityApi.test.ts",

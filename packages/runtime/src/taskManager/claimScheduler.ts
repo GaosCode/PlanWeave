@@ -1,6 +1,6 @@
 import { dirname } from "node:path";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
-import { loadPackage } from "../package/loadPackage.js";
+import { withExecutionStateLock } from "./executionStateBoundary.js";
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type {
   BlockType,
@@ -49,14 +49,15 @@ export async function claimNext(options: {
   dryRun?: boolean;
   scope?: ClaimScope;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<ClaimResult> {
   if (options.dryRun === true) {
     return claimNextUnlocked({ ...options, dryRun: true });
   }
 
   // Resolve workspace path for the lock without writing; the locked body reloads state.
-  const { workspace } = await loadPackage(options.projectRoot);
-  return withCanvasLock(dirname(workspace.stateFile), async () =>
+  const workspace = await resolvePackageWorkspace(options.projectRoot);
+  return withExecutionStateLock(options, dirname(workspace.stateFile), async () =>
     claimNextUnlocked({ ...options, dryRun: false })
   );
 }
@@ -68,6 +69,7 @@ async function claimNextUnlocked(options: {
   dryRun?: boolean;
   scope?: ClaimScope;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<ClaimResult> {
   const dryRun = options.dryRun === true;
   const context = await loadRuntimeReadonly(options);
@@ -307,6 +309,7 @@ export async function claimBlock(options: {
   ref: string;
   dispatch?: boolean;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<ClaimResult> {
   if (options.dispatch) {
     return claimDispatchedBlock(options);
@@ -314,6 +317,7 @@ export async function claimBlock(options: {
   return claimNext({
     projectRoot: options.projectRoot,
     scope: { kind: "block", blockRef: options.ref },
+    executionSnapshot: options.executionSnapshot,
     session: options.session
   });
 }
@@ -322,10 +326,12 @@ export async function claimTask(options: {
   projectRoot: PackageWorkspaceRef;
   taskId: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<ClaimResult> {
   return claimNext({
     projectRoot: options.projectRoot,
     scope: { kind: "task", taskId: options.taskId },
+    executionSnapshot: options.executionSnapshot,
     session: options.session
   });
 }
@@ -334,10 +340,12 @@ export async function claimBlockType(options: {
   projectRoot: PackageWorkspaceRef;
   blockType: BlockType;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<ClaimResult> {
   return claimNext({
     projectRoot: options.projectRoot,
     blockType: options.blockType,
+    executionSnapshot: options.executionSnapshot,
     session: options.session
   });
 }

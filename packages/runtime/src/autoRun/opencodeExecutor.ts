@@ -87,6 +87,7 @@ export const opencodeProtocol: ProtocolAdapter<OpencodeExecExecutorProfile> = {
 export async function runOpencodeBlock(options: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   prompt: string;
   executorName: string;
   profile: OpencodeExecExecutorProfile;

@@ -5,8 +5,8 @@ import { dirname, join } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
-import { loadPackage } from "../package/loadPackage.js";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
+import { withExecutionStateLock } from "../taskManager/executionStateBoundary.js";
 import {
   findAttemptRun,
   readImplementationRunMetadataFile
@@ -346,6 +346,7 @@ export async function allocateRunId(runRoot: string): Promise<string> {
 export async function prepareBlockRun(options: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   executorName: string;
   adapter: ExecutorIntegrationName | ExecutorProfile["adapter"];
   profile: ExecutorProfile;
@@ -366,9 +367,9 @@ export async function prepareBlockRun(options: {
       missingImplementationClaimIdentityReason(options.claim.ref)
     );
   }
-  const { workspace } = await loadPackage(options.projectRoot);
+  const workspace = await resolvePackageWorkspace(options.projectRoot);
   const { taskId, blockId } = parseBlockRef(options.claim.ref);
-  return withCanvasLock(dirname(workspace.stateFile), async () => {
+  return withExecutionStateLock(options, dirname(workspace.stateFile), async () => {
     if (submissionAttemptId !== undefined) {
       const state = await readState(workspace.stateFile);
       const current = state.blocks[options.claim.ref];

@@ -27,6 +27,14 @@ export const WORKSPACE_EXECUTION_PLANE_INVENTORY: readonly WorkspaceExecutionPla
     ...workspaceMappingMissingInventory,
     ...runtimeNotAttachedInventory,
     inventoryEntry(
+      "rna-localFilesystemSnapshotEvidence-test",
+      "runtime_not_attached",
+      "runtime_attachment",
+      "packages/server/src/__tests__/localFilesystemSnapshotEvidence.test.ts",
+      "permission failure availability reason runtime_not_attached",
+      "Local filesystem snapshot permission failures retain the existing runtime attachment response."
+    ),
+    inventoryEntry(
       "wm-wsServerErrorIsolation-test",
       "workspaceMappings",
       "endpoint_readiness",

@@ -12,7 +12,10 @@ import {
   isExecutorCancelledError
 } from "../autoRun/executorShared.js";
 import { createExecutionWaveId, type ExecutionWaveId } from "../autoRun/runnerContractSchemas.js";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import {
+  PackageExecutionStateConflictError,
+  withExecutionStateLock
+} from "./executionStateBoundary.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
@@ -198,10 +201,16 @@ async function runnerEvidence(options: {
   projectRoot: PackageWorkspaceRef;
   executorName: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<AutoRunRunnerEvidence> {
-  return options.session
-    ? executorRunnerEvidenceForManifest(options.session.fileSnapshot.manifest, options.executorName)
-    : resolveExecutorRunnerEvidence(options);
+  return options.executionSnapshot
+    ? executorRunnerEvidenceForManifest(options.executionSnapshot.manifest, options.executorName)
+    : options.session
+      ? executorRunnerEvidenceForManifest(
+          options.session.fileSnapshot.manifest,
+          options.executorName
+        )
+      : resolveExecutorRunnerEvidence(options);
 }
 
 async function markBlockPipelineFailure(options: {
@@ -212,10 +221,11 @@ async function markBlockPipelineFailure(options: {
   error: unknown;
   runnerEvidence?: AutoRunRunnerEvidence;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<BlockedStep> {
   const reason = `${options.stage} failed for ${options.ref}: ${errorMessage(options.error)}`;
   const { workspace } = await loadPackage(options.projectRoot);
-  return withCanvasLock(dirname(workspace.stateFile), async () => {
+  return withExecutionStateLock<BlockedStep>(options, dirname(workspace.stateFile), async () => {
     const current = await loadRuntimeReadonly(options).catch((cleanupError: unknown) => {
       throw new AggregateError(
         [options.error, cleanupError],
@@ -244,6 +254,9 @@ async function markBlockPipelineFailure(options: {
         `${reason}; failed to mark the block blocked: ${errorMessage(cleanupError)}`
       );
     }
+  }).catch((cleanupError: unknown) => {
+    if (cleanupError instanceof PackageExecutionStateConflictError) throw options.error;
+    throw cleanupError;
   });
 }
 
@@ -252,9 +265,12 @@ async function claimForBatchRef(options: {
   projectRoot: PackageWorkspaceRef;
   ref: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<BlockClaim> {
   const manifest: PlanPackageManifest =
-    options.session?.fileSnapshot.manifest ?? (await loadPackage(options.projectRoot)).manifest;
+    options.executionSnapshot?.manifest ??
+    options.session?.fileSnapshot.manifest ??
+    (await loadPackage(options.projectRoot)).manifest;
   const { taskId, blockId } = parseBlockRef(options.ref);
   const task = manifest.nodes.find((node) => node.type === "task" && node.id === taskId);
   if (task?.type !== "task") {
@@ -289,11 +305,13 @@ async function releaseFeedbackAfterFailure(options: {
   feedbackId: string;
   taskId: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<void> {
   const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
-  await withCanvasLock(dirname(lockWorkspace.stateFile), async () => {
+  await withExecutionStateLock(options, dirname(lockWorkspace.stateFile), async () => {
     const context = await loadRuntime({
       projectRoot: options.projectRoot,
+      executionSnapshot: options.executionSnapshot,
       session: options.session
     });
     const { workspace, manifest } = context;
@@ -332,6 +350,7 @@ async function executeBlockClaim(options: {
   executor: ExecutorAdapter;
   runnerEvidence: AutoRunRunnerEvidence;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   signal?: AbortSignal;
   executionWaveId?: ExecutionWaveId;
 }): Promise<SubmittedOrManualStep | BlockedStep> {
@@ -346,6 +365,7 @@ async function executeBlockClaim(options: {
     const prompt = await renderPrompt({
       projectRoot: options.projectRoot,
       ref: options.claim.ref,
+      executionSnapshot: options.executionSnapshot,
       session: options.session,
       includeSubmissionInstructions: false
     });
@@ -384,6 +404,7 @@ async function executeBlockClaim(options: {
         projectRoot: options.projectRoot,
         ref: options.claim.ref,
         resultPath: adapterResult.resultPath,
+        executionSnapshot: options.executionSnapshot,
         session: options.session
       };
       const submitResult = artifact
@@ -416,6 +437,7 @@ async function executeBlockClaim(options: {
       reportPath: adapterResult.reportPath,
       runId: adapterResult.runId,
       submissionAttemptId,
+      executionSnapshot: options.executionSnapshot,
       session: options.session
     };
     const submitResult = artifact
@@ -426,9 +448,10 @@ async function executeBlockClaim(options: {
     if (error instanceof ExecutorClaimRejectedError) throw error;
     if (isExecutorCancelledError(error)) {
       const { workspace } = await loadPackage(options.projectRoot);
-      return withCanvasLock(dirname(workspace.stateFile), async () => {
+      return withExecutionStateLock(options, dirname(workspace.stateFile), async () => {
         const current = await loadRuntimeReadonly({
           projectRoot: options.projectRoot,
+          executionSnapshot: options.executionSnapshot,
           session: options.session
         });
         if (
@@ -443,9 +466,13 @@ async function executeBlockClaim(options: {
         await releaseInProgressBlock({
           projectRoot: options.projectRoot,
           ref: options.claim.ref,
+          executionSnapshot: options.executionSnapshot,
           session: options.session
         });
         throw error;
+      }).catch((cleanupError: unknown) => {
+        if (cleanupError instanceof PackageExecutionStateConflictError) throw error;
+        throw cleanupError;
       });
     }
     return markBlockPipelineFailure({
@@ -455,6 +482,7 @@ async function executeBlockClaim(options: {
       stage,
       error,
       runnerEvidence: options.runnerEvidence,
+      executionSnapshot: options.executionSnapshot,
       session: options.session
     });
   }
@@ -467,6 +495,7 @@ async function executeBatchRef(options: {
   executor: ExecutorAdapter;
   executorName?: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   signal?: AbortSignal;
   executionWaveId: ExecutionWaveId;
 }): Promise<SubmittedOrManualStep | BlockedStep> {
@@ -481,6 +510,7 @@ async function executeBatchRef(options: {
       submissionAttemptId: options.submissionAttemptId,
       stage: "Batch claim preparation",
       error,
+      executionSnapshot: options.executionSnapshot,
       session: options.session
     });
   }
@@ -491,8 +521,10 @@ async function executeBatchRef(options: {
     runnerEvidence: await runnerEvidence({
       projectRoot: options.projectRoot,
       executorName: options.executorName ?? claim.effectiveExecutor,
+      executionSnapshot: options.executionSnapshot,
       session: options.session
     }),
+    executionSnapshot: options.executionSnapshot,
     session: options.session,
     signal: options.signal,
     executionWaveId: options.executionWaveId
@@ -504,11 +536,13 @@ async function releaseBatchRefIfInProgress(options: {
   projectRoot: PackageWorkspaceRef;
   ref: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<void> {
   const { workspace } = await loadPackage(options.projectRoot);
-  await withCanvasLock(dirname(workspace.stateFile), async () => {
+  await withExecutionStateLock(options, dirname(workspace.stateFile), async () => {
     const context = await loadRuntimeReadonly({
       projectRoot: options.projectRoot,
+      executionSnapshot: options.executionSnapshot,
       session: options.session
     });
     if (
@@ -541,17 +575,20 @@ export async function runAutoRunStep(options: {
   parallel?: boolean;
   scope?: ClaimScope;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<AutoRunStepResult> {
   let claim = await claimNext({
     projectRoot: options.projectRoot,
     parallel: options.parallel,
     scope: options.scope,
+    executionSnapshot: options.executionSnapshot,
     session: options.session
   });
   if (claim.kind === "none" && claim.reason === "no_parallel_blocks") {
     claim = await claimNext({
       projectRoot: options.projectRoot,
       scope: options.scope,
+      executionSnapshot: options.executionSnapshot,
       session: options.session
     });
   }
@@ -570,6 +607,7 @@ export async function runAutoRunStep(options: {
     const executor =
       options.executor ??
       createExecutorAdapter({
+        executionSnapshot: options.executionSnapshot,
         projectRoot: options.projectRoot,
         executorName: options.executorName,
         runtime: {
@@ -593,6 +631,7 @@ export async function runAutoRunStep(options: {
           submissionAttemptId: claim.submissionAttemptIds?.[ref],
           executor,
           executorName: options.executorName,
+          executionSnapshot: options.executionSnapshot,
           session: options.session,
           signal: options.signal,
           executionWaveId
@@ -625,6 +664,7 @@ export async function runAutoRunStep(options: {
             projectRoot: options.projectRoot,
             ref,
             submissionAttemptId: claim.submissionAttemptIds?.[ref],
+            executionSnapshot: options.executionSnapshot,
             session: options.session
           })
         )
@@ -645,6 +685,7 @@ export async function runAutoRunStep(options: {
   const executor =
     options.executor ??
     createExecutorAdapter({
+      executionSnapshot: options.executionSnapshot,
       projectRoot: options.projectRoot,
       executorName: options.executorName,
       runtime: {
@@ -664,6 +705,7 @@ export async function runAutoRunStep(options: {
     const selectedRunnerEvidence = await runnerEvidence({
       projectRoot: options.projectRoot,
       executorName: options.executorName ?? claim.effectiveExecutor,
+      executionSnapshot: options.executionSnapshot,
       session: options.session
     });
     try {
@@ -693,6 +735,7 @@ export async function runAutoRunStep(options: {
       const submissionOptions = {
         projectRoot: options.projectRoot,
         reportPath: adapterResult.reportPath,
+        executionSnapshot: options.executionSnapshot,
         session: options.session
       };
       const submitResult = artifact
@@ -705,7 +748,11 @@ export async function runAutoRunStep(options: {
           projectRoot: options.projectRoot,
           feedbackId: claim.feedbackId,
           taskId: claim.taskId,
+          executionSnapshot: options.executionSnapshot,
           session: options.session
+        }).catch((cleanupError: unknown) => {
+          if (cleanupError instanceof PackageExecutionStateConflictError) throw error;
+          throw cleanupError;
         });
         throw error;
       }
@@ -714,7 +761,11 @@ export async function runAutoRunStep(options: {
         projectRoot: options.projectRoot,
         feedbackId: claim.feedbackId,
         taskId: claim.taskId,
+        executionSnapshot: options.executionSnapshot,
         session: options.session
+      }).catch((cleanupError: unknown) => {
+        if (cleanupError instanceof PackageExecutionStateConflictError) throw error;
+        throw cleanupError;
       });
       return {
         kind: "blocked",
@@ -734,8 +785,10 @@ export async function runAutoRunStep(options: {
     runnerEvidence: await runnerEvidence({
       projectRoot: options.projectRoot,
       executorName: options.executorName ?? claim.effectiveExecutor,
+      executionSnapshot: options.executionSnapshot,
       session: options.session
     }),
+    executionSnapshot: options.executionSnapshot,
     session: options.session,
     signal: options.signal
   });

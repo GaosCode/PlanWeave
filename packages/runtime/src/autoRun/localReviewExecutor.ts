@@ -51,6 +51,7 @@ function executorFailureMessage(input: {
 export async function runLocalReviewBlock(options: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   prompt: string;
   executorName: string;
   profile: LocalReviewExecutorProfile;
@@ -67,6 +68,7 @@ export async function runLocalReviewBlock(options: {
   const run = await prepareBlockRun({
     projectRoot: options.projectRoot,
     claim: options.claim,
+    executionSnapshot: options.executionSnapshot,
     executorName: options.executorName,
     adapter: "local-review",
     profile: options.profile,

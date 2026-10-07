@@ -1,5 +1,11 @@
 import { createServer, type Server as HttpServer } from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import * as fs from "node:fs/promises";
+import nativeFs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
+import { join } from "node:path";
+import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
+import { createLocalFilesystemCanvasRuntimeAdapter } from "../canvas/localFilesystemRuntimeAdapter.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   handleCanvasCommandHttpRequest,
   resetCanvasCommandHttpRateLimits
@@ -273,4 +279,73 @@ describe("canvas runtime initialization HTTP", () => {
       code: "invalid_request"
     });
   });
+});
+
+vi.mock("node:fs/promises", async (original) => {
+  const actual = await original<typeof fs>();
+  return { ...actual, stat: vi.fn(actual.stat) };
+});
+it("returns recoverable content_out_of_sync over HTTP for an actual capture conflict", async () => {
+  const actual = await vi.importActual<typeof fs>("node:fs/promises");
+  const originalStat = nativeFs.stat;
+  const fixture = await createTestWorkspace();
+  const workspace = fixture.init.workspace;
+  const scope = { workspaceId: "w", projectId: "p", canvasId: "default" };
+  const adapter = createLocalFilesystemCanvasRuntimeAdapter({
+    resolveExactCanvasLocation: () => ({
+      ...scope,
+      projectRoot: fixture.root,
+      packageDir: workspace.packageDir
+    })
+  });
+  const promptPath = join(workspace.packageDir, "nodes/T-001/blocks/B-001.prompt.md");
+  const stateBefore = await actual.readFile(workspace.stateFile, "utf8");
+  let armed = true;
+  vi.mocked(fs.stat).mockImplementation(async (...args: Parameters<typeof fs.stat>) => {
+    const value = await Reflect.apply(originalStat, actual, args);
+    if (armed && String(args[0]) === promptPath && typeof args[1] === "object" && args[1]?.bigint) {
+      armed = false;
+      await actual.writeFile(promptPath, "# CONFLICT_DURING_REAL_CAPTURE_LONGER_CONTENT\n");
+    }
+    return value;
+  });
+  const controlledStat = vi.mocked(fs.stat).getMockImplementation();
+  if (!controlledStat) throw new Error("Expected controlled filesystem boundary.");
+  nativeFs.stat = controlledStat;
+  syncBuiltinESMExports();
+  try {
+    const { origin, token } = await setup(() => new Date("2026-08-16T00:00:00.000Z"), adapter);
+    process.env.PLANWEAVE_HOME = fixture.home;
+    const response = await fetch(
+      `${origin}/api/v1/projects/p/canvases/default/runtime-availability`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(10000)
+      }
+    );
+    expect(armed).toBe(false);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution: { kind: "unavailable", reason: "content_out_of_sync" }
+    });
+    expect(await actual.readFile(workspace.stateFile, "utf8")).toBe(stateBefore);
+  } finally {
+    nativeFs.stat = originalStat;
+    syncBuiltinESMExports();
+    vi.mocked(fs.stat).mockImplementation(originalStat);
+    await Promise.all(
+      [fixture.root, fixture.home].map((root) => actual.rm(root, { recursive: true, force: true }))
+    );
+  }
+});
+
+vi.mock("node:os", async (original) => {
+  const actual = await original<typeof import("node:os")>();
+  return {
+    ...actual,
+    userInfo: () => {
+      if (!process.env.PLANWEAVE_HOME) throw new Error("Expected isolated test home.");
+      return { ...actual.userInfo(), homedir: process.env.PLANWEAVE_HOME };
+    }
+  };
 });

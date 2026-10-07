@@ -38,6 +38,7 @@ export type PlanGraphPackageSnapshot = {
   workspace: ProjectWorkspace;
   manifest: PlanPackageManifest;
   compiledGraph: CompiledExecutionGraph;
+  promptMarkdownByPath?: ReadonlyMap<string, string>;
 };
 
 type PromptReadFailureResult = {
@@ -72,10 +73,19 @@ async function readPromptEntry(options: {
   ownerKind: "task" | "block";
   ownerRef: string;
   packagePath: string;
+  promptMarkdownByPath?: ReadonlyMap<string, string>;
 }): Promise<{ entry: PromptIndexEntry; markdown: string } | PromptReadFailureResult> {
   try {
-    const absolutePath = await resolvePackagePath(options.packageDir, options.packagePath);
-    const markdown = await readFile(absolutePath, "utf8");
+    let markdown: string;
+    if (options.promptMarkdownByPath) {
+      const captured = options.promptMarkdownByPath.get(options.packagePath);
+      if (captured === undefined)
+        throw new Error(`Captured prompt '${options.packagePath}' is missing.`);
+      markdown = captured;
+    } else {
+      const absolutePath = await resolvePackagePath(options.packageDir, options.packagePath);
+      markdown = await readFile(absolutePath, "utf8");
+    }
     return {
       markdown,
       entry: {
@@ -93,7 +103,8 @@ async function readPromptEntry(options: {
 
 async function readPromptIndex(
   manifest: PlanPackageManifest,
-  packageDir: string
+  packageDir: string,
+  capturedPrompts?: ReadonlyMap<string, string>
 ): Promise<{
   promptIndex: Map<string, PromptIndexEntry>;
   promptMarkdownByPath: Map<string, string>;
@@ -113,6 +124,7 @@ async function readPromptIndex(
       packageDir,
       ownerKind: "task",
       ownerRef: node.id,
+      promptMarkdownByPath: capturedPrompts,
       packagePath: node.prompt
     });
     if ("entry" in taskPrompt) {
@@ -129,6 +141,7 @@ async function readPromptIndex(
         packageDir,
         ownerKind: "block",
         ownerRef: ref,
+        promptMarkdownByPath: capturedPrompts,
         packagePath: block.prompt
       });
       if ("entry" in blockPrompt) {
@@ -250,7 +263,7 @@ export async function loadPlanGraphPackageFromSnapshot(
 ): Promise<LoadedPlanGraphPackage> {
   const { workspace, manifest, compiledGraph } = input;
   const { promptIndex, promptMarkdownByPath, promptReadFailuresByPath, diagnostics } =
-    await readPromptIndex(manifest, workspace.packageDir);
+    await readPromptIndex(manifest, workspace.packageDir, input.promptMarkdownByPath);
   const fingerprint = packageFingerprintFromContent(manifest, promptMarkdownByPath);
   const graph = buildPlanGraph({
     manifest,

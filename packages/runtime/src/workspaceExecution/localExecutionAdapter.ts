@@ -1,3 +1,10 @@
+import {
+  capturePackageSnapshot,
+  packageSnapshotGraphFingerprint
+} from "../package/packageSnapshot.js";
+import { packageExecutionSnapshot } from "../package/packageExecutionSnapshot.js";
+import { resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { runWithSession } from "../runSessions/runWithSession.js";
 import {
   localWorkspaceExecutionHandleSchema,
@@ -5,8 +12,7 @@ import {
 } from "./contracts.js";
 import {
   assertValidatedWorkspaceAuthorityBinding,
-  assertWorkspaceContentMatches,
-  createLocalPackageAuthoritySource
+  assertWorkspaceContentMatches
 } from "./authorityBinding.js";
 import type { LocalWorkspaceExecutionAdapter } from "./ports.js";
 
@@ -21,22 +27,21 @@ export function createLocalWorkspaceExecutionAdapter(
         throw new Error("workspace_execution_local_binding_required");
       }
       const localBinding: LocalWorkspaceAuthorityBinding = binding;
-      const current = await createLocalPackageAuthoritySource().inspect(
-        {
-          kind: "local_package",
-          packageWorkspace: localBinding.packageWorkspace,
-          canvasId: localBinding.canvasId,
-          expected: {
-            contentRevision: localBinding.contentRevision,
-            graphFingerprint: localBinding.graphFingerprint
-          }
-        },
-        request.scope,
-        signal
-      );
-      assertWorkspaceContentMatches(localBinding, current);
+      const workspace = localBinding.canvasId
+        ? await resolveTaskCanvasWorkspace(localBinding.packageWorkspace, localBinding.canvasId)
+        : await resolvePackageWorkspace(localBinding.packageWorkspace);
+      const captured = await capturePackageSnapshot({ projectRoot: workspace });
+      assertWorkspaceContentMatches(localBinding, {
+        ...localBinding,
+        contentRevision: captured.snapshot.sourceRevision,
+        graphFingerprint: packageSnapshotGraphFingerprint(captured.snapshot)
+      });
+      if (workspace.packageDir !== captured.resolvedPackageDir)
+        throw new Error("runtime_package_location_mismatch");
+      const executionSnapshot = packageExecutionSnapshot(workspace, captured.snapshot);
       const result = await run({
-        projectRoot: localBinding.packageWorkspace,
+        executionSnapshot,
+        projectRoot: workspace,
         scope: request.scope,
         executorName: request.executorOverride,
         once: true,

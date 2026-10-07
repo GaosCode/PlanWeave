@@ -514,11 +514,14 @@ async function latestFeedbackRunSummary(options: {
 export async function getAutoRunStatus(options: {
   projectRoot: PackageWorkspaceRef;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<AutoRunStatus> {
-  const { manifest, workspace } = await loadPackage(options.projectRoot);
+  const { manifest, workspace } =
+    options.executionSnapshot ?? (await loadPackage(options.projectRoot));
   const graph = compileTaskGraph(manifest);
   const executionStatus = await getExecutionStatus({
     projectRoot: options.projectRoot,
+    executionSnapshot: options.executionSnapshot,
     session: options.session
   });
   const state = await readState(workspace.stateFile);

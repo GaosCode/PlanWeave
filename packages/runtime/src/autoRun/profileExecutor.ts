@@ -71,6 +71,7 @@ export function runProfileBlock(input: ExecutorBlockInput) {
         profile: input.profile,
         profileSource: input.profileSource,
         executionWaveId: input.executionWaveId,
+        executionSnapshot: input.executionSnapshot,
         runtime: input.runtime
       },
       definition

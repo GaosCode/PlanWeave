@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CANVAS_RUNTIME_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import {
+  AuthoritativeCanvasWorkspaceConflictError,
   captureAuthorizedCanvasContent,
   capturePackageSnapshot,
   readAuthorizedCanvasRuntimeStatus
@@ -31,6 +32,33 @@ import {
 } from "./support/canvasRuntimeServiceFixture.js";
 
 describe("Canvas Runtime Host Materialization", () => {
+  it.each([
+    [new AuthoritativeCanvasWorkspaceConflictError(), "content_out_of_sync"],
+    [new Error("Unknown recovery failure."), "canvas_runtime_operation_failed"],
+    [new SyntaxError("Unexpected token in recovery JSON"), "canvas_runtime_operation_failed"],
+    [
+      Object.assign(new Error("Permission denied."), { code: "EACCES" }),
+      "canvas_runtime_operation_failed"
+    ]
+  ])("maps only the typed authority conflict through the actual Host response: %s", async (failure, code) => {
+    const { state } = await setup();
+    const service = new CanvasRuntimeService({
+      resolver: resolverWith(async () => {
+        throw failure;
+      }),
+      receipts: state.canvasRuntime,
+      capabilities: [CANVAS_RUNTIME_CAPABILITY],
+      artifactTransfer,
+      contentTransfer
+    });
+    const command = request("request-authority-recovery-error", { operation: "availability" });
+    state.receive(delivery(1, command));
+    await service.handle(command);
+    expect(response(state, command.requestId)).toMatchObject({
+      response: { outcome: "error", error: { code } }
+    });
+  });
+
   it("materializes Server content only into the resolved managed canvas", async () => {
     const { state } = await setup();
     const source = await createTestWorkspace(basicManifest());

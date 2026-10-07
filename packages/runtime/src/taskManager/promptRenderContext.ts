@@ -43,7 +43,12 @@ export async function createPromptRenderContext(
   const [status, planGraphPackage] = await Promise.all([
     buildExecutionStatus(runtime, { claimGuard }),
     loadPlanGraphPackage(workspace, {
-      snapshot: { workspace, manifest, compiledGraph: graph }
+      snapshot: {
+        workspace,
+        manifest,
+        compiledGraph: graph,
+        promptMarkdownByPath: options.executionSnapshot?.promptMarkdownByPath
+      }
     })
   ]);
   return {
@@ -54,6 +59,6 @@ export async function createPromptRenderContext(
     projectCanvasContextRenderer: (taskId) =>
       renderProjectCanvasContextFromSnapshot(runtime, projectAggregation, taskId),
     canvasCommandFlag: canvasCommandFlagForLoadedProjectGraph(workspace, projectAggregation.loaded),
-    packagePromptSnapshotMode: "refresh-missing"
+    packagePromptSnapshotMode: options.executionSnapshot ? "frozen" : "refresh-missing"
   };
 }

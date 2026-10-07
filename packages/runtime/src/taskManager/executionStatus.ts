@@ -136,6 +136,7 @@ export type ExecutionStatus = Awaited<ReturnType<typeof buildExecutionStatus>>;
 export async function getExecutionStatus(options: {
   projectRoot: PackageWorkspaceRef;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<ExecutionStatus> {
   return buildExecutionStatus(await loadRuntimeReadonly(options));
 }

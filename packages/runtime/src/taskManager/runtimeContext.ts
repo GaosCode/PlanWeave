@@ -1,3 +1,4 @@
+import { assertExecutionStateCompatible } from "./executionStateBoundary.js";
 import { optionalReadFile, optionalStat } from "../fs/optionalFile.js";
 import { createExecutionGraphSession, drainGraphReadQueue } from "../graph/session.js";
 import { loadPackage } from "../package/loadPackage.js";
@@ -24,6 +25,7 @@ export type RuntimeContext = {
 export type RuntimeOptions = {
   projectRoot: PackageWorkspaceRef;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 };
 
 export async function exists(path: string): Promise<boolean> {
@@ -39,6 +41,17 @@ async function loadRuntimeContext(options: RuntimeOptions): Promise<{
   rawState: RuntimeState;
   derivedState: RuntimeState;
 }> {
+  if (options.executionSnapshot) {
+    const { workspace, manifest, graph } = options.executionSnapshot;
+    const rawState = await readState(workspace.stateFile);
+    await assertExecutionStateCompatible(options.executionSnapshot, rawState);
+    const derivedState = ensureStateForManifest(manifest, rawState);
+    return {
+      context: { workspace, manifest, graph, rawState, state: derivedState },
+      rawState,
+      derivedState
+    };
+  }
   const session = options.session ?? (await createExecutionGraphSession(options.projectRoot));
   const loadedPackage =
     options.session && typeof options.projectRoot !== "string"

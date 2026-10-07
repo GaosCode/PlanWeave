@@ -125,6 +125,7 @@ export async function renderPrompt(options: {
   projectRoot: PackageWorkspaceRef;
   ref: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   includeSubmissionInstructions?: boolean;
 }): Promise<string> {
   return (await renderPromptSurface(options)).markdown;
@@ -134,6 +135,7 @@ export async function renderPromptSurface(options: {
   projectRoot: PackageWorkspaceRef;
   ref: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   includeSubmissionInstructions?: boolean;
   allowMissingPromptSources?: boolean;
   renderMode?: "default" | "remote-dispatch";

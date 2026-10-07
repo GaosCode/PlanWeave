@@ -89,6 +89,7 @@ export type ProtocolAdapter<TProfile extends ProfileWithCommand> = {
   preparePrompt?(input: {
     prompt: string;
     claim: BlockClaim;
+    executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
     reviewResultPath: string | null;
   }): string;
   /** Whether PLANWEAVE_REVIEW_* env vars are set for review blocks. Default: true when reviewResultMode is result-file. */
@@ -141,6 +142,7 @@ export type ProtocolAdapter<TProfile extends ProfileWithCommand> = {
 function defaultPreparePrompt(input: {
   prompt: string;
   claim: BlockClaim;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   reviewResultPath: string | null;
 }): string {
   if (!input.reviewResultPath) {
@@ -199,6 +201,7 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
   options: SharedRunOptions<TProfile> & {
     projectRoot: PackageWorkspaceRef;
     claim: BlockClaim;
+    executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
     prompt: string;
   }
 ): Promise<ExecutorAdapterResult> {
@@ -207,6 +210,7 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
   const run = await prepareBlockRun({
     projectRoot: options.projectRoot,
     claim: options.claim,
+    executionSnapshot: options.executionSnapshot,
     executorName: options.executorName,
     adapter: protocol.adapter,
     profile: options.profile,
@@ -221,7 +225,12 @@ export async function runTerminalAgentProtocolBlock<TProfile extends ProfileWith
     protocol.preparePrompt ??
     (protocol.reviewResultMode === "result-file" ? defaultPreparePrompt : undefined);
   const prompt = preparePrompt
-    ? preparePrompt({ prompt: options.prompt, claim: options.claim, reviewResultPath })
+    ? preparePrompt({
+        prompt: options.prompt,
+        claim: options.claim,
+        executionSnapshot: options.executionSnapshot,
+        reviewResultPath
+      })
     : options.prompt;
   if (prompt !== options.prompt) {
     await writeFile(run.promptPath, prompt, "utf8");

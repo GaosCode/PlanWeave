@@ -423,6 +423,7 @@ export function createAcpRunner(options?: {
       const prepared = await prepareAcpBlockRun({
         projectRoot: input.projectRoot,
         claim: input.claim,
+        executionSnapshot: input.executionSnapshot,
         executorName: input.executorName,
         profile: input.profile,
         prompt,

@@ -14,6 +14,8 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import {
   capturePackageSnapshot,
+  PackageSnapshotConflictError,
+  AuthoritativeCanvasWorkspaceConflictError,
   packageSnapshotGraphFingerprint,
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
@@ -182,6 +184,10 @@ export async function readCanvasRuntimeMaterializationEvidence(
 
 function errorCode(error: unknown): CanvasRuntimeServiceError {
   if (error instanceof CanvasRuntimeServiceError) return error;
+  if (error instanceof AuthoritativeCanvasWorkspaceConflictError)
+    return new CanvasRuntimeServiceError("content_out_of_sync");
+  if (error instanceof PackageSnapshotConflictError)
+    return new CanvasRuntimeServiceError("content_out_of_sync");
   if (error instanceof CanvasRuntimeMaterializationEvidenceError) {
     return new CanvasRuntimeServiceError("content_out_of_sync");
   }

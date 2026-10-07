@@ -1,5 +1,5 @@
 import { dirname } from "node:path";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type {
@@ -44,11 +44,17 @@ export function applyCurrentReviewResumeClaim(
 }
 
 async function withLockedRuntime<T>(
-  options: { projectRoot: PackageWorkspaceRef; session?: ExecutionGraphSession },
+  options: {
+    projectRoot: PackageWorkspaceRef;
+    session?: ExecutionGraphSession;
+    executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
+  },
   fn: (context: Awaited<ReturnType<typeof loadRuntime>>) => Promise<T>
 ): Promise<T> {
   const { workspace } = await loadPackage(options.projectRoot);
-  return withCanvasLock(dirname(workspace.stateFile), async () => fn(await loadRuntime(options)));
+  return withExecutionStateLock(options, dirname(workspace.stateFile), async () =>
+    fn(await loadRuntime(options))
+  );
 }
 
 export async function markBlockBlocked(options: {
@@ -56,6 +62,7 @@ export async function markBlockBlocked(options: {
   ref: string;
   reason: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }) {
   return withLockedRuntime(options, async (context) => {
     const { workspace, manifest, graph } = context;
@@ -81,6 +88,7 @@ export async function markBlockDiverged(options: {
   ref: string;
   reason: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }) {
   return withLockedRuntime(options, async (context) => {
     const { workspace, manifest, graph } = context;
@@ -120,6 +128,7 @@ export async function unblockBlock(options: {
   reason: string;
   allowAlreadyCompleted?: boolean;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }) {
   return withLockedRuntime(options, async (context) => {
     const { workspace, manifest, graph } = context;
@@ -159,6 +168,7 @@ export async function releaseInProgressBlock(options: {
   projectRoot: PackageWorkspaceRef;
   ref: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }) {
   return withLockedRuntime(options, async (context) => {
     const { workspace, manifest, graph } = context;
@@ -190,6 +200,7 @@ export async function resolveBlockDivergence(options: {
   ref: string;
   reason: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }) {
   return withLockedRuntime(options, async (context) => {
     const { workspace, manifest, graph } = context;

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import * as nodePath from "node:path";
 import { type CompleteContentVersion } from "@planweave-ai/collaboration-protocol/content/version";
@@ -5,17 +6,18 @@ import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import { getProjectOverview, listProjects, removeProject } from "./projectApi.js";
 import { layoutPathForWorkspace, parseDesktopLayoutForPackage } from "./layoutStore.js";
 import { validateAuthoritativeCanvasContent } from "./contentVersionValidation.js";
-import { ImportTransaction } from "../package/importTransaction.js";
 import {
-  listPendingImportTransactions,
-  rollbackPendingImportTransaction
-} from "../package/importRecovery.js";
+  ImportTransaction,
+  readImportTransactionRecoveryTargets
+} from "../package/importTransaction.js";
+import { listPendingImportTransactions } from "../package/importRecovery.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { authoritativeImportReservationFile, initManagedWorkspace } from "../initWorkspace.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { createManagedProjectId } from "../projectId.js";
 import type { ProjectWorkspace } from "../types.js";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import type { DesktopProjectSummary } from "./types.js";
 import {
@@ -125,27 +127,88 @@ export async function materializeAuthoritativeCanvasWorkspace(input: {
   });
 }
 
-/** Serializes Server-authority reads and replacements with every Runtime canvas mutation. */
+export class AuthoritativeCanvasWorkspaceConflictError extends Error {
+  constructor() {
+    super("Authority recovery targets changed during lock acquisition.");
+    this.name = "AuthoritativeCanvasWorkspaceConflictError";
+  }
+}
+
+const authorityBoundary = new AsyncLocalStorage<{
+  stateFile: string;
+  targets: ReadonlySet<string>;
+}>();
+
+async function pendingRecoveryTargets(workspace: ProjectWorkspace): Promise<string[]> {
+  const pending = await listPendingImportTransactions(workspace.workspaceRoot);
+  const targets = await Promise.all(
+    pending.map((entry) =>
+      readImportTransactionRecoveryTargets({
+        workspaceRoot: workspace.workspaceRoot,
+        transactionId: entry.transactionId
+      })
+    )
+  );
+  return targets.flat();
+}
+
+async function assertRecoveryTargetsHeld(workspace: ProjectWorkspace): Promise<void> {
+  const boundary = authorityBoundary.getStore();
+  if (
+    !boundary ||
+    boundary.stateFile !== workspace.stateFile ||
+    (await pendingRecoveryTargets(workspace)).some((target) => !boundary.targets.has(target))
+  ) {
+    throw new AuthoritativeCanvasWorkspaceConflictError();
+  }
+}
+
+/** Acquires replacement and recovery roots before the Runtime canvas mutation lock. */
 export async function withAuthoritativeCanvasWorkspaceLock<T>(
   workspace: ProjectWorkspace,
   operation: () => Promise<T>
 ): Promise<T> {
-  return withCanvasLock(nodePath.dirname(workspace.stateFile), operation, {
-    operation: "workspace-authority-materialization"
-  });
+  const held = authorityBoundary.getStore();
+  if (held?.stateFile === workspace.stateFile) {
+    await assertRecoveryTargetsHeld(workspace);
+    return operation();
+  }
+  const targets = new Set([
+    nodePath.resolve(workspace.packageDir),
+    nodePath.resolve(layoutPathForWorkspace(workspace)),
+    ...(await pendingRecoveryTargets(workspace))
+  ]);
+  return withPackageFileConsistency([...targets], () =>
+    withCanvasLock(
+      nodePath.dirname(workspace.stateFile),
+      () =>
+        authorityBoundary.run({ stateFile: workspace.stateFile, targets }, async () => {
+          await assertRecoveryTargetsHeld(workspace);
+          return operation();
+        }),
+      { operation: "workspace-authority-materialization" }
+    )
+  );
 }
 
 /** Restores the last committed package/layout pair before any authority fast-path check. */
 export async function recoverPendingAuthoritativeCanvasMaterialization(
   workspace: ProjectWorkspace
 ): Promise<void> {
-  const pendingTransactions = await listPendingImportTransactions(workspace.workspaceRoot);
-  for (const pending of pendingTransactions) {
-    await rollbackPendingImportTransaction({
-      workspaceRoot: workspace.workspaceRoot,
-      transactionId: pending.transactionId
-    });
-  }
+  return withAuthoritativeCanvasWorkspaceLock(workspace, async () => {
+    const pendingTransactions = await listPendingImportTransactions(workspace.workspaceRoot);
+    for (const pending of pendingTransactions) {
+      const transaction = await ImportTransaction.recover({
+        workspaceRoot: workspace.workspaceRoot,
+        transactionId: pending.transactionId
+      });
+      const targets = authorityBoundary.getStore()?.targets;
+      if (!targets || transaction.getRecoveryTargets().some((target) => !targets.has(target))) {
+        throw new AuthoritativeCanvasWorkspaceConflictError();
+      }
+      await transaction.rollback();
+    }
+  });
 }
 
 async function materializeAuthoritativeCanvasWorkspaceUnlocked(input: {

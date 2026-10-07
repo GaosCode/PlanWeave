@@ -5,6 +5,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/work/package-facts";
 import {
   capturePackageSnapshot,
+  PackageSnapshotConflictError,
   packageSnapshotGraphFingerprint,
   loadPlanGraphPackage,
   resolveTaskCanvasWorkspace
@@ -113,6 +114,10 @@ export class LocalFilesystemWorkRuntimeFactsAdapter implements WorkRuntimePackag
     const captured = await capturePackageSnapshot({
       projectRoot: location.projectRoot,
       canvasId: input.scope.canvasId
+    }).catch((error: unknown) => {
+      if (error instanceof PackageSnapshotConflictError)
+        throw new WorkRuntimeUnavailableError("content_out_of_sync");
+      throw error;
     });
     if (
       captured.resolvedPackageDir !== location.packageDir ||

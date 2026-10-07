@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
@@ -371,6 +371,7 @@ export async function submitReviewResult(options: {
   ref: string;
   resultPath: string;
   session?: ExecutionGraphSession;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<SubmitReviewResult> {
   const parsed = reviewResultSchema.parse(await readJsonFile<unknown>(options.resultPath));
   return submitReviewResultValue(options, parsed);
@@ -382,6 +383,7 @@ export async function submitReviewResultValue(
     ref: string;
     resultPath: string;
     session?: ExecutionGraphSession;
+    executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
     remote?: ActiveRemoteOperationIdentity;
     transcript?: NonNullable<RemoteBlockCompletionInput["transcript"]>;
     reportBytes?: Uint8Array;
@@ -391,7 +393,7 @@ export async function submitReviewResultValue(
   const parsed = reviewResultSchema.parse(value);
   const resultHash = reviewResultHash(parsed);
   const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
-  return withCanvasLock(dirname(lockWorkspace.stateFile), async () =>
+  return withExecutionStateLock(options, dirname(lockWorkspace.stateFile), async () =>
     submitReviewResultLocked(options, parsed, resultHash)
   );
 }
@@ -433,6 +435,7 @@ async function submitReviewResultLocked(
     ref: string;
     resultPath: string;
     session?: ExecutionGraphSession;
+    executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
     remote?: ActiveRemoteOperationIdentity;
     transcript?: NonNullable<RemoteBlockCompletionInput["transcript"]>;
     reportBytes?: Uint8Array;

@@ -1,3 +1,4 @@
+import { withExecutionStateLock } from "../taskManager/executionStateBoundary.js";
 import { writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
@@ -28,6 +29,7 @@ export type PreparedAcpRun = {
 export async function prepareAcpBlockRun(input: {
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   executorName: string;
   profile: AgentExecutorProfile;
   prompt: string;
@@ -55,10 +57,8 @@ export async function prepareAcpBlockRun(input: {
     };
   }
   const { taskId, blockId } = parseBlockRef(input.claim.ref);
-  return prepare(
-    join(workspace.resultsDir, taskId, "blocks", blockId, "runs"),
-    workspace,
-    input.prompt
+  return withExecutionStateLock(input, dirname(workspace.stateFile), () =>
+    prepare(join(workspace.resultsDir, taskId, "blocks", blockId, "runs"), workspace, input.prompt)
   );
 }
 

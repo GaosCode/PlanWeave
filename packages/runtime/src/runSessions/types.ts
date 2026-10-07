@@ -147,6 +147,7 @@ export type ResetRuntimeStateResult = {
 };
 
 export type RunWithSessionOptions = {
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   projectRoot: PackageWorkspaceRef;
   reset?: boolean;
   force?: boolean;

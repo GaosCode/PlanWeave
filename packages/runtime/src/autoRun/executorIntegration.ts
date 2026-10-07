@@ -25,6 +25,7 @@ export type ExecutorRuntimeOptions = {
 };
 
 export type ExecutorBlockInput = {
+  executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
   projectRoot: PackageWorkspaceRef;
   claim: BlockClaim;
   prompt: string;

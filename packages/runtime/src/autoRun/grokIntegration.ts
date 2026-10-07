@@ -46,6 +46,7 @@ export const grokAgentDefinition: AgentDefinition = {
       return runSimpleTerminalAgentBlock({
         projectRoot: input.projectRoot,
         claim: input.claim,
+        executionSnapshot: input.executionSnapshot,
         prompt: input.prompt,
         executorName: input.executorName,
         profile: input.profile,
