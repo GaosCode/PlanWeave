@@ -31,6 +31,7 @@ export type PlanPackageGraphMutationSideEffect =
   | { kind: "removeTaskDirectory"; packagePath: string };
 
 export type PlanPackageGraphMutation = {
+  baseManifest: PlanPackageManifest;
   nextManifest: PlanPackageManifest;
   affectedTasks: string[];
   sideEffects: PlanPackageGraphMutationSideEffect[];
@@ -80,6 +81,7 @@ export function buildPlanPackageManifestChangeMutation(
   } = {}
 ): PlanPackageGraphMutation {
   return {
+    baseManifest: manifest,
     affectedTasks: unique([
       ...affectedTaskIdsForManifestChange(manifest, nextManifest),
       ...(options.affectedTasks ?? [])
@@ -199,6 +201,7 @@ export function buildPlanPackageGraphMutation(
   if (intent.kind === "writeTaskPrompt") {
     const task = taskNode(manifest, intent.taskId);
     return {
+      baseManifest: manifest,
       affectedTasks: [task.id],
       nextManifest: manifest,
       sideEffects: writePromptSideEffects(task.prompt, intent.markdown)
@@ -213,6 +216,7 @@ export function buildPlanPackageGraphMutation(
     throw new Error(`Block '${intent.blockRef}' does not exist.`);
   }
   return {
+    baseManifest: manifest,
     affectedTasks: unique([task.id]),
     nextManifest: manifest,
     sideEffects: writePromptSideEffects(block.prompt, intent.markdown)

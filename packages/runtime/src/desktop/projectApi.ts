@@ -1,6 +1,6 @@
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { realpath, rename, rm, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { initManagedWorkspace, initWorkspace } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -226,16 +226,18 @@ async function rewriteJsonProjectId(path: string, projectId: string): Promise<vo
 }
 
 async function rewritePackageManifestTitle(path: string, title: string): Promise<void> {
-  if (!(await optionalStat(path))) {
-    return;
-  }
-  const manifest = manifestSchema.parse(await readJsonFile<unknown>(path)) as PlanPackageManifest;
-  await writeJsonFile(path, {
-    ...manifest,
-    project: {
-      ...manifest.project,
-      title
+  await withPackageFileConsistency([dirname(path)], async () => {
+    if (!(await optionalStat(path))) {
+      return;
     }
+    const manifest = manifestSchema.parse(await readJsonFile<unknown>(path)) as PlanPackageManifest;
+    await writeJsonFile(path, {
+      ...manifest,
+      project: {
+        ...manifest.project,
+        title
+      }
+    });
   });
 }
 

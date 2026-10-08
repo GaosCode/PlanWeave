@@ -82,6 +82,7 @@ describe("snapshot capture consistency on real files", () => {
     const writer = commitPlanPackageGraphMutation({
       projectRoot: init.workspace,
       mutation: {
+        baseManifest: manifest,
         nextManifest: { ...manifest, project: { ...manifest.project, title: "new version" } },
         affectedTasks: [task.id],
         sideEffects: [

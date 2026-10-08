@@ -7,8 +7,6 @@ import {
   buildPlanPackageManifestChangeMutation,
   type PlanPackageGraphMutationSideEffect
 } from "../../graph/mutation.js";
-import { writeJsonFile } from "../../json.js";
-import { withPackageFileConsistency } from "../../package/packageFileConsistency.js";
 import { loadPackage } from "../../package/loadPackage.js";
 import type { GraphEditResult, PackageWorkspaceRef, ReviewHookDefinition } from "../../types.js";
 import type { DesktopPromptSaveOptions } from "../types.js";
@@ -167,11 +165,14 @@ export async function updateCanvasExecutionPolicy(
     return result;
   }
 
-  await withPackageFileConsistency([workspace.packageDir], () =>
-    writeJsonFile(workspace.manifestFile, nextManifest)
-  );
-  invalidateDesktopProjectProjection(workspace);
-  return result;
+  const committed = await commitPlanPackageGraphMutation({
+    projectRoot: workspace,
+    mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, { affectedTasks })
+  });
+  if (committed.ok) {
+    invalidateDesktopProjectProjection(workspace);
+  }
+  return committed;
 }
 
 export async function bulkUpdateParallelPolicy(

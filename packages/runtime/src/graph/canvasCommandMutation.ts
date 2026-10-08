@@ -293,10 +293,11 @@ export function buildCanvasCommandMutation(
         kind: "removeEdge",
         edge: { type: "depends_on", from: intent.fromTaskId, to: intent.oldToTaskId }
       });
-      return buildPlanPackageGraphMutation(withoutOld.nextManifest, {
+      const reconnected = buildPlanPackageGraphMutation(withoutOld.nextManifest, {
         kind: "addEdge",
         edge: { type: "depends_on", from: fromTaskId, to: intent.newToTaskId }
       });
+      return { ...reconnected, baseManifest: manifest };
     }
     case "bulk_update_blocks": {
       let nextManifest = manifest;

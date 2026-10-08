@@ -729,6 +729,7 @@
         "resetRuntimeState.test.ts",
         "resultArtifactMetadata.test.ts",
         "reviewHook.test.ts",
+        "reviewRetryConcurrency.test.ts",
         "runSessionExecution.test.ts",
         "runSessionRepository.test.ts",
         "runSessionRetention.test.ts",
