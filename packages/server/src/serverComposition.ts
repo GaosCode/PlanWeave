@@ -547,6 +547,7 @@ function drainAttachedTransports(
     requestListener: transport?.requestListener,
     webSockets: transport?.webSockets,
     humanObserverWebSockets: transport?.humanObserverWebSockets,
+    workspaceMembersWebSockets: transport?.workspaceMembersWebSockets,
     canvasPresenceWebSockets: transport?.canvasPresenceWebSockets,
     canvasCommandWebSockets: transport?.canvasCommandWebSockets,
     canvasLiveSyncWebSockets: transport?.canvasLiveSyncWebSockets,

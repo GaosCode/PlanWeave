@@ -1,4 +1,7 @@
-import type { WorkspaceConnectionMemberView } from "@planweave-ai/collaboration-protocol/connection";
+import {
+  workspaceMembersInvalidatedSchema,
+  type WorkspaceConnectionMemberView
+} from "@planweave-ai/collaboration-protocol/connection";
 import { z } from "zod";
 import {
   activityListWireQuerySchema,
@@ -144,7 +147,19 @@ export type CollaborationBoundaryErrorView = {
 };
 
 /** Push payload from main when the human observer advances or requires catch-up. */
+export const workspaceMembersInvalidatedSignalSchema = workspaceMembersInvalidatedSchema.extend({
+  profileId: z.string().min(1),
+  serverBaseUrl: z.string().url()
+});
+export const workspaceMembersObserverErrorSignalSchema = workspaceMembersInvalidatedSignalSchema
+  .omit({ type: true })
+  .extend({
+    type: z.literal("workspace.members.observer_error"),
+    code: z.string().min(1)
+  });
 export type CollaborationObserverSignal =
+  | z.infer<typeof workspaceMembersObserverErrorSignalSchema>
+  | z.infer<typeof workspaceMembersInvalidatedSignalSchema>
   | {
       type: "human.observer.event";
       profileId: string;

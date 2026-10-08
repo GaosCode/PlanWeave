@@ -1139,6 +1139,7 @@
         "workspaceExecutionPlaneGapHttp.test.ts",
         "workspaceIdentityHttp.test.ts",
         "workspaceIdentityMigration.test.ts",
+        "workspaceMembersObserver.test.ts",
         "wsServer.test.ts",
         "wsServerErrorIsolation.test.ts",
         "localFilesystemSnapshotEvidence.test.ts"

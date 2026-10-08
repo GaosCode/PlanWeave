@@ -357,3 +357,13 @@ export function parseCollaborationClientLimits(
 ): CollaborationClientLimits {
   return collaborationClientLimitsSchema.parse(input);
 }
+
+/** Workspace-only invalidation; member contents remain on the self/members HTTP authority. */
+export const workspaceMembersInvalidatedSchema = z
+  .object({
+    type: z.literal("workspace.members.invalidated"),
+    schemaVersion: z.literal("workspace-setup/v1"),
+    workspaceId: workspaceIdSchema
+  })
+  .strict();
+export type WorkspaceMembersInvalidated = z.infer<typeof workspaceMembersInvalidatedSchema>;

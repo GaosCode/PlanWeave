@@ -1,3 +1,9 @@
+import { WorkspaceMembersObserver } from "./WorkspaceMembersObserver.js";
+import {
+  workspaceMembersInvalidatedSignalSchema,
+  workspaceMembersObserverErrorSignalSchema,
+  type CollaborationObserverSignal
+} from "../../shared/collaborationReadModels.js";
 import { findServerMigrationIdentity } from "./serverDataMigrationCandidate.js";
 import { persistServerMigrationIdentity } from "./serverDataMigrationPersistence.js";
 import { snapshotServerDataIdentity } from "./serverDataMigrationIdentity.js";
@@ -24,6 +30,7 @@ import {
   type ActiveWorkspaceConnectionView,
   type CollaborationConnectionProfile,
   type WorkspaceConnectionMembersPage,
+  type WorkspaceConnectionProfile,
   type WorkspaceConnectionSelfView,
   type WorkspacePickerPage
 } from "@planweave-ai/collaboration-protocol/connection";
@@ -75,6 +82,7 @@ export type CollaborationWorkspaceConnectionOptions = {
   request?: typeof fetch;
   clock?: { now(): Date };
   onChange?: () => void;
+  onObserverSignal?: (signal: CollaborationObserverSignal) => void;
 };
 
 /**
@@ -89,6 +97,9 @@ export class CollaborationWorkspaceConnection {
   private readonly clock?: { now(): Date };
   private readonly onChange?: () => void;
 
+  private membersObserver: WorkspaceMembersObserver | undefined;
+  private membersObserverKey: string | null = null;
+
   private status: ActiveWorkspaceConnectionStatus = "local_only";
   private activeProfileId: string | null = null;
   private connectedAt: string | null = null;
@@ -97,7 +108,7 @@ export class CollaborationWorkspaceConnection {
   private lastAuthoritativePicker: WorkspacePickerPage = emptyWorkspacePickerPage();
   private identityRepair: CollaborationIdentityRepairView | null = null;
 
-  constructor(options: CollaborationWorkspaceConnectionOptions) {
+  constructor(private readonly options: CollaborationWorkspaceConnectionOptions) {
     this.store =
       options.store ??
       new WorkspaceConnectionProfileStore(
@@ -195,7 +206,60 @@ export class CollaborationWorkspaceConnection {
     return remembered;
   }
 
+  stopMembersObserver(): void {
+    this.membersObserver?.stop();
+    this.membersObserver = undefined;
+    this.membersObserverKey = null;
+  }
+
+  private reconcileMembersObserver(
+    profile: WorkspaceConnectionProfile,
+    credentialRevision: string | null
+  ): void {
+    if (!this.options.onObserverSignal) return;
+    const key = JSON.stringify([
+      profile.profileId,
+      profile.serverBaseUrl,
+      profile.workspaceId,
+      credentialRevision
+    ]);
+    if (key === this.membersObserverKey) return;
+    this.stopMembersObserver();
+    this.membersObserverKey = key;
+    const identity = {
+      schemaVersion: "workspace-setup/v1" as const,
+      workspaceId: profile.workspaceId,
+      profileId: profile.profileId,
+      serverBaseUrl: profile.serverBaseUrl
+    };
+    this.membersObserver = new WorkspaceMembersObserver({
+      profile,
+      credential: { getDeviceToken: () => this.vault.getDeviceToken(profile.profileId) },
+      onInvalidated: () => {
+        if (this.membersObserverKey === key)
+          this.options.onObserverSignal?.(
+            workspaceMembersInvalidatedSignalSchema.parse({
+              ...identity,
+              type: "workspace.members.invalidated"
+            })
+          );
+      },
+      onError: (code) => {
+        if (this.membersObserverKey === key)
+          this.options.onObserverSignal?.(
+            workspaceMembersObserverErrorSignalSchema.parse({
+              ...identity,
+              type: "workspace.members.observer_error",
+              code
+            })
+          );
+      }
+    });
+    this.membersObserver.start();
+  }
+
   async buildView(): Promise<ActiveWorkspaceConnectionView> {
+    if (this.status !== "connected") this.stopMembersObserver();
     if (this.status === "local_only" || this.activeProfileId === null) {
       const view = localOnlyView();
       assertSetupViewRedacted(view);
@@ -210,6 +274,7 @@ export class CollaborationWorkspaceConnection {
     const profile = toPublicProfile(stored);
     const credentialRevision =
       (await this.vault.getMetadata(stored.profileId))?.credentialRevision ?? null;
+    if (this.status === "connected") this.reconcileMembersObserver(profile, credentialRevision);
     const view = activeWorkspaceConnectionViewSchema.parse({
       schemaVersion: "workspace-setup/v1",
       status: this.status,

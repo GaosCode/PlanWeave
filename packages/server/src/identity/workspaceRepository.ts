@@ -85,6 +85,66 @@ function nowIso(): string {
  */
 export class WorkspaceIdentityRepository {
   private readonly identity: HumanPrincipalIdentity;
+  private readonly memberSubscriptions = new Map<
+    string,
+    { key: string; listeners: Set<() => void> }
+  >();
+  private readonly pendingMemberInvalidations = new Set<string>();
+
+  private memberInvalidationKey(workspaceId: string): string {
+    return JSON.stringify([
+      this.database
+        .prepare(`SELECT m.membership_id,m.human_principal_id,p.display_name,m.role
+        FROM workspace_memberships m JOIN workspace_principals p
+        ON p.workspace_id=m.workspace_id AND p.human_principal_id=m.human_principal_id
+        WHERE m.workspace_id=? AND m.revoked_at IS NULL AND p.revoked_at IS NULL
+        ORDER BY m.membership_id`)
+        .all(workspaceId),
+      this.database
+        .prepare(`SELECT device_session_id,human_principal_id,revoked_at,expires_at
+        FROM workspace_device_sessions WHERE workspace_id=? ORDER BY device_session_id`)
+        .all(workspaceId)
+    ]);
+  }
+
+  subscribeMembers(workspaceId: string, listener: () => void): () => void {
+    let state = this.memberSubscriptions.get(workspaceId);
+    if (!state) {
+      state = { key: this.memberInvalidationKey(workspaceId), listeners: new Set() };
+      this.memberSubscriptions.set(workspaceId, state);
+    }
+    state.listeners.add(listener);
+    return () => {
+      state.listeners.delete(listener);
+      if (state.listeners.size === 0) this.memberSubscriptions.delete(workspaceId);
+    };
+  }
+
+  /** Compare committed authority after the synchronous mutation transaction settles. */
+  invalidateMembers(workspaceId: string): void {
+    if (
+      !this.memberSubscriptions.has(workspaceId) ||
+      this.pendingMemberInvalidations.has(workspaceId)
+    )
+      return;
+    this.pendingMemberInvalidations.add(workspaceId);
+    queueMicrotask(() => {
+      this.pendingMemberInvalidations.delete(workspaceId);
+      const state = this.memberSubscriptions.get(workspaceId);
+      if (!state) return;
+      const key = this.memberInvalidationKey(workspaceId);
+      if (key === state.key) return;
+      state.key = key;
+      for (const listener of [...state.listeners]) listener();
+    });
+  }
+
+  invalidatePrincipalMembers(humanPrincipalId: string): void {
+    for (const row of this.database
+      .prepare("SELECT workspace_id FROM workspace_principals WHERE human_principal_id=?")
+      .all(humanPrincipalId))
+      this.invalidateMembers(String(row.workspace_id));
+  }
 
   constructor(private readonly database: SqliteDatabase) {
     this.identity = new HumanPrincipalIdentity(database);
@@ -459,6 +519,7 @@ export class WorkspaceIdentityRepository {
     this.database
       .prepare("UPDATE human_principals SET display_name=? WHERE human_principal_id=?")
       .run(name, session.humanPrincipalId);
+    this.invalidateMembers(session.workspaceId);
     return this.readWorkspaceConnectionSelf(deviceToken);
   }
 

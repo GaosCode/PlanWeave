@@ -222,6 +222,7 @@ export function createIdentityServices(input: {
     clock: input.clock,
     operatorSessionTtlMs: input.config.operatorSessionTtlMs,
     onWorkspaceDeviceMembershipCreated: ({ workspaceId, humanPrincipalId, role }) => {
+      input.workspaceIdentity.invalidateMembers(workspaceId);
       const projectIds = new Set<string>();
       for (const scope of input.runtimeRegistry.expansions) {
         if (scope.workspaceId !== workspaceId || projectIds.has(scope.projectId)) continue;
@@ -268,6 +269,7 @@ export function createIdentityServices(input: {
         transition: type,
         membershipRole: membership.role
       });
+      input.workspaceIdentity.invalidateMembers(workspaceId);
       input.activity.activityProjection.projectMembershipEventInCallerTransaction({
         projectId: membership.projectId,
         type,
@@ -288,7 +290,11 @@ export function createIdentityServices(input: {
         invitation.consumedAt ?? invitation.revokedAt ?? invitation.createdAt
       );
     },
-    onAuthorizationChangeAfterCommit: (change) => input.authorizationChanges.publish(change)
+    onDisplayNameChangeAfterCommit: (id) => input.workspaceIdentity.invalidatePrincipalMembers(id),
+    onAuthorizationChangeAfterCommit: (change) => {
+      input.workspaceIdentity.invalidateMembers(change.workspaceId);
+      input.authorizationChanges.publish(change);
+    }
   });
   input.onHumanIdentityCreated(humanIdentity);
   const humanMembership = new HumanMembershipService({

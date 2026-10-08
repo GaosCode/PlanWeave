@@ -457,6 +457,7 @@ export function useWorkspaceRuntimeAvailability(input: {
     };
 
     const handleObserverSignal = (signal: CollaborationObserverSignal) => {
+      if (!("projectId" in signal)) return;
       if (
         signal.profileId !== profileId ||
         signal.projectId !== activeProjectId ||

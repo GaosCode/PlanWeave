@@ -520,6 +520,8 @@ export class CollaborationReadModelController {
     generation: number
   ): void {
     if (
+      signal.type === "workspace.members.invalidated" ||
+      signal.type === "workspace.members.observer_error" ||
       this.disposed ||
       generation !== this.state.generation ||
       this.state.profileId !== signal.profileId ||
@@ -575,7 +577,12 @@ export class CollaborationReadModelController {
   }
 
   private async handleObserverSignal(signal: CollaborationObserverSignal): Promise<void> {
-    if (this.disposed) return;
+    if (
+      this.disposed ||
+      signal.type === "workspace.members.invalidated" ||
+      signal.type === "workspace.members.observer_error"
+    )
+      return;
     if (this.state.profileId && signal.profileId !== this.state.profileId) return;
     if (this.state.projectId && signal.projectId !== this.state.projectId) return;
 

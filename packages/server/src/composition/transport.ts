@@ -1,3 +1,4 @@
+import { attachWorkspaceMembersWebSocketServer } from "../workspaceMembersWs.js";
 import type { Server as HttpServer } from "node:http";
 import type { ServerConfig } from "../config.js";
 import type { startRemoteBlockCoordinationServer } from "../distributedCoordination.js";
@@ -108,6 +109,13 @@ export async function createTransportComposition(
     clock: input.clock
   });
   input.handles.humanObserverWebSockets = humanObserverWebSockets;
+  const workspaceMembersWebSockets = attachWorkspaceMembersWebSocketServer({
+    upgradeRouter,
+    workspaceIdentity: input.workspaceIdentity,
+    transportAdmission: input.transportAdmission,
+    allowedClientOrigins: input.config.allowedClientOrigins ?? undefined
+  });
+  input.handles.workspaceMembersWebSockets = workspaceMembersWebSockets;
   const canvasCollaboration = await createCanvasCollaborationComposition({
     database: input.database,
     upgradeRouter,
@@ -181,6 +189,7 @@ export async function createTransportComposition(
     requestListener,
     webSockets,
     humanObserverWebSockets,
+    workspaceMembersWebSockets,
     canvasPresenceWebSockets: canvasCollaboration.presenceWebSockets,
     canvasCommandWebSockets: canvasCollaboration.commandWebSockets,
     canvasLiveSyncWebSockets: canvasCollaboration.liveSyncWebSockets,

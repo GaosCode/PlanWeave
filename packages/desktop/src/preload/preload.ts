@@ -1,3 +1,7 @@
+import {
+  workspaceMembersInvalidatedSignalSchema,
+  workspaceMembersObserverErrorSignalSchema
+} from "../shared/collaborationReadModels.js";
 import { invokeDesktopCommand } from "./invokeDesktopCommand.js";
 import {
   cliInstallationSchema,
@@ -609,7 +613,13 @@ const collaborationApi: PlanWeaveCollaborationApi = {
   },
   onCollaborationObserverSignal: (callback) => {
     const listener = (_event: IpcRendererEvent, payload: CollaborationObserverSignal) =>
-      callback(payload);
+      callback(
+        payload.type === "workspace.members.invalidated"
+          ? workspaceMembersInvalidatedSignalSchema.parse(payload)
+          : payload.type === "workspace.members.observer_error"
+            ? workspaceMembersObserverErrorSignalSchema.parse(payload)
+            : payload
+      );
     ipcRenderer.on(collaborationObserverSignalChannel, listener);
     return () => ipcRenderer.off(collaborationObserverSignalChannel, listener);
   },

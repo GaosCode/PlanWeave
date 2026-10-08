@@ -103,6 +103,7 @@ function waitForWorkspaceRuntimeProjectionChange(input: {
     signal: input.signal,
     fallbackRefreshMs: input.fallbackRefreshMs ?? 1_000,
     matches: (signal) => {
+      if (!("projectId" in signal)) return false;
       if (signal.projectId !== input.binding.projectId) return false;
       if (signal.type === "human.observer.catchup_required") return true;
       return (
@@ -131,6 +132,7 @@ function waitForWorkspaceExecutionFollow(input: {
     signal: input.signal,
     fallbackRefreshMs: workspaceExecutionSuccessPollDelay(input.noProgressCount, input.pollingKey),
     matches: (signal) => {
+      if (!("projectId" in signal)) return false;
       if (!binding || signal.projectId !== binding.projectId) return false;
       if (signal.type === "human.observer.catchup_required") return true;
       if (signal.type !== "human.observer.event") return false;

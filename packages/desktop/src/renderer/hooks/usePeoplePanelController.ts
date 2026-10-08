@@ -112,6 +112,7 @@ export function usePeoplePanelController(
   const detailsGenerationRef = useRef(0);
   const detailsRequestRef = useRef<Promise<void> | null>(null);
   const detailsRequestKeyRef = useRef<string | null>(null);
+  const detailsRefreshQueuedRef = useRef(false);
   const sessionConnected = isCollaborationSessionConnected(args.status);
   const workspaceConnected = isWorkspaceConnectionConnected(args.status);
   const identityReady = workspaceConnected || sessionConnected;
@@ -231,6 +232,7 @@ export function usePeoplePanelController(
       detailsGenerationRef.current += 1;
       detailsRequestRef.current = null;
       detailsRequestKeyRef.current = null;
+      detailsRefreshQueuedRef.current = false;
       clearIdentityState();
       return Promise.resolve();
     }
@@ -242,6 +244,7 @@ export function usePeoplePanelController(
     const generation = detailsGenerationRef.current + 1;
     detailsGenerationRef.current = generation;
     detailsRequestKeyRef.current = requestKey;
+    detailsRefreshQueuedRef.current = false;
     setDetailsLoading(true);
     setDetailsError(null);
     const request = (async () => {
@@ -302,6 +305,10 @@ export function usePeoplePanelController(
       if (detailsRequestRef.current === request) {
         detailsRequestRef.current = null;
         detailsRequestKeyRef.current = null;
+        if (detailsRefreshQueuedRef.current && detailsGenerationRef.current === generation) {
+          detailsRefreshQueuedRef.current = false;
+          void refreshDetails();
+        }
       }
     });
     return request;
@@ -324,8 +331,78 @@ export function usePeoplePanelController(
       detailsGenerationRef.current += 1;
       detailsRequestRef.current = null;
       detailsRequestKeyRef.current = null;
+      detailsRefreshQueuedRef.current = false;
     };
   }, [args.detailsOpen, refreshDetails]);
+
+  useEffect(() => {
+    if (!args.detailsOpen || !workspaceConnected || !api?.onCollaborationObserverSignal) return;
+    const profile = args.status?.workspaceConnection.profile;
+    const workspaceId = args.status?.workspaceConnection.workspaceId;
+    if (!profile || !workspaceId) return;
+    let active = true;
+    const release = api.onCollaborationObserverSignal((signal) => {
+      if (
+        !active ||
+        (signal.type !== "workspace.members.invalidated" &&
+          signal.type !== "workspace.members.observer_error") ||
+        signal.profileId !== profile.profileId ||
+        signal.serverBaseUrl !== profile.serverBaseUrl ||
+        signal.workspaceId !== workspaceId
+      )
+        return;
+      if (signal.type === "workspace.members.observer_error") {
+        setDetailsError(formatError(new Error(signal.code)));
+        return;
+      }
+      if (detailsRequestRef.current) {
+        detailsRefreshQueuedRef.current = true;
+        return;
+      }
+      void refreshDetails();
+    });
+    return () => {
+      active = false;
+      release();
+    };
+  }, [
+    api,
+    args.detailsOpen,
+    args.status?.workspaceConnection.profile,
+    args.status?.workspaceConnection.workspaceId,
+    formatError,
+    refreshDetails,
+    workspaceConnected
+  ]);
+
+  const membershipKey = JSON.stringify(
+    args.members
+      .map(({ membershipId, humanPrincipalId, displayName, role }) => [
+        membershipId,
+        humanPrincipalId,
+        displayName,
+        role
+      ])
+      .sort((left, right) => left[0]!.localeCompare(right[0]!))
+  );
+  const observedMembershipRef = useRef<{ scope: string | null; key: string } | null>(null);
+  useEffect(() => {
+    const previous = observedMembershipRef.current;
+    observedMembershipRef.current = { scope: workspaceScope, key: membershipKey };
+    if (
+      !args.detailsOpen ||
+      !workspaceConnected ||
+      !previous ||
+      previous.scope !== workspaceScope ||
+      previous.key === membershipKey
+    )
+      return;
+    if (detailsRequestRef.current) {
+      detailsRefreshQueuedRef.current = true;
+      return;
+    }
+    void refreshDetails();
+  }, [args.detailsOpen, membershipKey, refreshDetails, workspaceConnected, workspaceScope]);
 
   const runAction = useCallback(
     async (

@@ -30,6 +30,7 @@ export async function drainCompositionTransports(input: {
   requestListener?: (request: IncomingMessage, response: ServerResponse) => void;
   webSockets?: AgentHostWebSocketServer;
   humanObserverWebSockets?: HumanObserverWebSocketServer;
+  workspaceMembersWebSockets?: { close(): Promise<void> };
   canvasPresenceWebSockets?: CanvasPresenceWebSocketServer;
   canvasCommandWebSockets?: CanvasCommandWebSocketServer;
   canvasLiveSyncWebSockets?: CanvasLiveSyncWebSocketServer;
@@ -42,6 +43,7 @@ export async function drainCompositionTransports(input: {
   for (const transport of [
     input.webSockets,
     input.humanObserverWebSockets,
+    input.workspaceMembersWebSockets,
     input.canvasPresenceWebSockets,
     input.canvasCommandWebSockets,
     input.canvasLiveSyncWebSockets

@@ -238,6 +238,7 @@ export class CollaborationService {
           options.workspaceProfileStorePaths ?? workspaceConnectionProfileStorePaths()
         ),
       exportedIdentityPath: options.exportedIdentityPath,
+      onObserverSignal: (signal) => this.publishObserverSignal(signal),
       vault: this.vault,
       request: options.request,
       clock: options.clock
@@ -1125,6 +1126,7 @@ export class CollaborationService {
   /** Abort live clients and clear process memory on app shutdown. Durable ciphertext is kept. */
   async shutdown(): Promise<void> {
     await this.enqueue(async () => {
+      this.workspaceConnection.stopMembersObserver();
       await this.disposeClient("shutdown");
       this.vault.clearSessionMemory();
       this.setSession("idle", "shutdown", null);

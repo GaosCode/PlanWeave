@@ -77,6 +77,7 @@ export type InvitationTransition = {
 export type HumanIdentityRepositoryOptions = {
   onMembershipTransitionInTransaction?: (transition: MembershipTransition) => void;
   onInvitationTransitionInTransaction?: (transition: InvitationTransition) => void;
+  onDisplayNameChangeAfterCommit?: (humanPrincipalId: string) => void;
   onAuthorizationChangeAfterCommit?: (change: AuthorizationChangeScope) => void;
 };
 
@@ -130,13 +131,15 @@ export class HumanIdentityRepository {
   }
 
   updateHumanDisplayName(humanPrincipalId: string, displayName: string): HumanPrincipal {
-    return inWriteTransaction(this.database, () => {
+    const principal = inWriteTransaction(this.database, () => {
       const principal = this.memberships.updatePrincipalDisplayName(humanPrincipalId, displayName);
       this.database
         .prepare("UPDATE workspace_principals SET display_name=? WHERE human_principal_id=?")
         .run(principal.displayName, principal.humanPrincipalId);
       return principal;
     });
+    this.options.onDisplayNameChangeAfterCommit?.(principal.humanPrincipalId);
+    return principal;
   }
 
   getInvitation(invitationId: string): ProjectInvitationMetadata | undefined {
