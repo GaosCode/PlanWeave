@@ -174,7 +174,10 @@ export function useAssigneePickerController(
       profileId: snapshot.profileId,
       projectId: snapshot.projectId,
       activeProfileId: activeProfile?.profileId,
-      activeProjectId: activeProfile?.projectId
+      activeProjectId: activeProfile?.projectId,
+      serverBaseUrl: activeProfile?.serverBaseUrl,
+      workspaceId: status?.workspaceConnection.workspaceId,
+      sessionProfileId: status?.session.activeProfileId
     }),
     [
       api,
@@ -185,7 +188,10 @@ export function useAssigneePickerController(
       snapshot.profileId,
       snapshot.projectId,
       activeProfile?.profileId,
-      activeProfile?.projectId
+      activeProfile?.projectId,
+      activeProfile?.serverBaseUrl,
+      status?.workspaceConnection.workspaceId,
+      status?.session.activeProfileId
     ]
   );
   const currentScopeRef = useRef<object | null>(null);
@@ -283,8 +289,8 @@ export function useAssigneePickerController(
     }
   }, [args.workItem, controller, detailsOpen, isCurrentScope, loadEligible, snapshot.syncPhase]);
 
-  const selectTarget = useCallback(
-    async (target: AssignmentTarget): Promise<boolean> => {
+  const performSelection = useCallback(
+    async (target: AssignmentTarget, refreshBeforeSelection = false): Promise<boolean> => {
       if (!api || !args.workItem || !controller || !sessionConnected || !isCurrentScope())
         return false;
       if (pendingRef.current) return false;
@@ -302,12 +308,6 @@ export function useAssigneePickerController(
         return false;
       }
 
-      const current = assignment;
-      const expectedRevision = current?.revision ?? 0;
-      if (current && targetsEqual(current.target, target)) {
-        return true;
-      }
-
       pendingRef.current = true;
       setPending(true);
       setLastAttemptedTarget(target);
@@ -318,6 +318,25 @@ export function useAssigneePickerController(
       const workItem = args.workItem;
 
       try {
+        if (refreshBeforeSelection) {
+          await refresh();
+          if (!isCurrentRequest()) return false;
+        }
+        const latestSnapshot = controller.getSnapshot();
+        if (
+          latestSnapshot.profileId !== snapshot.profileId ||
+          latestSnapshot.projectId !== snapshot.projectId
+        )
+          return false;
+        const current = assignmentProjectionFromAuthority({
+          workItem,
+          projectId,
+          authority: latestSnapshot.workAuthorityByWorkItem[workItemKey(workItem)],
+          role: authorityRole
+        });
+        if (!current) throw new Error("assignment_authority_unavailable");
+        if (targetsEqual(current.target, target)) return true;
+        const expectedRevision = current.revision;
         let result: { revision?: number } | null;
         if (authorityRole === "responsibility") {
           result = await controller.updateResponsibility({
@@ -389,23 +408,28 @@ export function useAssigneePickerController(
     [
       api,
       args.workItem,
-      assignment,
       authorityRole,
       controller,
       detailsOpen,
       labels.taskDisallowsMachine,
       loadEligible,
+      projectId,
+      refresh,
+      snapshot.profileId,
+      snapshot.projectId,
       isCurrentScope,
       sessionConnected
     ]
   );
 
+  const selectTarget = useCallback(
+    (target: AssignmentTarget) => performSelection(target),
+    [performSelection]
+  );
   const retryLastTarget = useCallback(async () => {
     if (!lastAttemptedTarget || !isCurrentScope()) return false;
-    await refresh();
-    if (!isCurrentScope()) return false;
-    return selectTarget(lastAttemptedTarget);
-  }, [isCurrentScope, lastAttemptedTarget, refresh, selectTarget]);
+    return performSelection(lastAttemptedTarget, true);
+  }, [isCurrentScope, lastAttemptedTarget, performSelection]);
 
   const pickerViewModel = useMemo((): AssigneePickerViewModel | null => {
     if (!args.workItem) return null;

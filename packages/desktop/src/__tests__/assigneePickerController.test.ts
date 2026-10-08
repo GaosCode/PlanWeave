@@ -209,6 +209,20 @@ function createApi() {
     listEligibleAssignees,
     dispatchRemoteOperation,
     getWorkAuthority,
+    changeConnection: (kind: "workspace" | "server") => {
+      status = {
+        ...status,
+        profiles: status.profiles.map((profile) => ({
+          ...profile,
+          ...(kind === "server" ? { serverBaseUrl: "https://other.test" } : {})
+        })),
+        workspaceConnection: {
+          ...status.workspaceConnection,
+          ...(kind === "workspace" ? { workspaceId: "workspace-B" } : {})
+        }
+      };
+      for (const listener of statusListeners) listener(status);
+    },
     changeStatus: (projectId: string | null, profileId = "profile-1") => {
       status = connectedStatus();
       if (projectId === null) {
@@ -329,14 +343,22 @@ async function scopedPicker(role: (typeof roles)[number]) {
     canvasId: "canvas-1"
   });
   const onOutcome = vi.fn();
-  const hook = renderHook(() =>
-    useAssigneePickerController({
-      api: fixture.api,
-      workItem: taskItem,
-      authorityRole: role,
-      detailsOpen: true,
-      onAssignmentOutcome: onOutcome
-    })
+  const hook = renderHook(
+    ({
+      workItem,
+      authorityRole
+    }: {
+      workItem: WorkItemRef;
+      authorityRole: (typeof roles)[number];
+    }) =>
+      useAssigneePickerController({
+        api: fixture.api,
+        workItem,
+        authorityRole,
+        detailsOpen: true,
+        onAssignmentOutcome: onOutcome
+      }),
+    { initialProps: { workItem: taskItem, authorityRole: role } }
   );
   await waitFor(() => expect(hook.result.current.authority).not.toBeNull());
   await waitFor(() => expect(hook.result.current.viewModel?.mode).not.toBe("loading"));
@@ -516,6 +538,230 @@ describe("assignee picker original mutation scope", () => {
         expect.objectContaining({ ok: outcome === "success" })
       );
       if (outcome !== "success") expect(f.result.current.viewModel?.lastError).toBeTruthy();
+      f.unmount();
+      f.shell.release();
+    });
+  }
+});
+
+describe("assignee picker explicit retry authority", () => {
+  for (const role of roles) {
+    it.each([
+      "success",
+      "same target",
+      "second conflict",
+      "refresh failure"
+    ])(`${role}: retries with latest role authority (%s)`, async (scenario) => {
+      const f = await scopedPicker(role);
+      let authority = { ...f.result.current.authority! };
+      const other = role === "responsibility" ? "reviewer" : "responsibility";
+      authority = {
+        ...authority,
+        [role]: { ...authority[role], revision: 2 },
+        [other]: { ...authority[other], revision: 17 }
+      };
+      f.getWorkAuthority.mockImplementation(async () => authority);
+      await act(async () => {
+        await f.result.current.refresh();
+      });
+      const payloads: number[] = [];
+      f.mutation.mockImplementation(async (input) => {
+        payloads.push(input.expectedRevision);
+        if (input.expectedRevision !== authority[role].revision)
+          throw {
+            kind: "conflict",
+            code: "revision_conflict",
+            message: "Conflict",
+            retryable: true
+          };
+        authority = {
+          ...authority,
+          [role]: {
+            ...authority[role],
+            revision: input.expectedRevision + 1,
+            principal: input.principal,
+            availability: "active"
+          }
+        };
+        return authority[role];
+      });
+      authority = { ...authority, [role]: { ...authority[role], revision: 3 } };
+      await act(async () => {
+        expect(await f.result.current.selectTarget(chosenTarget)).toBe(false);
+      });
+      // Retain the revision=2 render and its retry callback while refreshing to 3.
+      authority = { ...authority, [role]: { ...authority[role], revision: 2 } };
+      await act(async () => {
+        await f.result.current.refresh();
+      });
+      const retry = f.result.current.retryLastTarget;
+      authority = {
+        ...authority,
+        [role]: {
+          ...authority[role],
+          revision: 3,
+          principal:
+            scenario === "same target" ? { kind: "human", humanPrincipalId: "human-new" } : null
+        }
+      };
+      const gate = deferred<typeof authority>();
+      f.getWorkAuthority.mockImplementationOnce(() => gate.promise);
+      if (scenario === "second conflict") {
+        f.mutation.mockImplementationOnce(async (input) => {
+          payloads.push(input.expectedRevision);
+          authority = { ...authority, [role]: { ...authority[role], revision: 4 } };
+          throw {
+            kind: "conflict",
+            code: "revision_conflict",
+            message: "Conflict",
+            retryable: true
+          };
+        });
+      }
+      let pending!: Promise<boolean>;
+      act(() => {
+        pending = retry();
+      });
+      await act(async () => {
+        if (scenario === "refresh failure") gate.reject(new Error("refresh failed"));
+        else gate.resolve(authority);
+        expect(await pending).toBe(scenario === "success" || scenario === "same target");
+      });
+      expect(payloads).toEqual(
+        scenario === "success" || scenario === "second conflict" ? [2, 3] : [2]
+      );
+      expect(f.result.current.authority?.[role].revision).toBe(
+        scenario === "success" || scenario === "second conflict"
+          ? 4
+          : scenario === "refresh failure"
+            ? 2
+            : 3
+      );
+      expect(f.result.current.authority?.[other].revision).toBe(17);
+      if (scenario === "second conflict" || scenario === "refresh failure")
+        expect(f.result.current.viewModel?.lastError).toBeTruthy();
+      f.unmount();
+      f.shell.release();
+    });
+  }
+});
+
+describe("assignee picker retry lifecycle", () => {
+  for (const role of roles) {
+    it(`${role}: rejects selection before authority loads instead of submitting revision zero`, async () => {
+      const f = createApi();
+      const initialAuthority = await f.getWorkAuthority({ workItem: taskItem });
+      const gate = deferred<typeof initialAuthority>();
+      f.getWorkAuthority.mockImplementation(() => gate.promise);
+      const shell = acquireCollaborationReadModelController(f.api);
+      await shell.controller.setActiveProject({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      });
+      const hook = renderHook(() =>
+        useAssigneePickerController({ api: f.api, workItem: taskItem, authorityRole: role })
+      );
+      await waitFor(() => expect(hook.result.current.viewModel).not.toBeNull());
+      await act(async () => {
+        expect(await hook.result.current.selectTarget(chosenTarget)).toBe(false);
+      });
+      expect(f.updateResponsibility).not.toHaveBeenCalled();
+      expect(f.api.updateCollaborationReviewer).not.toHaveBeenCalled();
+      expect(hook.result.current.authority).toBeNull();
+      expect(hook.result.current.viewModel?.lastError).toBe("assignment_authority_unavailable");
+      await act(async () => {
+        gate.resolve(initialAuthority);
+      });
+      hook.unmount();
+      shell.release();
+    });
+    it.each([
+      "project",
+      "profile",
+      "workspace",
+      "server",
+      "workItem",
+      "role",
+      "disconnect"
+    ] as const)(`${role}: does not write after retry refresh crosses %s`, async (scope) => {
+      const f = await scopedPicker(role);
+      f.mutation.mockRejectedValueOnce({
+        kind: "conflict",
+        code: "revision_conflict",
+        message: "Conflict",
+        retryable: true
+      });
+      await act(async () => {
+        expect(await f.result.current.selectTarget(chosenTarget)).toBe(false);
+      });
+      const oldAuthority = f.result.current.authority!;
+      const gate = deferred<typeof oldAuthority>();
+      f.getWorkAuthority.mockImplementationOnce(() => gate.promise);
+      const retry = f.result.current.retryLastTarget;
+      let pending!: Promise<boolean>;
+      act(() => {
+        pending = retry();
+      });
+      if (scope === "project") await f.transition("project-B");
+      if (scope === "profile") await f.transition("project-1", "profile-B");
+      if (scope === "disconnect") await f.transition(null);
+      if (scope === "workspace" || scope === "server")
+        act(() => {
+          f.changeConnection(scope);
+        });
+      if (scope === "workItem") f.rerender({ workItem: blockItem, authorityRole: role });
+      if (scope === "role")
+        f.rerender({
+          workItem: taskItem,
+          authorityRole: role === "responsibility" ? "reviewer" : "responsibility"
+        });
+      f.onOutcome.mockClear();
+      await act(async () => {
+        gate.resolve(oldAuthority);
+        expect(await pending).toBe(false);
+      });
+      expect(f.mutation).toHaveBeenCalledTimes(1);
+      expect(f.onOutcome).not.toHaveBeenCalled();
+      expect(f.result.current.viewModel?.pending).toBe(false);
+      f.unmount();
+      f.shell.release();
+    });
+
+    it(`${role}: reserves pending across retry refresh and releases it for the next operation`, async () => {
+      const f = await scopedPicker(role);
+      f.mutation.mockRejectedValueOnce({
+        kind: "conflict",
+        code: "revision_conflict",
+        message: "Conflict",
+        retryable: true
+      });
+      await act(async () => {
+        await f.result.current.selectTarget(chosenTarget);
+      });
+      const gate = deferred<NonNullable<typeof f.result.current.authority>>();
+      f.getWorkAuthority.mockImplementationOnce(() => gate.promise);
+      f.mutation.mockResolvedValue(f.success);
+      const retry = f.result.current.retryLastTarget;
+      let pending!: Promise<boolean>;
+      act(() => {
+        pending = retry();
+      });
+      await act(async () => {
+        expect(await retry()).toBe(false);
+        expect(await f.result.current.selectTarget(chosenTarget)).toBe(false);
+      });
+      expect(f.result.current.viewModel?.pending).toBe(true);
+      await act(async () => {
+        gate.resolve(f.result.current.authority!);
+        expect(await pending).toBe(true);
+      });
+      expect(f.mutation).toHaveBeenCalledTimes(2);
+      expect(f.result.current.viewModel?.pending).toBe(false);
+      await act(async () => {
+        expect(await f.result.current.selectTarget(chosenTarget)).toBe(true);
+      });
+      expect(f.mutation).toHaveBeenCalledTimes(3);
       f.unmount();
       f.shell.release();
     });
