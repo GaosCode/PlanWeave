@@ -23,6 +23,10 @@ export const implementationRunMetadataSchema = z
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
     submissionAttemptId: z.string().min(1).optional(),
+    preparedContentRevision: z
+      .string()
+      .regex(/^snapshot:[a-f0-9]{64}$/)
+      .optional(),
     executionAdmittedAt: z.string().min(1).nullable().optional(),
     submittedAt: z.string().min(1).optional(),
     startedAt: z.union([z.string().min(1), z.null()]).optional(),

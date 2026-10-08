@@ -405,6 +405,11 @@ export async function prepareBlockRun(options: {
           `Prepared run '${existingRunId}' identity conflicts with executor preparation.`
         );
       }
+      if (metadata.preparedContentRevision !== options.executionSnapshot?.contentRevision) {
+        throw new ExecutorClaimRejectedError(
+          `Prepared run '${existingRunId}' content conflicts with executor preparation; reclaim before starting a new execution.`
+        );
+      }
       if (
         options.adapter !== "manual" &&
         (metadata.executionAdmittedAt !== null || metadata.command !== undefined)
@@ -437,6 +442,9 @@ export async function prepareBlockRun(options: {
       await writeJsonFile(metadataPath, {
         runId,
         ...(submissionAttemptId !== undefined ? { submissionAttemptId } : {}),
+        ...(options.executionSnapshot
+          ? { preparedContentRevision: options.executionSnapshot.contentRevision }
+          : {}),
         ...(options.adapter !== "manual" ? { executionAdmittedAt: null } : {}),
         ref: options.claim.ref,
         taskId,

@@ -6,6 +6,7 @@ import type { CapturedPackageSnapshot } from "./packageSnapshot.js";
 /** Private execution read model; state/results continue to use the canonical workspace. */
 export type PackageExecutionSnapshot = {
   workspace: ProjectWorkspace;
+  contentRevision: CapturedPackageSnapshot["sourceRevision"];
   manifest: PlanPackageManifest;
   graph: CompiledExecutionGraph;
   promptMarkdownByPath: ReadonlyMap<string, string>;
@@ -20,6 +21,7 @@ export function packageExecutionSnapshot(
   const manifest = manifestSchema.parse(JSON.parse(manifestFile.content));
   return {
     workspace,
+    contentRevision: snapshot.sourceRevision,
     manifest,
     graph: compileTaskGraph(manifest),
     promptMarkdownByPath: new Map(

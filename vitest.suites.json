@@ -753,6 +753,7 @@
         "workspaceExecutionCoordinatorObserve.test.ts",
         "workspaceExecutionInteractionCheckpoint.test.ts",
         "packageSnapshotConsumers.test.ts",
+        "preparedManualRunContentIdentity.test.ts",
         "packageSnapshotProcessConsistency.test.ts"
       ],
       "platform": [
