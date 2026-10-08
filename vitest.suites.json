@@ -994,6 +994,7 @@
         "canvasOperationRetentionMigration.test.ts",
         "commentActivityHttp.test.ts",
         "commentActivityPersistence.test.ts",
+        "commentAttachmentDownloadHttp.test.ts",
         "commentAttachmentHttp.test.ts",
         "commentAttachmentLifecycle.test.ts",
         "commentAttachmentLifecycleProcess.test.ts",

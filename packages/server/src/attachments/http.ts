@@ -1,3 +1,4 @@
+import { attachmentContentDisposition } from "./downloadHeaders.js";
 import { releaseHttpDownloadSource, transferHttpDownload } from "../httpDownloadTransfer.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
@@ -149,24 +150,16 @@ function safeDownloadHeaders(input: {
   fileName?: string;
   digestSha256: string;
 }): Record<string, string | number> {
-  const dispositionName = sanitizeContentDispositionFileName(input.fileName);
   return {
     "content-type": input.mediaType,
     "content-length": input.sizeBytes,
-    "content-disposition": `attachment; filename="${dispositionName}"`,
+    "content-disposition": attachmentContentDisposition(input.fileName),
     "x-content-type-options": "nosniff",
     "content-security-policy": "default-src 'none'; sandbox",
     "x-frame-options": "DENY",
     "cache-control": "private, no-store",
     etag: `"sha256:${input.digestSha256}"`
   };
-}
-
-function sanitizeContentDispositionFileName(fileName: string | undefined): string {
-  if (!fileName) return "attachment";
-  // RFC 5987-ish fallback: strip quotes/control and path separators.
-  const cleaned = fileName.replace(/["\\\r\n]/g, "_").replace(/[\\/]/g, "_");
-  return cleaned.length > 0 ? cleaned.slice(0, 255) : "attachment";
 }
 
 async function readJson(request: IncomingMessage, maxBytes: number): Promise<unknown> {
