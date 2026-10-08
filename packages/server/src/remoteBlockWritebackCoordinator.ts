@@ -8,6 +8,7 @@ import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js"
 import type { HostCapacityReservation } from "./hostReservations.js";
 import { HostReservationRepository } from "./hostReservations.js";
 import { remoteBlockIdentity } from "./remoteBlockIdentity.js";
+import { withRemoteRuntimeLease } from "./remoteRuntimeLeaseCleanup.js";
 import type {
   RemoteArtifactContentPort,
   RemoteCoordinatorCheckpoint,
@@ -51,11 +52,9 @@ export class RemoteBlockWritebackCoordinator {
     }
     const operation = this.options.operations.getRequired(operationId);
     const lease = await this.acquireAttemptRuntime(operation);
-    try {
-      await this.completeWithLease(operationId, lease);
-    } finally {
-      await lease.release();
-    }
+    await withRemoteRuntimeLease(this.options.operations, operationId, lease, () =>
+      this.completeWithLease(operationId, lease)
+    );
   }
 
   async fail(operationId: string, existingLease?: CanvasExecutionRuntimeLease): Promise<void> {
@@ -65,11 +64,9 @@ export class RemoteBlockWritebackCoordinator {
     }
     const operation = this.options.operations.getRequired(operationId);
     const lease = await this.acquireAttemptRuntime(operation);
-    try {
-      await this.failWithLease(operationId, lease);
-    } finally {
-      await lease.release();
-    }
+    await withRemoteRuntimeLease(this.options.operations, operationId, lease, () =>
+      this.failWithLease(operationId, lease)
+    );
   }
 
   async sealOperationLocalFailure(
@@ -88,11 +85,9 @@ export class RemoteBlockWritebackCoordinator {
         await this.sealRejectedWriteback(current, error, existingLease.runtime);
       } else {
         const runtimeLease = await this.acquireAttemptRuntime(current);
-        try {
-          await this.sealRejectedWriteback(current, error, runtimeLease.runtime);
-        } finally {
-          await runtimeLease.release();
-        }
+        await withRemoteRuntimeLease(this.options.operations, current.id, runtimeLease, () =>
+          this.sealRejectedWriteback(current, error, runtimeLease.runtime)
+        );
       }
       return {
         operation: this.options.operations.getRequired(current.id),

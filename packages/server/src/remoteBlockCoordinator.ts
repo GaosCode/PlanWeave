@@ -592,6 +592,15 @@ export class RemoteBlockCoordinator {
       } catch (error) {
         const decision = classifyReenterFailure(error);
         if (decision === "fatal") throw error;
+        const current = this.options.operations.getRequired(operation.id);
+        if (
+          current.state === "completed" ||
+          current.state === "failed" ||
+          current.state === "cancelled"
+        ) {
+          outcomes.push({ operation: current, status: "terminal" });
+          continue;
+        }
         const diagnostic = diagnosticFromReenterFailure(error);
         this.options.operations.recordDiagnostic(operation.id, diagnostic.code, diagnostic.message);
         if (decision === "defer_host") {

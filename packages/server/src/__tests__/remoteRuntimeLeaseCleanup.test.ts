@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import {
   CANVAS_RUNTIME_CAPABILITY,
@@ -6,11 +6,19 @@ import {
   canvasRuntimeResponseEventSchema
 } from "@planweave-ai/agent-host-protocol";
 import {
+  RemoteOwnershipConflictError,
   remoteBlockInspectInputSchema,
   remoteBlockClaimInputSchema,
   remoteBlockOperationQuerySchema,
   remoteBlockRefIdentitySchema
 } from "@planweave-ai/runtime";
+import { RemoteBlockWritebackCoordinator } from "../remoteBlockWritebackCoordinator.js";
+import {
+  SqliteRemoteDispatchPersistence,
+  SqliteRemoteOperationCandidateRepository
+} from "../remoteCoordinatorPersistence.js";
+import { classifyReenterFailure } from "../remoteReenterRecovery.js";
+import { CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
 import { RemoteHostCanvasRuntimeAdapter } from "../canvas/remoteHostRuntimeAdapter.js";
 import { CanvasRuntimeHostLocator } from "../canvas/runtimeHostLocator.js";
@@ -24,7 +32,12 @@ import { snapshotDispatchEndpoint } from "../remoteBlockCoordinatorEndpoint.js";
 import { runtimeAuthoritySnapshotForTarget } from "../endpointSelection.js";
 import { ownHostRemoteAgents } from "./support/remoteAgentOwnerFixture.js";
 import { seedLegacyRemoteOperation } from "./support/legacyRemoteOperationSeed.js";
-import { setup, remoteManifest } from "./support/remoteBlockCoordinatorFixture.js";
+import {
+  setup,
+  remoteManifest,
+  setupFleetUnboundHost,
+  completeDispatchToTerminal
+} from "./support/remoteBlockCoordinatorFixture.js";
 
 describe("Remote runtime lease cleanup at the broker boundary", () => {
   it.each([
@@ -368,5 +381,279 @@ describe("Remote runtime lease cleanup at the broker boundary", () => {
       for (const unsubscribe of subscriptions) unsubscribe();
       broker.close();
     }
+  });
+});
+
+describe("Remote runtime lease owners after terminal or fatal mutation", () => {
+  it.each([
+    true,
+    false
+  ])("continues batch activation after a terminal reset with release failure=%s", async (failRelease) => {
+    const fixture = await setupFleetUnboundHost(remoteManifest(true));
+    if (!fixture.host) throw new Error("cleanup_host_missing");
+    const hostId = fixture.host.id;
+    const runtime = fixture.registry.resolve(fixture.locator);
+    const release = vi.fn();
+    const activation = vi.fn(runtime.activate.bind(runtime));
+    const acquire = async () => {
+      const lease = await fixture.registry.acquire(fixture.locator);
+      let terminalReset = false;
+      return {
+        ...lease,
+        runtime: {
+          ...lease.runtime,
+          activate: activation,
+          reconcile: async (input: Parameters<typeof runtime.reconcile>[0]) => {
+            if (input.ref === "T-001#B-001") {
+              terminalReset = true;
+              throw new RemoteOwnershipConflictError(
+                "remote_ownership_not_active",
+                "Runtime reset removed ownership."
+              );
+            }
+            return runtime.reconcile(input);
+          }
+        },
+        release: async () => {
+          release(terminalReset);
+          await lease.release();
+          if (terminalReset && failRelease)
+            throw new CanvasRuntimeRpcError("canvas_runtime_rpc_deadline_exceeded", true, false);
+        }
+      };
+    };
+    const coordination = createRemoteBlockCoordination(
+      fixture.server.database,
+      {
+        leaseDurationMs: 60_000,
+        hostOfflineAfterMs: 60_000,
+        runtimeLeases: { acquire, acquireForHost: acquire },
+        inputArtifacts: { materialize: fixture.materialize },
+        artifactContent: { readReport: async (ref) => fixture.artifacts.read(ref) },
+        ownerEndpointScopeAuthorized: () => true
+      },
+      { serverInstanceOwnerToken: fixture.server.serverInstanceOwnerToken }
+    );
+    const candidateA = await runtime.inspect({ ref: "T-001#B-001" });
+    const first = coordination.operations.markClaimed(
+      seedLegacyRemoteOperation({
+        database: fixture.server.database,
+        operations: coordination.operations,
+        locator: fixture.locator,
+        candidate: candidateA,
+        idempotencyKey: "terminal-cleanup-batch-a",
+        agentAccess: {
+          callerHumanPrincipalId: fixture.callerHumanPrincipalId,
+          authorized: {
+            remoteAgent: {
+              endpointId: "test-reset-endpoint",
+              hostId,
+              profileId: "codex-acp",
+              agentId: "codex"
+            },
+            runtimeAuthority: { kind: "owner_canvas" },
+            agentAccessAuthority: {
+              kind: "agent_owner",
+              ownerHumanPrincipalId: fixture.callerHumanPrincipalId,
+              policyRevision: 1
+            },
+            resolvedAt: new Date().toISOString()
+          }
+        }
+      }).id
+    );
+    const candidateB = await runtime.inspect({ ref: "T-002#B-001" });
+    const second = seedLegacyRemoteOperation({
+      database: fixture.server.database,
+      operations: coordination.operations,
+      locator: fixture.locator,
+      candidate: candidateB,
+      idempotencyKey: "terminal-cleanup-batch-b",
+      endpointSelection: snapshotDispatchEndpoint(
+        coordination.agentEndpoints.resolveForRun(
+          endpointIdFor({ hostId, profileId: "codex-acp", agentId: "codex" }),
+          fixture.locator.workspaceId,
+          candidateB.requiredCapabilities,
+          { kind: "owner_fleet" }
+        ),
+        candidateB,
+        runtimeAuthoritySnapshotForTarget(
+          { kind: "owner_canvas" },
+          { responsibilityRevision: 0, reviewerRevision: 0, executionTargetRevision: 0 }
+        )
+      )
+    });
+    const outcomes = await coordination.coordinator.reenterPending();
+    expect(outcomes.map((outcome) => [outcome.operation.id, outcome.status])).toEqual([
+      [first.id, "terminal"],
+      [second.id, "activated"]
+    ]);
+    expect(coordination.operations.getRequired(first.id)).toMatchObject({
+      state: "cancelled",
+      executionAttemptId: first.executionAttemptId,
+      dispatchId: first.dispatchId
+    });
+    expect(coordination.operations.getRequired(second.id)).toMatchObject({
+      state: "activated",
+      executionAttemptId: second.executionAttemptId,
+      dispatchId: second.dispatchId
+    });
+    expect(
+      (await runtime.query({ ref: second.blockRef, operationId: second.id })).ownership
+    ).toMatchObject({
+      phase: "active",
+      operationId: second.id,
+      executionAttemptId: second.executionAttemptId,
+      dispatchId: second.dispatchId
+    });
+    expect(activation).toHaveBeenCalledTimes(1);
+    expect(release.mock.calls.filter(([reset]) => reset)).toHaveLength(1);
+    expect(
+      coordination.mailbox
+        .listAfter(hostId, 0)
+        .filter((message) => message.command.type === "execute_block")
+    ).toHaveLength(1);
+    if (failRelease) {
+      expect(coordination.operations.latestDiagnostic(first.id)?.error).toEqual({
+        code: "canvas_runtime_rpc_deadline_exceeded",
+        retryable: true
+      });
+      expect(
+        fixture.server.database
+          .prepare("SELECT diagnostic_message FROM remote_operations WHERE id=?")
+          .get(first.id)
+      ).toMatchObject({
+        diagnostic_message: expect.stringContaining("Runtime lease release failed")
+      });
+    }
+    await completeDispatchToTerminal({ ...fixture, ...coordination }, outcomes[1]!);
+    expect(coordination.operations.getRequired(second.id)).toMatchObject({
+      state: "completed",
+      executionAttemptId: second.executionAttemptId,
+      dispatchId: second.dispatchId
+    });
+    expect(coordination.dispatches.getRequired(second.dispatchId).status).toBe("completed");
+    await coordination.coordinator.reenterPending();
+    expect(activation).toHaveBeenCalledTimes(1);
+    expect(release.mock.calls.filter(([reset]) => reset)).toHaveLength(1);
+  });
+
+  it.each(
+    (["complete", "fail", "sealRejected"] as const).flatMap((kind) =>
+      (["cleanup_failure", "cleanup_success", "existing_lease"] as const).map((ownership) => ({
+        kind,
+        ownership
+      }))
+    )
+  )("preserves fatal primary error and release ownership for $kind / $ownership", async ({
+    kind,
+    ownership
+  }) => {
+    const fixture = await setup(true);
+    const endpoint = fixture.agentEndpoints.listVisibleFleet().items[0];
+    if (!endpoint) throw new Error("cleanup_endpoint_missing");
+    const outcome = await fixture.coordinator.dispatch({
+      ...fixture.dispatchLocator,
+      blockRef: "T-001#B-001",
+      idempotencyKey: `fatal-${kind}-${ownership}`,
+      agentEndpointId: endpoint.endpointId,
+      expectedResponsibilityRevision: 0,
+      expectedReviewerRevision: 0,
+      executionTargetRevision: 0,
+      targetKind: "owner_canvas",
+      callerHumanPrincipalId: fixture.callerHumanPrincipalId
+    });
+    const operation = outcome.operation;
+    const primary = new CanvasRuntimeRpcError("canvas_runtime_protocol_error", false, false);
+    const cleanup = new CanvasRuntimeRpcError("canvas_runtime_rpc_deadline_exceeded", true, false);
+    const mutation = vi.fn(async () => {
+      throw primary;
+    });
+    const release = vi.fn(async () => {
+      if (ownership === "cleanup_failure") throw cleanup;
+    });
+    const lease = await fixture.registry.acquire(fixture.locator);
+    const injected = {
+      ...lease,
+      runtime: { ...lease.runtime, complete: mutation, fail: mutation },
+      release
+    };
+    const acquire = vi.fn(async () => injected);
+    const persistence = new SqliteRemoteDispatchPersistence(fixture.server.database);
+    const failure = {
+      code: "execution_cancelled",
+      message: "Cancel the attempt.",
+      retryable: false
+    };
+    fixture.server.database
+      .prepare(
+        "UPDATE dispatches SET status='awaiting_writeback',result_json=?,failure_json=? WHERE id=?"
+      )
+      .run(
+        kind === "fail"
+          ? null
+          : JSON.stringify({
+              summary: "Completed.",
+              reportArtifactRef: `artifact:sha256:${"a".repeat(64)}`,
+              artifactRefs: []
+            }),
+        kind === "fail" ? JSON.stringify(failure) : null,
+        operation.dispatchId
+      );
+    const coordinator = new RemoteBlockWritebackCoordinator({
+      operations: fixture.operations,
+      reservations: fixture.reservations,
+      candidates: new SqliteRemoteOperationCandidateRepository(fixture.server.database),
+      runtimeLeases: { acquire, acquireForHost: acquire },
+      dispatches: persistence,
+      artifactContent: { readReport: async () => new Uint8Array([1]) },
+      checkpoint: async () => {},
+      authorizeActiveWriteback: () => {}
+    });
+    const existingLease = ownership === "existing_lease" ? injected : undefined;
+    const result =
+      kind === "sealRejected"
+        ? coordinator.sealOperationLocalFailure(
+            operation,
+            new Error("remote_source_changed"),
+            existingLease
+          )
+        : coordinator[kind](operation.id, existingLease);
+    await expect(result).rejects.toBe(primary);
+    expect(classifyReenterFailure(primary)).toBe("fatal");
+    expect(mutation).toHaveBeenCalledTimes(1);
+    expect(acquire).toHaveBeenCalledTimes(existingLease ? 0 : 1);
+    expect(release).toHaveBeenCalledTimes(existingLease ? 0 : 1);
+    expect(fixture.operations.getRequired(operation.id)).toMatchObject({
+      state: "activated",
+      executionAttemptId: operation.executionAttemptId,
+      dispatchId: operation.dispatchId
+    });
+    expect(persistence.inspect(operation).dispatch?.status).toBe("awaiting_writeback");
+    if (ownership === "cleanup_failure") {
+      expect(fixture.operations.latestDiagnostic(operation.id)?.error).toEqual({
+        code: "protocol_error",
+        retryable: false
+      });
+      const rows = fixture.server.database
+        .prepare(
+          "SELECT error_code FROM remote_operation_diagnostics WHERE operation_id=? AND error_code IS NOT NULL ORDER BY sequence"
+        )
+        .all(operation.id);
+      expect(rows).toContainEqual({ error_code: "canvas_runtime_rpc_deadline_exceeded" });
+      expect(rows).toContainEqual({ error_code: "protocol_error" });
+      expect(
+        fixture.server.database
+          .prepare("SELECT diagnostic_message FROM remote_operations WHERE id=?")
+          .get(operation.id)
+      ).toMatchObject({
+        diagnostic_message: expect.stringContaining("Runtime lease release failed")
+      });
+    }
+    if (existingLease) {
+      await existingLease.release();
+      expect(release).toHaveBeenCalledTimes(1);
+    }
+    await lease.release();
   });
 });
