@@ -599,6 +599,7 @@
         "acpProfileStore.test.ts",
         "acpRunnerClaimRouting.test.ts",
         "acpRunnerLifecycle.test.ts",
+        "acpPreparedContentRevisionLifecycle.test.ts",
         "advisoryDirectoryLock.test.ts",
         "agentProcessEnvironmentIsolation.test.ts",
         "agentRunControlClient.test.ts",

@@ -23,6 +23,7 @@ export type PreparedAcpRun = {
     adapter: "agent";
     submissionAttemptId?: string;
     executionAdmittedAt: string;
+    preparedContentRevision?: string;
   };
 };
 
@@ -50,6 +51,9 @@ export async function prepareAcpBlockRun(input: {
       implementationIdentity: {
         adapter: "agent",
         executionAdmittedAt: run.executionAdmittedAt,
+        ...(input.executionSnapshot
+          ? { preparedContentRevision: input.executionSnapshot.contentRevision }
+          : {}),
         ...(input.claim.submissionAttemptId
           ? { submissionAttemptId: input.claim.submissionAttemptId }
           : {})
