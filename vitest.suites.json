@@ -858,6 +858,7 @@
         "agentHostTerminalCompaction.test.ts",
         "agentHostPortableSetup.test.ts",
         "agentHostRecovery.test.ts",
+        "agentHostSessionCapabilities.test.ts",
         "agentHostRenewalShutdown.test.ts",
         "agentHostState.test.ts",
         "backgroundServices.test.ts",

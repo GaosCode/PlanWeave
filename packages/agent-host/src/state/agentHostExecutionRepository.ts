@@ -302,14 +302,31 @@ export class AgentHostExecutionRepository {
     }
     const current = this.requireEvidence(sequence);
     if (current.acpSessionId) {
+      // Required and optional express the operation's gate, not the agent's stable capabilities.
+      // Capability identity uses unique members; the producer's order remains in stored evidence.
+      const [currentCapabilities, incomingCapabilities] = [
+        current.acpCapabilitySnapshot,
+        parsed.capabilitySnapshot
+      ].map((snapshot) =>
+        snapshot === undefined
+          ? undefined
+          : JSON.stringify({
+              ...snapshot,
+              required: [],
+              optional: [],
+              available: [...snapshot.available].sort(),
+              negotiated: [...snapshot.negotiated].sort(),
+              missing: [...snapshot.missing].sort()
+            })
+      );
       if (
         current.acpSessionId !== parsed.sessionId ||
-        JSON.stringify(current.acpCapabilitySnapshot) !== capabilitySnapshotJson ||
+        currentCapabilities !== incomingCapabilities ||
         current.recoveryId !== parsed.recoveryId
       ) {
         throw new Error("execution_session_identity_conflict");
       }
-      return current;
+      if (JSON.stringify(current.acpCapabilitySnapshot) === capabilitySnapshotJson) return current;
     }
     if (!new Set(["preparing", "running", "interaction_wait"]).has(current.status)) {
       throw new Error("execution_session_state_invalid");
@@ -318,7 +335,7 @@ export class AgentHostExecutionRepository {
       .prepare(
         `UPDATE agent_host_executions
          SET acp_session_id=?,acp_capabilities_json=?,recovery_id=?
-         WHERE inbox_sequence=? AND acp_session_id IS NULL`
+         WHERE inbox_sequence=?`
       )
       .run(parsed.sessionId, capabilitySnapshotJson, parsed.recoveryId ?? null, sequence);
     return this.requireEvidence(sequence);
