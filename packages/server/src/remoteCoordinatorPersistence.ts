@@ -169,6 +169,9 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
     return {
       dispatch: {
         status,
+        failure: dispatch.failure_json
+          ? normalizedFailureSchema.parse(JSON.parse(String(dispatch.failure_json)))
+          : undefined,
         interruption: dispatch.interruption_reason
           ? {
               reason: interruptionReasonSchema.parse(dispatch.interruption_reason),

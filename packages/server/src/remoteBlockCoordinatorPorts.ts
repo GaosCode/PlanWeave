@@ -139,6 +139,7 @@ export type RemoteDispatchReconciliationState = {
     };
     envelopeDigest?: string;
     inputGrantCount: number;
+    failure?: NormalizedFailure;
     terminalAction?:
       | { kind: "complete"; reportArtifactRef: string }
       | { kind: "fail"; failure: NormalizedFailure };

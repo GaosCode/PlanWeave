@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import {
   CANVAS_RUNTIME_CAPABILITY,
+  WORKSPACE_CANVAS_EXECUTION_CAPABILITY,
   agentHostProtocolVersion,
   canvasRuntimeResponseEventSchema
 } from "@planweave-ai/agent-host-protocol";
@@ -17,6 +18,10 @@ import {
   SqliteRemoteDispatchPersistence,
   SqliteRemoteOperationCandidateRepository
 } from "../remoteCoordinatorPersistence.js";
+import {
+  decideRemoteExecutionAction,
+  type RemoteExecutionActionRequest
+} from "../remoteExecutionLifecycle.js";
 import { classifyReenterFailure } from "../remoteReenterRecovery.js";
 import { CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeRpcBroker } from "../canvas/runtimeRpcBroker.js";
@@ -655,5 +660,265 @@ describe("Remote runtime lease owners after terminal or fatal mutation", () => {
       expect(release).toHaveBeenCalledTimes(1);
     }
     await lease.release();
+  });
+});
+
+describe("Fail action recovery owns terminal cleanup", () => {
+  const releaseFixtureClaims: (() => void)[] = [];
+  afterEach(() => {
+    for (const release of releaseFixtureClaims.splice(0)) release();
+  });
+  async function preparedActions(releaseFailure: "deadline" | "fatal" | "success") {
+    const fixture = await setupFleetUnboundHost(remoteManifest(true));
+    fixture.hosts.reportOnline(
+      fixture.host.id,
+      ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
+      2,
+      {
+        workspaceMappings: [],
+        acpProfiles: [
+          {
+            profileId: "codex-acp",
+            agentId: "codex",
+            displayName: "Action agent",
+            status: "ready",
+            capabilities: ["acp.codex"]
+          }
+        ]
+      }
+    );
+    const runtime = fixture.registry.resolve(fixture.locator);
+    const mutation = vi.fn(runtime.fail.bind(runtime));
+    const cleanup = new CanvasRuntimeRpcError(
+      releaseFailure === "fatal"
+        ? "canvas_runtime_protocol_error"
+        : "canvas_runtime_rpc_deadline_exceeded",
+      releaseFailure !== "fatal",
+      false
+    );
+    const release = vi.fn();
+    const acquire = async () => {
+      const lease = await fixture.registry.acquire(fixture.locator);
+      let failedRef: string | undefined;
+      return {
+        ...lease,
+        runtime: {
+          ...lease.runtime,
+          fail: async (input: Parameters<typeof runtime.fail>[0]) => {
+            failedRef = input.ref;
+            return mutation(input);
+          }
+        },
+        release: async () => {
+          release(failedRef);
+          await lease.release();
+          if (failedRef === "T-001#B-001" && releaseFailure !== "success") throw cleanup;
+        }
+      };
+    };
+    const coordination = createRemoteBlockCoordination(
+      fixture.server.database,
+      {
+        runtimeLeases: { acquire, acquireForHost: acquire },
+        runtimeContentTargets: {
+          read: (scope) =>
+            readStableCanvasRuntimeContentTarget(
+              new ContentVersionRepository(fixture.server.database),
+              scope
+            )
+        },
+        leaseDurationMs: 60_000,
+        hostOfflineAfterMs: 60_000,
+        inputArtifacts: { materialize: fixture.materialize },
+        artifactContent: { readReport: async (ref) => fixture.artifacts.read(ref) },
+        ownerEndpointScopeAuthorized: () => true
+      },
+      { serverInstanceOwnerToken: fixture.server.serverInstanceOwnerToken }
+    );
+    const endpoint = coordination.agentEndpoints.listVisibleFleet().items[0];
+    if (!endpoint) throw new Error("action_cleanup_endpoint_missing");
+    const persistence = new SqliteRemoteDispatchPersistence(fixture.server.database);
+    const requests: Extract<RemoteExecutionActionRequest, { kind: "fail" }>[] = [];
+    for (const [index, ref] of ["T-001#B-001", "T-002#B-001"].entries()) {
+      const outcome = await coordination.coordinator.dispatch({
+        ...fixture.dispatchLocator,
+        blockRef: ref,
+        idempotencyKey: `action-cleanup-${index}`,
+        agentEndpointId: endpoint.endpointId,
+        expectedResponsibilityRevision: 0,
+        expectedReviewerRevision: 0,
+        executionTargetRevision: 0,
+        targetKind: "owner_canvas",
+        callerHumanPrincipalId: fixture.callerHumanPrincipalId
+      });
+      const dispatch = coordination.dispatches.getRequired(outcome.operation.dispatchId);
+      coordination.dispatches.accept(
+        fixture.host.id,
+        `action-accept-${index}`,
+        dispatch.id,
+        dispatch.leaseId,
+        dispatch.executionAttemptId
+      );
+      coordination.dispatches.interrupt(fixture.host.id, `action-interrupt-${index}`, {
+        type: "dispatch.interrupted",
+        protocolVersion: agentHostProtocolVersion,
+        messageId: `action-interrupt-${index}`,
+        dispatchId: dispatch.id,
+        leaseId: dispatch.leaseId,
+        executionAttemptId: dispatch.executionAttemptId,
+        reason: "acp_session_lost",
+        resumable: false
+      });
+      await coordination.coordinator.reenter(outcome.operation.id);
+      const reservation = coordination.reservations.getRequired(dispatch.leaseId);
+      coordination.reservations.release({
+        leaseId: reservation.leaseId,
+        fencingToken: reservation.fencingToken,
+        expectedVersion: reservation.version,
+        reason: "expired"
+      });
+      const operation = coordination.operations.getRequired(outcome.operation.id);
+      const action: Extract<RemoteExecutionActionRequest, { kind: "fail" }> = {
+        actionId: `cleanup-fail-${index}`,
+        operationId: operation.id,
+        dispatchId: operation.dispatchId,
+        executionAttemptId: operation.executionAttemptId,
+        expectedAttemptVersion: operation.attempt.stateVersion,
+        leaseId: dispatch.leaseId,
+        kind: "fail",
+        reason: "Stop interrupted operation.",
+        failure: {
+          code: "operator_stopped",
+          message: "Stop interrupted operation.",
+          retryable: false
+        }
+      };
+      expect(decideRemoteExecutionAction(action, persistence.actionSnapshot(operation))).toEqual({
+        transition: "fail",
+        sendsCommand: false
+      });
+      coordination.actions.record(action);
+      persistence.prepareManualFailure({ operation, failure: action.failure });
+      requests.push(action);
+    }
+    mutation.mockClear();
+    release.mockClear();
+    releaseFixtureClaims.push(() => {
+      for (const request of requests)
+        coordination.actions.releaseApplicationClaimIfOwned(
+          request.actionId,
+          fixture.server.serverInstanceOwnerToken
+        );
+    });
+    return { fixture, coordination, requests, mutation, release, cleanup };
+  }
+
+  it.each([
+    "deadline",
+    "success",
+    "fatal"
+  ] as const)("recovers the exact fail effects with lease release %s", async (releaseFailure) => {
+    const { fixture, coordination, requests, mutation, release, cleanup } =
+      await preparedActions(releaseFailure);
+    if (releaseFailure === "fatal") {
+      await expect(coordination.coordinator.reconcileActions()).rejects.toBe(cleanup);
+      expect(coordination.actions.getRequired(requests[0]!.actionId).state).toBe("recorded");
+      expect(coordination.operations.getRequired(requests[1]!.operationId).state).toBe(
+        "interrupted"
+      );
+      expect(mutation).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+      return;
+    }
+    const recovered = await coordination.coordinator.reconcileActions();
+    expect(recovered.map((action) => action.state)).toEqual(["settled", "settled"]);
+    for (const request of requests) {
+      expect(coordination.operations.getRequired(request.operationId)).toMatchObject({
+        state: "failed",
+        dispatchId: request.dispatchId,
+        executionAttemptId: request.executionAttemptId,
+        attempt: {
+          status: "failed",
+          stateVersion: request.expectedAttemptVersion + 1,
+          leaseId: request.leaseId
+        }
+      });
+      expect(coordination.dispatches.getRequired(request.dispatchId).status).toBe("failed");
+      expect(coordination.actions.getRequired(request.actionId).state).toBe("settled");
+      expect(
+        fixture.server.database
+          .prepare(
+            "SELECT application_owner_token,application_decision_json FROM remote_execution_actions WHERE action_id=?"
+          )
+          .get(request.actionId)
+      ).toEqual({ application_owner_token: null, application_decision_json: null });
+    }
+    expect(mutation).toHaveBeenCalledTimes(2);
+    expect(release).toHaveBeenCalledTimes(2);
+    if (releaseFailure === "deadline") {
+      expect(coordination.operations.latestDiagnostic(requests[0]!.operationId)?.error).toEqual({
+        code: "canvas_runtime_rpc_deadline_exceeded",
+        retryable: true
+      });
+    } else
+      expect(
+        coordination.operations.latestDiagnostic(requests[0]!.operationId)?.error
+      ).toBeUndefined();
+    await coordination.coordinator.reconcileActions();
+    expect(mutation).toHaveBeenCalledTimes(2);
+    expect(release).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    "wrong_identity",
+    "wrong_version",
+    "different_failure",
+    "terminal_wrong_identity",
+    "terminal_wrong_version",
+    "terminal_different_failure",
+    "terminal_inconsistent_status"
+  ] as const)("does not settle or mutate an action with %s", async (fault) => {
+    const { fixture, coordination, requests, mutation, release } = await preparedActions("success");
+    const first = requests[0]!;
+    const terminal = fault.startsWith("terminal_");
+    if (terminal) {
+      await coordination.coordinator.fail(first.operationId);
+      mutation.mockClear();
+      release.mockClear();
+    }
+    if (fault.endsWith("wrong_identity")) {
+      const changed = { ...first, executionAttemptId: requests[1]!.executionAttemptId };
+      const createdAt = coordination.actions.getRequired(first.actionId).createdAt;
+      fixture.server.database
+        .prepare("DELETE FROM remote_execution_actions WHERE action_id=?")
+        .run(first.actionId);
+      coordination.actions.record(changed);
+      fixture.server.database
+        .prepare("UPDATE remote_execution_actions SET created_at=? WHERE action_id=?")
+        .run(createdAt, first.actionId);
+    } else if (fault.endsWith("wrong_version")) {
+      fixture.server.database
+        .prepare(
+          "UPDATE remote_execution_attempts SET state_version=state_version+1 WHERE execution_attempt_id=?"
+        )
+        .run(first.executionAttemptId);
+    } else if (fault === "terminal_inconsistent_status") {
+      fixture.server.database
+        .prepare(
+          "UPDATE remote_execution_attempts SET status='cancelled' WHERE execution_attempt_id=?"
+        )
+        .run(first.executionAttemptId);
+    } else {
+      fixture.server.database
+        .prepare("UPDATE dispatches SET failure_json=? WHERE id=?")
+        .run(JSON.stringify({ ...first.failure, code: "another_failure" }), first.dispatchId);
+    }
+    await expect(coordination.coordinator.reconcileActions()).rejects.toThrow();
+    expect(coordination.actions.getRequired(first.actionId).state).toBe("recorded");
+    expect(coordination.operations.getRequired(first.operationId).state).toBe(
+      terminal ? "failed" : "interrupted"
+    );
+    expect(mutation).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
   });
 });

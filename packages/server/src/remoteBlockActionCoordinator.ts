@@ -183,15 +183,60 @@ export class RemoteBlockActionCoordinator {
         persisted?.status === "failed" ||
         persisted?.status === "cancelled")
     ) {
+      if (this.failActionApplied(action)) return "settled";
       try {
         await this.lifecycle.fail(operation.id);
       } catch (error) {
+        if (classifyReenterFailure(error) === "defer_host" && this.failActionApplied(action)) {
+          return "settled";
+        }
         if (!isMissingActiveOwnership(error) && !isReplacedActiveOwnership(error)) throw error;
         await this.lifecycle.sealOperationLocalFailure(operation, error);
+      }
+      if (!this.failActionApplied(action)) {
+        throw new Error("remote_action_failure_effect_mismatch");
       }
       return "settled";
     }
     return undefined;
+  }
+
+  private failActionApplied(
+    action: Extract<RemoteExecutionActionRequest, { kind: "fail" }>
+  ): boolean {
+    const operation = this.options.operations.getRequired(action.operationId);
+    if (
+      operation.dispatchId !== action.dispatchId ||
+      operation.executionAttemptId !== action.executionAttemptId
+    ) {
+      throw new Error("remote_action_identity_mismatch");
+    }
+    if (operation.attempt.leaseId !== action.leaseId) {
+      throw new Error("remote_action_lease_mismatch");
+    }
+    const persisted = this.options.dispatches.inspect(operation).dispatch;
+    if (JSON.stringify(persisted?.failure) !== JSON.stringify(action.failure)) {
+      throw new Error("remote_action_failure_effect_mismatch");
+    }
+    const status = action.failure.code === "execution_cancelled" ? "cancelled" : "failed";
+    const terminal =
+      operation.state === "completed" ||
+      operation.state === "failed" ||
+      operation.state === "cancelled";
+    // Manual failure changes the dispatch only; terminal attempt finalization advances its CAS once.
+    const expectedVersion = action.expectedAttemptVersion + (terminal ? 1 : 0);
+    if (operation.attempt.stateVersion !== expectedVersion) {
+      throw new Error("remote_action_attempt_version_conflict");
+    }
+    if (
+      terminal &&
+      (operation.state !== status ||
+        operation.attempt.status !== status ||
+        persisted?.status !== status)
+    ) {
+      throw new Error("remote_action_failure_effect_mismatch");
+    }
+    return terminal;
   }
 
   private materializeResumeAction(
