@@ -1,3 +1,4 @@
+import { packageSnapshotCleanupMigration } from "./packageSnapshotCleanup.js";
 import { operatorManagementDevicesMigration } from "./operatorManagementDevices.js";
 import { operatorAuthorizationMigration } from "./operatorAuthorization.js";
 import { acpTaskRestorationsMigration } from "./acpTaskRestorations.js";
@@ -57,6 +58,7 @@ const observerMigrations: MigrationModule = {
 };
 
 export const migrationModules: readonly MigrationModule[] = [
+  { name: "package-snapshot-cleanup", migrations: [packageSnapshotCleanupMigration] },
   {
     name: "operator-authorization",
     migrations: [operatorAuthorizationMigration, operatorManagementDevicesMigration]

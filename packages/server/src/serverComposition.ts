@@ -223,6 +223,7 @@ export async function createDistributedServerComposition(
     });
     const { workspaceIdentity, projectAccess, registryService, collaborationScopeAuthority } =
       identityAccess;
+    await identityAccess.packageSnapshots.recoverBackingCleanup();
     localExecutionRuntime.attachCollaborationScopeResolution({
       workspaceIdentity,
       projectAccess

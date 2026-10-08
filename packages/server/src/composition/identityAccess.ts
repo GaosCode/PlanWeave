@@ -190,7 +190,13 @@ export function createIdentityAccessComposition(input: {
     projectAccess,
     packageSnapshots
   );
-  return { workspaceIdentity, projectAccess, registryService, collaborationScopeAuthority };
+  return {
+    workspaceIdentity,
+    projectAccess,
+    registryService,
+    collaborationScopeAuthority,
+    packageSnapshots
+  };
 }
 
 export function createIdentityServices(input: {

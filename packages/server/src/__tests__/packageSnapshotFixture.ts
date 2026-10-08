@@ -1,3 +1,4 @@
+import { applyMigrationsThroughVersion } from "./support/migrationFixture.js";
 import { join } from "node:path";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { applyMigrations } from "../migrations.js";
@@ -7,11 +8,13 @@ import { openServerDatabase } from "../sqlite.js";
 import { createLocalFilesystemCanvasRuntimeAdapter } from "../canvas/localFilesystemRuntimeAdapter.js";
 
 export async function packageSnapshotFixture(
-  onRetentionCleanupError?: (error: unknown, canvasRegistryId: string) => void
+  onRetentionCleanupError?: (error: unknown, canvasRegistryId: string) => void,
+  throughSchemaVersion?: number
 ) {
   const workspace = await createTestWorkspace();
   const database = await openServerDatabase(":memory:", 5_000);
-  applyMigrations(database);
+  if (throughSchemaVersion === undefined) applyMigrations(database);
+  else applyMigrationsThroughVersion(database, throughSchemaVersion);
   database.exec(`
     INSERT INTO workspaces(workspace_id,display_name,created_at) VALUES ('w','Workspace','2026-01-01');
     INSERT INTO workspace_principals(workspace_id,human_principal_id,display_name,created_at,revoked_at) VALUES

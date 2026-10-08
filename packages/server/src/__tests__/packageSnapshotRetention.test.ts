@@ -185,6 +185,11 @@ describe("package snapshot retention", () => {
       f.canvas
     );
     await expect(fs.stat(`${backingPath(f.data, f.id)}/package.json`)).resolves.toBeDefined();
+    expect(
+      f.database
+        .prepare("SELECT backing_cleanup_completed_at FROM package_snapshots WHERE snapshot_id=?")
+        .get(f.id)
+    ).toEqual({ backing_cleanup_completed_at: null });
     remove.mockImplementation(
       (await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")).rm
     );
@@ -192,6 +197,11 @@ describe("package snapshot retention", () => {
     await expect(fs.stat(`${backingPath(f.data, f.id)}/package.json`)).rejects.toMatchObject({
       code: "ENOENT"
     });
+    expect(
+      f.database
+        .prepare("SELECT backing_cleanup_completed_at FROM package_snapshots WHERE snapshot_id=?")
+        .get(f.id)
+    ).toEqual({ backing_cleanup_completed_at: at });
   });
 
   it.each([
@@ -264,17 +274,46 @@ describe("package snapshot retention", () => {
     ).toEqual({ count: pending ? 257 : 256 });
   });
 
-  it("retries revoked records beyond a full historical cleanup batch", async () => {
+  it("limits each maintenance to 256 backing attempts and persists successful cleanup", async () => {
     const f = await fixture();
-    f.add(270, { state: "revoked", revoked_at: at });
-    const [last] = f.add(1, { state: "revoked", revoked_at: at });
-    const remove = vi.mocked(fs.rm).mockClear().mockResolvedValue();
+    const revoked = f.add(600, { state: "revoked", revoked_at: at });
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    const firstBacking = backingPath(f.data, revoked[0]!);
+    await fs.mkdir(firstBacking, { recursive: true });
+    await fs.writeFile(join(firstBacking, "package.json"), "audit backing");
+    const remove = vi.mocked(fs.rm).mockClear().mockImplementation(actualFs.rm);
     await enforcePackageSnapshotRetention(f.database, f.data, f.canvas, at);
-    expect(remove).toHaveBeenCalledTimes(271);
-    expect(remove).toHaveBeenCalledWith(backingPath(f.data, last), {
-      recursive: true,
-      force: true
-    });
+    expect(remove).toHaveBeenCalledTimes(256);
+    await expect(fs.stat(firstBacking)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(
+      f.database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM package_snapshots WHERE backing_cleanup_completed_at IS NOT NULL"
+        )
+        .get()
+    ).toEqual({ count: 256 });
+    remove.mockClear();
+    await enforcePackageSnapshotRetention(f.database, f.data, f.canvas, at);
+    expect(remove).toHaveBeenCalledTimes(256);
+    expect(remove).not.toHaveBeenCalledWith(firstBacking, expect.anything());
+    expect(
+      f.database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM package_snapshots WHERE backing_cleanup_completed_at IS NOT NULL"
+        )
+        .get()
+    ).toEqual({ count: 512 });
+    await enforcePackageSnapshotRetention(f.database, f.data, f.canvas, at);
+    expect(
+      f.database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM package_snapshots WHERE state='revoked' AND backing_cleanup_completed_at IS NULL"
+        )
+        .get()
+    ).toEqual({ count: 0 });
+    remove.mockClear();
+    await enforcePackageSnapshotRetention(f.database, f.data, f.canvas, at);
+    expect(remove).not.toHaveBeenCalled();
   });
 });
 

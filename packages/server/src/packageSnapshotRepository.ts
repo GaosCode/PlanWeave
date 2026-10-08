@@ -1,3 +1,4 @@
+import { cleanupPackageSnapshotBacking } from "./packageSnapshotBackingCleanup.js";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
@@ -24,7 +25,10 @@ import {
   snapshotId,
   stableStringify
 } from "./packageSnapshotBacking.js";
-import { enforcePackageSnapshotRetention } from "./packageSnapshotRetention.js";
+import {
+  enforcePackageSnapshotRetention,
+  recoverPackageSnapshotRetention
+} from "./packageSnapshotRetention.js";
 import type { SqliteDatabase } from "./sqlite.js";
 
 function metadataFromRow(row: Record<string, unknown>): PackageSnapshot {
@@ -489,6 +493,14 @@ export class PackageSnapshotRepository {
     });
   }
 
+  async recoverBackingCleanup(): Promise<void> {
+    await recoverPackageSnapshotRetention(
+      this.database,
+      this.dataDirectory,
+      this.clock().toISOString()
+    );
+  }
+
   private async cleanupAfterRestore(canvasRegistryId: string): Promise<void> {
     try {
       await enforcePackageSnapshotRetention(
@@ -522,11 +534,12 @@ export class PackageSnapshotRepository {
       throw new Error("snapshot_stale_acl_revision");
     const row = this.database
       .prepare(
-        "SELECT snapshot_id,content_root_internal,state,restore_marker FROM package_snapshots WHERE snapshot_id=? AND workspace_id=? AND project_id=? AND canvas_id=?"
+        "SELECT snapshot_id,content_root_internal,state,restore_marker,canvas_registry_id FROM package_snapshots WHERE snapshot_id=? AND workspace_id=? AND project_id=? AND canvas_id=?"
       )
       .get(input.snapshotId, input.workspaceId, input.projectId, input.canvasId) as
       | {
           snapshot_id: string;
+          canvas_registry_id: string;
           content_root_internal: string;
           state: string;
           restore_marker: string;
@@ -545,6 +558,12 @@ export class PackageSnapshotRepository {
       .run(at, at, input.snapshotId, input.workspaceId, input.projectId, input.canvasId);
     if (row.state !== "revoked" && result.changes !== 1)
       throw new Error("snapshot_revoke_conflict");
-    await rm(expectedBackingRoot, { recursive: true, force: true });
+    await cleanupPackageSnapshotBacking(
+      this.database,
+      this.dataDirectory,
+      row.canvas_registry_id,
+      input.snapshotId,
+      at
+    );
   }
 }
