@@ -102,6 +102,7 @@ function buildDefaultTaskNode(
 
 export type CanvasCommandApplication = {
   graphMutation: PlanPackageGraphMutation;
+  baseLayout: DesktopLayout;
   nextLayout: DesktopLayout;
   layoutChanged: boolean;
 };
@@ -151,6 +152,7 @@ export function buildCanvasCommandApplication(
   const graphMutation = buildCanvasCommandMutation(manifest, intent);
   return {
     graphMutation,
+    baseLayout: layout,
     ...applyCanvasLayoutMutation(layout, graphMutation.nextManifest, intent)
   };
 }

@@ -75,7 +75,12 @@ export async function populateDuplicatedCanvasWorkspace(
   title: string
 ): Promise<void> {
   await withPackageFileConsistency(
-    [sourceWorkspace.packageDir, targetWorkspace.packageDir],
+    [
+      sourceWorkspace.packageDir,
+      targetWorkspace.packageDir,
+      join(sourceWorkspace.workspaceRoot, "desktop", "layout.json"),
+      join(targetWorkspace.workspaceRoot, "desktop", "layout.json")
+    ],
     async () => {
       await cp(sourceWorkspace.packageDir, targetWorkspace.packageDir, { recursive: true });
       await writeManifestTitle(targetWorkspace, title);

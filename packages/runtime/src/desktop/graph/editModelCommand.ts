@@ -1,5 +1,7 @@
 import { compileTaskGraph } from "../../graph/compileTaskGraph.js";
-import { loadPackage } from "../../package/loadPackage.js";
+import { withPackageFileConsistency } from "../../package/packageFileConsistency.js";
+import { layoutPathForWorkspace } from "../layoutStore.js";
+import { loadPackage, resolvePackageWorkspace } from "../../package/loadPackage.js";
 import {
   executePlanGraphCommand,
   redoPlanGraphCommand,
@@ -36,8 +38,14 @@ async function finishDesktopCommand(
   invalidateDesktopProjectProjection(resultWorkspace);
   if (!result.ok) return commandResult(resultWorkspace, result);
   try {
-    await applyLayoutNodeSideEffects(resultWorkspace, result);
-    if (layoutSnapshot) await saveDesktopLayoutDirect(resultWorkspace, layoutSnapshot);
+    const workspace = await resolvePackageWorkspace(resultWorkspace);
+    await withPackageFileConsistency(
+      [workspace.packageDir, layoutPathForWorkspace(workspace)],
+      async () => {
+        await applyLayoutNodeSideEffects(workspace, result);
+        if (layoutSnapshot) await saveDesktopLayoutDirect(workspace, layoutSnapshot);
+      }
+    );
     return await commandResult(resultWorkspace, result);
   } catch (error) {
     return {

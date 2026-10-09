@@ -318,7 +318,15 @@ async function rewriteManagedProjectIdentityFiles(
   project: ProjectMetadata
 ): Promise<void> {
   await writeJsonFile(workspace.projectFile, project);
-  await rewriteJsonProjectId(join(workspace.workspaceRoot, "desktop", "layout.json"), project.id);
+  await withPackageFileConsistency(
+    [workspace.packageDir, join(workspace.workspaceRoot, "desktop", "layout.json")],
+    async () => {
+      await rewriteJsonProjectId(
+        join(workspace.workspaceRoot, "desktop", "layout.json"),
+        project.id
+      );
+    }
+  );
   // canvas-map-layout is schema-owned; caller holds the layout mutation boundary.
   await reassignCanvasMapLayoutProjectId(workspace, project.id);
 }
@@ -389,9 +397,21 @@ async function renameManagedProject(
         nextWorkspaceRoot,
         previousWorkspace.packageDir,
         nextWorkspace.packageDir,
+        join(previousWorkspace.workspaceRoot, "desktop", "layout.json"),
+        join(nextWorkspace.workspaceRoot, "desktop", "layout.json"),
         ...graph.manifest.canvases.flatMap((canvas) => [
           projectCanvasWorkspace(previousWorkspace, canvas).packageDir,
-          projectCanvasWorkspace(nextWorkspace, canvas).packageDir
+          projectCanvasWorkspace(nextWorkspace, canvas).packageDir,
+          join(
+            projectCanvasWorkspace(previousWorkspace, canvas).workspaceRoot,
+            "desktop",
+            "layout.json"
+          ),
+          join(
+            projectCanvasWorkspace(nextWorkspace, canvas).workspaceRoot,
+            "desktop",
+            "layout.json"
+          )
         ])
       ];
       await withPackageFileConsistency(roots, async () => {

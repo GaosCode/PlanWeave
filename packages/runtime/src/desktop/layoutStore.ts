@@ -1,3 +1,4 @@
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { optionalStat } from "../fs/optionalFile.js";
@@ -24,10 +25,6 @@ export function defaultDesktopLayout(projectId: string): DesktopLayout {
 
 export function layoutPathForWorkspace(workspace: ProjectWorkspace): string {
   return join(workspace.workspaceRoot, "desktop", "layout.json");
-}
-
-async function layoutPath(projectRoot: PackageWorkspaceRef): Promise<string> {
-  return layoutPathForWorkspace(await resolvePackageWorkspace(projectRoot));
 }
 
 function manifestNodeIds(manifest: PlanPackageManifest): Set<string> {
@@ -138,8 +135,14 @@ function filterLayoutNodes(layout: DesktopLayout, manifest: PlanPackageManifest)
 export async function getDesktopLayoutDirect(
   projectRoot: PackageWorkspaceRef
 ): Promise<DesktopLayout> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  return getDesktopLayoutForPackage(workspace, manifest);
+  const workspace = await resolvePackageWorkspace(projectRoot);
+  return withPackageFileConsistency(
+    [workspace.packageDir, layoutPathForWorkspace(workspace)],
+    async () => {
+      const { manifest } = await loadPackage(workspace);
+      return getDesktopLayoutForPackage(workspace, manifest);
+    }
+  );
 }
 
 export async function getDesktopLayoutForPackage(
@@ -147,13 +150,15 @@ export async function getDesktopLayoutForPackage(
   manifest: PlanPackageManifest
 ): Promise<DesktopLayout> {
   const path = layoutPathForWorkspace(workspace);
-  if (!(await optionalStat(path))) {
-    return defaultDesktopLayout(workspace.id);
-  }
-  return filterLayoutNodes(
-    normalizeLayout(await readJsonFile<unknown>(path), workspace.id),
-    manifest
-  );
+  return withPackageFileConsistency([workspace.packageDir, path], async () => {
+    if (!(await optionalStat(path))) {
+      return defaultDesktopLayout(workspace.id);
+    }
+    return filterLayoutNodes(
+      normalizeLayout(await readJsonFile<unknown>(path), workspace.id),
+      manifest
+    );
+  });
 }
 
 export async function saveDesktopLayoutDirect(
@@ -161,28 +166,39 @@ export async function saveDesktopLayoutDirect(
   layout: DesktopLayout,
   options: { updatedAt?: string } = {}
 ): Promise<DesktopLayout> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  const next = filterLayoutNodes(
-    {
-      ...layout,
-      version: "desktop-layout/v1",
-      projectId: workspace.id,
-      updatedAt: options.updatedAt ?? new Date().toISOString()
-    },
-    manifest
+  const workspace = await resolvePackageWorkspace(projectRoot);
+  return withPackageFileConsistency(
+    [workspace.packageDir, layoutPathForWorkspace(workspace)],
+    async () => {
+      const { manifest } = await loadPackage(workspace);
+      const next = filterLayoutNodes(
+        {
+          ...layout,
+          version: "desktop-layout/v1",
+          projectId: workspace.id,
+          updatedAt: options.updatedAt ?? new Date().toISOString()
+        },
+        manifest
+      );
+      const path = layoutPathForWorkspace(workspace);
+      await mkdir(dirname(path), { recursive: true });
+      await writeJsonFile(path, next);
+      return next;
+    }
   );
-  const path = layoutPathForWorkspace(workspace);
-  await mkdir(dirname(path), { recursive: true });
-  await writeJsonFile(path, next);
-  return next;
 }
 
 export async function resetDesktopLayoutDirect(
   projectRoot: PackageWorkspaceRef
 ): Promise<DesktopLayout> {
   const workspace = await resolvePackageWorkspace(projectRoot);
-  await rm(await layoutPath(projectRoot), { force: true });
-  return defaultDesktopLayout(workspace.id);
+  return withPackageFileConsistency(
+    [workspace.packageDir, layoutPathForWorkspace(workspace)],
+    async () => {
+      await rm(layoutPathForWorkspace(workspace), { force: true });
+      return defaultDesktopLayout(workspace.id);
+    }
+  );
 }
 
 export const desktopLayoutCommandStore: PlanGraphLayoutStore = {

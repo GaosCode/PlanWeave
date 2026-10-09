@@ -180,7 +180,12 @@ export async function createProjectFromTaskCanvas(
   const targetWorkspace = await resolveTaskCanvasWorkspace(init.project.rootPath, defaultCanvasId);
 
   await withPackageFileConsistency(
-    [source.workspace.packageDir, targetWorkspace.packageDir],
+    [
+      source.workspace.packageDir,
+      targetWorkspace.packageDir,
+      join(source.workspace.workspaceRoot, "desktop", "layout.json"),
+      join(targetWorkspace.workspaceRoot, "desktop", "layout.json")
+    ],
     async () => {
       try {
         await rm(targetWorkspace.packageDir, { recursive: true, force: true });
