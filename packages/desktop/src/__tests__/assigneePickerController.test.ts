@@ -11,6 +11,7 @@ import type { CollaborationReadBridgePort } from "../renderer/collaboration/Coll
 import { useAssigneePickerController } from "../renderer/hooks/useAssigneePickerController";
 import type { CollaborationStatus, PlanWeaveCollaborationApi } from "../shared/collaboration";
 import { createTranslator } from "../renderer/i18n";
+import { workItemKey } from "../shared/collaborationReadModels";
 
 const taskItem: WorkItemRef = { kind: "task", canvasId: "canvas-1", taskId: "T-1" };
 const blockItem: WorkItemRef = { kind: "block", canvasId: "canvas-1", blockRef: "T-1#B-001" };
@@ -546,6 +547,86 @@ describe("assignee picker original mutation scope", () => {
 
 describe("assignee picker explicit retry authority", () => {
   for (const role of roles) {
+    it(`${role}: ignores older authority completing while retry waits for eligible targets`, async () => {
+      const f = await scopedPicker(role);
+      const other = role === "responsibility" ? "reviewer" : "responsibility";
+      let authority = {
+        ...f.result.current.authority!,
+        [role]: { ...f.result.current.authority![role], revision: 2 },
+        [other]: { ...f.result.current.authority![other], revision: 17 }
+      };
+      f.getWorkAuthority.mockImplementation(async () => authority);
+      await act(async () => {
+        await f.result.current.refresh();
+      });
+      f.mutation.mockRejectedValueOnce({
+        kind: "conflict",
+        code: "revision_conflict",
+        message: "Conflict",
+        retryable: true
+      });
+      await act(async () => {
+        expect(await f.result.current.selectTarget(chosenTarget)).toBe(false);
+      });
+      const oldAuthority = authority;
+      const old = deferred<typeof authority>();
+      f.getWorkAuthority.mockImplementationOnce(() => old.promise);
+      let oldRead!: Promise<unknown>;
+      act(() => {
+        oldRead = f.shell.controller.ensureWorkAuthority(taskItem);
+      });
+      authority = { ...authority, [role]: { ...authority[role], revision: 3 } };
+      const eligiblePage = await f.listEligibleAssignees({ workItem: taskItem });
+      const eligible = deferred<typeof eligiblePage>();
+      f.listEligibleAssignees.mockImplementationOnce(() => eligible.promise);
+      const eligibleReads = f.listEligibleAssignees.mock.calls.length;
+      f.mutation.mockImplementation(async (input) => {
+        if (input.expectedRevision !== 3)
+          throw {
+            kind: "conflict",
+            code: "revision_conflict",
+            message: "Conflict",
+            retryable: true
+          };
+        authority = {
+          ...authority,
+          [role]: {
+            ...authority[role],
+            principal: input.principal,
+            revision: 4,
+            availability: "active"
+          }
+        };
+        return authority[role];
+      });
+      let pending!: Promise<boolean>;
+      act(() => {
+        pending = f.result.current.retryLastTarget();
+      });
+      await waitFor(() => expect(f.listEligibleAssignees).toHaveBeenCalledTimes(eligibleReads + 1));
+      expect(f.result.current.authority?.[role].revision).toBe(3);
+      expect(f.result.current.viewModel?.pending).toBe(true);
+      await act(async () => {
+        old.resolve(oldAuthority);
+        await oldRead;
+      });
+      const revisionAfterOldRead =
+        f.shell.controller.getSnapshot().workAuthorityByWorkItem[workItemKey(taskItem)]?.[role]
+          .revision;
+      await act(async () => {
+        eligible.resolve(eligiblePage);
+        await pending;
+      });
+      expect(revisionAfterOldRead).toBe(3);
+      expect(await pending).toBe(true);
+      expect(f.mutation.mock.calls.map(([input]) => input.expectedRevision)).toEqual([2, 3]);
+      expect(f.result.current.authority?.[role].revision).toBe(4);
+      expect(f.result.current.authority?.[other].revision).toBe(17);
+      expect(f.result.current.viewModel?.pending).toBe(false);
+      expect(f.shell.controller.getSnapshot().loadingKinds).toEqual([]);
+      f.unmount();
+      f.shell.release();
+    });
     it.each([
       "success",
       "same target",

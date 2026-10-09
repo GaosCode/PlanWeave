@@ -218,6 +218,12 @@ export class CollaborationReadModelController {
   });
   private refreshArbitration = new AuthoritativeRefreshArbitrator();
   private assignmentReloadSeqByKey = new Map<string, number>();
+  private authorityReloadSeqByKey = new Map<string, number>();
+  private authorityBoundaryError: {
+    key: string;
+    generation: number;
+    error: CollaborationBoundaryErrorView;
+  } | null = null;
   private assignmentChangeVersionByKey = new Map<string, number>();
   private refreshQueue: Promise<void> = Promise.resolve();
   /** Cached for useSyncExternalStore — must be referentially stable between emissions. */
@@ -331,28 +337,38 @@ export class CollaborationReadModelController {
           }
         }
         this.refreshArbitration.beginAggregate();
+        const errorAtStart = this.state.lastError;
         const snapshotLoading = beginLoading(this.state, "snapshot");
         if (this.state.syncPhase !== "reconnecting" && this.state.syncPhase !== "auth_expired") {
           this.state.syncPhase = "loading";
         }
         this.emit();
 
+        const trackedComments = [...this.state.trackedCommentWorkItems.values()];
+        const authorityRequests = new Map<number, { isCurrent: () => boolean; key: string }>();
         const results = await Promise.allSettled([
           this.reloadMembers(generation),
           this.reloadAssignments(generation),
           this.reloadActivity(generation),
-          ...[...this.state.trackedCommentWorkItems.values()].map((workItem) =>
-            this.reloadComments(workItem, generation)
-          ),
-          ...[...this.state.trackedAuthorityWorkItems.values()].map((workItem) =>
-            this.reloadWorkAuthority(workItem, generation)
-          )
+          ...trackedComments.map((workItem) => this.reloadComments(workItem, generation)),
+          ...[...this.state.trackedAuthorityWorkItems.values()].map((workItem, index) => {
+            return this.reloadWorkAuthority(workItem, generation, (isCurrent) =>
+              authorityRequests.set(3 + trackedComments.length + index, {
+                isCurrent,
+                key: workItemKey(workItem)
+              })
+            );
+          })
         ]);
 
         snapshotLoading.release();
         if (this.disposed || generation !== this.state.generation) return;
 
-        const failures = results.filter((result) => result.status === "rejected");
+        const failures = results.flatMap((result, index) =>
+          result.status === "rejected" && (authorityRequests.get(index)?.isCurrent() ?? true)
+            ? [{ index, reason: result.reason }]
+            : []
+        );
         if (failures.length === 0) {
           const replacements = results.flatMap((result) =>
             result.status === "fulfilled" && result.value && typeof result.value === "object"
@@ -361,13 +377,23 @@ export class CollaborationReadModelController {
           );
           if (this.refreshArbitration.settleAggregate(generation, replacements)) {
             this.lastSuccessfulRefreshRequest = refreshRequest;
-            this.markReadyUnlessTerminal();
+            if (!this.state.lastError || this.state.lastError === errorAtStart)
+              this.markReadyUnlessTerminal();
           }
         } else {
           this.refreshArbitration.cancelAggregate();
-          const first = failures[0] as PromiseRejectedResult;
-          const mapped = collaborationBoundaryErrorFromUnknown(first.reason);
-          this.applyBoundaryError(mapped);
+          const first = failures[0]!;
+          const authorityRequest = authorityRequests.get(first.index);
+          if (!authorityRequest || !this.state.lastError) {
+            const mapped = collaborationBoundaryErrorFromUnknown(first.reason);
+            if (authorityRequest)
+              this.authorityBoundaryError = {
+                key: authorityRequest.key,
+                generation,
+                error: mapped
+              };
+            this.applyBoundaryError(mapped);
+          }
           this.markIncompleteAuthoritativeRefresh();
         }
         this.emit();
@@ -438,7 +464,9 @@ export class CollaborationReadModelController {
     this.assertOpen();
     const key = workItemKey(workItem);
     this.state.trackedAuthorityWorkItems.set(key, workItem);
-    await this.reloadWorkAuthority(workItem, this.state.generation);
+    const generation = this.state.generation;
+    await this.reloadWorkAuthority(workItem, generation);
+    if (this.disposed || generation !== this.state.generation) return null;
     return this.state.workAuthorities.get(key) ?? null;
   }
 
@@ -700,6 +728,8 @@ export class CollaborationReadModelController {
   }
 
   private nextGeneration(scopeChanged = false): number {
+    this.authorityReloadSeqByKey.clear();
+    this.authorityBoundaryError = null;
     this.generationEpoch += 1;
     if (scopeChanged) this.mutationScopeGeneration = this.generationEpoch;
     return this.generationEpoch;
@@ -931,22 +961,42 @@ export class CollaborationReadModelController {
     return "applied";
   }
 
-  private async reloadWorkAuthority(workItem: WorkItemRef, generation: number): Promise<void> {
+  private async reloadWorkAuthority(
+    workItem: WorkItemRef,
+    generation: number,
+    onRequestStarted?: (isCurrent: () => boolean) => void
+  ): Promise<void> {
     if (this.disposed || generation !== this.state.generation) return;
     const key = workItemKey(workItem);
+    const request = (this.authorityReloadSeqByKey.get(key) ?? 0) + 1;
+    this.authorityReloadSeqByKey.set(key, request);
+    const isCurrent = () =>
+      !this.disposed &&
+      generation === this.state.generation &&
+      this.authorityReloadSeqByKey.get(key) === request;
+    onRequestStarted?.(isCurrent);
     const loading = beginLoading(this.state, `authority:${key}`);
     try {
       const completion = this.api.getCollaborationWorkAuthority({ workItem });
       this.emit();
       const projection = await completion;
-      loading.release();
-      if (generation !== this.state.generation) return;
+      if (!isCurrent()) return;
       this.state.workAuthorities.set(key, projection);
       this.state.trackedAuthorityWorkItems.set(key, workItem);
-      this.emit();
+      const previousError = this.authorityBoundaryError;
+      if (previousError?.key === key && previousError.generation === generation) {
+        if (this.state.lastError === previousError.error) this.markReadyUnlessTerminal();
+        this.authorityBoundaryError = null;
+      }
     } catch (error) {
-      loading.release();
+      if (!isCurrent()) return;
+      const mapped = collaborationBoundaryErrorFromUnknown(error);
+      this.authorityBoundaryError = { key, generation, error: mapped };
+      this.applyBoundaryError(mapped);
       throw error;
+    } finally {
+      loading.release();
+      if (!this.disposed && generation === this.state.generation) this.emit();
     }
   }
 
