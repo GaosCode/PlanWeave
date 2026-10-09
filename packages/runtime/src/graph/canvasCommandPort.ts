@@ -14,7 +14,11 @@ import {
   CanvasCommandMutationError,
   type CanvasCommandApplication
 } from "./canvasCommandMutation.js";
-import { commitPlanPackageGraphMutation } from "./editGraph.js";
+import {
+  checkPlanPackageGraphMutationVersion,
+  commitPlanPackageGraphMutation
+} from "./editGraph.js";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { ImportTransaction } from "../package/importTransaction.js";
 import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
 import { resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
@@ -105,57 +109,73 @@ export async function commitCanvasCommandApplication(options: {
   const transaction = await ImportTransaction.create({
     workspaceRoot: options.workspace.workspaceRoot
   });
-  try {
-    await rm(staging, { recursive: true, force: true });
-    await cp(options.workspace.packageDir, staging, { recursive: true });
-    const stagedWorkspace: ProjectWorkspace = {
-      ...options.workspace,
-      packageDir: staging,
-      manifestFile: join(staging, "manifest.json")
-    };
-    const result = await commitPlanPackageGraphMutation({
-      projectRoot: stagedWorkspace,
-      mutation: options.application.graphMutation
-    });
-    if (!result.ok) {
-      await transaction.rollback();
-      await rm(staging, { recursive: true, force: true });
-      return result;
-    }
-    if (options.application.layoutChanged) {
-      await dependencies.saveLayout(stagedWorkspace, options.application.nextLayout, {
-        updatedAt: options.application.nextLayout.updatedAt
-      });
-    }
-    await transaction.replacePath(options.workspace.packageDir, staging);
-    await dependencies.markTransactionCommitted(transaction);
+  return withPackageFileConsistency([options.workspace.packageDir, staging], async () => {
     try {
-      await dependencies.cleanupCommittedTransaction(transaction);
-    } catch (cleanupError) {
-      dependencies.reportCleanupFailure(cleanupError);
-    }
-    return result;
-  } catch (error) {
-    let rollbackError: unknown;
-    try {
-      await transaction.rollback();
-    } catch (failure) {
-      rollbackError = failure;
-    }
-    let cleanupError: unknown;
-    try {
-      await rm(staging, { recursive: true, force: true });
-    } catch (failure) {
-      cleanupError = failure;
-    }
-    if (rollbackError || cleanupError) {
-      throw new AggregateError(
-        [error, ...(rollbackError ? [rollbackError] : []), ...(cleanupError ? [cleanupError] : [])],
-        "canvas_command_commit_rollback_failed"
+      const current = await loadPackage(options.workspace);
+      const conflict = checkPlanPackageGraphMutationVersion(
+        current.manifest,
+        options.application.graphMutation
       );
+      if (conflict) {
+        await transaction.rollback();
+        await rm(staging, { recursive: true, force: true });
+        return conflict;
+      }
+      await rm(staging, { recursive: true, force: true });
+      await cp(options.workspace.packageDir, staging, { recursive: true });
+      const stagedWorkspace: ProjectWorkspace = {
+        ...options.workspace,
+        packageDir: staging,
+        manifestFile: join(staging, "manifest.json")
+      };
+      const result = await commitPlanPackageGraphMutation({
+        projectRoot: stagedWorkspace,
+        mutation: options.application.graphMutation
+      });
+      if (!result.ok) {
+        await transaction.rollback();
+        await rm(staging, { recursive: true, force: true });
+        return result;
+      }
+      if (options.application.layoutChanged) {
+        await dependencies.saveLayout(stagedWorkspace, options.application.nextLayout, {
+          updatedAt: options.application.nextLayout.updatedAt
+        });
+      }
+      await transaction.replacePath(options.workspace.packageDir, staging);
+      await dependencies.markTransactionCommitted(transaction);
+      try {
+        await dependencies.cleanupCommittedTransaction(transaction);
+      } catch (cleanupError) {
+        dependencies.reportCleanupFailure(cleanupError);
+      }
+      return result;
+    } catch (error) {
+      let rollbackError: unknown;
+      try {
+        await transaction.rollback();
+      } catch (failure) {
+        rollbackError = failure;
+      }
+      let cleanupError: unknown;
+      try {
+        await rm(staging, { recursive: true, force: true });
+      } catch (failure) {
+        cleanupError = failure;
+      }
+      if (rollbackError || cleanupError) {
+        throw new AggregateError(
+          [
+            error,
+            ...(rollbackError ? [rollbackError] : []),
+            ...(cleanupError ? [cleanupError] : [])
+          ],
+          "canvas_command_commit_rollback_failed"
+        );
+      }
+      throw error;
     }
-    throw error;
-  }
+  });
 }
 
 /** Apply one authorized intent against a Server-resolved package location. */

@@ -620,6 +620,7 @@
         "blockRunIndexV5Mutation.test.ts",
         "blockRunIndexV5Tree.test.ts",
         "blockSubmissionRunIndex.test.ts",
+        "canvasCommandConcurrency.test.ts",
         "canvasReplicaDocument.test.ts",
         "canvasRuntimeStatus.test.ts",
         "claimParallel.test.ts",

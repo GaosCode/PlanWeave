@@ -175,6 +175,27 @@ async function applyMutationSideEffectsWithRollback(
   }
 }
 
+/** Compare the original mutation base with the protected package authority. */
+export function checkPlanPackageGraphMutationVersion(
+  currentManifest: PlanPackageManifest,
+  mutation: PlanPackageGraphMutation
+): GraphEditResult | null {
+  if (stableJson(currentManifest) === stableJson(manifestSchema.parse(mutation.baseManifest))) {
+    return null;
+  }
+  return result(
+    currentManifest,
+    [],
+    [
+      issue(
+        "manifest_version_conflict",
+        "Plan package manifest changed after this mutation was prepared; reload and retry the edit.",
+        "manifest.json"
+      )
+    ]
+  );
+}
+
 export async function commitPlanPackageGraphMutation(options: {
   projectRoot: PackageWorkspaceRef;
   mutation: PlanPackageGraphMutation;
@@ -190,22 +211,8 @@ export async function commitPlanPackageGraphMutation(options: {
   const { workspace } = await loadPackage(options.projectRoot);
   return withPackageFileConsistency([workspace.packageDir], async () => {
     const current = await loadPackage(workspace);
-    if (
-      stableJson(current.manifest) !==
-      stableJson(manifestSchema.parse(options.mutation.baseManifest))
-    ) {
-      return result(
-        current.manifest,
-        [],
-        [
-          issue(
-            "manifest_version_conflict",
-            "Plan package manifest changed after this mutation was prepared; reload and retry the edit.",
-            "manifest.json"
-          )
-        ]
-      );
-    }
+    const conflict = checkPlanPackageGraphMutationVersion(current.manifest, options.mutation);
+    if (conflict) return conflict;
     await applyMutationSideEffectsWithRollback(
       workspace.packageDir,
       options.mutation.sideEffects,

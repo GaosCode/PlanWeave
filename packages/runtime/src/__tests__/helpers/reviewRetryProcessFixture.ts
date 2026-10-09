@@ -4,7 +4,11 @@ import type { ProjectWorkspace } from "../../types.js";
 const source = new URL("../../", import.meta.url).href;
 
 /** Same stdout/stdin barrier as packageBatchProcessFixture, running current source owners. */
-export function spawnReviewRetryActor(workspace: ProjectWorkspace, holdAfterEdit: boolean) {
+export function spawnReviewRetryActor(
+  workspace: ProjectWorkspace,
+  holdAfterEdit: boolean,
+  operation: "edit" | "retry" | "delete" = "edit"
+) {
   const child = spawn(
     process.execPath,
     [
@@ -26,10 +30,15 @@ export function spawnReviewRetryActor(workspace: ProjectWorkspace, holdAfterEdit
     const held=await stat(lockPath).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});
     if(held) process.stdout.write('waiting\\n');
     const continued = new Promise(resolve=>process.stdin.once('data',resolve));
-    const edit=()=>executePlanGraphCommand({projectRoot:workspace,command:{type:'updateTaskFields',taskId:'T-002',fields:{title:'Child edit'}},recordOperation:false});
+    const { retryReview } = await import(source+'taskManager/index.ts');
+    const edit=()=>process.argv[4]==='retry'
+      ? retryReview({projectRoot:workspace,ref:'T-001#R-001',maxFeedbackCycles:3})
+      : executePlanGraphCommand({projectRoot:workspace,command:process.argv[4]==='delete'
+        ? {type:'removeTask',taskId:'T-002'}
+        : {type:'updateTaskFields',taskId:'T-002',fields:{title:'Child edit'}},recordOperation:false});
     if(process.argv[3]==='hold') {
       await withPackageFileConsistency([workspace.packageDir],async()=>{
-        const result=await edit(); if(!result.ok)throw new Error(JSON.stringify(result.diagnostics));
+        const result=await edit(); if('ok' in result && !result.ok)throw new Error(JSON.stringify(result.diagnostics));
         process.stdout.write('edited-held\\n');
         await continued;
       });
@@ -39,7 +48,7 @@ export function spawnReviewRetryActor(workspace: ProjectWorkspace, holdAfterEdit
       await withAdvisoryDirectoryLock({lockPath,operation:'review-retry-child-edit',fs:{...fs,optionalStat,mkdir:async(path)=>{
         try { await fs.mkdir(path); } catch(error) { if(error.code==='EEXIST')process.stdout.write('contended\\n'); throw error; }
       }}},async()=>{
-        const result=await edit(); if(!result.ok)throw new Error(JSON.stringify(result.diagnostics));
+        const result=await edit(); if('ok' in result && !result.ok)throw new Error(JSON.stringify(result.diagnostics));
       });
       process.stdout.write('edited\\n');
     }
@@ -47,7 +56,8 @@ export function spawnReviewRetryActor(workspace: ProjectWorkspace, holdAfterEdit
   `,
       JSON.stringify(workspace),
       source,
-      holdAfterEdit ? "hold" : "edit"
+      holdAfterEdit ? "hold" : "edit",
+      operation
     ],
     { stdio: ["pipe", "pipe", "pipe"] }
   );
@@ -59,6 +69,12 @@ export function spawnReviewRetryActor(workspace: ProjectWorkspace, holdAfterEdit
     readyResolve = resolve;
     readyReject = reject;
   });
+  const readyTimeout = setTimeout(
+    () => readyReject(new Error("Review retry actor barrier timed out.")),
+    10_000
+  );
+  readyTimeout.unref();
+  void ready.finally(() => clearTimeout(readyTimeout)).catch(() => undefined);
   child.stderr.on("data", (value) => {
     stderr += String(value);
   });
