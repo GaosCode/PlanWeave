@@ -227,8 +227,9 @@ export function createIdentityServices(input: {
     allowInsecureTransport: input.config.insecurePolicy.allowInsecureTransport,
     clock: input.clock,
     operatorSessionTtlMs: input.config.operatorSessionTtlMs,
+    onWorkspaceMembersChanged: (workspaceId) =>
+      input.workspaceIdentity.invalidateMembers(workspaceId),
     onWorkspaceDeviceMembershipCreated: ({ workspaceId, humanPrincipalId, role }) => {
-      input.workspaceIdentity.invalidateMembers(workspaceId);
       const projectIds = new Set<string>();
       for (const scope of input.runtimeRegistry.expansions) {
         if (scope.workspaceId !== workspaceId || projectIds.has(scope.projectId)) continue;

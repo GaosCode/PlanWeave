@@ -71,7 +71,8 @@ export class HumanIdentityCredentialStore {
   constructor(
     private readonly database: SqliteDatabase,
     private readonly clock: () => Date,
-    private readonly ttlMs: number = HUMAN_IDENTITY_DEFAULT_TTL_MS
+    private readonly ttlMs: number = HUMAN_IDENTITY_DEFAULT_TTL_MS,
+    private readonly onWorkspaceMembersChanged?: (workspaceId: string) => void
   ) {
     this.identity = new HumanPrincipalIdentity(database);
   }
@@ -176,9 +177,22 @@ export class HumanIdentityCredentialStore {
     sourceHumanPrincipalId?: string;
     mergedAt?: string;
   } {
-    return inWriteTransaction(this.database, () =>
+    const result = inWriteTransaction(this.database, () =>
       this.mergeLocked(sourceIdentityToken, canonicalIdentityToken)
     );
+    if (!result.alreadyEquivalent && this.onWorkspaceMembersChanged) {
+      const ids = this.identity.equivalentIds(result.canonicalHumanPrincipalId);
+      const placeholders = sqlPlaceholders(ids);
+      const affected = this.database
+        .prepare(`
+        SELECT workspace_id FROM workspace_principals WHERE human_principal_id IN (${placeholders})
+        UNION SELECT workspace_id FROM workspace_memberships WHERE human_principal_id IN (${placeholders})
+        UNION SELECT workspace_id FROM workspace_device_sessions WHERE human_principal_id IN (${placeholders})
+      `)
+        .all(...ids, ...ids, ...ids) as { workspace_id: string }[];
+      for (const row of affected) this.onWorkspaceMembersChanged(row.workspace_id);
+    }
+    return result;
   }
 
   private mergeLocked(

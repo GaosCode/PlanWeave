@@ -93,6 +93,7 @@ export type SetupCodeServiceOptions = {
   operatorSessionTtlMs?: number;
   hostCredentialTtlMs?: number;
   identityCredentialTtlMs?: number;
+  onWorkspaceMembersChanged?: (workspaceId: string) => void;
   onWorkspaceDeviceMembershipCreated?: (input: {
     workspaceId: string;
     humanPrincipalId: string;
@@ -113,6 +114,7 @@ export class SetupCodeService {
   private readonly operatorSessionTtlMs: number;
   private readonly hostCredentialTtlMs: number;
   private readonly identityCredentials: HumanIdentityCredentialStore;
+  private readonly onWorkspaceMembersChanged: SetupCodeServiceOptions["onWorkspaceMembersChanged"];
   private readonly onWorkspaceDeviceMembershipCreated: SetupCodeServiceOptions["onWorkspaceDeviceMembershipCreated"];
   private readonly issuerAuthorization: SetupCodeServiceOptions["issuerAuthorization"];
 
@@ -132,8 +134,10 @@ export class SetupCodeService {
     this.identityCredentials = new HumanIdentityCredentialStore(
       options.database,
       this.clock,
-      options.identityCredentialTtlMs ?? HUMAN_IDENTITY_DEFAULT_TTL_MS
+      options.identityCredentialTtlMs ?? HUMAN_IDENTITY_DEFAULT_TTL_MS,
+      options.onWorkspaceMembersChanged
     );
+    this.onWorkspaceMembersChanged = options.onWorkspaceMembersChanged;
     this.onWorkspaceDeviceMembershipCreated = options.onWorkspaceDeviceMembershipCreated;
     this.assertTransportPolicy(this.serverBaseUrl, this.allowInsecureTransport);
   }
@@ -352,6 +356,7 @@ export class SetupCodeService {
         issuedAt,
         expiresAt
       );
+    this.onWorkspaceMembersChanged?.(grant.workspaceId);
     if (!existingMembership) {
       this.onWorkspaceDeviceMembershipCreated?.({
         workspaceId: grant.workspaceId,

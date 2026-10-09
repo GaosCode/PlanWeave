@@ -582,6 +582,36 @@ describe("Workspace People membership invalidation", () => {
 });
 
 describe("connection-only People shell invalidation", () => {
+  it("refreshes device-only changes and merged roster devices through idle shell authority", async () => {
+    const f = await observedPeople(undefined, true);
+    const owner = member("human-one", "A");
+    const addedDevice = {
+      ...owner.devices[0]!,
+      deviceSessionId: "device-second",
+      isCurrentDevice: false
+    };
+    f.setRoster([
+      { ...owner, devices: [...owner.devices, addedDevice] },
+      member("human-removed", "Removed")
+    ]);
+    act(() => f.emitWorkspace());
+    await waitFor(() => expect(f.result.current.panel.devices).toHaveLength(3));
+    expect(f.result.current.panel.presence.memberCount).toBe(2);
+    const transferredDevice = { ...addedDevice, deviceSessionId: "device-transferred" };
+    f.setRoster([{ ...owner, devices: [...owner.devices, addedDevice, transferredDevice] }]);
+    act(() => f.emitWorkspace());
+    await waitFor(() => expect(f.result.current.panel.presence.memberCount).toBe(1));
+    expect(f.result.current.panel.devices.map((device) => device.deviceCredentialId)).toEqual([
+      "device-human-one",
+      "device-second",
+      "device-transferred"
+    ]);
+    expect(f.result.current.panel.identity?.humanPrincipalId).toBe("human-one");
+    expect(f.legacyMembers).not.toHaveBeenCalled();
+    f.unmount();
+    f.shell.release();
+    expect(f.listenerCount()).toBe(0);
+  });
   it("uses real idle shell binding for name, count, join and removal updates without Project reads", async () => {
     const f = await observedPeople(undefined, true);
     expect(f.result.current.shared.snapshot.projectId).toBeNull();
