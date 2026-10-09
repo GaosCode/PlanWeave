@@ -1022,6 +1022,10 @@ export class CollaborationService {
     return this.readMutations.finalizePendingAttachment(input);
   }
 
+  async readPendingAttachment(input: unknown): Promise<CollaborationCommentAttachmentBody> {
+    return this.readMutations.readPendingAttachment(input);
+  }
+
   async readCommentAttachment(input: unknown): Promise<CollaborationCommentAttachmentBody> {
     return this.readMutations.readCommentAttachment(input);
   }

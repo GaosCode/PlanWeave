@@ -903,6 +903,16 @@ export class CollaborationClient {
     const path =
       `/api/v1/projects/${encodeURIComponent(this.profile.projectId)}` +
       `/attachments/comments/${encodeURIComponent(commentId)}/${encodeURIComponent(digestSha256)}`;
+    return this.readAttachmentBody(path, digestSha256, signal);
+  }
+
+  async readPendingAttachment(pendingUploadId: string, digestSha256: string, signal?: AbortSignal) {
+    this.ensureOpen();
+    const path = `/api/v1/projects/${encodeURIComponent(this.profile.projectId)}/attachments/pending/${encodeURIComponent(pendingUploadId)}`;
+    return this.readAttachmentBody(path, digestSha256, signal);
+  }
+
+  private async readAttachmentBody(path: string, digestSha256: string, signal?: AbortSignal) {
     const headers: Record<string, string> = { accept: "*/*" };
     await this.transport.applyAuth(headers);
     return this.transport.consumeResponse(

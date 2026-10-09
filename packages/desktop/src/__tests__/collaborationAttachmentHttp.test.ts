@@ -372,3 +372,43 @@ describe("Collaboration attachment HTTP body ownership", () => {
     expect(body.locked).toBe(false);
   }, 600);
 });
+
+describe("pending attachment download", () => {
+  it("reads the actual authenticated pending GET and verifies the returned digest", async () => {
+    const client = await fixture((req, res) => {
+      expect(req.method).toBe("GET");
+      expect(req.url).toBe("/api/v1/projects/project-demo-001/attachments/pending/pending-1");
+      expect(req.headers.authorization).toBe(`Bearer ${exampleHumanDeviceToken}`);
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end(bytes);
+    });
+    expect(await client.readPendingAttachment("pending-1", digest)).toEqual({
+      digestSha256: digest,
+      mediaType: "image/png",
+      sizeBytes: bytes.length,
+      bodyBase64: bytes.toString("base64")
+    });
+  });
+});
+
+describe("pending download protocol failures", () => {
+  it.each([401, 403, 404, 410])("preserves authenticated HTTP %s rejection", async (status) => {
+    const client = await fixture((_req, res) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "pending_denied", message: "Denied" }));
+    });
+    await expect(client.readPendingAttachment("pending-1", digest)).rejects.toMatchObject({
+      httpStatus: status,
+      code: "pending_denied"
+    });
+  });
+  it("rejects corrupt pending bytes instead of exposing a download", async () => {
+    const client = await fixture((_req, res) => {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end("corrupt");
+    });
+    await expect(client.readPendingAttachment("pending-1", digest)).rejects.toMatchObject({
+      code: "collaboration_attachment_digest_mismatch"
+    });
+  });
+});

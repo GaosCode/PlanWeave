@@ -679,3 +679,140 @@ describe("comments hook mutation scope and composer ownership", () => {
     f.unmount();
   });
 });
+
+describe("ready draft pending downloads", () => {
+  it.each([
+    "报告.pdf",
+    "📎.txt"
+  ])("saves %s from the Server read rather than the uploaded File", async (name) => {
+    const f = await scopedPanel();
+    enableUploads(f.api);
+    await stageImage(f, name);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function () {
+      expect(this.download).toBe(name);
+      expect(this.href).toBe("data:text/plain;base64,c2VydmVy");
+    });
+    vi.mocked(f.api.readCollaborationPendingAttachment).mockResolvedValue({
+      digestSha256: f.result.current.stagedAttachments[0]!.digestSha256!,
+      mediaType: "text/plain",
+      sizeBytes: 6,
+      bodyBase64: "c2VydmVy"
+    });
+    await act(async () => {
+      await f.result.current.downloadPendingAttachment(
+        f.result.current.stagedAttachments[0]!.localId
+      );
+    });
+    expect(click).toHaveBeenCalledOnce();
+    f.unmount();
+    f.shell.release();
+  });
+
+  it.each([
+    "remove",
+    "cancel",
+    "publish",
+    "project",
+    "credential",
+    "close"
+  ] as const)("does not save or pollute the composer after %s retires a pending read", async (retire) => {
+    const f = await scopedPanel();
+    enableUploads(f.api);
+    await stageImage(f, "📎.txt");
+    const attachment = f.result.current.stagedAttachments[0]!;
+    const gate =
+      deferred<
+        Awaited<ReturnType<PlanWeaveCollaborationApi["readCollaborationPendingAttachment"]>>
+      >();
+    vi.mocked(f.api.readCollaborationPendingAttachment).mockReturnValue(gate.promise);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    let download!: Promise<void>;
+    act(() => {
+      download = f.result.current.downloadPendingAttachment(attachment.localId);
+    });
+    if (retire === "remove") act(() => f.result.current.removeAttachment(attachment.localId));
+    if (retire === "cancel") act(() => f.result.current.cancelAttachment(attachment.localId));
+    if (retire === "publish") {
+      act(() => f.result.current.setDraftBody("publish"));
+      await act(async () => {
+        expect(await f.result.current.submitComment()).toBe(true);
+      });
+    }
+    if (retire === "project") await f.switchProject("project-B");
+    if (retire === "credential")
+      await act(async () => f.changeStatus("project-1", "profile-1", "new-credential-revision"));
+    if (retire === "close") f.rerender({ open: false });
+    await act(async () => {
+      gate.resolve({
+        digestSha256: attachment.digestSha256!,
+        mediaType: "text/plain",
+        sizeBytes: 6,
+        bodyBase64: "c2VydmVy"
+      });
+      await download;
+    });
+    expect(click).not.toHaveBeenCalled();
+    expect(f.result.current.actionError).toBeNull();
+    expect(f.result.current.downloadingAttachments).toEqual([]);
+    f.unmount();
+    f.shell.release();
+  });
+
+  it("shows a current read error and permits another explicit download", async () => {
+    const f = await scopedPanel();
+    enableUploads(f.api);
+    await stageImage(f, "报告.pdf");
+    const item = f.result.current.stagedAttachments[0]!;
+    vi.mocked(f.api.readCollaborationPendingAttachment).mockRejectedValueOnce(
+      new Error("pending unavailable")
+    );
+    await act(async () => {
+      await f.result.current.downloadPendingAttachment(item.localId);
+    });
+    expect(f.result.current.actionError).toContain("pending unavailable");
+    expect(f.result.current.downloadingAttachments).toEqual([]);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.mocked(f.api.readCollaborationPendingAttachment).mockResolvedValue({
+      digestSha256: item.digestSha256!,
+      mediaType: "text/plain",
+      sizeBytes: 6,
+      bodyBase64: "c2VydmVy"
+    });
+    await act(async () => {
+      await f.result.current.downloadPendingAttachment(item.localId);
+    });
+    expect(click).toHaveBeenCalledOnce();
+    expect(f.result.current.actionError).toBeNull();
+    f.unmount();
+    f.shell.release();
+  });
+});
+
+describe("pending download retired errors", () => {
+  it("does not expose an old download failure in the new project draft", async () => {
+    const f = await scopedPanel();
+    enableUploads(f.api);
+    await stageImage(f, "报告.pdf");
+    const gate =
+      deferred<
+        Awaited<ReturnType<PlanWeaveCollaborationApi["readCollaborationPendingAttachment"]>>
+      >();
+    vi.mocked(f.api.readCollaborationPendingAttachment).mockReturnValueOnce(gate.promise);
+    let read!: Promise<void>;
+    act(() => {
+      read = f.result.current.downloadPendingAttachment(
+        f.result.current.stagedAttachments[0]!.localId
+      );
+    });
+    await f.switchProject("project-B");
+    act(() => f.result.current.setDraftBody("new draft"));
+    await act(async () => {
+      gate.reject(new Error("retired pending error"));
+      await read;
+    });
+    expect(f.result.current.actionError).toBeNull();
+    expect(f.result.current.draft.body).toBe("new draft");
+    f.unmount();
+    f.shell.release();
+  });
+});

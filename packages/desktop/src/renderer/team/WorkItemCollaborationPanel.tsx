@@ -133,6 +133,8 @@ export function WorkItemCollaborationPanel({
           onEdit={comments.editComment}
           onTombstone={comments.tombstoneComment}
           onReadAttachment={comments.readAttachment}
+          onDownloadPendingAttachment={comments.downloadPendingAttachment}
+          downloadingAttachments={comments.downloadingAttachments}
           onStageFiles={comments.stageFiles}
           onCancelAttachment={comments.cancelAttachment}
           onRemoveAttachment={comments.removeAttachment}

@@ -1,3 +1,12 @@
+export * from "./collaborationAttachments.js";
+import type {
+  CollaborationCreatePendingAttachmentInput,
+  CollaborationUploadPendingAttachmentInput,
+  CollaborationFinalizePendingAttachmentInput,
+  CollaborationReadCommentAttachmentInput,
+  CollaborationCommentAttachmentBody,
+  CollaborationReadPendingAttachmentInput
+} from "./collaborationAttachments.js";
 import { z } from "zod";
 import type {
   WorkspaceCanvasCommandSubmitInput,
@@ -13,7 +22,6 @@ import type {
   RestoreServerDataArchiveResult,
   ServerDataExportSource
 } from "./serverDataMigration.js";
-import { COMMENT_ATTACHMENT_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 import type { CollaborationInvitationHandoffResponse } from "@planweave-ai/collaboration-protocol/handoff/invitation";
 import {
   canvasCommandIntentSchema,
@@ -43,18 +51,13 @@ import {
   type WorkspacePickerPage
 } from "@planweave-ai/collaboration-protocol/connection";
 import {
-  commentContentSha256Schema,
-  commentIdSchema,
   humanDisplayNameSchema,
   humanDeviceLabelSchema,
   setupCodeTokenSchema,
   humanDeviceTokenSchema,
-  pendingAttachmentUploadIdSchema,
   workspaceIdSchema
 } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
-  createPendingAttachmentRequestSchema,
-  type CreatePendingAttachmentRequest,
   type FinalizePendingAttachmentResponse,
   type PendingAttachmentView
 } from "@planweave-ai/collaboration-protocol/activity/attachments";
@@ -94,8 +97,6 @@ import {
   type HumanPrincipalView
 } from "@planweave-ai/collaboration-protocol/identity/workspace";
 import {
-  commentAttachmentMediaTypeSchema,
-  commentAttachmentSizeBytesSchema,
   type ActivityListPage,
   type CommentDisplayProjection,
   type CommentListPage
@@ -523,69 +524,6 @@ export type CollaborationDeviceCredentialIdInput = z.infer<
   typeof collaborationDeviceCredentialIdInputSchema
 >;
 
-/** Create a staged comment attachment upload (metadata only — no bytes). */
-export const collaborationCreatePendingAttachmentInputSchema = createPendingAttachmentRequestSchema;
-export type CollaborationCreatePendingAttachmentInput = CreatePendingAttachmentRequest;
-
-/**
- * Upload staged attachment bytes over IPC as base64.
- * Renderer never sends filesystem paths; only basename + content + declared media type.
- * Max payload tracks COMMENT_ATTACHMENT_MAX_BYTES (base64 expansion ~4/3).
- */
-export const collaborationUploadPendingAttachmentInputSchema = z
-  .object({
-    pendingUploadId: pendingAttachmentUploadIdSchema,
-    mediaType: z.string().min(1).max(128),
-    bodyBase64: z
-      .string()
-      .min(1)
-      .max(Math.ceil((COMMENT_ATTACHMENT_MAX_BYTES * 4) / 3) + 8),
-    digestSha256: z
-      .string()
-      .length(64)
-      .regex(/^[a-f0-9]+$/)
-      .optional()
-  })
-  .strict();
-export type CollaborationUploadPendingAttachmentInput = z.infer<
-  typeof collaborationUploadPendingAttachmentInputSchema
->;
-
-export const collaborationFinalizePendingAttachmentInputSchema = z
-  .object({
-    pendingUploadId: pendingAttachmentUploadIdSchema,
-    expectedDigestSha256: commentContentSha256Schema.optional()
-  })
-  .strict();
-export type CollaborationFinalizePendingAttachmentInput = z.infer<
-  typeof collaborationFinalizePendingAttachmentInputSchema
->;
-
-export const collaborationReadCommentAttachmentInputSchema = z
-  .object({
-    commentId: commentIdSchema,
-    digestSha256: commentContentSha256Schema
-  })
-  .strict();
-export type CollaborationReadCommentAttachmentInput = z.input<
-  typeof collaborationReadCommentAttachmentInputSchema
->;
-
-export const collaborationCommentAttachmentBodySchema = z
-  .object({
-    digestSha256: commentContentSha256Schema,
-    mediaType: commentAttachmentMediaTypeSchema,
-    sizeBytes: commentAttachmentSizeBytesSchema,
-    bodyBase64: z
-      .string()
-      .min(1)
-      .max(Math.ceil((COMMENT_ATTACHMENT_MAX_BYTES * 4) / 3) + 8)
-  })
-  .strict();
-export type CollaborationCommentAttachmentBody = z.infer<
-  typeof collaborationCommentAttachmentBodySchema
->;
-
 /** One-shot invitation create view — token is display/copy-once only; never persisted by Desktop. */
 export type CollaborationInvitationCreateView = HumanCreateInvitationResponse;
 export type CollaborationInvitationHandoffView = CollaborationInvitationHandoffResponse;
@@ -993,6 +931,9 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   finalizeCollaborationPendingAttachment: (
     input: CollaborationFinalizePendingAttachmentInput
   ) => Promise<FinalizePendingAttachmentResponse>;
+  readCollaborationPendingAttachment: (
+    input: CollaborationReadPendingAttachmentInput
+  ) => Promise<CollaborationCommentAttachmentBody>;
   readCollaborationCommentAttachment: (
     input: CollaborationReadCommentAttachmentInput
   ) => Promise<CollaborationCommentAttachmentBody>;

@@ -75,12 +75,40 @@ describe("CommentsPanel", () => {
       onEdit: vi.fn().mockResolvedValue(false),
       onTombstone: vi.fn().mockResolvedValue(true),
       onReadAttachment: vi.fn(),
+      onDownloadPendingAttachment: vi.fn().mockResolvedValue(undefined),
+      downloadingAttachments: [],
       onStageFiles: vi.fn().mockResolvedValue(undefined),
       onCancelAttachment: vi.fn(),
       onRemoveAttachment: vi.fn(),
       ...overrides
     };
   }
+
+  it("offers a public download only for ready staged attachments", async () => {
+    const onDownloadPendingAttachment = vi.fn().mockResolvedValue(undefined);
+    const attachment = {
+      localId: "draft-1",
+      displayName: "报告.pdf",
+      mediaType: "application/pdf" as const,
+      sizeBytes: 4,
+      phase: "ready" as const,
+      progress: 1,
+      errorMessage: null,
+      pendingUploadId: "pending-1",
+      digestSha256: "a".repeat(64),
+      input: null
+    };
+    const props = editProps({ stagedAttachments: [attachment], onDownloadPendingAttachment });
+    const view = render(<CommentsPanel {...props} />);
+    await userEvent.setup().click(screen.getByTestId("comments-download-pending-attachment"));
+    expect(onDownloadPendingAttachment).toHaveBeenCalledWith("draft-1");
+    view.rerender(
+      <CommentsPanel {...props} stagedAttachments={[{ ...attachment, phase: "uploading" }]} />
+    );
+    expect(screen.queryByTestId("comments-download-pending-attachment")).not.toBeInTheDocument();
+    view.rerender(<CommentsPanel {...props} downloadingAttachments={["draft-1"]} />);
+    expect(screen.getByTestId("comments-download-pending-attachment")).toBeDisabled();
+  });
 
   it("keeps the opening revision and draft across remote updates and failed saves", async () => {
     const user = userEvent.setup();
@@ -253,6 +281,8 @@ describe("CommentsPanel", () => {
         onSubmit={onSubmit}
         onEdit={onEdit}
         onTombstone={onTombstone}
+        onDownloadPendingAttachment={vi.fn().mockResolvedValue(undefined)}
+        downloadingAttachments={[]}
         onStageFiles={vi.fn().mockResolvedValue(undefined)}
         onCancelAttachment={vi.fn()}
         onRemoveAttachment={vi.fn()}
@@ -360,6 +390,8 @@ describe("CommentsPanel", () => {
         onSubmit={vi.fn().mockResolvedValue(false)}
         onEdit={vi.fn().mockResolvedValue(false)}
         onTombstone={vi.fn().mockResolvedValue(false)}
+        onDownloadPendingAttachment={vi.fn().mockResolvedValue(undefined)}
+        downloadingAttachments={[]}
         onStageFiles={vi.fn().mockResolvedValue(undefined)}
         onCancelAttachment={onCancel}
         onRemoveAttachment={vi.fn()}

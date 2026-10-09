@@ -157,6 +157,7 @@ export function createApi() {
     createCollaborationPendingAttachment: vi.fn(),
     uploadCollaborationPendingAttachment: vi.fn(),
     finalizeCollaborationPendingAttachment: vi.fn(),
+    readCollaborationPendingAttachment: vi.fn(),
     readCollaborationCommentAttachment: readCommentAttachment,
     onCollaborationStatusChanged: vi.fn((listener: (next: CollaborationStatus) => void) => {
       statusListeners.add(listener);
@@ -185,11 +186,11 @@ export function createApi() {
     editComment,
     tombstoneComment,
     readCommentAttachment,
-    changeStatus: (projectId: string, profileId = "profile-1") => {
+    changeStatus: (projectId: string, profileId = "profile-1", credentialRevision?: string) => {
       status = connectedStatus();
       status.activeProfileId = profileId;
       status.session.activeProfileId = profileId;
-      status.profiles[0] = { ...status.profiles[0]!, projectId, profileId };
+      status.profiles[0] = { ...status.profiles[0]!, projectId, profileId, credentialRevision };
       for (const listener of statusListeners) listener(status);
     }
   };

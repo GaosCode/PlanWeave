@@ -859,6 +859,10 @@ export function registerCollaborationHandlers(
     (_event, input: unknown) => active.finalizePendingAttachment(input)
   );
   handleDesktopCommand(
+    collaborationInvokeChannels.readCollaborationPendingAttachment,
+    (_event, input: unknown) => active.readPendingAttachment(input)
+  );
+  handleDesktopCommand(
     collaborationInvokeChannels.readCollaborationCommentAttachment,
     (_event, input: unknown) => active.readCommentAttachment(input)
   );

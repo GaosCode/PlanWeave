@@ -1,3 +1,4 @@
+import { usePendingAttachmentDownload } from "./usePendingAttachmentDownload";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   COMMENT_ATTACHMENTS_MAX_COUNT,
@@ -82,6 +83,8 @@ export type UseCommentsPanelControllerResult = {
       arrayBuffer: () => Promise<ArrayBuffer>;
     }>
   ) => Promise<void>;
+  downloadPendingAttachment: (localId: string) => Promise<void>;
+  downloadingAttachments: string[];
   cancelAttachment: (localId: string) => void;
   removeAttachment: (localId: string) => void;
 };
@@ -157,9 +160,16 @@ export function useCommentsPanelController(
   const generationRef = useRef(0);
   const mutationRequestRef = useRef(0);
   const currentScopeRef = useRef<object | null>(null);
+  const connectionScopeKey = JSON.stringify([
+    activeProfile?.serverBaseUrl,
+    activeProfile?.credentialRevision,
+    activeProfile?.humanPrincipalId,
+    status?.workspaceConnection.workspaceId,
+    status?.workspaceConnection.credentialRevision
+  ]);
   const scopeToken = useMemo(
-    () => ({ api, controller, open: args.open, scopeKey, workKey }),
-    [api, controller, args.open, scopeKey, workKey]
+    () => ({ api, controller, open: args.open, scopeKey, workKey, connectionScopeKey }),
+    [api, controller, args.open, scopeKey, workKey, connectionScopeKey]
   );
   useLayoutEffect(() => {
     currentScopeRef.current = scopeToken;
@@ -366,6 +376,7 @@ export function useCommentsPanelController(
       }
       paginationRef.current?.confirm(result);
       clearCommentDraft(args.workItem, submittedDraft, scopeKey);
+      for (const localId of consumedAttachments) cancelledUploads.current.add(localId);
       setStagedAttachments((prev) => prev.filter((item) => !consumedAttachments.has(item.localId)));
       setDraftTick((v) => v + 1);
       return true;
@@ -547,6 +558,20 @@ export function useCommentsPanelController(
     [isCurrentScope]
   );
 
+  const isCancelled = useCallback((localId: string) => cancelledUploads.current.has(localId), []);
+  const onDownloadStart = useCallback(() => setActionError(null), []);
+  const onDownloadError = useCallback((error: unknown) => {
+    setActionError(collaborationErrorMessage(mapBoundaryError(error)));
+  }, []);
+  const pendingDownload = usePendingAttachmentDownload({
+    api: sessionConnected ? api : null,
+    stagedAttachments,
+    isCurrentScope,
+    isCancelled,
+    onStart: onDownloadStart,
+    onError: onDownloadError
+  });
+
   const readAttachment = useCallback(
     async (commentId: string, digestSha256: string) => {
       if (!api || !sessionConnected || !isCurrentScope()) {
@@ -577,6 +602,8 @@ export function useCommentsPanelController(
     editComment,
     tombstoneComment,
     readAttachment,
+    downloadPendingAttachment: pendingDownload.download,
+    downloadingAttachments: pendingDownload.downloading,
     stageFiles,
     cancelAttachment,
     removeAttachment

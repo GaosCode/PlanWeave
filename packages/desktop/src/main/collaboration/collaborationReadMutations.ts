@@ -41,6 +41,7 @@ import {
   collaborationCommentAttachmentBodySchema,
   collaborationFinalizePendingAttachmentInputSchema,
   collaborationReadCommentAttachmentInputSchema,
+  collaborationReadPendingAttachmentInputSchema,
   collaborationUploadPendingAttachmentInputSchema
 } from "../../shared/collaboration.js";
 import type { CollaborationCommentAttachmentBody } from "../../shared/collaboration.js";
@@ -203,6 +204,15 @@ export class CollaborationReadMutationsFacade {
       client.finalizePendingAttachment(body.pendingUploadId, {
         expectedDigestSha256: body.expectedDigestSha256
       })
+    );
+  }
+
+  readPendingAttachment(input: unknown): Promise<CollaborationCommentAttachmentBody> {
+    const body = collaborationReadPendingAttachmentInputSchema.parse(input);
+    return this.withActiveClient(async (client) =>
+      collaborationCommentAttachmentBodySchema.parse(
+        await client.readPendingAttachment(body.pendingUploadId, body.digestSha256)
+      )
     );
   }
 

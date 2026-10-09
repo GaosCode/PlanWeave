@@ -478,6 +478,7 @@ function createScenarioApi(state: ScenarioState) {
     createCollaborationPendingAttachment: vi.fn(),
     uploadCollaborationPendingAttachment: vi.fn(),
     finalizeCollaborationPendingAttachment: vi.fn(),
+    readCollaborationPendingAttachment: vi.fn(),
     readCollaborationCommentAttachment: vi.fn().mockResolvedValue({
       digestSha256: "a".repeat(64),
       mediaType: "image/png",

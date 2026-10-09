@@ -102,6 +102,7 @@ export const collaborationInvokeChannels = {
   createCollaborationPendingAttachment: "planweave-collaboration:createPendingAttachment",
   uploadCollaborationPendingAttachment: "planweave-collaboration:uploadPendingAttachment",
   finalizeCollaborationPendingAttachment: "planweave-collaboration:finalizePendingAttachment",
+  readCollaborationPendingAttachment: "planweave-collaboration:readPendingAttachment",
   readCollaborationCommentAttachment: "planweave-collaboration:readCommentAttachment",
   listCollaborationAgentEndpoints: "planweave-collaboration:listAgentEndpoints",
   observeCollaborationRemoteOperation: "planweave-collaboration:observeRemoteOperation",

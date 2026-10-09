@@ -1357,6 +1357,10 @@ describe("preload bridge invocation", () => {
     await api.revokeCollaborationDevice({ deviceCredentialId: "device-1" });
     await api.listCollaborationAssignments({ cursor: 0, limit: 20 });
     await api.listCollaborationActivity({ limit: 20 });
+    await api.readCollaborationPendingAttachment({
+      pendingUploadId: "pending-1",
+      digestSha256: "a".repeat(64)
+    });
     await api.readCollaborationCommentAttachment({
       commentId: "comment-1",
       digestSha256: "a".repeat(64)
@@ -1531,6 +1535,10 @@ describe("preload bridge invocation", () => {
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.updateOwnCollaborationDisplayName,
       { displayName: "Ada Lovelace" }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.readCollaborationPendingAttachment,
+      { pendingUploadId: "pending-1", digestSha256: "a".repeat(64) }
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.readCollaborationCommentAttachment,

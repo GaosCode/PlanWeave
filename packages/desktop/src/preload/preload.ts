@@ -581,6 +581,8 @@ const collaborationApi: PlanWeaveCollaborationApi = {
     invokeDesktopCommand(collaborationInvokeChannels.uploadCollaborationPendingAttachment, input),
   finalizeCollaborationPendingAttachment: async (input) =>
     invokeDesktopCommand(collaborationInvokeChannels.finalizeCollaborationPendingAttachment, input),
+  readCollaborationPendingAttachment: async (input) =>
+    invokeDesktopCommand(collaborationInvokeChannels.readCollaborationPendingAttachment, input),
   readCollaborationCommentAttachment: async (input) =>
     invokeDesktopCommand(collaborationInvokeChannels.readCollaborationCommentAttachment, input),
   listCollaborationAgentEndpoints: async (input) =>

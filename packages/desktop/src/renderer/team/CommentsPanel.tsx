@@ -36,6 +36,8 @@ export type CommentsPanelProps = {
     commentId: string,
     digestSha256: string
   ) => Promise<CollaborationCommentAttachmentBody>;
+  onDownloadPendingAttachment: (localId: string) => Promise<void>;
+  downloadingAttachments: string[];
   onStageFiles: (
     files: Array<{
       name: string;
@@ -272,6 +274,8 @@ export function CommentsPanel({
   onEdit,
   onTombstone,
   onReadAttachment,
+  onDownloadPendingAttachment,
+  downloadingAttachments,
   onStageFiles,
   onCancelAttachment,
   onRemoveAttachment
@@ -446,6 +450,17 @@ export function CommentsPanel({
                   <span className="tabular-nums text-muted-foreground">
                     {Math.round(attachment.progress * 100)}%
                   </span>
+                ) : null}
+                {attachment.phase === "ready" ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    data-testid="comments-download-pending-attachment"
+                    disabled={submitting || downloadingAttachments.includes(attachment.localId)}
+                    onClick={() => void onDownloadPendingAttachment(attachment.localId)}
+                  >
+                    {t("commentsDownloadAttachment")}
+                  </Button>
                 ) : null}
                 {attachment.phase === "ready" || attachment.phase === "error" ? (
                   <Button
