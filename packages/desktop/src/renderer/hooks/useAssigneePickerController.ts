@@ -271,23 +271,38 @@ export function useAssigneePickerController(
     });
   }, [args.workItem, authority, authorityRole, projectId]);
 
-  const refresh = useCallback(async () => {
-    if (!isCurrentScope()) return;
-    if (controller && args.workItem) {
-      await controller.ensureWorkAuthority(args.workItem);
-      if (!isCurrentScope()) return;
-      await controller.refreshAuthoritative({ reason: "assignee_picker_refresh" });
-    }
-    if (!isCurrentScope()) return;
-    if (detailsOpen) {
-      await loadEligible();
-      if (!isCurrentScope()) return;
-    }
-    setLocalStaleConflict(false);
-    if (snapshot.syncPhase !== "stale_conflict") {
-      setActionError(null);
+  const refreshForSelection = useCallback(async (): Promise<boolean> => {
+    if (!isCurrentScope()) return false;
+    try {
+      if (controller && args.workItem) {
+        await controller.ensureWorkAuthority(args.workItem);
+        if (!isCurrentScope()) return false;
+        const outcome = await controller.refreshAuthoritative({
+          reason: "assignee_picker_refresh"
+        });
+        if (!isCurrentScope()) return false;
+        if (outcome.status !== "applied") {
+          if (outcome.status === "failed") setActionError(collaborationErrorMessage(outcome.error));
+          return false;
+        }
+      }
+      if (!isCurrentScope()) return false;
+      if (detailsOpen) {
+        await loadEligible();
+        if (!isCurrentScope()) return false;
+      }
+      setLocalStaleConflict(false);
+      if (snapshot.syncPhase !== "stale_conflict") setActionError(null);
+      return true;
+    } catch (error) {
+      if (isCurrentScope()) setActionError(collaborationErrorMessage(error));
+      return false;
     }
   }, [args.workItem, controller, detailsOpen, isCurrentScope, loadEligible, snapshot.syncPhase]);
+
+  const refresh = useCallback(async (): Promise<void> => {
+    await refreshForSelection();
+  }, [refreshForSelection]);
 
   const performSelection = useCallback(
     async (target: AssignmentTarget, refreshBeforeSelection = false): Promise<boolean> => {
@@ -319,8 +334,7 @@ export function useAssigneePickerController(
 
       try {
         if (refreshBeforeSelection) {
-          await refresh();
-          if (!isCurrentRequest()) return false;
+          if (!(await refreshForSelection()) || !isCurrentRequest()) return false;
         }
         const latestSnapshot = controller.getSnapshot();
         if (
@@ -414,7 +428,7 @@ export function useAssigneePickerController(
       labels.taskDisallowsMachine,
       loadEligible,
       projectId,
-      refresh,
+      refreshForSelection,
       snapshot.profileId,
       snapshot.projectId,
       isCurrentScope,

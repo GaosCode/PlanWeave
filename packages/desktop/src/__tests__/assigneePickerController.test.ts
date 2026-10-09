@@ -547,6 +547,99 @@ describe("assignee picker original mutation scope", () => {
 
 describe("assignee picker explicit retry authority", () => {
   for (const role of roles) {
+    it.each([
+      "success",
+      "failure",
+      "retired"
+    ])(`${role}: retry awaits aggregate authority successor (%s)`, async (outcome) => {
+      const f = await scopedPicker(role);
+      const other = role === "responsibility" ? "reviewer" : "responsibility";
+      let authority = {
+        ...f.result.current.authority!,
+        [role]: { ...f.result.current.authority![role], revision: 2 },
+        [other]: { ...f.result.current.authority![other], revision: 17 }
+      };
+      f.getWorkAuthority.mockImplementation(async () => authority);
+      await act(async () => {
+        await f.result.current.refresh();
+      });
+      f.mutation.mockRejectedValueOnce({
+        kind: "conflict",
+        code: "revision_conflict",
+        message: "Conflict",
+        retryable: true
+      });
+      await act(async () => {
+        expect(await f.result.current.selectTarget(chosenTarget)).toBe(false);
+      });
+      const old = deferred<typeof authority>();
+      const successor = deferred<typeof authority>();
+      const started = deferred<void>();
+      const oldAuthority = authority;
+      f.getWorkAuthority
+        .mockImplementationOnce(async () => oldAuthority)
+        .mockImplementationOnce(() => {
+          started.resolve();
+          return old.promise;
+        });
+      f.mutation.mockImplementation(async (input) => {
+        authority = {
+          ...authority,
+          [role]: {
+            ...authority[role],
+            principal: input.principal,
+            revision: 4,
+            availability: "active"
+          }
+        };
+        return authority[role];
+      });
+      let retry!: Promise<boolean>;
+      let replacement!: Promise<unknown>;
+      const error = {
+        kind: "offline",
+        code: "successor_failed",
+        message: "Successor failed",
+        retryable: true
+      };
+      try {
+        act(() => {
+          retry = f.result.current.retryLastTarget();
+        });
+        await started.promise;
+        f.getWorkAuthority.mockReturnValueOnce(successor.promise);
+        act(() => {
+          replacement = f.shell.controller.ensureWorkAuthority(taskItem).catch((reason) => reason);
+        });
+        await act(async () => {
+          old.resolve(oldAuthority);
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        });
+        const callsBeforeSuccessor = f.mutation.mock.calls.length;
+        authority = { ...authority, [role]: { ...authority[role], revision: 3 } };
+        await act(async () => {
+          if (outcome === "retired") f.shell.controller.clear();
+          if (outcome === "failure") successor.reject(error);
+          else successor.resolve(authority);
+          await replacement;
+          expect(await retry).toBe(outcome === "success");
+        });
+        expect(callsBeforeSuccessor).toBe(1);
+        expect(f.mutation.mock.calls.map(([input]) => input.expectedRevision)).toEqual(
+          outcome === "success" ? [2, 3] : [2]
+        );
+        if (outcome !== "retired") expect(f.result.current.authority?.[other].revision).toBe(17);
+        expect(f.result.current.viewModel?.pending).toBe(false);
+        expect(f.shell.controller.getSnapshot().loadingKinds).toEqual([]);
+        if (outcome === "failure") expect(f.result.current.viewModel?.lastError).toBeTruthy();
+      } finally {
+        old.resolve(oldAuthority);
+        successor.resolve(authority);
+        f.unmount();
+        f.shell.release();
+      }
+    });
+
     it(`${role}: ignores older authority completing while retry waits for eligible targets`, async () => {
       const f = await scopedPicker(role);
       const other = role === "responsibility" ? "reviewer" : "responsibility";

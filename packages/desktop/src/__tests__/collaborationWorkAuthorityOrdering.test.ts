@@ -75,6 +75,205 @@ async function fixture() {
 }
 
 describe("work authority request ordering", () => {
+  it.each([
+    "multi",
+    "scope",
+    "unrelated"
+  ])("aggregate replacement convergence: %s", async (scenario) => {
+    const f = await fixture();
+    const old = deferred<WorkAuthorityProjection>();
+    const b = deferred<WorkAuthorityProjection>();
+    const c = deferred<WorkAuthorityProjection>();
+    const started = deferred<void>();
+    let finished = false;
+    try {
+      f.read.mockImplementationOnce(() => {
+        started.resolve();
+        return old.promise;
+      });
+      const aggregate = f.controller.refreshAuthoritative().then(() => {
+        finished = true;
+      });
+      await started.promise;
+      f.read.mockReturnValueOnce(b.promise);
+      const successor = f.controller.ensureWorkAuthority(workItem);
+      old.resolve(f.authority);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(finished).toBe(false);
+      if (scenario === "scope") {
+        f.controller.clear();
+        await aggregate;
+        expect(f.controller.getSnapshot().syncPhase).toBe("idle");
+        expect(f.controller.getSnapshot().workAuthorityByWorkItem).toEqual({});
+      } else {
+        f.read.mockReturnValueOnce(c.promise);
+        const last = f.controller.ensureWorkAuthority(
+          scenario === "unrelated" ? { ...workItem, canvasId: "unrelated" } : workItem
+        );
+        b.resolve({
+          ...f.authority,
+          responsibility: { ...f.authority.responsibility, revision: 2 }
+        });
+        await successor;
+        if (scenario === "multi") {
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          expect(finished).toBe(false);
+          c.resolve(f.authority);
+        }
+        await aggregate;
+        expect(
+          f.controller.getSnapshot().workAuthorityByWorkItem[key]?.responsibility.revision
+        ).toBe(scenario === "multi" ? 3 : 2);
+        c.resolve(await f.authorityFor({ workItem: { ...workItem, canvasId: "unrelated" } }));
+        await last;
+      }
+      b.resolve(f.authority);
+      await successor;
+      expect(f.controller.getSnapshot().loadingKinds).toEqual([]);
+    } finally {
+      old.resolve(f.authority);
+      b.resolve(f.authority);
+      c.resolve(f.authority);
+      f.controller.dispose();
+    }
+  });
+  it("registered observer non-authority resource failure remains visible", async () => {
+    const f = await fixture();
+    try {
+      f.listAssignments.mockRejectedValueOnce({
+        kind: "offline",
+        code: "assignments_failed",
+        message: "Assignment read failed",
+        retryable: true
+      });
+      f.signalListeners[0]!({
+        type: "human.observer.event",
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001",
+        event: {
+          ...exampleObserverEvent,
+          kind: "assignment",
+          cursor: 1,
+          previousCursor: 0,
+          workItem
+        }
+      });
+      await vi.waitFor(() =>
+        expect(f.controller.getSnapshot().lastError?.code).toBe("assignments_failed")
+      );
+      await f.controller.ensureWorkAuthority(workItem);
+      expect(f.controller.getSnapshot().lastError?.code).toBe("assignments_failed");
+      expect(f.controller.getSnapshot().loadingKinds).toEqual([]);
+    } finally {
+      f.controller.dispose();
+    }
+  });
+
+  it.each([
+    false,
+    true
+  ])("registered observer failure recovers without replay (subscriber=%s)", async (subscriber) => {
+    const f = await fixture();
+    const observed = deferred<void>();
+    let newer: Promise<unknown> | undefined;
+    let launched = false;
+    const error = {
+      kind: "offline",
+      code: "observer_authority_failed",
+      message: "Offline",
+      retryable: true
+    };
+    const unsubscribe = f.controller.subscribe((snapshot) => {
+      if (snapshot.lastError?.code !== error.code || launched) return;
+      launched = true;
+      if (subscriber) newer = f.controller.ensureWorkAuthority(workItem);
+      observed.resolve();
+    });
+    try {
+      f.read.mockRejectedValueOnce(error);
+      f.signalListeners[0]!({
+        type: "human.observer.event",
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001",
+        event: {
+          ...exampleObserverEvent,
+          kind: "assignment",
+          cursor: 1,
+          previousCursor: 0,
+          workItem
+        }
+      });
+      await observed.promise;
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      if (!subscriber) newer = f.controller.ensureWorkAuthority(workItem);
+      await newer;
+      expect(f.controller.getSnapshot().workAuthorityByWorkItem[key]?.responsibility.revision).toBe(
+        3
+      );
+      expect(f.controller.getSnapshot().lastError).toBeNull();
+      expect(f.controller.getSnapshot().syncPhase).toBe("ready");
+      expect(f.controller.getSnapshot().loadingKinds).toEqual([]);
+      // The failed event remains retryable rather than being marked applied.
+      const reads = f.read.mock.calls.length;
+      f.signalListeners[0]!({
+        type: "human.observer.event",
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001",
+        event: {
+          ...exampleObserverEvent,
+          kind: "assignment",
+          cursor: 1,
+          previousCursor: 0,
+          workItem
+        }
+      });
+      await vi.waitFor(() => expect(f.controller.getSnapshot().observerCursor).toBe(1));
+      expect(f.read.mock.calls.length).toBe(reads + 1);
+    } finally {
+      unsubscribe();
+      f.controller.dispose();
+    }
+  });
+  it.each([
+    "responsibility",
+    "reviewer"
+  ] as const)("aggregate waits for pending replacement %s", async (role) => {
+    const f = await fixture();
+    const old = deferred<WorkAuthorityProjection>();
+    const next = deferred<WorkAuthorityProjection>();
+    const started = deferred<void>();
+    const initial = { ...f.authority, [role]: { ...f.authority[role], revision: 2 } };
+    f.read.mockResolvedValueOnce(initial);
+    await f.controller.ensureWorkAuthority(workItem);
+    let finished = false;
+    try {
+      f.read.mockImplementationOnce(() => {
+        started.resolve();
+        return old.promise;
+      });
+      const aggregate = f.controller.refreshAuthoritative().then(() => {
+        finished = true;
+      });
+      await started.promise;
+      f.read.mockReturnValueOnce(next.promise);
+      const replacement = f.controller.ensureWorkAuthority(workItem);
+      old.resolve(f.authority);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const premature = finished;
+      const phase = f.controller.getSnapshot().syncPhase;
+      next.resolve(f.authority);
+      await Promise.all([aggregate, replacement]);
+      expect(premature).toBe(false);
+      expect(phase).toBe("loading");
+      expect(f.controller.getSnapshot().workAuthorityByWorkItem[key]).toEqual(f.authority);
+      expect(f.controller.getSnapshot().loadingKinds).toEqual([]);
+    } finally {
+      old.resolve(f.authority);
+      next.resolve(f.authority);
+      f.controller.dispose();
+    }
+  });
+
   it("keeps a current authority aggregate failure incomplete and recovers on newer same-item success", async () => {
     const f = await fixture();
     try {
@@ -158,7 +357,9 @@ describe("work authority request ordering", () => {
           retryable: true
         });
       else activity.resolve(page);
-      await aggregate;
+      if (scenario === "latest failure")
+        await expect(aggregate).resolves.toEqual({ status: "failed", error: latestError });
+      else await aggregate;
       expect(f.controller.getSnapshot().lastError?.code ?? null).toBe(
         scenario === "latest failure"
           ? latestError.code
@@ -237,7 +438,10 @@ describe("work authority request ordering", () => {
         code: "latest_failed"
       });
       old.resolve(f.authority);
-      await aggregate;
+      await expect(aggregate).resolves.toMatchObject({
+        status: "failed",
+        error: { code: "latest_failed" }
+      });
       expect(f.controller.getSnapshot().lastError?.code).toBe("latest_failed");
       expect(f.controller.getSnapshot().loadingKinds).toEqual([]);
     } finally {

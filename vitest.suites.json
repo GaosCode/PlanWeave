@@ -128,6 +128,8 @@
         "collaborationOperationDiagnosticsPopover.test.tsx",
         "collaborationReadModelHub.test.ts",
         "collaborationReadModels.test.ts",
+        "collaborationAuthorityCursorRecovery.test.ts",
+        "collaborationActiveProjectRefresh.test.ts",
         "collaborationWorkAuthorityOrdering.test.ts",
         "commentInvalidationReadModels.test.ts",
         "collaborationRefreshArbitration.test.ts",

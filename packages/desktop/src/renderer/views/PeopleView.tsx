@@ -507,7 +507,15 @@ export function PeopleView({
                 invitations={panel.invitations}
                 devices={panel.devices}
                 detailsLoading={panel.detailsLoading || reconnectPending}
-                detailsError={panel.detailsError}
+                detailsError={
+                  panel.detailsError ??
+                  (sessionConnected &&
+                  snapshot.profileId === activeProfile?.profileId &&
+                  snapshot.projectId === activeProfile?.projectId &&
+                  snapshot.lastError
+                    ? formatPanelError(snapshot.lastError)
+                    : null)
+                }
                 actionError={panel.actionError}
                 actionBusy={panel.actionBusy}
                 pendingInvitation={panel.pendingInvitation}
