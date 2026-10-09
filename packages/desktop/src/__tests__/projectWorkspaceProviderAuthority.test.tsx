@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import type { CollaborationStatus } from "../shared/collaboration";
+import { activeWorkspaceConnectionViewSchema } from "@planweave-ai/collaboration-protocol/connection";
 import { ReactFlowProvider } from "@xyflow/react";
 import { TaskNodeCard } from "../renderer/graph/TaskNodeCard";
 import type { AppFlowNode } from "../renderer/types";
@@ -45,16 +47,11 @@ const bridges = vi.hoisted(() => {
     });
     return { proxy, target };
   }
+  const status: { current: CollaborationStatus | null } = { current: null };
   return {
     collaboration: bridgeProxy(),
     desktop: bridgeProxy(),
-    status: {
-      current: null as {
-        activeProfileId: string | null;
-        profiles: Array<{ profileId: string; projectId: string }>;
-        session: { phase: string };
-      } | null
-    }
+    status
   };
 });
 
@@ -315,6 +312,66 @@ const locator: WorkspaceCanvasLocator = {
   canvasId: "canvas-1"
 };
 
+function connectedWorkspaceStatus(): CollaborationStatus {
+  const serverBaseUrl = "https://workspace.example.test/";
+  const credentialRevision = "workspace-credential-1";
+  const updatedAt = "2026-08-22T00:00:00.000Z";
+  return {
+    activeProfileId: locator.connectionProfileId,
+    profiles: [
+      {
+        profileId: locator.connectionProfileId,
+        displayName: "Workspace owner",
+        serverBaseUrl,
+        projectId: locator.projectId,
+        allowInsecureTransport: false,
+        hasDeviceCredential: true,
+        deviceCredentialPersistence: "persisted",
+        deviceCredentialId: "device-1",
+        credentialRevision,
+        humanPrincipalId: "human-1",
+        updatedAt,
+        endpoint: {
+          topology: "public_https",
+          serverOrigin: serverBaseUrl,
+          allowedClientOrigins: [serverBaseUrl],
+          tlsTrust: "system_ca"
+        },
+        connectionState: "ready"
+      }
+    ],
+    credentialStorage: "available",
+    nonPersistenceWarning: null,
+    session: {
+      phase: "connected",
+      activeProfileId: locator.connectionProfileId,
+      detail: null,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    },
+    workspaceConnection: activeWorkspaceConnectionViewSchema.parse({
+      schemaVersion: "workspace-setup/v1",
+      status: "connected",
+      profile: {
+        schemaVersion: "workspace-identity/v1",
+        profileId: locator.connectionProfileId,
+        displayName: "Workspace owner",
+        serverBaseUrl,
+        workspaceId: locator.workspaceId,
+        allowInsecureTransport: false
+      },
+      workspaceId: locator.workspaceId,
+      workspaceDisplayName: "Workspace",
+      connectedAt: updatedAt,
+      credentialRevision,
+      error: null
+    }),
+    workspacePicker: { schemaVersion: "workspace-setup/v1", items: [], nextCursor: null },
+    identityRepair: null,
+    updatedAt
+  };
+}
+
 function cachedProjection() {
   return collaborationRemoteCanvasReplicaProjectionSchema.parse({
     authorityId: "profile-offline\u0000https://workspace.example.test\u0000project-1",
@@ -501,11 +558,7 @@ describe("ProjectWorkspaceProvider startup authority", () => {
     };
     replica.content.tasks = [{ ...task, blocks: [block], blockPreview: [block] }];
     if (connected) {
-      bridges.status.current = {
-        activeProfileId: locator.connectionProfileId,
-        profiles: [{ profileId: locator.connectionProfileId, projectId: locator.projectId }],
-        session: { phase: "connected" }
-      };
+      bridges.status.current = connectedWorkspaceStatus();
       bridges.collaboration.target.listCollaborationAuthorizedProjects = vi
         .fn()
         .mockResolvedValue({ items: [], nextCursor: null });
@@ -697,11 +750,7 @@ describe("ProjectWorkspaceProvider startup authority", () => {
     const mounted = render(<ProviderHarness {...props} />);
     await waitFor(() => expect(current?.graphWorkspace.workspaceCanvasOffline).toBe(true));
 
-    bridges.status.current = {
-      activeProfileId: locator.connectionProfileId,
-      profiles: [{ profileId: locator.connectionProfileId, projectId: locator.projectId }],
-      session: { phase: "connected" }
-    };
+    bridges.status.current = connectedWorkspaceStatus();
     mounted.rerender(<ProviderHarness {...props} />);
 
     await waitFor(() => expect(settings.lastOpenedWorkspaceLocator).toBeNull());
@@ -757,11 +806,7 @@ describe("ProjectWorkspaceProvider startup authority", () => {
   });
 
   it("refreshes the Server-authorized canvas catalog with the Local project catalog", async () => {
-    bridges.status.current = {
-      activeProfileId: locator.connectionProfileId,
-      profiles: [{ profileId: locator.connectionProfileId, projectId: locator.projectId }],
-      session: { phase: "connected" }
-    };
+    bridges.status.current = connectedWorkspaceStatus();
     bridges.collaboration.target.listCollaborationAuthorizedProjects = vi
       .fn()
       .mockResolvedValue({ items: [], nextCursor: null });
@@ -866,11 +911,7 @@ describe("Workspace runtime exception notifications", () => {
         }
       }
     };
-    bridges.status.current = {
-      activeProfileId: locator.connectionProfileId,
-      profiles: [{ profileId: locator.connectionProfileId, projectId: locator.projectId }],
-      session: { phase: "connected" }
-    };
+    bridges.status.current = connectedWorkspaceStatus();
     bridges.collaboration.target.listCollaborationAuthorizedProjects = vi
       .fn()
       .mockResolvedValue({ items: [], nextCursor: null });
