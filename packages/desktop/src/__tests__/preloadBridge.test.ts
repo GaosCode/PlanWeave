@@ -885,7 +885,7 @@ describe("preload bridge invocation", () => {
       () => api.listWorkspaceConnectionMembers({ cursor: 0, limit: 50 })
     ]) {
       await expect(request()).rejects.toMatchObject({
-        name: "CollaborationBoundaryError",
+        kind: "forbidden",
         code: "human_cross_project_forbidden",
         httpStatus: 403
       });

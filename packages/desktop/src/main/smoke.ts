@@ -2,6 +2,7 @@ import { app, BrowserWindow } from "electron";
 import { runManagementAuthorizationSmoke } from "./__tests__/smoke/smokeManagementAuthorization.js";
 import { runManagementServerSwitchSmoke } from "./__tests__/smoke/smokeManagementServerSwitch.js";
 import { runRemoteAgentCatalogSmoke } from "./__tests__/smoke/smokeRemoteAgentCatalog.js";
+import { runDesktopCommandErrorsSmoke } from "./__tests__/smoke/smokeDesktopCommandErrors.js";
 import { realpath, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import {
@@ -1395,7 +1396,10 @@ export async function runSmokeCheck(window: BrowserWindow): Promise<void> {
       let rendererManual: Record<string, unknown>;
       try {
         if (localCollaborationOnly) {
-          workflow = { localCollaboration: await runLocalCollaborationSmoke(window) };
+          workflow = {
+            localCollaboration: await runLocalCollaborationSmoke(window),
+            commandFailures: await runDesktopCommandErrorsSmoke(window)
+          };
           rendererManual = {};
           console.log(
             JSON.stringify({

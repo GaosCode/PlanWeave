@@ -1,3 +1,4 @@
+import { desktopCommandBridge } from "../desktopCommandBridge.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { McpTunnelStatus, StartLocalMcpInput, StartTunnelInput } from "../../shared/mcpTunnel";
 
@@ -69,7 +70,12 @@ export function useMcpTunnelStatus({ setError }: { setError: (message: string | 
     };
   }, []);
   const statusEvents = useRef(0);
-  const api = typeof window !== "undefined" ? window.planweaveMcpTunnel : undefined;
+  const api =
+    typeof window !== "undefined"
+      ? window.planweaveMcpTunnel
+        ? desktopCommandBridge(window.planweaveMcpTunnel)
+        : undefined
+      : undefined;
 
   useEffect(() => {
     if (!api) {

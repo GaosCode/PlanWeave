@@ -1,3 +1,4 @@
+import { desktopCommandBridge } from "../desktopCommandBridge.js";
 import { useCallback, useEffect, useState } from "react";
 import type { AppUpdateState } from "../../shared/appUpdate";
 
@@ -16,7 +17,12 @@ function idleState(): AppUpdateState {
 
 export function useAppUpdate({ setError }: { setError: (message: string | null) => void }) {
   const [appUpdateState, setAppUpdateState] = useState<AppUpdateState>(() => idleState());
-  const appUpdateApi = typeof window !== "undefined" ? window.planweaveAppUpdate : undefined;
+  const appUpdateApi =
+    typeof window !== "undefined"
+      ? window.planweaveAppUpdate
+        ? desktopCommandBridge(window.planweaveAppUpdate)
+        : undefined
+      : undefined;
 
   useEffect(() => {
     if (!appUpdateApi) {

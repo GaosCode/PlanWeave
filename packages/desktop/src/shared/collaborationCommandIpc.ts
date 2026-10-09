@@ -1,8 +1,5 @@
 import { z } from "zod";
-import {
-  collaborationBoundaryErrorSchema,
-  type CollaborationBoundaryErrorKind
-} from "@planweave-ai/collaboration-protocol/errors";
+import { collaborationBoundaryErrorSchema } from "@planweave-ai/collaboration-protocol/errors";
 
 export const collaborationCommandErrorSchema = collaborationBoundaryErrorSchema
   .extend({
@@ -32,26 +29,8 @@ export function collaborationCommandResultSchema<T>(valueSchema: z.ZodType<T>) {
   ]);
 }
 
-export class CollaborationBoundaryError extends Error {
-  readonly kind: CollaborationBoundaryErrorKind;
-  readonly code: string;
-  readonly httpStatus?: number;
-  readonly retryable: boolean;
-  readonly retryAfterMs?: number;
-
-  constructor(input: CollaborationCommandError) {
-    super(input.message);
-    this.name = "CollaborationBoundaryError";
-    this.kind = input.kind;
-    this.code = input.code;
-    this.httpStatus = input.httpStatus;
-    this.retryable = input.retryable;
-    this.retryAfterMs = input.retryAfterMs;
-  }
-}
-
 export function unwrapCollaborationCommandResult<T>(input: unknown, valueSchema: z.ZodType<T>): T {
   const parsed = collaborationCommandResultSchema(valueSchema).parse(input);
   if (parsed.ok) return parsed.value;
-  throw new CollaborationBoundaryError(parsed.error);
+  throw parsed.error;
 }

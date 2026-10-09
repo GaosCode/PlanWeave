@@ -1,3 +1,4 @@
+import { desktopCommandBridge } from "../desktopCommandBridge.js";
 import { useEffect } from "react";
 import type { DesktopUiSettings } from "../types";
 
@@ -10,7 +11,9 @@ export function useDesktopSettingsEffects(settings: DesktopUiSettings) {
       return;
     }
 
-    const windowApi = window.planweaveWindow;
+    const windowApi = window.planweaveWindow
+      ? desktopCommandBridge(window.planweaveWindow)
+      : undefined;
     if (!windowApi?.getWindowMaterialCapabilities) {
       root.dataset.windowMaterial = "true";
       return () => {
@@ -97,7 +100,9 @@ export function useDesktopSettingsEffects(settings: DesktopUiSettings) {
 
   useEffect(() => {
     let cancelled = false;
-    const windowApi = window.planweaveWindow;
+    const windowApi = window.planweaveWindow
+      ? desktopCommandBridge(window.planweaveWindow)
+      : undefined;
     if (!windowApi) {
       return;
     }

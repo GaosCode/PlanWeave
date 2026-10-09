@@ -1,3 +1,4 @@
+import { desktopCommandBridge } from "../desktopCommandBridge.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cliInstallCommand, type CliInstallation } from "../../shared/cliInstallation";
@@ -9,7 +10,9 @@ export function CliInstallationCard({ t }: { t: ReturnType<typeof createTranslat
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const request = useRef(0);
-  const api = window.planweaveCliInstallation;
+  const api = window.planweaveCliInstallation
+    ? desktopCommandBridge(window.planweaveCliInstallation)
+    : undefined;
   const refresh = useCallback(async () => {
     if (!api) return;
     const id = ++request.current;
@@ -27,7 +30,7 @@ export function CliInstallationCard({ t }: { t: ReturnType<typeof createTranslat
     } finally {
       if (id === request.current) setChecking(false);
     }
-  }, []);
+  }, [api]);
   useEffect(() => {
     void refresh();
     return () => {

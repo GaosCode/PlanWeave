@@ -1,3 +1,4 @@
+import { desktopCommandBridge } from "../desktopCommandBridge.js";
 import { useEffect, useState, type ReactNode } from "react";
 import type { DesktopRuntimeToolAvailability, ProjectPromptPolicy } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
@@ -117,7 +118,9 @@ export function SettingsGeneralSection({
 
   useEffect(() => {
     let cancelled = false;
-    const windowApi = window.planweaveWindow;
+    const windowApi = window.planweaveWindow
+      ? desktopCommandBridge(window.planweaveWindow)
+      : undefined;
     if (!windowApi?.getWindowMaterialCapabilities) {
       setWindowMaterialCapabilities({ platform: "browser", reason: "supported", supported: true });
       return;
