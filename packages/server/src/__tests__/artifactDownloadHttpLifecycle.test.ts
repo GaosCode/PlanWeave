@@ -252,7 +252,7 @@ function expectSuccessfulDownload(
   } else {
     expect(result.headers["cache-control"]).toBe("private, no-store");
     expect(result.headers["content-disposition"]).toBe(
-      `attachment; filename="${kind === "read_digest" ? "attachment" : "download.txt"}"`
+      `attachment; filename="${kind === "read_digest" ? "attachment" : "download.txt"}"; filename*=UTF-8''${kind === "read_digest" ? "attachment" : "download.txt"}`
     );
     expect(result.headers["x-content-type-options"]).toBe("nosniff");
     expect(result.headers["content-security-policy"]).toBe("default-src 'none'; sandbox");

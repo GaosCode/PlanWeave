@@ -394,6 +394,9 @@ class StartupHarness {
   restoreV17Schema(): void {
     const database = this.requireServer().database;
     database.exec(`
+      DROP INDEX idx_package_snapshots_pending_cleanup;
+      DROP TABLE package_snapshot_cleanup_cursors;
+      ALTER TABLE package_snapshots DROP COLUMN backing_cleanup_completed_at;
       DROP TABLE operator_management_sessions;
       DROP TABLE operator_management_recovery_codes;
       DROP TABLE operator_management_devices;
@@ -436,6 +439,20 @@ class StartupHarness {
       DELETE FROM schema_migrations WHERE version >= 18;
     `);
     expect(centralSchemaVersion(database)).toBe(17);
+    expect(
+      database
+        .prepare(
+          "SELECT name FROM pragma_table_info('package_snapshots') WHERE name='backing_cleanup_completed_at'"
+        )
+        .get()
+    ).toBeUndefined();
+    expect(
+      database
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE name IN ('idx_package_snapshots_pending_cleanup','package_snapshot_cleanup_cursors')"
+        )
+        .all()
+    ).toEqual([]);
     expect(
       database
         .prepare(
