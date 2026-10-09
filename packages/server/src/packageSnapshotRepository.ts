@@ -1,4 +1,7 @@
-import { cleanupPackageSnapshotBacking } from "./packageSnapshotBackingCleanup.js";
+import {
+  cleanupPackageSnapshotBacking,
+  PackageSnapshotBackingCleanupBatchError
+} from "./packageSnapshotBackingCleanup.js";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
@@ -204,11 +207,13 @@ export class PackageSnapshotRepository {
       if (wroteBacking) await rm(dir, { recursive: true, force: true });
       throw error;
     }
-    await enforcePackageSnapshotRetention(
-      this.database,
-      this.dataDirectory,
-      canvas.canvasRegistryId,
-      at
+    await this.maintainBackingCleanup(() =>
+      enforcePackageSnapshotRetention(
+        this.database,
+        this.dataDirectory,
+        canvas.canvasRegistryId,
+        at
+      )
     );
     const snapshot = metadataFromRow(
       this.database
@@ -494,23 +499,31 @@ export class PackageSnapshotRepository {
   }
 
   async recoverBackingCleanup(): Promise<void> {
-    await recoverPackageSnapshotRetention(
-      this.database,
-      this.dataDirectory,
-      this.clock().toISOString()
+    await this.maintainBackingCleanup(() =>
+      recoverPackageSnapshotRetention(this.database, this.dataDirectory, this.clock().toISOString())
     );
   }
 
   private async cleanupAfterRestore(canvasRegistryId: string): Promise<void> {
-    try {
-      await enforcePackageSnapshotRetention(
+    await this.maintainBackingCleanup(() =>
+      enforcePackageSnapshotRetention(
         this.database,
         this.dataDirectory,
         canvasRegistryId,
         this.clock().toISOString()
-      );
+      )
+    );
+  }
+
+  private async maintainBackingCleanup(cleanup: () => Promise<void>): Promise<void> {
+    try {
+      await cleanup();
     } catch (error) {
-      this.onRetentionCleanupError(error, canvasRegistryId);
+      if (!(error instanceof PackageSnapshotBackingCleanupBatchError)) throw error;
+      for (const failure of error.physicalFailures) {
+        this.onRetentionCleanupError(failure, failure.canvasRegistryId);
+      }
+      if (error.hasNonPhysicalFailures) throw error;
     }
   }
 

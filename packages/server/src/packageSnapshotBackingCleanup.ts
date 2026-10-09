@@ -5,6 +5,33 @@ import { inWriteTransaction, type SqliteDatabase } from "./sqlite.js";
 const BACKING_CLEANUP_BUDGET = 256;
 type CleanupRow = { rowid: number; snapshot_id: string; canvas_registry_id: string };
 
+/** Only the physical deletion boundary may produce this retryable failure. */
+export class PackageSnapshotBackingDeletionError extends Error {
+  constructor(
+    readonly snapshotId: string,
+    readonly canvasRegistryId: string,
+    cause: unknown
+  ) {
+    super(cause instanceof Error ? cause.message : "snapshot_backing_deletion_failed", { cause });
+    this.name = "PackageSnapshotBackingDeletionError";
+  }
+}
+
+export class PackageSnapshotBackingCleanupBatchError extends AggregateError {
+  readonly physicalFailures: PackageSnapshotBackingDeletionError[];
+  readonly hasNonPhysicalFailures: boolean;
+
+  constructor(failures: unknown[]) {
+    super(failures, "snapshot_retention_cleanup_failed");
+    this.name = "PackageSnapshotBackingCleanupBatchError";
+    this.physicalFailures = failures.filter(
+      (failure): failure is PackageSnapshotBackingDeletionError =>
+        failure instanceof PackageSnapshotBackingDeletionError
+    );
+    this.hasNonPhysicalFailures = this.physicalFailures.length !== failures.length;
+  }
+}
+
 /** Revoked snapshots cannot be pinned by restore; only this terminal state owns deletion. */
 export async function cleanupPackageSnapshotBacking(
   database: SqliteDatabase,
@@ -19,7 +46,12 @@ export async function cleanupPackageSnapshotBacking(
         AND restore_marker<>'restore_pending' AND backing_cleanup_completed_at IS NULL`)
     .get(snapshotId, canvasRegistryId);
   if (!pending) return;
-  await rm(backingPath(dataDirectory, snapshotId), { recursive: true, force: true });
+  const path = backingPath(dataDirectory, snapshotId);
+  try {
+    await rm(path, { recursive: true, force: true });
+  } catch (cause) {
+    throw new PackageSnapshotBackingDeletionError(snapshotId, canvasRegistryId, cause);
+  }
   database
     .prepare(`UPDATE package_snapshots SET backing_cleanup_completed_at=?
       WHERE snapshot_id=? AND canvas_registry_id=? AND state='revoked'
@@ -78,5 +110,5 @@ export async function cleanupPackageSnapshotBackingBatch(
       failures.push(error);
     }
   }
-  if (failures.length > 0) throw new AggregateError(failures, "snapshot_retention_cleanup_failed");
+  if (failures.length > 0) throw new PackageSnapshotBackingCleanupBatchError(failures);
 }

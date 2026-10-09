@@ -1,8 +1,8 @@
 import { createServer, type Server as HttpServer } from "node:http";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { PlanPackageManifest } from "@planweave-ai/runtime";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   basicManifest,
   createTestWorkspace,
@@ -20,6 +20,8 @@ import { legacyWorkspaceIdForProject } from "./support/legacyWorkspaceId.js";
 import { hashOperatorToken } from "../operatorAuth.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { createDistributedServerComposition } from "../serverComposition.js";
+import { backingPath } from "../packageSnapshotBacking.js";
+import { ServerReadinessController } from "../readiness.js";
 import { openServerDatabase } from "../sqlite.js";
 
 const httpServers: HttpServer[] = [];
@@ -76,7 +78,8 @@ async function startComposition(
   projectRoot: string,
   dataDirectory: string,
   projectId: string,
-  trustAllDeclaredCanvases: boolean
+  trustAllDeclaredCanvases: boolean,
+  readiness?: ServerReadinessController
 ) {
   const httpServer = createServer();
   httpServers.push(httpServer);
@@ -110,7 +113,7 @@ async function startComposition(
       }
     ]
   });
-  const composition = await createDistributedServerComposition({ httpServer, config });
+  const composition = await createDistributedServerComposition({ httpServer, config, readiness });
   compositions.push(composition);
   await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
   const address = httpServer.address();
@@ -304,5 +307,187 @@ describe("distributed server ACL migration recovery", () => {
         .get(workspaceId, projectId)
     ).toEqual({ visibility: "shared" });
     reopened.close();
+  });
+});
+
+async function cleanupStartupFixture() {
+  const workspace = await createTestWorkspace(remoteManifest());
+  directories.push(workspace.home, workspace.root);
+  await addSecondaryCanvas(workspace.root);
+  const data = join(workspace.root, "cleanup-startup-data");
+  const bootstrap = await startComposition(workspace.root, data, workspace.init.workspace.id, true);
+  await bootstrap.composition.close();
+  compositions.splice(compositions.indexOf(bootstrap.composition), 1);
+  const database = await openServerDatabase(join(data, "planweave-server.sqlite"), 5000);
+  const canvases = database.prepare("SELECT * FROM canvas_registry ORDER BY canvas_id").all();
+  const ids = [`snapshot-${"1".repeat(32)}`, `snapshot-${"2".repeat(32)}`];
+  for (const [index, id] of ids.entries()) {
+    const canvas = canvases[index]!;
+    const backing = backingPath(data, id);
+    await mkdir(backing, { recursive: true });
+    await writeFile(join(backing, "package.json"), "{}");
+    const row = {
+      snapshot_id: id,
+      project_registry_id: canvas.project_registry_id,
+      canvas_registry_id: canvas.canvas_registry_id,
+      workspace_id: canvas.workspace_id,
+      project_id: canvas.project_id,
+      canvas_id: canvas.canvas_id,
+      source_revision: `cleanup-revision-${index}`,
+      digest_manifest_json: "[]",
+      digest_fingerprint: "a".repeat(64),
+      content_root_internal: backing,
+      creator_kind: "system",
+      creator_id: "cleanup-test",
+      migration_marker: "none",
+      state: "revoked",
+      acl_revision: 0,
+      project_visibility: "private",
+      canvas_visibility: "private",
+      created_at: "2026-01-02T00:00:00.000Z",
+      updated_at: "2026-01-02T00:00:00.000Z",
+      revoked_at: "2026-01-02T00:00:00.000Z",
+      retention_order: null,
+      restore_marker: "none",
+      backing_cleanup_completed_at: null
+    };
+    const columns = Object.keys(row);
+    database
+      .prepare(
+        `INSERT INTO package_snapshots(${columns.join(",")}) VALUES(${columns.map(() => "?").join(",")})`
+      )
+      .run(...Object.values(row));
+  }
+  database.close();
+  return { workspace, data, ids, canvases, file: join(data, "planweave-server.sqlite") };
+}
+
+describe("startup backing cleanup failure boundaries", () => {
+  it("keeps ready and other canvases usable on a physical failure, then retries pending deletion", async () => {
+    const f = await cleanupStartupFixture();
+    const blocked = backingPath(f.data, f.ids[0]!);
+    const diagnostics = vi.spyOn(console, "error").mockImplementation(() => {});
+    await chmod(blocked, 0o500);
+    try {
+      const started = await startComposition(
+        f.workspace.root,
+        f.data,
+        f.workspace.init.workspace.id,
+        true
+      );
+      expect(started.composition.readiness().status).toBe("ready");
+      const bootstrap = await fetch(
+        `${started.origin}/api/v1/projects/${f.workspace.init.workspace.id}/human/bootstrap`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ displayName: "Cleanup owner", humanPrincipalId: "cleanup-owner" })
+        }
+      );
+      expect(bootstrap.status).toBe(201);
+      const { deviceToken } = (await bootstrap.json()) as { deviceToken: string };
+      const response = await fetch(
+        `${started.origin}/api/v1/registry/projects/${f.workspace.init.workspace.id}/canvases`,
+        {
+          headers: { authorization: `Bearer ${deviceToken}` }
+        }
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        items: expect.arrayContaining([
+          expect.objectContaining({ registry: expect.objectContaining({ canvasId: "secondary" }) })
+        ])
+      });
+      const database = await openServerDatabase(f.file, 5000);
+      try {
+        expect(
+          database
+            .prepare(
+              "SELECT backing_cleanup_completed_at FROM package_snapshots WHERE snapshot_id=?"
+            )
+            .get(f.ids[0])
+        ).toEqual({ backing_cleanup_completed_at: null });
+        expect(
+          database
+            .prepare(
+              "SELECT backing_cleanup_completed_at FROM package_snapshots WHERE snapshot_id=?"
+            )
+            .get(f.ids[1])!.backing_cleanup_completed_at
+        ).not.toBeNull();
+      } finally {
+        database.close();
+      }
+      expect(diagnostics).toHaveBeenCalledWith(
+        "snapshot_retention_cleanup_failed",
+        expect.objectContaining({
+          canvasRegistryId: f.canvases[0]!.canvas_registry_id,
+          error: expect.objectContaining({
+            snapshotId: f.ids[0],
+            cause: expect.objectContaining({ code: "EACCES" })
+          })
+        })
+      );
+      await started.composition.close();
+      compositions.splice(compositions.indexOf(started.composition), 1);
+    } finally {
+      await chmod(blocked, 0o700);
+      diagnostics.mockRestore();
+    }
+    const restarted = await startComposition(
+      f.workspace.root,
+      f.data,
+      f.workspace.init.workspace.id,
+      true
+    );
+    expect(restarted.composition.readiness().status).toBe("ready");
+    await expect(stat(blocked)).rejects.toMatchObject({ code: "ENOENT" });
+    const database = await openServerDatabase(f.file, 5000);
+    try {
+      expect(
+        database
+          .prepare(
+            "SELECT COUNT(*) AS count FROM package_snapshots WHERE backing_cleanup_completed_at IS NULL"
+          )
+          .get()
+      ).toEqual({ count: 0 });
+      database.exec(
+        "CREATE TRIGGER reject_completed_update BEFORE UPDATE OF backing_cleanup_completed_at ON package_snapshots BEGIN SELECT RAISE(ABORT,'completed row reselected'); END;"
+      );
+      await restarted.composition.close();
+      compositions.splice(compositions.indexOf(restarted.composition), 1);
+      await startComposition(f.workspace.root, f.data, f.workspace.init.workspace.id, true);
+    } finally {
+      database.close();
+    }
+  });
+
+  it.each([
+    false,
+    true
+  ])("propagates real completion UPDATE failure even with physical failure=%s", async (physicalFailure) => {
+    const f = await cleanupStartupFixture();
+    const blocked = backingPath(f.data, f.ids[0]!);
+    const database = await openServerDatabase(f.file, 5000);
+    database.exec(`CREATE TRIGGER fail_cleanup_completion BEFORE UPDATE OF backing_cleanup_completed_at ON package_snapshots
+      WHEN NEW.snapshot_id='${f.ids[1]}' AND NEW.backing_cleanup_completed_at IS NOT NULL BEGIN SELECT RAISE(ABORT,'completion write interrupted'); END;`);
+    database.close();
+    if (physicalFailure) await chmod(blocked, 0o500);
+    const readiness = new ServerReadinessController();
+    try {
+      const failure = await startComposition(
+        f.workspace.root,
+        f.data,
+        f.workspace.init.workspace.id,
+        true,
+        readiness
+      ).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect((failure as AggregateError).errors).toContainEqual(
+        expect.objectContaining({ message: "completion write interrupted" })
+      );
+      expect(readiness.readiness().status).toBe("draining");
+    } finally {
+      if (physicalFailure) await chmod(blocked, 0o700);
+    }
   });
 });

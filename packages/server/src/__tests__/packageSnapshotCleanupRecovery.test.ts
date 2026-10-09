@@ -92,13 +92,38 @@ describe("durable snapshot cleanup recovery", () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "create",
+    "restore"
+  ] as const)("propagates real completion database failures after %s instead of diagnosing success", async (operation) => {
+    const f = await fixture();
+    const [pending] = f.add(1, { state: "revoked", revoked_at: recoveryAt });
+    f.database.exec(`CREATE TRIGGER fail_cleanup_completion BEFORE UPDATE OF backing_cleanup_completed_at ON package_snapshots
+      WHEN NEW.snapshot_id='${pending}' AND NEW.backing_cleanup_completed_at IS NOT NULL BEGIN SELECT RAISE(ABORT,'maintenance completion interrupted'); END;`);
+    const failure = await (operation === "create"
+      ? f.snapshots.create(recoveryScope)
+      : f.snapshots.restore({ ...recoveryScope, snapshotId: f.id })
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toContainEqual(
+      expect.objectContaining({ message: "maintenance completion interrupted" })
+    );
+    expect(row(f, pending)).toMatchObject({ state: "revoked", backing_cleanup_completed_at: null });
+    if (operation === "restore") expect(row(f)?.restore_marker).toBe("restore_complete");
+    f.database.exec("DROP TRIGGER fail_cleanup_completion");
+    await f.snapshots.recoverBackingCleanup();
+    expect(row(f, pending)?.backing_cleanup_completed_at).toBe(recoveryAt);
+  });
+
   it("advances past a real persistent filesystem failure through 3000 rows across restarts, within 256 attempts per call", async () => {
     const f = await fixture();
     const backing = backingPath(f.data, f.id);
     await fs.chmod(backing, 0o500);
     permissions.push(backing);
     await expect(f.snapshots.revoke({ ...recoveryScope, snapshotId: f.id })).rejects.toMatchObject({
-      code: "EACCES"
+      snapshotId: f.id,
+      canvasRegistryId: f.canvas,
+      cause: { code: "EACCES" }
     });
     await expect(fs.stat(join(backing, "package.json"))).resolves.toBeDefined();
     const historical = f.add(3000, { state: "revoked", revoked_at: recoveryAt });
@@ -113,11 +138,7 @@ describe("durable snapshot cleanup recovery", () => {
     let previous = 0;
     for (let batch = 0; batch < 12; batch++) {
       const remove = vi.mocked(fs.rm).mockClear();
-      if (batch === 0 || batch === 11)
-        await expect(f.snapshots.recoverBackingCleanup()).rejects.toThrow(
-          "snapshot_retention_cleanup_failed"
-        );
-      else await f.snapshots.recoverBackingCleanup();
+      await f.snapshots.recoverBackingCleanup();
       const total = completed(f);
       expect(remove.mock.calls.length).toBeLessThanOrEqual(256);
       expect(total - previous).toBeGreaterThan(0);

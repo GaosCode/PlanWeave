@@ -179,8 +179,8 @@ describe("package snapshot retention", () => {
     });
     expect(diagnose).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
-        message: "snapshot_retention_cleanup_failed",
-        errors: [diskError]
+        cause: diskError,
+        canvasRegistryId: f.canvas
       }),
       f.canvas
     );
@@ -527,8 +527,8 @@ describe("real snapshot restore and retention interleaving", () => {
       } else if (mode === "cleanup failure") {
         expect(diagnose).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
-            message: "snapshot_retention_cleanup_failed",
-            errors: [diskError]
+            cause: diskError,
+            canvasRegistryId: canvas
           }),
           canvas
         );
