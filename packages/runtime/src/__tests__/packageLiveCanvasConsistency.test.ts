@@ -14,6 +14,11 @@ import {
   readPackageFileInventory
 } from "../package/packageFiles.js";
 import { loadProjectGraph, projectGraphPath, writeProjectGraph } from "../projectGraph/index.js";
+import {
+  defaultDesktopLayout,
+  layoutPathForWorkspace,
+  saveDesktopLayoutDirect
+} from "../desktop/layoutStore.js";
 import { registryVersion } from "../desktop/canvasRegistry.js";
 import { writeJsonFile } from "../json.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
@@ -49,7 +54,15 @@ function read(root: string, intent: Intent) {
   return readPackageFiles(root);
 }
 const cleanupRoots: string[] = [];
+const releaseBarriers: Array<() => void> = [];
+const pendingOperations: Promise<unknown>[] = [];
+let cleaningUp = false;
+function track<T>(promise: Promise<T>): Promise<T> {
+  pendingOperations.push(promise);
+  return promise;
+}
 beforeEach(async () => {
+  cleaningUp = false;
   const actualFs = await vi.importActual<typeof fs>("node:fs/promises");
   vi.mocked(fs.rm).mockReset().mockImplementation(actualFs.rm);
   vi.mocked(fs.readdir).mockReset().mockImplementation(actualFs.readdir);
@@ -64,6 +77,9 @@ beforeEach(async () => {
   vi.mocked(initManagedWorkspace).mockReset().mockImplementation(init.initManagedWorkspace);
 });
 afterEach(async () => {
+  cleaningUp = true;
+  for (const release of releaseBarriers.splice(0)) release();
+  while (pendingOperations.length > 0) await Promise.allSettled(pendingOperations.splice(0));
   vi.restoreAllMocks();
   const actual = await vi.importActual<typeof fs>("node:fs/promises");
   for (const root of cleanupRoots.splice(0))
@@ -86,36 +102,75 @@ async function holdBatch(root: string, intent: Intent) {
     }
     return result;
   });
-  const result = read(root, intent).then(
-    (value) => ({ value }),
-    (error) => ({ error })
+  const result = track(
+    read(root, intent).then(
+      (value) => ({ value }),
+      (error) => ({ error })
+    )
   );
-  await entered.promise;
+  const releaseRead = () => {
+    release.resolve();
+    vi.mocked(fs.readdir).mockImplementation(actual.readdir);
+  };
+  releaseBarriers.push(releaseRead);
+  if (cleaningUp) releaseRead();
+  await Promise.race([
+    entered.promise,
+    result.then(() => {
+      throw new Error("reader finished before batch barrier");
+    })
+  ]);
   return {
     result,
-    release: () => {
-      release.resolve();
-      vi.mocked(fs.readdir).mockImplementation(actual.readdir);
-    }
+    release: releaseRead
   };
 }
 
-async function watchWriter(roots: string[], cleanupRoot?: string) {
+async function watchWriter(roots: string[], cleanupRoot?: string, layoutRoots: string[] = []) {
   const actualFs = await vi.importActual<typeof fs>("node:fs/promises");
   const actualLock = await vi.importActual<typeof import("../package/packageFileConsistency.js")>(
     "../package/packageFileConsistency.js"
   );
   const event = deferred<"locked" | "deleted">();
+  const layoutLockPaths = await Promise.all(
+    layoutRoots.map(async (root) =>
+      join(
+        userInfo().homedir,
+        ".cache",
+        "planweave",
+        "package-locks",
+        createHash("sha256")
+          .update(await actualFs.realpath(root))
+          .digest("hex")
+      )
+    )
+  );
+  const layoutProtection = { requested: false, held: false };
   vi.mocked(withPackageFileConsistency).mockImplementation(async (targets, action) => {
-    if (targets.length === roots.length && roots.every((root) => targets.includes(root)))
-      event.resolve("locked");
-    return actualLock.withPackageFileConsistency(targets, action);
+    const watchesWriter = roots.every((root) => targets.includes(root));
+    if (watchesWriter) event.resolve("locked");
+    return actualLock.withPackageFileConsistency(targets, async () => {
+      if (watchesWriter && layoutRoots.length > 0) {
+        layoutProtection.requested = layoutRoots.every((root) => targets.includes(root));
+        layoutProtection.held = (
+          await Promise.all(
+            layoutLockPaths.map((path) =>
+              actualFs.stat(path).then(
+                (stat) => stat.isDirectory(),
+                () => false
+              )
+            )
+          )
+        ).every(Boolean);
+      }
+      return action();
+    });
   });
   vi.mocked(fs.rm).mockImplementation(async (path, options) => {
     if (roots.includes(String(path)) || path === cleanupRoot) event.resolve("deleted");
     return actualFs.rm(path, options);
   });
-  return { event: event.promise };
+  return { event: event.promise, layoutProtection, layoutLockPaths };
 }
 
 function assertOld(
@@ -185,17 +240,25 @@ describe("public live canvas writers and complete package batches", () => {
     const held = await holdBatch(workspace.packageDir, intent);
     const { event } = await watchWriter([workspace.packageDir]);
     let finished = false;
-    const writer = removeTaskCanvas(ctx.root, canvasId).then(
-      (value) => ({ value }),
-      (error) => ({ error })
+    const writer = track(
+      removeTaskCanvas(ctx.root, canvasId).then(
+        (value) => ({ value }),
+        (error) => ({ error })
+      )
     );
     void writer.then(() => {
       finished = true;
     });
-    const observed = await event;
+    let observed: "locked" | "deleted" | undefined;
     let beforeRelease: string[] | undefined;
     let finishedBeforeRelease: boolean | undefined;
     try {
+      observed = await Promise.race([
+        event,
+        writer.then(() => {
+          throw new Error("writer finished before lock barrier");
+        })
+      ]);
       beforeRelease = await observeOldDisk(workspace.packageDir);
       finishedBeforeRelease = finished;
     } finally {
@@ -251,7 +314,7 @@ describe("public live canvas writers and complete package batches", () => {
       return init;
     });
     await expect(
-      createProjectFromTaskCanvas(ctx.root, "default", { name: "Cleanup failure" })
+      track(createProjectFromTaskCanvas(ctx.root, "default", { name: "Cleanup failure" }))
     ).rejects.toBe(cleanupFailure);
     if (!target.workspace || !target.root) throw new Error("actual target was not created");
     await expect(actualFs.access(target.root)).resolves.toBeUndefined();
@@ -271,6 +334,12 @@ async function copyRace(intent: Intent, fail: boolean) {
   const actualInit =
     await vi.importActual<typeof import("../initWorkspace.js")>("../initWorkspace.js");
   const actualFs = await vi.importActual<typeof fs>("node:fs/promises");
+  const sourceLayout = {
+    ...defaultDesktopLayout(source.id),
+    nodes: [{ nodeId: "T-001", x: 23, y: 45 }]
+  };
+  await saveDesktopLayoutDirect(source, sourceLayout);
+  let layoutProtection: Awaited<ReturnType<typeof watchWriter>>["layoutProtection"] | undefined;
   let cleanupHeld = false;
   let cleanupEntered = false;
   let finished = false;
@@ -283,11 +352,17 @@ async function copyRace(intent: Intent, fail: boolean) {
   vi.mocked(initManagedWorkspace).mockImplementation(async (options) => {
     const init = await actualInit.initManagedWorkspace(options);
     const workspace = await resolveTaskCanvasWorkspace(init.project.rootPath, "default");
+    const targetLayout = layoutPathForWorkspace(workspace);
+    await actualFs.mkdir(join(workspace.workspaceRoot, "desktop"), { recursive: true });
+    await writeJsonFile(targetLayout, defaultDesktopLayout(workspace.id));
     const held = await holdBatch(workspace.packageDir, intent);
-    const { event } = await watchWriter(
+    const watched = await watchWriter(
       [source.packageDir, workspace.packageDir],
-      init.workspace.workspaceRoot
+      init.workspace.workspaceRoot,
+      [layoutPathForWorkspace(source), targetLayout]
     );
+    const { event, layoutLockPaths } = watched;
+    layoutProtection = watched.layoutProtection;
     if (fail) {
       const canonicalTarget = await actualFs.realpath(workspace.packageDir);
       const key = createHash("sha256").update(canonicalTarget).digest("hex");
@@ -296,10 +371,16 @@ async function copyRace(intent: Intent, fail: boolean) {
       vi.mocked(fs.rm).mockImplementation(async (path, options) => {
         if (path === init.workspace.workspaceRoot) {
           cleanupEntered = true;
-          cleanupHeld = await actualFs.stat(lockPath).then(
-            (stat) => stat.isDirectory(),
-            () => false
-          );
+          cleanupHeld = (
+            await Promise.all(
+              [lockPath, ...layoutLockPaths].map((path) =>
+                actualFs.stat(path).then(
+                  (stat) => stat.isDirectory(),
+                  () => false
+                )
+              )
+            )
+          ).every(Boolean);
         }
         return previousRm(path, options);
       });
@@ -311,18 +392,31 @@ async function copyRace(intent: Intent, fail: boolean) {
     ready.resolve({ workspace, held, event });
     return init;
   });
-  const writer = createProjectFromTaskCanvas(ctx.root, "default", { name: "Copy race" }).then(
-    (value) => ({ value }),
-    (error) => ({ error })
+  const writer = track(
+    createProjectFromTaskCanvas(ctx.root, "default", { name: "Copy race" }).then(
+      (value) => ({ value }),
+      (error) => ({ error })
+    )
   );
   void writer.then(() => {
     finished = true;
   });
-  const { workspace, held, event } = await ready.promise;
-  const observed = await event;
+  const { workspace, held, event } = await Promise.race([
+    ready.promise,
+    writer.then(() => {
+      throw new Error("copy finished before target fixture barrier");
+    })
+  ]);
+  let observed: "locked" | "deleted" | undefined;
   let beforeRelease: string[] | undefined;
   let finishedBeforeRelease: boolean | undefined;
   try {
+    observed = await Promise.race([
+      event,
+      writer.then(() => {
+        throw new Error("copy finished before lock barrier");
+      })
+    ]);
     beforeRelease = await observeOldDisk(workspace.packageDir);
     finishedBeforeRelease = finished;
   } finally {
@@ -334,6 +428,7 @@ async function copyRace(intent: Intent, fail: boolean) {
   expect(finishedBeforeRelease).toBe(false);
   expect(observed).toBe("locked");
   assertOld(readOutcome, intent);
+  expect(layoutProtection).toEqual({ requested: true, held: true });
   if (fail) {
     expect(cleanupEntered).toBe(true);
     expect(cleanupHeld).toBe(true);
@@ -349,6 +444,9 @@ async function copyRace(intent: Intent, fail: boolean) {
     ]);
   } else {
     expect(outcome).not.toHaveProperty("error");
+    expect(
+      JSON.parse(await actualFs.readFile(layoutPathForWorkspace(workspace), "utf8")).nodes
+    ).toEqual(sourceLayout.nodes);
     expect(await fs.readFile(join(workspace.packageDir, "manifest.json"), "utf8")).toContain(
       "Copy race"
     );
