@@ -94,36 +94,50 @@ export class WorkAuthorityReadArbitrator {
     if (!this.port.isCurrentScope(generation)) return "superseded";
     const key = workItemKey(workItem);
     this.latest.get(key)?.settle({ status: "retired" });
+    const loading = this.port.acquire(key);
+    let settled = false;
     let settle!: (outcome: AuthorityReadOutcome) => void;
     const completion = new Promise<AuthorityReadOutcome>((resolve) => {
-      settle = resolve;
+      settle = (outcome) => {
+        if (settled) return;
+        settled = true;
+        loading.release();
+        resolve(outcome);
+      };
     });
     const request = { key, generation, completion, settle };
     this.latest.set(key, request);
     onStarted?.(request);
-    const loading = this.port.acquire(key);
-    try {
-      const read = this.port.read(workItem);
-      this.port.emit();
-      const projection = await read;
-      if (!this.isCurrent(request)) return "superseded";
-      this.port.apply(key, workItem, projection);
-      const previous = this.boundaryError;
-      if (previous?.key === key && previous.generation === generation) {
-        this.port.recoverError(previous.error);
-        this.boundaryError = null;
+    const read = async () => {
+      try {
+        const pending = this.port.read(workItem);
+        this.port.emit();
+        const projection = await pending;
+        if (!this.isCurrent(request)) return;
+        this.port.apply(key, workItem, projection);
+        const previous = this.boundaryError;
+        if (previous?.key === key && previous.generation === generation) {
+          this.port.recoverError(previous.error);
+          this.boundaryError = null;
+        }
+        request.settle({ status: "applied" });
+      } catch (error) {
+        if (!this.isCurrent(request)) return;
+        const mapped = collaborationBoundaryErrorFromUnknown(error);
+        this.boundaryError = { key, generation, error: mapped };
+        this.port.applyError(mapped);
+        request.settle({ status: "failed", error });
       }
-      request.settle({ status: "applied" });
-      return "applied";
-    } catch (error) {
-      if (!this.isCurrent(request)) return "superseded";
-      const mapped = collaborationBoundaryErrorFromUnknown(error);
-      this.boundaryError = { key, generation, error: mapped };
-      this.port.applyError(mapped);
+    };
+    // Retired callers finish independently; the transport still has a rejection consumer.
+    void read().catch((error) => {
       request.settle({ status: "failed", error });
-      throw error;
+    });
+    try {
+      const outcome = await completion;
+      if (outcome.status === "failed") throw outcome.error;
+      return outcome.status === "applied" ? "applied" : "superseded";
     } finally {
-      loading.release();
       if (this.port.isCurrentScope(generation)) this.port.emit();
     }
   }

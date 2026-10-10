@@ -595,6 +595,7 @@ describe("assignee picker explicit retry authority", () => {
         return authority[role];
       });
       let retry!: Promise<boolean>;
+      let retryFinished = false;
       let replacement!: Promise<unknown>;
       const error = {
         kind: "offline",
@@ -604,7 +605,10 @@ describe("assignee picker explicit retry authority", () => {
       };
       try {
         act(() => {
-          retry = f.result.current.retryLastTarget();
+          retry = f.result.current.retryLastTarget().then((result) => {
+            retryFinished = true;
+            return result;
+          });
         });
         await started.promise;
         f.getWorkAuthority.mockReturnValueOnce(successor.promise);
@@ -612,7 +616,6 @@ describe("assignee picker explicit retry authority", () => {
           replacement = f.shell.controller.ensureWorkAuthority(taskItem).catch((reason) => reason);
         });
         await act(async () => {
-          old.resolve(oldAuthority);
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
         });
         const callsBeforeSuccessor = f.mutation.mock.calls.length;
@@ -622,6 +625,7 @@ describe("assignee picker explicit retry authority", () => {
           if (outcome === "failure") successor.reject(error);
           else successor.resolve(authority);
           await replacement;
+          await vi.waitFor(() => expect(retryFinished).toBe(true));
           expect(await retry).toBe(outcome === "success");
         });
         expect(callsBeforeSuccessor).toBe(1);

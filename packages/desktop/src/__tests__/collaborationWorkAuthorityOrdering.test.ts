@@ -1,4 +1,5 @@
 /* @vitest-environment jsdom */
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
   exampleAssignmentProjection,
@@ -6,6 +7,8 @@ import {
 } from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
 import type { WorkAuthorityProjection } from "@planweave-ai/collaboration-protocol/work/authority";
 import { CollaborationReadModelController } from "../renderer/collaboration/CollaborationReadModelController";
+import { resetCollaborationReadModelHubForTests } from "../renderer/collaboration/collaborationReadModelHub";
+import { useCollaborationReadModels } from "../renderer/hooks/useCollaborationReadModels";
 import { workItemKey } from "../shared/collaborationReadModels";
 import { createMockApi } from "./helpers/collaborationReadModelFixtures";
 
@@ -457,18 +460,92 @@ describe("work authority request ordering", () => {
     const gate = deferred<WorkAuthorityProjection>();
     try {
       f.read.mockReturnValueOnce(gate.promise);
-      const pending = f.controller.ensureWorkAuthority(workItem);
+      let retired = false;
+      const pending = f.controller.ensureWorkAuthority(workItem).then((value) => {
+        retired = true;
+        return value;
+      });
       f.controller.clear();
       await f.controller.setActiveProject({ profileId: "profile-new", projectId: "project-new" });
+      await vi.waitFor(() => expect(retired).toBe(true));
+      expect(await pending).toBeNull();
       if (outcome === "success") gate.resolve(f.authority);
       else gate.reject(new Error("retired_failed"));
-      expect(await pending).toBeNull();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
       expect(f.controller.getSnapshot().workAuthorityByWorkItem).toEqual({});
       expect(f.controller.getSnapshot().lastError).toBeNull();
       expect(f.controller.getSnapshot().loadingKinds).toEqual([]);
     } finally {
       gate.resolve(f.authority);
       f.controller.dispose();
+    }
+  });
+  it.each([
+    "canvas",
+    "project"
+  ])("managing hook refreshes a new %s while the old authority request stays pending", async (scope) => {
+    const f = createMockApi();
+    const read = vi.mocked(f.api.getCollaborationWorkAuthority);
+    const authority = await f.api.getCollaborationWorkAuthority({ workItem });
+    const old = deferred<WorkAuthorityProjection>();
+    const started = deferred<void>();
+    const hook = renderHook(
+      (props) => useCollaborationReadModels({ ...props, api: f.api, manageActiveProject: true }),
+      {
+        initialProps: {
+          profileId: "profile-demo-001",
+          projectId: "project-demo-001",
+          canvasId: "canvas-1"
+        }
+      }
+    );
+    let aggregate: Promise<unknown> | undefined;
+    let aggregateFinished = false;
+    try {
+      await waitFor(() => expect(hook.result.current.snapshot.syncPhase).toBe("ready"));
+      const controller = hook.result.current.controller!;
+      await act(async () => {
+        await controller.ensureWorkAuthority(workItem);
+      });
+      read.mockImplementationOnce(() => {
+        started.resolve();
+        return old.promise;
+      });
+      await act(async () => {
+        aggregate = controller.refreshAuthoritative().then((result) => {
+          aggregateFinished = true;
+          return result;
+        });
+        await started.promise;
+      });
+      const memberReads = f.listMembers.mock.calls.length;
+      const nextScope = {
+        profileId: scope === "project" ? "profile-new" : "profile-demo-001",
+        projectId: scope === "project" ? "project-new" : "project-demo-001",
+        canvasId: "canvas-2"
+      };
+      act(() => hook.rerender(nextScope));
+      await waitFor(() => {
+        expect(hook.result.current.snapshot).toMatchObject({ ...nextScope, syncPhase: "ready" });
+        expect(aggregateFinished).toBe(true);
+      });
+      expect(hook.result.current.controller).toBe(controller);
+      expect(f.listMembers.mock.calls.length).toBeGreaterThan(memberReads);
+      expect(hook.result.current.snapshot.loadingKinds).toEqual([]);
+      const latestAuthorities = hook.result.current.snapshot.workAuthorityByWorkItem;
+      await act(async () => {
+        if (scope === "canvas") old.resolve(authority);
+        else old.reject(new Error("retired_authority_failed"));
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+      expect(hook.result.current.snapshot.workAuthorityByWorkItem).toEqual(latestAuthorities);
+      expect(hook.result.current.snapshot.lastError).toBeNull();
+      expect(hook.result.current.snapshot.loadingKinds).toEqual([]);
+    } finally {
+      old.resolve(authority);
+      await aggregate;
+      hook.unmount();
+      resetCollaborationReadModelHubForTests();
     }
   });
   it.each([
