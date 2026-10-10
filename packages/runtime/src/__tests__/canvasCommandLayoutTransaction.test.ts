@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { join } from "node:path";
 import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
 import { afterEach, expect, it, vi } from "vitest";
 import {
@@ -161,6 +162,82 @@ it("does not lose independent successful layout intents prepared concurrently", 
     else expect(result.detail).toContain("layout");
   }
   expect(results.some((result) => result.ok)).toBe(true);
+});
+it.each([
+  false,
+  true
+])("keeps a successful Canvas commit when recovery queued before its marker (cleanupFails=%s)", async (cleanupFails) => {
+  const workspace = await fixture();
+  const path = layoutPathForWorkspace(workspace);
+  const marker = deferred(),
+    release = deferred(),
+    recovering = deferred();
+  const rollback = ImportTransaction.prototype.rollback;
+  vi.spyOn(ImportTransaction.prototype, "rollback").mockImplementation(function () {
+    recovering.resolve();
+    return rollback.call(this);
+  });
+  const command = track(
+    commitCanvasCommandApplication({
+      workspace,
+      application: buildCanvasCommandApplication(
+        (await loadPackage(workspace)).manifest,
+        await getDesktopLayoutDirect(workspace),
+        {
+          kind: "add_task",
+          taskId: "T-003",
+          title: "Committed task",
+          promptMarkdown: "Committed prompt",
+          layout: { nodeId: "T-003", x: 777, y: 888 },
+          layoutUpdatedAt: "2030-01-01T00:00:00.000Z"
+        }
+      ),
+      dependencies: {
+        markTransactionCommitted: async (transaction) => {
+          marker.resolve();
+          await release.promise;
+          await transaction.markCommitted();
+        },
+        cleanupCommittedTransaction: async (transaction) => {
+          if (cleanupFails) throw new Error("cleanup_failed");
+          await transaction.cleanupCommitted();
+        },
+        reportCleanupFailure: () => undefined
+      }
+    })
+  );
+  await marker.promise;
+  const [entry] = await listPendingImportTransactions(workspace.workspaceRoot);
+  if (!entry) throw new Error("Missing active transaction");
+  const recovery = track(
+    rollbackPendingImportTransaction({
+      workspaceRoot: workspace.workspaceRoot,
+      transactionId: entry.transactionId
+    }).then(
+      () => null,
+      (error: unknown) => error
+    )
+  );
+  await recovering.promise;
+  release.resolve();
+  expect(await command).toMatchObject({ ok: true });
+  const committed = { manifest: await bytes(workspace.manifestFile), layout: await bytes(path) };
+  expect(String(await recovery)).toContain(
+    cleanupFails ? "Committed import transaction" : "no longer exists"
+  );
+  expect({ manifest: await bytes(workspace.manifestFile), layout: await bytes(path) }).toEqual(
+    committed
+  );
+  expect((await getDesktopLayoutDirect(workspace)).nodes).toEqual([
+    { nodeId: "T-003", x: 777, y: 888 }
+  ]);
+  expect((await loadPackage(workspace)).manifest.nodes.map((node) => node.id)).toContain("T-003");
+  if (cleanupFails) {
+    const journal = JSON.parse((await bytes(join(entry.recoveryRoot, "recovery.json")))!) as {
+      state: string;
+    };
+    expect(journal.state).toBe("committed");
+  } else expect(await bytes(join(entry.recoveryRoot, "recovery.json"))).toBeNull();
 });
 it("rolls back before a direct layout writer may publish", async () => {
   const workspace = await fixture(true);

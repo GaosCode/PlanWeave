@@ -693,6 +693,7 @@
         "grokCliIntegration.test.ts",
         "importRecovery.test.ts",
         "importTransactionApply.test.ts",
+        "importTransactionLifecycle.test.ts",
         "importTransactionRecovery.test.ts",
         "importTransactionWriteReservation.test.ts",
         "executorResultsWriteLease.test.ts",

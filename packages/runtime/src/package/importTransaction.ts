@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { isNodeFileNotFoundError, optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { importTransactionIdentityDigest } from "./importTransactionContent.js";
+import { withImportTransactionLock } from "./importTransactionLock.js";
 
 type ImportTransactionOperationPhase =
   | "planned"
@@ -389,6 +390,7 @@ export class ImportTransaction {
   private operations: ImportTransactionOperation[] = [];
   private state: ImportTransactionRecoveryFile["state"] = "active";
   private writeIsolationTargets: readonly string[] = [];
+  private persistedRecovery = "";
 
   private constructor(options: {
     workspaceRoot: string;
@@ -427,8 +429,13 @@ export class ImportTransaction {
       assertWorkspaceTarget(transaction.workspaceRoot, target);
       return resolve(target);
     });
-    await transaction.fs.mkdir(transaction.recoveryRoot, { recursive: true });
-    await transaction.writeRecoveryFile();
+    await withImportTransactionLock(transaction.workspaceRoot, transactionId, async () => {
+      if (await transaction.fs.optionalStat(transaction.recoveryRoot)) {
+        throw new Error(`Import transaction '${transactionId}' already exists.`);
+      }
+      await transaction.fs.mkdir(transaction.recoveryRoot, { recursive: true });
+      await transaction.writeRecoveryFile();
+    });
     return transaction;
   }
 
@@ -452,15 +459,69 @@ export class ImportTransaction {
     transaction.operations = recovery.operations;
     transaction.state = recovery.state;
     transaction.writeIsolationTargets = recovery.writeIsolationTargets ?? [];
+    transaction.persistedRecovery = JSON.stringify(recovery);
     return transaction;
   }
 
+  private storageTargets(extraTargets: readonly string[]): string[] {
+    return [
+      ...new Set([
+        ...this.operations.map((operation) => operation.target),
+        ...this.writeIsolationTargets,
+        ...extraTargets.map((target) => resolve(target))
+      ])
+    ];
+  }
+
+  private async withLockedRecovery<T>(
+    extraTargets: readonly string[],
+    action: () => Promise<T>
+  ): Promise<T> {
+    let targets = this.storageTargets(extraTargets);
+    while (true) {
+      const result = await withPackageFileConsistency(targets, () =>
+        withImportTransactionLock(this.workspaceRoot, this.transactionId, async () => {
+          if ((await this.fs.optionalStat(join(this.recoveryRoot, "recovery.json"))) === null) {
+            throw new Error(`Import transaction '${this.transactionId}' no longer exists.`);
+          }
+          const { recovery } = await readValidatedRecoveryFile({
+            workspaceRoot: this.workspaceRoot,
+            transactionId: this.transactionId,
+            fs: this.fs
+          });
+          if (recovery.createdAt !== this.createdAt) {
+            throw new Error(
+              `Import transaction '${this.transactionId}' recovery identity changed.`
+            );
+          }
+          const persisted = JSON.stringify(recovery);
+          if (persisted !== this.persistedRecovery) {
+            this.operations = recovery.operations;
+            this.state = recovery.state;
+            this.writeIsolationTargets = recovery.writeIsolationTargets ?? [];
+            this.persistedRecovery = persisted;
+          }
+          // Retain this handle's known progress after a failed checkpoint only while
+          // the durable journal is still exactly its last successful checkpoint.
+          const currentTargets = this.storageTargets(extraTargets);
+          if (currentTargets.some((target) => !targets.includes(target))) {
+            return { retry: true as const, targets: currentTargets };
+          }
+          return { retry: false as const, value: await action() };
+        })
+      );
+      if (!result.retry) return result.value;
+      targets = result.targets;
+    }
+  }
+
   async replacePath(target: string, staged: string): Promise<void> {
-    await withPackageFileConsistency([target], () => this.replacePathLocked(target, staged));
+    await this.withLockedRecovery([target], () => this.replacePathLocked(target, staged));
   }
 
   private async replacePathLocked(target: string, staged: string): Promise<void> {
     assertWorkspaceTarget(this.workspaceRoot, target);
+    if (this.state !== "active") throw new Error("Committed import transaction cannot be changed.");
     await assertNoExecutorResultsWriteLease(target);
     await assertNoPendingImportTransactionWrite({
       workspaceRoot: this.workspaceRoot,
@@ -488,11 +549,12 @@ export class ImportTransaction {
   }
 
   async removePath(target: string): Promise<void> {
-    await withPackageFileConsistency([target], () => this.removePathLocked(target));
+    await this.withLockedRecovery([target], () => this.removePathLocked(target));
   }
 
   private async removePathLocked(target: string): Promise<void> {
     assertWorkspaceTarget(this.workspaceRoot, target);
+    if (this.state !== "active") throw new Error("Committed import transaction cannot be changed.");
     await assertNoExecutorResultsWriteLease(target);
     await assertNoPendingImportTransactionRemoval({
       workspaceRoot: this.workspaceRoot,
@@ -516,10 +578,7 @@ export class ImportTransaction {
   }
 
   async rollback(): Promise<void> {
-    await withPackageFileConsistency(
-      this.operations.map((operation) => operation.target),
-      () => this.rollbackLocked()
-    );
+    await this.withLockedRecovery([], () => this.rollbackLocked());
   }
 
   private async rollbackLocked(): Promise<void> {
@@ -532,29 +591,18 @@ export class ImportTransaction {
       }
     }
     await this.assertRollbackOwnership();
+    await this.assertRollbackPreflight();
     const failures: string[] = [];
     for (const operation of [...this.operations].reverse()) {
       if (operation.phase === "rolledBack") {
         continue;
       }
       if (operation.phase === "planned") {
-        try {
-          await this.assertPlannedOperationMatchesDisk(operation);
-        } catch (error) {
-          failures.push(`${operation.target}: ${errorSummary(error)}`);
-          continue;
-        }
         operation.phase = "rolledBack";
         await this.writeRecoveryFile();
         continue;
       }
       if (!this.isRollingBackPhase(operation.phase)) {
-        try {
-          await this.assertRollbackCanStart(operation);
-        } catch (error) {
-          failures.push(`${operation.target}: ${errorSummary(error)}`);
-          continue;
-        }
         const previousPhase = operation.phase;
         operation.phase =
           previousPhase === "installed" ? "rollingBackFromInstalled" : "rollingBackFromBackedUp";
@@ -669,22 +717,26 @@ export class ImportTransaction {
   }
 
   async markCommitted(): Promise<void> {
-    if (this.state === "committed") return;
-    this.state = "committed";
-    try {
-      await this.writeRecoveryFile();
-    } catch (error) {
-      this.state = "active";
-      throw error;
-    }
+    await this.withLockedRecovery([], async () => {
+      if (this.state === "committed") return;
+      this.state = "committed";
+      try {
+        await this.writeRecoveryFile();
+      } catch (error) {
+        this.state = "active";
+        throw error;
+      }
+    });
   }
 
   async cleanupCommitted(): Promise<void> {
-    if (this.state !== "committed") {
-      throw new Error("Active import transaction cannot be finalized as committed.");
-    }
-    await this.fs.rm(this.recoveryRoot, { recursive: true, force: true });
-    this.operations = [];
+    await this.withLockedRecovery([], async () => {
+      if (this.state !== "committed") {
+        throw new Error("Active import transaction cannot be finalized as committed.");
+      }
+      await this.fs.rm(this.recoveryRoot, { recursive: true, force: true });
+      this.operations = [];
+    });
   }
 
   async commit(): Promise<void> {
@@ -721,11 +773,11 @@ export class ImportTransaction {
     return phase === "rollingBackFromInstalled" || phase === "rollingBackFromBackedUp";
   }
 
-  private async assertPlannedOperationMatchesDisk(
-    operation: ImportTransactionOperation
-  ): Promise<void> {
-    const targetExists = (await this.fs.optionalStat(operation.target)) !== null;
-    const backupExists = (await this.fs.optionalStat(operation.backupPath)) !== null;
+  private assertPlannedOperationMatchesDisk(
+    operation: ImportTransactionOperation,
+    targetExists: boolean,
+    backupExists: boolean
+  ): void {
     if (backupExists) {
       throw new Error(`planned operation has a backup at ${operation.backupPath}`);
     }
@@ -737,9 +789,11 @@ export class ImportTransaction {
     }
   }
 
-  private async assertRollbackCanStart(operation: ImportTransactionOperation): Promise<void> {
-    const targetExists = (await this.fs.optionalStat(operation.target)) !== null;
-    const backupExists = (await this.fs.optionalStat(operation.backupPath)) !== null;
+  private assertRollbackCanStart(
+    operation: ImportTransactionOperation,
+    targetExists: boolean,
+    backupExists: boolean
+  ): void {
     switch (operation.phase) {
       case "backedUp":
         if (!operation.targetExisted) {
@@ -767,6 +821,41 @@ export class ImportTransaction {
         return;
       default:
         throw new Error(`rollback cannot start from phase ${operation.phase}`);
+    }
+  }
+
+  private async assertRollbackPreflight(): Promise<void> {
+    const restoredTargets = new Map<string, boolean>();
+    for (const operation of [...this.operations].reverse()) {
+      if (operation.phase === "rolledBack") continue;
+      const targetExists = restoredTargets.has(operation.target)
+        ? restoredTargets.get(operation.target) === true
+        : (await this.fs.optionalStat(operation.target)) !== null;
+      const backupExists = (await this.fs.optionalStat(operation.backupPath)) !== null;
+      try {
+        if (operation.phase === "planned") {
+          this.assertPlannedOperationMatchesDisk(operation, targetExists, backupExists);
+        } else if (!this.isRollingBackPhase(operation.phase)) {
+          this.assertRollbackCanStart(operation, targetExists, backupExists);
+        } else if (operation.targetExisted) {
+          if (!targetExists && !backupExists) {
+            throw new Error("rollingBack target and backup are both missing");
+          }
+          if (operation.phase === "rollingBackFromBackedUp" && targetExists && backupExists) {
+            throw new Error("backedUp rollback target unexpectedly exists while backup is present");
+          }
+        } else if (backupExists) {
+          throw new Error(
+            `rollingBack operation has an unexpected backup at ${operation.backupPath}`
+          );
+        }
+      } catch (error) {
+        throw new Error(
+          `Import transaction rollback failed: ${operation.target}: ${errorSummary(error)}`
+        );
+      }
+      // Simulate reverse restoration when several operations replaced the same path.
+      restoredTargets.set(operation.target, operation.targetExisted);
     }
   }
 
@@ -817,6 +906,8 @@ export class ImportTransaction {
         ? { writeIsolationTargets: [...this.writeIsolationTargets] }
         : {})
     };
+    const persisted = JSON.stringify(recovery);
     await this.fs.writeJsonFile(join(this.recoveryRoot, "recovery.json"), recovery);
+    this.persistedRecovery = persisted;
   }
 }
