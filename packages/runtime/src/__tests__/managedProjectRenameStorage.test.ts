@@ -20,6 +20,9 @@ import {
 import { buildCanvasCommandApplication } from "../graph/canvasCommandMutation.js";
 import { commitCanvasCommandApplication } from "../graph/canvasCommandPort.js";
 import { listPendingImportTransactions } from "../package/importRecovery.js";
+import * as projectMutation from "../fs/withProjectMutationLock.js";
+import * as projectGraph from "../projectGraph/index.js";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -49,6 +52,94 @@ function barrier() {
   });
   return { promise, release };
 }
+
+it.each([
+  "active",
+  "committed"
+] as const)("includes a canvas added by an in-flight graph writer before relocating its %s WAL", async (state) => {
+  const { home, project, workspace } = await fixture();
+  const nextRoot = join(home, "projects", createManagedProjectId("Storage destination"));
+  const storageEntered = barrier();
+  const storageHold = barrier();
+  const storage = withPackageFileConsistency([nextRoot], async () => {
+    storageEntered.release();
+    await storageHold.promise;
+  });
+  await storageEntered.promise;
+  const writerEntered = barrier();
+  const writeAllowed = barrier();
+  const written = barrier();
+  const writerHold = barrier();
+  const writer = projectMutation.withProjectMutationLock(
+    await actualFs.realpath(workspace.workspaceRoot),
+    async () => {
+      writerEntered.release();
+      await writeAllowed.promise;
+      const extra = await createTaskCanvas(workspace.rootPath, { name: "Concurrent canvas" });
+      const canvas = await resolveTaskCanvasWorkspace(workspace.rootPath, extra.canvasId);
+      const transaction = await ImportTransaction.create({
+        workspaceRoot: canvas.workspaceRoot,
+        transactionId: "concurrent-canvas"
+      });
+      if (state === "committed") await transaction.markCommitted();
+      written.release();
+      await writerHold.promise;
+      return { extra, canvas, transaction };
+    }
+  );
+  await writerEntered.promise;
+  const renameStarted = barrier();
+  const withProjectLock = projectMutation.withProjectMutationLock;
+  vi.spyOn(projectMutation, "withProjectMutationLock").mockImplementation((root, fn, options) => {
+    if (typeof root !== "string") renameStarted.release();
+    return withProjectLock(root, fn, options);
+  });
+  const loadGraph = projectGraph.loadProjectGraphForWorkspace;
+  vi.spyOn(projectGraph, "loadProjectGraphForWorkspace").mockImplementation(async (workspace) => {
+    const result = await loadGraph(workspace);
+    renameStarted.release();
+    return result;
+  });
+  const renaming = renameProject(project.id, "Storage destination").then(
+    (value) => ({ value, error: null }),
+    (error: unknown) => ({ value: null, error })
+  );
+  let before = "";
+  try {
+    await renameStarted.promise;
+    writeAllowed.release();
+    await written.promise;
+    before = await importTransactionIdentityDigest(workspace.workspaceRoot);
+  } finally {
+    writeAllowed.release();
+    writerHold.release();
+    storageHold.release();
+    await storage;
+  }
+  const { extra, canvas, transaction } = await writer;
+  const outcome = await renaming;
+  expect(outcome.value).toBeNull();
+  expect(String(outcome.error)).toContain("write conflict");
+  expect(await importTransactionIdentityDigest(workspace.workspaceRoot)).toBe(before);
+  await expect(access(nextRoot)).rejects.toThrow();
+  expect(
+    (
+      await ImportTransaction.recover({
+        workspaceRoot: canvas.workspaceRoot,
+        transactionId: "concurrent-canvas"
+      })
+    ).getRecoveryTargets()
+  ).toEqual([]);
+  if (state === "committed") await transaction.cleanupCommitted();
+  else await transaction.rollback();
+  await renameProject(project.id, "Storage destination");
+  expect((await resolveTaskCanvasWorkspace(nextRoot, extra.canvasId)).workspaceRoot).toContain(
+    nextRoot
+  );
+  await expect(createTaskCanvas(nextRoot, { name: "After move" })).resolves.toMatchObject({
+    name: "After move"
+  });
+});
 
 it.each([
   false,
