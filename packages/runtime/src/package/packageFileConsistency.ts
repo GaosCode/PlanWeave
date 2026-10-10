@@ -7,7 +7,7 @@ import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
 
 const heldConsistencyKeys = new AsyncLocalStorage<ReadonlySet<string>>();
 
-async function canonicalTarget(path: string): Promise<string> {
+export async function canonicalPackageFileTarget(path: string): Promise<string> {
   let target = resolve(path);
   const missing: string[] = [];
   while (true) {
@@ -37,7 +37,7 @@ export async function withPackageFileConsistency<T>(
 ): Promise<T> {
   const lockRoot = join(userInfo().homedir, ".cache", "planweave", "package-locks");
   await mkdir(lockRoot, { recursive: true, mode: 0o700 });
-  const targets = await Promise.all(roots.map(canonicalTarget));
+  const targets = await Promise.all(roots.map(canonicalPackageFileTarget));
   const keys = [
     ...new Set(targets.map((target) => createHash("sha256").update(target).digest("hex")))
   ].sort();

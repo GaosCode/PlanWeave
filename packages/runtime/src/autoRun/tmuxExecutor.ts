@@ -1,3 +1,4 @@
+import { beginExecutorResultsWriter } from "./executorResultsLifecycle.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, open, readFile, writeFile } from "node:fs/promises";
@@ -167,7 +168,10 @@ async function descendantPids(rootPid: number): Promise<number[]> {
   return descendants;
 }
 
-async function terminateTmuxSession(sessionName: string): Promise<boolean> {
+async function terminateTmuxSession(
+  sessionName: string,
+  confirmedStopped?: () => void
+): Promise<boolean> {
   const panePid = await tmuxPanePid(sessionName);
   const pids = panePid === null ? [] : [panePid, ...(await descendantPids(panePid))];
   for (const pid of pids.slice().reverse()) {
@@ -183,6 +187,20 @@ async function terminateTmuxSession(sessionName: string): Promise<boolean> {
   if (await hasTmuxSession(sessionName)) {
     await runCommand("tmux", ["kill-session", "-t", sessionName]);
   }
+  if (
+    confirmedStopped &&
+    pids.length > 0 &&
+    pids.every((pid) => {
+      try {
+        process.kill(pid, 0);
+        return false;
+      } catch (error) {
+        return error instanceof Error && "code" in error && error.code === "ESRCH";
+      }
+    }) &&
+    !(await hasTmuxSession(sessionName))
+  )
+    confirmedStopped?.();
   return killedSession.exitCode === 0 || pids.length > 0;
 }
 
@@ -418,6 +436,7 @@ exit "$runner_exit"
       started.stderr.trim() || `tmux failed to start session '${options.tmux.sessionName}'.`
     );
   }
+  const finishResultsWriter = beginExecutorResultsWriter();
   activeTmuxSessions.set(options.tmux.sessionName, {
     sessionName: options.tmux.sessionName,
     tmuxOwnerRunId: options.tmux.tmuxOwnerRunId
@@ -429,7 +448,7 @@ exit "$runner_exit"
   try {
     while (!(await tmuxPathExists(donePath))) {
       if (options.signal?.aborted) {
-        await terminateTmuxSession(options.tmux.sessionName);
+        await terminateTmuxSession(options.tmux.sessionName, finishResultsWriter);
         return {
           stdoutPath: options.stdoutPath,
           stderrPath: options.stderrPath,
@@ -524,6 +543,7 @@ exit "$runner_exit"
 
     const done = JSON.parse(await readFile(donePath, "utf8")) as TmuxDone;
     const limitExceeded = done.limitExceeded ?? observedLimitExceeded;
+    finishResultsWriter();
     return {
       stdoutPath: options.stdoutPath,
       stderrPath: options.stderrPath,
@@ -532,7 +552,7 @@ exit "$runner_exit"
       limitExceeded
     };
   } catch (error) {
-    await terminateTmuxSession(options.tmux.sessionName);
+    await terminateTmuxSession(options.tmux.sessionName, finishResultsWriter);
     throw error;
   } finally {
     await writeFile(releasePath, "release\n", "utf8").catch(() => undefined);

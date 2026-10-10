@@ -1,8 +1,8 @@
 import { mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { z } from "zod";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import {
   feedbackStatuses,
@@ -155,7 +155,7 @@ export async function updateTaskIndex(
   taskId: string,
   update: (index: TaskResultIndex) => TaskResultIndex
 ): Promise<TaskResultIndex> {
-  return withCanvasLock(dirname(workspace.stateFile), async () => {
+  return withCanvasStorageMutation(workspace, async () => {
     const next = update(await readTaskIndex(workspace, taskId));
     await writeTaskIndex(workspace, taskId, next);
     return next;

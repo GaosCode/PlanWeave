@@ -1,5 +1,8 @@
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
-import { assertNoPendingImportTransactionRemoval } from "../package/importTransaction.js";
+import {
+  assertNoPendingImportTransactionRemoval,
+  assertNoPendingImportTransactionWrite
+} from "../package/importTransaction.js";
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { optionalStat } from "../fs/optionalFile.js";
@@ -171,6 +174,10 @@ export async function saveDesktopLayoutDirect(
   return withPackageFileConsistency(
     [workspace.packageDir, layoutPathForWorkspace(workspace)],
     async () => {
+      await assertNoPendingImportTransactionWrite({
+        workspaceRoot: dirname(workspace.projectFile),
+        target: layoutPathForWorkspace(workspace)
+      });
       const { manifest } = await loadPackage(workspace);
       const next = filterLayoutNodes(
         {

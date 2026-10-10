@@ -42,7 +42,7 @@
  *
  * ## Safety gate
  * - `computePrunePlan` never deletes; returns the exact would-delete set + reason per item.
- * - `applyPrunePlan` requires a non-empty `reason`, holds `withCanvasLock`, re-computes
+ * - `applyPrunePlan` requires a non-empty `reason`, holds the workspace storage and canvas locks, re-computes
  *   the referenced set immediately before deletion, and only removes paths that are
  *   still in the plan, still unreferenced, and path-contained under known artifact patterns.
  * - CLI: without `--force` always dry-run; real deletion requires `--force --reason`.
@@ -56,7 +56,7 @@
 import { rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { readJsonFile } from "../json.js";
 import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
 import { readState } from "../state.js";
@@ -771,7 +771,7 @@ export async function applyPrunePlan(
 
   const { workspace } = await loadPackage(projectRoot);
 
-  return withCanvasLock(dirname(workspace.stateFile), async () => {
+  return withCanvasStorageMutation(workspace, async () => {
     const state = await readState(workspace.stateFile);
     const { candidates } = await collectAllCandidates(workspace, state);
     const protectedNow = new Set(

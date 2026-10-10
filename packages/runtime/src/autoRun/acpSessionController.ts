@@ -1,3 +1,4 @@
+import { beginExecutorResultsWriter } from "./executorResultsLifecycle.js";
 import { mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -125,6 +126,7 @@ export class AcpSessionController {
     const sessionStart = acpSessionStartSchema.parse(run.sessionStart ?? { kind: "new" });
     const executionHost = run.host ?? { kind: "native" };
     let output = "";
+    const finishResultsWriter = beginExecutorResultsWriter();
     let executionPhase: "connecting" | "session" | "prompt" | "artifact" | "cleanup" = "connecting";
     let initializedCapabilities: AgentCapabilities | undefined;
     let capabilitySnapshot: AcpCapabilitySnapshot | null = null;
@@ -782,6 +784,7 @@ export class AcpSessionController {
         finishedAt,
         agentSessionId: sessionId
       };
+      if (cleanupCompleted) finishResultsWriter();
       return run.kind === "review"
         ? { kind: "review", resultPath: artifactPath, ...common }
         : run.kind === "feedback"
@@ -928,6 +931,7 @@ export class AcpSessionController {
         finalizationErrors.push(controlCleanupRetryError);
       }
       finalizationErrors.push(...eventLogErrors.filter((caught) => caught !== error));
+      if (!cleanupFailed && finalizationErrors.length === 0) finishResultsWriter();
       if (cleanupFailed || finalizationErrors.length > 0) {
         const cleanupMarker = "Runner terminal cleanup did not complete cleanly.";
         // Keep an already-canonical cleanup AggregateError nested (not flattened) so callers

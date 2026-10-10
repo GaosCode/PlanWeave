@@ -1,5 +1,4 @@
-import { dirname } from "node:path";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { createEmptyState, ensureStateForManifest, readState, writeState } from "../state.js";
 import { runtimeResetReceiptSchema } from "../schema/runtimeState.js";
@@ -65,7 +64,7 @@ export async function resetRuntimeState(
   }
 
   // Serialize active-work check + wipe against concurrent claim/submit on the same canvas.
-  return withCanvasLock(dirname(workspace.stateFile), async () => {
+  return withCanvasStorageMutation(workspace, async () => {
     const previousState = await readState(workspace.stateFile);
     const summary: RunSessionResetSummary = {
       performed: true,

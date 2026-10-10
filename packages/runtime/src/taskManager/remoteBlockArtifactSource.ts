@@ -1,4 +1,3 @@
-import { dirname } from "node:path";
 import {
   OUTPUT_MAX_ARTIFACT_BYTES,
   blockRefSchema,
@@ -6,7 +5,7 @@ import {
   executionEnvelopeFieldSchemas
 } from "@planweave-ai/agent-host-protocol/browser";
 import { z } from "zod";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { loadPackage } from "../package/loadPackage.js";
 import type { PackageWorkspaceRef } from "../types.js";
 import { remoteBlockSourceSnapshotWithArtifacts } from "./remoteBlockSourceSnapshot.js";
@@ -50,7 +49,7 @@ export function createRemoteBlockArtifactSource(options: {
     read: async (rawInput) => {
       const input = remoteBlockArtifactReadInputSchema.parse(rawInput);
       const { workspace } = await loadPackage(options.projectRoot);
-      return withCanvasLock(dirname(workspace.stateFile), async () => {
+      return withCanvasStorageMutation(workspace, async () => {
         const context = await loadRuntime({ projectRoot: options.projectRoot });
         const { snapshot, materializedInputArtifacts } =
           await remoteBlockSourceSnapshotWithArtifacts(context, input.targetBlockRef);

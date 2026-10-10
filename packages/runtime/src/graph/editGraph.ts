@@ -6,6 +6,7 @@ import { compileTaskGraph } from "./compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { assertNoPendingImportTransactionWrite } from "../package/importTransaction.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { stableJson } from "../plangraph/hash.js";
 import { manifestSchema } from "../schema/manifest.js";
@@ -210,6 +211,10 @@ export async function commitPlanPackageGraphMutation(options: {
   }
   const { workspace } = await loadPackage(options.projectRoot);
   return withPackageFileConsistency([workspace.packageDir], async () => {
+    await assertNoPendingImportTransactionWrite({
+      workspaceRoot: dirname(workspace.projectFile),
+      target: workspace.packageDir
+    });
     const current = await loadPackage(workspace);
     const conflict = checkPlanPackageGraphMutationVersion(current.manifest, options.mutation);
     if (conflict) return conflict;

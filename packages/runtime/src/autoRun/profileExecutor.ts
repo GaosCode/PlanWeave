@@ -1,3 +1,5 @@
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
+import { withExecutorResultsWriteLease } from "./executorResultsLifecycle.js";
 import type { ExecutorIntegrationName, ExecutorProfile } from "../types.js";
 import { agentFamilySchema } from "../types.js";
 import {
@@ -47,7 +49,15 @@ function directExecutorForProfile(profile: ExecutorProfile): DirectExecutor {
   throw new Error(`Agent profile '${profile.agent}' must be routed through AgentRunner.`);
 }
 
-export function runProfileBlock(input: ExecutorBlockInput) {
+export async function runProfileBlock(input: ExecutorBlockInput) {
+  const workspace =
+    input.executionSnapshot?.workspace ?? (await resolvePackageWorkspace(input.projectRoot));
+  return withExecutorResultsWriteLease(workspace, `block:${input.claim.ref}`, () =>
+    runProfileBlockWithLease(input)
+  );
+}
+
+function runProfileBlockWithLease(input: ExecutorBlockInput) {
   if (input.profile.adapter === "agent") {
     const definition =
       input.profile.runner.transport === "acp"
@@ -81,6 +91,12 @@ export function runProfileBlock(input: ExecutorBlockInput) {
 }
 
 export function runProfileFeedback(input: ExecutorFeedbackInput) {
+  return withExecutorResultsWriteLease(input.workspace, `feedback:${input.claim.feedbackId}`, () =>
+    runProfileFeedbackWithLease(input)
+  );
+}
+
+function runProfileFeedbackWithLease(input: ExecutorFeedbackInput) {
   if (input.profile.adapter === "agent") {
     const definition =
       input.profile.runner.transport === "acp"

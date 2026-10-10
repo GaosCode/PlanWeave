@@ -1,4 +1,6 @@
 import { mkdir } from "node:fs/promises";
+import { assertNoPendingImportTransactionWrite } from "./package/importTransaction.js";
+import { withPackageFileConsistency } from "./package/packageFileConsistency.js";
 import { dirname } from "node:path";
 import { optionalStat } from "./fs/optionalFile.js";
 import { compileTaskGraph } from "./graph/compileTaskGraph.js";
@@ -44,8 +46,14 @@ export async function readState(stateFile: string): Promise<RuntimeState> {
 }
 
 export async function writeState(stateFile: string, state: RuntimeState): Promise<void> {
-  await mkdir(dirname(stateFile), { recursive: true });
-  await writeJsonFile(stateFile, state);
+  await withPackageFileConsistency([stateFile], async () => {
+    await assertNoPendingImportTransactionWrite({
+      workspaceRoot: dirname(stateFile),
+      target: stateFile
+    });
+    await mkdir(dirname(stateFile), { recursive: true });
+    await writeJsonFile(stateFile, state);
+  });
 }
 
 function defaultBlockStatus(

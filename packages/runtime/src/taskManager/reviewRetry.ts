@@ -1,10 +1,9 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { isNodeFileNotFoundError } from "../fs/optionalFile.js";
 import { commitPlanPackageGraphMutation } from "../graph/editGraph.js";
 import { buildPlanPackageBlockFieldEditMutation } from "../graph/fieldEditMutation.js";
-import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type { ClaimScope, PackageWorkspaceRef, RetryReviewResult } from "../types.js";
@@ -143,7 +142,7 @@ export async function resetMaxCycleReviewsForRetryWithRollback(options: {
   scope: ClaimScope;
 }): Promise<MaxCycleReviewResetTransaction> {
   const { workspace } = await loadPackage(options.projectRoot);
-  return withCanvasLock(dirname(workspace.stateFile), async () =>
+  return withCanvasStorageMutation(workspace, async () =>
     resetMaxCycleReviewsUnderCanvasLock(
       await loadRuntime({ projectRoot: workspace }),
       options.scope
@@ -168,53 +167,51 @@ export async function retryReview(options: {
     throw new Error("retry-review requires maxFeedbackCycles.");
   }
   const workspace = await resolvePackageWorkspace(options.projectRoot);
-  return withPackageFileConsistency([workspace.packageDir], () =>
-    withCanvasLock(dirname(workspace.stateFile), async () => {
-      const context = await loadRuntimeReadonly({ projectRoot: workspace });
-      const block = context.graph.blocksByRef.get(options.ref);
-      if (!block) throw new Error(`Block '${options.ref}' does not exist.`);
-      if (block.type !== "review") throw new Error(`Block '${options.ref}' is not a review block.`);
-      const mutation = buildPlanPackageBlockFieldEditMutation(context.manifest, {
-        blockRef: options.ref,
-        maxFeedbackCycles: options.maxFeedbackCycles
-      });
-      const taskId = context.graph.blockTaskByRef.get(options.ref);
-      if (!taskId) throw new Error(`Task for review block '${options.ref}' does not exist.`);
-      const snapshots = await Promise.all([
-        snapshotFile(workspace.manifestFile),
-        snapshotFile(workspace.stateFile),
-        snapshotFile(join(workspace.resultsDir, taskId, "index.json"))
-      ]);
-      try {
-        const edit = await commitPlanPackageGraphMutation({ projectRoot: workspace, mutation });
-        if (!edit.ok) throw new Error(edit.diagnostics.map((item) => item.message).join("\n"));
-        const reset = await resetMaxCycleReviewsUnderCanvasLock(
-          await loadRuntimeReadonly({ projectRoot: workspace }),
-          { kind: "block", blockRef: options.ref }
+  return withCanvasStorageMutation(workspace, async () => {
+    const context = await loadRuntimeReadonly({ projectRoot: workspace });
+    const block = context.graph.blocksByRef.get(options.ref);
+    if (!block) throw new Error(`Block '${options.ref}' does not exist.`);
+    if (block.type !== "review") throw new Error(`Block '${options.ref}' is not a review block.`);
+    const mutation = buildPlanPackageBlockFieldEditMutation(context.manifest, {
+      blockRef: options.ref,
+      maxFeedbackCycles: options.maxFeedbackCycles
+    });
+    const taskId = context.graph.blockTaskByRef.get(options.ref);
+    if (!taskId) throw new Error(`Task for review block '${options.ref}' does not exist.`);
+    const snapshots = await Promise.all([
+      snapshotFile(workspace.manifestFile),
+      snapshotFile(workspace.stateFile),
+      snapshotFile(join(workspace.resultsDir, taskId, "index.json"))
+    ]);
+    try {
+      const edit = await commitPlanPackageGraphMutation({ projectRoot: workspace, mutation });
+      if (!edit.ok) throw new Error(edit.diagnostics.map((item) => item.message).join("\n"));
+      const reset = await resetMaxCycleReviewsUnderCanvasLock(
+        await loadRuntimeReadonly({ projectRoot: workspace }),
+        { kind: "block", blockRef: options.ref }
+      );
+      const updated = await loadRuntimeReadonly({ projectRoot: workspace });
+      const blockState = updated.state.blocks[options.ref];
+      if (!blockState)
+        throw new Error(`Runtime state for review block '${options.ref}' does not exist.`);
+      return {
+        ref: options.ref,
+        status: blockState.status,
+        maxFeedbackCycles: options.maxFeedbackCycles,
+        reset: reset.refs.includes(options.ref)
+      };
+    } catch (error) {
+      const restored = await Promise.allSettled(snapshots.map(restoreFile));
+      const restoreErrors = restored.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : []
+      );
+      if (restoreErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...restoreErrors],
+          "Review retry failed and could not restore its prior package/runtime files."
         );
-        const updated = await loadRuntimeReadonly({ projectRoot: workspace });
-        const blockState = updated.state.blocks[options.ref];
-        if (!blockState)
-          throw new Error(`Runtime state for review block '${options.ref}' does not exist.`);
-        return {
-          ref: options.ref,
-          status: blockState.status,
-          maxFeedbackCycles: options.maxFeedbackCycles,
-          reset: reset.refs.includes(options.ref)
-        };
-      } catch (error) {
-        const restored = await Promise.allSettled(snapshots.map(restoreFile));
-        const restoreErrors = restored.flatMap((result) =>
-          result.status === "rejected" ? [result.reason] : []
-        );
-        if (restoreErrors.length > 0) {
-          throw new AggregateError(
-            [error, ...restoreErrors],
-            "Review retry failed and could not restore its prior package/runtime files."
-          );
-        }
-        throw error;
       }
-    })
-  );
+      throw error;
+    }
+  });
 }

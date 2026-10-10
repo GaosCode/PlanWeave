@@ -1,8 +1,8 @@
 import { mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { allocateRunId } from "../autoRun/executorShared.js";
 import { upsertBlockRunInIndex } from "../autoRun/blockRunIndex.js";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
@@ -161,7 +161,7 @@ export function createRemoteBlockRuntimePort(options: {
 
   async function withLock<T>(operation: (context: RuntimeContext) => Promise<T>): Promise<T> {
     const { workspace } = await loadPackage(projectRoot);
-    return withCanvasLock(dirname(workspace.stateFile), async () =>
+    return withCanvasStorageMutation(workspace, async () =>
       operation(await loadRuntime({ projectRoot }))
     );
   }

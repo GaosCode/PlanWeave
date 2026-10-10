@@ -1,8 +1,7 @@
-import { withCanvasLock } from "../fs/withCanvasLock.js";
-import { loadPackage } from "../package/loadPackage.js";
-import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { PackageExecutionSnapshot } from "../package/packageExecutionSnapshot.js";
-import type { PlanPackageManifest, RuntimeState } from "../types.js";
+import type { PackageWorkspaceRef, PlanPackageManifest, RuntimeState } from "../types.js";
 
 export class PackageExecutionStateConflictError extends Error {
   readonly code = "package_execution_state_conflict";
@@ -60,16 +59,14 @@ export async function assertExecutionStateCompatible(
 
 /** Package first, canvas second; release both before any executor invocation. */
 export async function withExecutionStateLock<T>(
-  options: { executionSnapshot?: PackageExecutionSnapshot },
-  canvasDir: string,
+  options: { projectRoot: PackageWorkspaceRef; executionSnapshot?: PackageExecutionSnapshot },
+  _canvasDir: string,
   action: () => Promise<T>
 ): Promise<T> {
   const snapshot = options.executionSnapshot;
-  if (!snapshot) return withCanvasLock(canvasDir, action);
-  return withPackageFileConsistency([snapshot.workspace.packageDir], () =>
-    withCanvasLock(canvasDir, async () => {
-      await assertExecutionStateCompatible(snapshot);
-      return action();
-    })
-  );
+  const workspace = snapshot?.workspace ?? (await resolvePackageWorkspace(options.projectRoot));
+  return withCanvasStorageMutation(workspace, async () => {
+    if (snapshot) await assertExecutionStateCompatible(snapshot);
+    return action();
+  });
 }

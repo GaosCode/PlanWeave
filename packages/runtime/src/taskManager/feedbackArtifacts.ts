@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { feedbackStatuses, type ProjectWorkspace } from "../types.js";
@@ -32,7 +33,9 @@ export async function writeFeedbackArtifact(
   artifact: FeedbackArtifact
 ): Promise<void> {
   const parsed = feedbackArtifactSchema.parse(artifact);
-  await writeJsonFile(feedbackArtifactPath(workspace, taskId, parsed.feedbackId), parsed);
+  await withCanvasStorageMutation(workspace, () =>
+    writeJsonFile(feedbackArtifactPath(workspace, taskId, parsed.feedbackId), parsed)
+  );
 }
 
 export async function readFeedbackArtifact(
@@ -52,10 +55,12 @@ export async function patchFeedbackArtifact(
   patch: Pick<FeedbackArtifact, "status"> &
     Partial<Pick<FeedbackArtifact, "latestSubmissionId" | "resolvedAt">>
 ): Promise<void> {
-  const path = feedbackArtifactPath(workspace, taskId, feedbackId);
-  const current = feedbackArtifactSchema.parse(await readJsonFile<unknown>(path));
-  await writeJsonFile(path, {
-    ...current,
-    ...patch
+  await withCanvasStorageMutation(workspace, async () => {
+    const path = feedbackArtifactPath(workspace, taskId, feedbackId);
+    const current = feedbackArtifactSchema.parse(await readJsonFile<unknown>(path));
+    await writeJsonFile(path, {
+      ...current,
+      ...patch
+    });
   });
 }

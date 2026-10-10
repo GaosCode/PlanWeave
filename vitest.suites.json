@@ -694,6 +694,8 @@
         "importRecovery.test.ts",
         "importTransactionApply.test.ts",
         "importTransactionRecovery.test.ts",
+        "importTransactionWriteReservation.test.ts",
+        "executorResultsWriteLease.test.ts",
         "importTransactionRollback.test.ts",
         "initWorkspace.test.ts",
         "ioFailureVisibility.test.ts",

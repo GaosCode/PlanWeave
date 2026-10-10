@@ -175,6 +175,8 @@ export async function withAuthoritativeCanvasWorkspaceLock<T>(
   }
   const targets = new Set([
     nodePath.resolve(workspace.packageDir),
+    nodePath.resolve(workspace.stateFile),
+    nodePath.resolve(workspace.resultsDir),
     nodePath.resolve(layoutPathForWorkspace(workspace)),
     ...(await pendingRecoveryTargets(workspace))
   ]);

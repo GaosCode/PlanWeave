@@ -21,6 +21,8 @@ import {
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 import { spawnReviewRetryActor } from "./helpers/reviewRetryProcessFixture.js";
 import * as transactionContent from "../package/importTransactionContent.js";
+import { retryReview } from "../taskManager/reviewRetry.js";
+import { readPackageFiles, replacePackageFiles } from "../package/packageFiles.js";
 import { realFs } from "./support/importTransactionTestHarness.js";
 
 vi.mock("../fs/advisoryDirectoryLock.js", async (original) => {
@@ -229,12 +231,140 @@ it("keeps original and rollback errors and recovers both targets", async () => {
   expect((await getDesktopLayoutDirect(workspace)).nodes).toEqual([]);
 });
 it.each([
+  false,
+  true
+])("rejects layout writes into a partially rolled-back canvas pair without unsafe legacy resume (legacy=%s)", async (legacy) => {
+  const workspace = await fixture();
+  const marker = new Error("marker_failed"),
+    restore = new Error("package_restore_failed");
+  const create = ImportTransaction.create;
+  let failOnce = true;
+  const spy = vi.spyOn(ImportTransaction, "create").mockImplementation((options) =>
+    create({
+      ...options,
+      fs: {
+        ...realFs,
+        rm: async (path, options) => {
+          if (failOnce && path === workspace.packageDir) {
+            failOnce = false;
+            throw restore;
+          }
+          return fs.rm(path, options);
+        }
+      }
+    })
+  );
+  const before = {
+    manifest: await bytes(workspace.manifestFile),
+    layout: await bytes(layoutPathForWorkspace(workspace))
+  };
+  const addTask = buildCanvasCommandApplication(
+    (await loadPackage(workspace)).manifest,
+    await getDesktopLayoutDirect(workspace),
+    {
+      kind: "add_task",
+      taskId: "T-003",
+      title: "Third",
+      promptMarkdown: "Third prompt",
+      layout: { nodeId: "T-003", x: 3, y: 4 },
+      layoutUpdatedAt: "2030-01-01T00:00:00.000Z"
+    }
+  );
+  const failure = await commitCanvasCommandApplication({
+    workspace,
+    application: addTask,
+    dependencies: {
+      markTransactionCommitted: async () => {
+        throw marker;
+      }
+    }
+  }).catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect((failure as AggregateError).errors[0]).toBe(marker);
+  expect(String((failure as AggregateError).errors[1])).toContain(restore.message);
+  spy.mockRestore();
+  const [pending] = await listPendingImportTransactions(workspace.workspaceRoot);
+  if (!pending) throw new Error("Missing pending transaction");
+  expect(pending.phases).toEqual(["rollingBackFromInstalled", "rolledBack"]);
+  const partial = {
+    manifest: await bytes(workspace.manifestFile),
+    layout: await bytes(layoutPathForWorkspace(workspace)),
+    recovery: await bytes(`${pending.recoveryRoot}/recovery.json`)
+  };
+  expect((await loadPackage(workspace)).manifest.nodes.map((node) => node.id)).toContain("T-003");
+  await expect(
+    saveDesktopLayoutDirect(workspace, {
+      version: "desktop-layout/v1",
+      projectId: workspace.id,
+      nodes: [{ nodeId: "T-003", x: 11, y: 12 }],
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    })
+  ).rejects.toThrow("write conflict");
+  expect({
+    manifest: await bytes(workspace.manifestFile),
+    layout: await bytes(layoutPathForWorkspace(workspace)),
+    recovery: await bytes(`${pending.recoveryRoot}/recovery.json`)
+  }).toEqual(partial);
+  if (legacy) {
+    const recoveryFile = `${pending.recoveryRoot}/recovery.json`;
+    const record = await realFs.readJsonFile<Record<string, unknown>>(recoveryFile);
+    await realFs.writeJsonFile(recoveryFile, {
+      ...record,
+      writeIsolationTargets: undefined,
+      operations: record.operations.map((operation) => ({
+        ...operation,
+        restoredIdentityDigest: undefined
+      }))
+    });
+    await realFs.writeJsonFile(layoutPathForWorkspace(workspace), {
+      version: "desktop-layout/v1",
+      projectId: workspace.id,
+      nodes: [{ nodeId: "T-003", x: 11, y: 12 }],
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    });
+    const preserved = {
+      manifest: await bytes(workspace.manifestFile),
+      layout: await bytes(layoutPathForWorkspace(workspace)),
+      recovery: await bytes(recoveryFile)
+    };
+    await expect(
+      rollbackPendingImportTransaction({
+        workspaceRoot: workspace.workspaceRoot,
+        transactionId: pending.transactionId
+      })
+    ).rejects.toThrow("partial legacy rollback");
+    expect({
+      manifest: await bytes(workspace.manifestFile),
+      layout: await bytes(layoutPathForWorkspace(workspace)),
+      recovery: await bytes(recoveryFile)
+    }).toEqual(preserved);
+    expect((await getDesktopLayoutDirect(workspace)).nodes).toEqual([
+      { nodeId: "T-003", x: 11, y: 12 }
+    ]);
+    return;
+  }
+  await rollbackPendingImportTransaction({
+    workspaceRoot: workspace.workspaceRoot,
+    transactionId: pending.transactionId
+  });
+  expect({
+    manifest: await bytes(workspace.manifestFile),
+    layout: await bytes(layoutPathForWorkspace(workspace))
+  }).toEqual(before);
+  expect((await getDesktopLayoutDirect(workspace)).nodes).toEqual([]);
+  expect((await loadPackage(workspace)).manifest.nodes.map((node) => node.id)).toEqual([
+    "T-001",
+    "T-002"
+  ]);
+});
+it.each([
   "command",
   "layout",
   "identical layout",
-  "ABA layout",
-  "child graph"
-])("preserves a later successful %s write when recovery is delayed after marker and rollback failure", async (writer) => {
+  "child graph",
+  "review retry",
+  "package files"
+])("rejects a later %s writer while pending recovery reserves the canvas", async (writer) => {
   const workspace = await fixture();
   const original = new Error("marker_failed"),
     rollback = new Error("rollback_failed");
@@ -252,105 +382,61 @@ it.each([
   expect((failure as AggregateError).errors).toEqual([original, rollback]);
   const [recovery] = await listPendingImportTransactions(workspace.workspaceRoot);
   if (!recovery) throw new Error("Missing pending transaction");
-  expect(recovery.operationCount).toBe(2);
   const recoveryFile = `${recovery.recoveryRoot}/recovery.json`;
-  const recoveryBefore = await bytes(recoveryFile);
+  const before = {
+    manifest: await bytes(workspace.manifestFile),
+    layout: await bytes(layoutPathForWorkspace(workspace)),
+    recovery: await bytes(recoveryFile)
+  };
   const installed = await getDesktopLayoutDirect(workspace);
-  let actor: ReturnType<typeof spawnReviewRetryActor> | undefined;
-  try {
-    if (writer === "command") {
-      expect(
-        await applyAuthorizedCanvasCommand({
-          projectRoot: workspace,
-          canvasId: "default",
-          intent: {
-            kind: "update_layout",
-            nodes: [{ nodeId: "T-002", x: 22, y: 33 }],
-            updatedAt: "2030-01-02T00:00:00.000Z"
-          }
-        })
-      ).toMatchObject({ ok: true });
-    } else if (writer === "child graph") {
-      actor = spawnReviewRetryActor(workspace, true);
-      await actor.ready;
-    } else {
-      if (writer === "ABA layout") {
-        await saveDesktopLayoutDirect(
-          workspace,
-          { ...installed, nodes: [] },
-          { updatedAt: installed.updatedAt }
-        );
-      }
-      await saveDesktopLayoutDirect(
+  if (writer === "command") {
+    expect(
+      await applyAuthorizedCanvasCommand({
+        projectRoot: workspace,
+        canvasId: "default",
+        intent: {
+          kind: "update_layout",
+          nodes: [{ nodeId: "T-002", x: 22, y: 33 }],
+          updatedAt: "2030-01-02T00:00:00.000Z"
+        }
+      })
+    ).toMatchObject({ ok: false, detail: expect.stringContaining("write conflict") });
+  } else if (writer === "child graph") {
+    const actor = spawnReviewRetryActor(workspace, false);
+    const result = await actor.done;
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("write conflict");
+  } else if (writer === "review retry") {
+    await expect(
+      retryReview({ projectRoot: workspace, ref: "T-001#R-001", maxFeedbackCycles: 3 })
+    ).rejects.toThrow("write conflict");
+  } else if (writer === "package files") {
+    const files = await readPackageFiles(workspace.packageDir);
+    await expect(replacePackageFiles(workspace.packageDir, files)).rejects.toThrow(
+      "write conflict"
+    );
+  } else {
+    await expect(
+      saveDesktopLayoutDirect(
         workspace,
         writer === "layout"
           ? { ...installed, nodes: [{ nodeId: "T-002", x: 22, y: 33 }] }
           : installed,
         { updatedAt: installed.updatedAt }
-      );
-    }
-    const saved = {
-      manifest: await bytes(workspace.manifestFile),
-      layout: await bytes(layoutPathForWorkspace(workspace))
-    };
-    const contended = deferred();
-    if (actor) {
-      const actual = await vi.importActual<typeof import("../fs/advisoryDirectoryLock.js")>(
-        "../fs/advisoryDirectoryLock.js"
-      );
-      vi.mocked(withAdvisoryDirectoryLock).mockImplementation((options, action) => {
-        return actual.withAdvisoryDirectoryLock(
-          {
-            ...options,
-            fs: {
-              ...fs,
-              optionalStat: realFs.optionalStat,
-              mkdir: async (path) => {
-                try {
-                  await fs.mkdir(path);
-                } catch (error) {
-                  if (
-                    error &&
-                    typeof error === "object" &&
-                    "code" in error &&
-                    error.code === "EEXIST"
-                  )
-                    contended.resolve();
-                  throw error;
-                }
-              }
-            }
-          },
-          action
-        );
-      });
-    }
-    const recovering = track(
-      rollbackPendingImportTransaction({
-        workspaceRoot: workspace.workspaceRoot,
-        transactionId: recovery.transactionId
-      }).catch((error: unknown) => error)
-    );
-    if (actor) {
-      await contended.promise;
-      actor.child.stdin.write("continue\n");
-      expect(await actor.done).toMatchObject({ code: 0, stderr: "" });
-    }
-    expect(await recovering).toMatchObject({
-      message: expect.stringContaining("ownership conflict")
-    });
-    expect({
-      manifest: await bytes(workspace.manifestFile),
-      layout: await bytes(layoutPathForWorkspace(workspace))
-    }).toEqual(saved);
-    expect(await bytes(recoveryFile)).toBe(recoveryBefore);
-    expect(await listPendingImportTransactions(workspace.workspaceRoot)).toHaveLength(1);
-  } finally {
-    if (actor) {
-      if (!actor.child.stdin.destroyed) actor.child.stdin.write("continue\n");
-      await actor.done;
-    }
+      )
+    ).rejects.toThrow("write conflict");
   }
+  expect({
+    manifest: await bytes(workspace.manifestFile),
+    layout: await bytes(layoutPathForWorkspace(workspace)),
+    recovery: await bytes(recoveryFile)
+  }).toEqual(before);
+  await rollbackPendingImportTransaction({
+    workspaceRoot: workspace.workspaceRoot,
+    transactionId: recovery.transactionId
+  });
+  expect(await listPendingImportTransactions(workspace.workspaceRoot)).toEqual([]);
+  expect((await getDesktopLayoutDirect(workspace)).nodes).toEqual([]);
 });
 it("holds both targets from ownership preflight through restore while a direct layout write contends", async () => {
   const workspace = await fixture(true);

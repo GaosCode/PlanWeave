@@ -1,3 +1,4 @@
+import { beginExecutorResultsWriter } from "./executorResultsLifecycle.js";
 import { createWriteStream } from "node:fs";
 import type { WriteStream } from "node:fs";
 import { mkdir, open, readFile, rmdir, writeFile } from "node:fs/promises";
@@ -848,6 +849,7 @@ export async function execWithStreaming(options: {
       graceMs: EXECUTOR_FORCE_KILL_GRACE_MS
     });
     const child = managed.child;
+    const finishResultsWriter = child.pid ? beginExecutorResultsWriter() : () => undefined;
     const tree = prepared.decorateProcessTree(managed.tree);
     const termination = createExecutorTermination(tree);
     const heartbeat = startExecutorHeartbeat({
@@ -940,6 +942,7 @@ export async function execWithStreaming(options: {
         timedOut,
         error: outcome.error
       });
+      finishResultsWriter();
     };
 
     const settleWithTermination = (work: () => void | Promise<void>): void => {

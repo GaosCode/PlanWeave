@@ -14,6 +14,7 @@ import {
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { withPackageDirectoryRead, withPackageFileConsistency } from "./packageFileConsistency.js";
+import { assertNoPendingImportTransactionWrite } from "./importTransaction.js";
 import { readDecodedUtf8Bytes } from "./decodedUtf8Bytes.js";
 import { PackagePathError, resolvePackagePath } from "./resolvePackagePath.js";
 
@@ -209,9 +210,10 @@ export async function replacePackageFilesWithFileSystem(
 
   try {
     try {
-      await withPackageFileConsistency([targetRoot], () =>
-        replacePreparedPackageFiles(fs, targetRoot, parent, preparedFiles)
-      );
+      await withPackageFileConsistency([targetRoot], async () => {
+        await assertNoPendingImportTransactionWrite({ workspaceRoot: parent, target: targetRoot });
+        await replacePreparedPackageFiles(fs, targetRoot, parent, preparedFiles);
+      });
     } catch (error) {
       replacementFailed = true;
       replacementFailureCause = error;

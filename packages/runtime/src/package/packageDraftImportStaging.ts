@@ -1,3 +1,4 @@
+import { withPackageFileConsistency } from "./packageFileConsistency.js";
 import { lstat, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isNodeFileNotFoundError, optionalStat } from "../fs/optionalFile.js";
@@ -60,7 +61,10 @@ export async function withPackageDraftImportStaging<T>(
   const stagingRoot = await mkdtemp(join(canonicalRoot, ".planweave-import-"));
   let outcome: { ok: true; value: T } | { ok: false; error: unknown };
   try {
-    outcome = { ok: true, value: await apply(stagingRoot) };
+    outcome = {
+      ok: true,
+      value: await withPackageFileConsistency(targets, () => apply(stagingRoot))
+    };
   } catch (error) {
     outcome = { ok: false, error };
   }

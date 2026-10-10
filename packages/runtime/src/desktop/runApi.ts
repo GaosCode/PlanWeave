@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { killTmuxSessionsForRun } from "../autoRun/tmuxExecutor.js";
 import { listExecutorProfilesForManifest } from "../autoRun/executors.js";
 import {
@@ -20,7 +20,7 @@ import {
   type MaxCycleReviewResetTransaction
 } from "../taskManager/reviewRetry.js";
 import { loadPackage } from "../package/loadPackage.js";
-import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import {
   assertDesktopAgentRunControlAccepted,
@@ -744,7 +744,7 @@ export async function startAutoRun(
   options?: DesktopAutoRunOptions
 ): Promise<DesktopAutoRunState> {
   const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
-  const state = await withCanvasLock(dirname(workspace.stateFile), () =>
+  const state = await withCanvasStorageMutation(workspace, () =>
     initializeAutoRunUnderCanvasLock(workspace, projectRoot, canvasId, scope, stepLimit, options)
   );
   launchInitializedAutoRun(state.runId);

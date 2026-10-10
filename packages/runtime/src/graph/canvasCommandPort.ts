@@ -126,7 +126,8 @@ export async function commitCanvasCommandApplication(options: {
     await rm(layoutStagingRoot, { recursive: true, force: true });
   };
   const transaction = await ImportTransaction.create({
-    workspaceRoot: options.workspace.workspaceRoot
+    workspaceRoot: options.workspace.workspaceRoot,
+    writeIsolationTargets: [options.workspace.packageDir, canonicalLayout]
   });
   return withPackageFileConsistency(
     [options.workspace.packageDir, canonicalLayout, staging, stagedLayout],

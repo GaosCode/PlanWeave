@@ -1,3 +1,4 @@
+import { assertNoExecutorResultsWriteLease } from "./executorResultsWriteLease.js";
 import { withPackageFileConsistency } from "./packageFileConsistency.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rename, rm } from "node:fs/promises";
@@ -22,6 +23,7 @@ type ImportTransactionOperation = {
   targetExisted: boolean;
   phase: ImportTransactionOperationPhase;
   installedIdentityDigest?: string;
+  restoredIdentityDigest?: string;
 };
 
 type ImportTransactionRecoveryFile = {
@@ -31,6 +33,7 @@ type ImportTransactionRecoveryFile = {
   workspaceRoot: string;
   createdAt: string;
   operations: ImportTransactionOperation[];
+  writeIsolationTargets?: string[];
 };
 
 export type ImportTransactionRecoverySummary = {
@@ -119,7 +122,16 @@ function parseOperation(raw: unknown, recoveryFile: string): ImportTransactionOp
   if (!isRecord(raw)) {
     throw new Error(`Invalid import transaction recovery operation in ${recoveryFile}.`);
   }
-  const { id, type, target, backupPath, targetExisted, phase, installedIdentityDigest } = raw;
+  const {
+    id,
+    type,
+    target,
+    backupPath,
+    targetExisted,
+    phase,
+    installedIdentityDigest,
+    restoredIdentityDigest
+  } = raw;
   if (typeof id !== "string" || id.length === 0) {
     throw new Error(`Invalid import transaction recovery operation id in ${recoveryFile}.`);
   }
@@ -158,6 +170,12 @@ function parseOperation(raw: unknown, recoveryFile: string): ImportTransactionOp
   ) {
     throw new Error(`Invalid import transaction installed identity in ${recoveryFile}.`);
   }
+  if (
+    restoredIdentityDigest !== undefined &&
+    (typeof restoredIdentityDigest !== "string" || !/^[a-f0-9]{64}$/.test(restoredIdentityDigest))
+  ) {
+    throw new Error(`Invalid import transaction restored identity in ${recoveryFile}.`);
+  }
   return {
     id,
     type,
@@ -165,7 +183,8 @@ function parseOperation(raw: unknown, recoveryFile: string): ImportTransactionOp
     backupPath: resolve(backupPath),
     targetExisted,
     phase,
-    ...(typeof installedIdentityDigest === "string" ? { installedIdentityDigest } : {})
+    ...(typeof installedIdentityDigest === "string" ? { installedIdentityDigest } : {}),
+    ...(typeof restoredIdentityDigest === "string" ? { restoredIdentityDigest } : {})
   };
 }
 
@@ -173,7 +192,15 @@ function parseRecoveryFile(raw: unknown, recoveryFile: string): ImportTransactio
   if (!isRecord(raw)) {
     throw new Error(`Invalid import transaction recovery file at ${recoveryFile}.`);
   }
-  const { version, state, transactionId, workspaceRoot, createdAt, operations } = raw;
+  const {
+    version,
+    state,
+    transactionId,
+    workspaceRoot,
+    createdAt,
+    operations,
+    writeIsolationTargets
+  } = raw;
   if (version !== 1) {
     throw new Error(`Unsupported import transaction recovery file version at ${recoveryFile}.`);
   }
@@ -190,6 +217,16 @@ function parseRecoveryFile(raw: unknown, recoveryFile: string): ImportTransactio
   if (!Array.isArray(operations)) {
     throw new Error(`Invalid import transaction operations in ${recoveryFile}.`);
   }
+  if (
+    writeIsolationTargets !== undefined &&
+    (!Array.isArray(writeIsolationTargets) ||
+      writeIsolationTargets.some((target) => typeof target !== "string"))
+  ) {
+    throw new Error(`Invalid import transaction write isolation in ${recoveryFile}.`);
+  }
+  if (writeIsolationTargets !== undefined) {
+    for (const target of writeIsolationTargets) assertWorkspaceTarget(workspaceRoot, target);
+  }
   const parsedState =
     state === undefined ? "active" : state === "active" || state === "committed" ? state : null;
   if (parsedState === null) {
@@ -201,7 +238,10 @@ function parseRecoveryFile(raw: unknown, recoveryFile: string): ImportTransactio
     transactionId,
     workspaceRoot: resolve(workspaceRoot),
     createdAt,
-    operations: operations.map((operation) => parseOperation(operation, recoveryFile))
+    operations: operations.map((operation) => parseOperation(operation, recoveryFile)),
+    ...(writeIsolationTargets !== undefined
+      ? { writeIsolationTargets: writeIsolationTargets.map((target) => resolve(target)) }
+      : {})
   };
 }
 
@@ -254,20 +294,17 @@ export async function readImportTransactionRecoveryTargets(options: {
   return [...new Set(recovery.operations.map((operation) => operation.target))];
 }
 
-/** Deletion cannot leave a newer identity on an absent target for delayed recovery to inspect. */
-export async function assertNoPendingImportTransactionRemoval(options: {
+async function assertNoPendingImportTransactionMutation(options: {
   workspaceRoot: string;
   target: string;
   transactionId?: string;
+  operation: "write" | "removal";
 }): Promise<void> {
   const workspaceRoots = new Set([resolve(options.workspaceRoot)]);
   assertWorkspaceTarget(options.workspaceRoot, options.target);
-  for (
-    let ancestor = dirname(resolve(options.target));
-    ancestor !== resolve(options.workspaceRoot);
-    ancestor = dirname(ancestor)
-  ) {
+  for (let ancestor = dirname(resolve(options.target)); ; ancestor = dirname(ancestor)) {
     workspaceRoots.add(ancestor);
+    if (dirname(ancestor) === ancestor) break;
   }
   for (const workspaceRoot of workspaceRoots) {
     const root = join(workspaceRoot, "desktop", "recovery", "package-import");
@@ -284,10 +321,10 @@ export async function assertNoPendingImportTransactionRemoval(options: {
         fs: nodeFileSystem
       });
       if (recovery.state === "committed") continue;
+      if (recovery.operations.every((operation) => operation.phase === "rolledBack")) continue;
       const target = resolve(options.target);
       if (
         recovery.operations.some((operation) => {
-          if (operation.phase === "rolledBack") return false;
           const nested = relative(operation.target, target);
           const ancestor = relative(target, operation.target);
           return (
@@ -299,11 +336,28 @@ export async function assertNoPendingImportTransactionRemoval(options: {
         })
       ) {
         throw new Error(
-          `Import transaction removal conflict: pending transaction '${recovery.transactionId}' overlaps ${target}`
+          `Import transaction ${options.operation} conflict: pending transaction '${recovery.transactionId}' overlaps ${target}`
         );
       }
     }
   }
+}
+
+/** Pending rollback reserves every dependent target until all operations are restored. */
+export async function assertNoPendingImportTransactionWrite(options: {
+  workspaceRoot: string;
+  target: string;
+  transactionId?: string;
+}): Promise<void> {
+  await assertNoPendingImportTransactionMutation({ ...options, operation: "write" });
+}
+
+export async function assertNoPendingImportTransactionRemoval(options: {
+  workspaceRoot: string;
+  target: string;
+  transactionId?: string;
+}): Promise<void> {
+  await assertNoPendingImportTransactionMutation({ ...options, operation: "removal" });
 }
 
 export async function readImportTransactionRecoverySummary(options: {
@@ -334,6 +388,7 @@ export class ImportTransaction {
   private readonly fs: ImportTransactionFileSystem;
   private operations: ImportTransactionOperation[] = [];
   private state: ImportTransactionRecoveryFile["state"] = "active";
+  private writeIsolationTargets: readonly string[] = [];
 
   private constructor(options: {
     workspaceRoot: string;
@@ -358,6 +413,8 @@ export class ImportTransaction {
     workspaceRoot: string;
     transactionId?: string;
     fs?: ImportTransactionFileSystem;
+    /** Targets whose production writers enforce the pending transaction reservation. */
+    writeIsolationTargets?: readonly string[];
   }): Promise<ImportTransaction> {
     const transactionId = options.transactionId ?? randomUUID();
     assertValidImportTransactionId(transactionId);
@@ -365,6 +422,10 @@ export class ImportTransaction {
       workspaceRoot: options.workspaceRoot,
       transactionId,
       fs: options.fs ?? nodeFileSystem
+    });
+    transaction.writeIsolationTargets = (options.writeIsolationTargets ?? []).map((target) => {
+      assertWorkspaceTarget(transaction.workspaceRoot, target);
+      return resolve(target);
     });
     await transaction.fs.mkdir(transaction.recoveryRoot, { recursive: true });
     await transaction.writeRecoveryFile();
@@ -390,6 +451,7 @@ export class ImportTransaction {
     });
     transaction.operations = recovery.operations;
     transaction.state = recovery.state;
+    transaction.writeIsolationTargets = recovery.writeIsolationTargets ?? [];
     return transaction;
   }
 
@@ -399,6 +461,12 @@ export class ImportTransaction {
 
   private async replacePathLocked(target: string, staged: string): Promise<void> {
     assertWorkspaceTarget(this.workspaceRoot, target);
+    await assertNoExecutorResultsWriteLease(target);
+    await assertNoPendingImportTransactionWrite({
+      workspaceRoot: this.workspaceRoot,
+      target,
+      transactionId: this.transactionId
+    });
     const operation = this.nextOperation(
       "replace",
       target,
@@ -425,6 +493,7 @@ export class ImportTransaction {
 
   private async removePathLocked(target: string): Promise<void> {
     assertWorkspaceTarget(this.workspaceRoot, target);
+    await assertNoExecutorResultsWriteLease(target);
     await assertNoPendingImportTransactionRemoval({
       workspaceRoot: this.workspaceRoot,
       target,
@@ -456,6 +525,11 @@ export class ImportTransaction {
   private async rollbackLocked(): Promise<void> {
     if (this.state === "committed") {
       throw new Error("Committed import transaction cannot be rolled back.");
+    }
+    if (this.operations.some((operation) => operation.phase !== "rolledBack")) {
+      for (const target of new Set(this.operations.map((operation) => operation.target))) {
+        await assertNoExecutorResultsWriteLease(target);
+      }
     }
     await this.assertRollbackOwnership();
     const failures: string[] = [];
@@ -493,6 +567,11 @@ export class ImportTransaction {
       }
       try {
         await this.rollbackOperation(operation);
+        if ((await this.fs.optionalStat(operation.target)) !== null) {
+          operation.restoredIdentityDigest = await importTransactionIdentityDigest(
+            operation.target
+          );
+        }
         // Restoring a prior replacement renames its inode and changes its identity timestamps.
         const previous = this.operations
           .slice(0, this.operations.indexOf(operation))
@@ -519,8 +598,32 @@ export class ImportTransaction {
   private async assertRollbackOwnership(): Promise<void> {
     const checked = new Set<string>();
     for (const operation of [...this.operations].reverse()) {
-      if (operation.phase === "rolledBack" || checked.has(operation.target)) continue;
+      if (checked.has(operation.target)) continue;
       checked.add(operation.target);
+      if (operation.phase === "rolledBack") {
+        if (
+          !this.operations.some(
+            (other) => other.phase !== "rolledBack" && other.phase !== "planned"
+          )
+        )
+          continue;
+        if (operation.restoredIdentityDigest) {
+          if (
+            (await this.fs.optionalStat(operation.target)) === null ||
+            (await importTransactionIdentityDigest(operation.target)) !==
+              operation.restoredIdentityDigest
+          ) {
+            throw new Error(
+              `Import transaction rollback ownership conflict: restored target changed at ${operation.target}`
+            );
+          }
+        } else if (!this.writeIsolationTargets.includes(operation.target)) {
+          throw new Error(
+            `Import transaction rollback ownership conflict: partial legacy rollback has no write reservation at ${operation.target}. Recovery left unchanged at ${this.recoveryRoot}; inspect recovery.json and backups before manual reconciliation.`
+          );
+        }
+        continue;
+      }
       if (operation.phase !== "installed" && operation.phase !== "rollingBackFromInstalled")
         continue;
       const targetExists = (await this.fs.optionalStat(operation.target)) !== null;
@@ -535,7 +638,20 @@ export class ImportTransaction {
         }
         continue;
       }
-      if (operation.targetExisted && !backupExists) continue;
+      if (operation.targetExisted && !backupExists) {
+        if (
+          !this.writeIsolationTargets.includes(operation.target) &&
+          this.operations.some(
+            (other) =>
+              other !== operation && other.phase !== "rolledBack" && other.phase !== "planned"
+          )
+        ) {
+          throw new Error(
+            `Import transaction rollback ownership conflict: restored target has no durable write reservation at ${operation.target}. Recovery left unchanged at ${this.recoveryRoot}; inspect recovery.json and backups before manual reconciliation.`
+          );
+        }
+        continue;
+      }
       if (!operation.installedIdentityDigest) {
         throw new Error(
           `Import transaction rollback ownership conflict: installed identity unavailable at ${operation.target}`
@@ -696,7 +812,10 @@ export class ImportTransaction {
       transactionId: this.transactionId,
       workspaceRoot: this.workspaceRoot,
       createdAt: this.createdAt,
-      operations: this.operations
+      operations: this.operations,
+      ...(this.writeIsolationTargets.length
+        ? { writeIsolationTargets: [...this.writeIsolationTargets] }
+        : {})
     };
     await this.fs.writeJsonFile(join(this.recoveryRoot, "recovery.json"), recovery);
   }

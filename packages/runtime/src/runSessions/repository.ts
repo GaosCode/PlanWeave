@@ -1,8 +1,11 @@
 import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { userInfo } from "node:os";
 import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
+import { canonicalPackageFileTarget } from "../package/packageFileConsistency.js";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { commandCanvasIdForWorkspace } from "../taskManager/canvasCommandScope.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -64,11 +67,23 @@ function sessionMutationLockPath(workspace: ProjectWorkspace, sessionId: string)
   return join(sessionRoot(workspace, sessionId), ".session-mutation.lock");
 }
 
-function scopeLockPath(workspace: ProjectWorkspace, scope: RunSessionScope): string {
+async function scopeLockPath(workspace: ProjectWorkspace, scope: RunSessionScope): Promise<string> {
   const digest = createHash("sha256")
-    .update(JSON.stringify({ canvasId: workspace.id, scope }))
+    .update(
+      JSON.stringify({
+        resultsDir: await canonicalPackageFileTarget(workspace.resultsDir),
+        canvasId: workspace.id,
+        scope
+      })
+    )
     .digest("hex");
-  return join(runSessionsRoot(workspace), ".scope-locks", `${digest}.lock`);
+  return join(
+    userInfo().homedir,
+    ".cache",
+    "planweave",
+    "run-session-scope-locks",
+    `${digest}.lock`
+  );
 }
 
 export class RunSessionStateVersionConflictError extends Error {
@@ -90,12 +105,12 @@ export async function withRunSessionScopeLock<T>(
   operation: () => Promise<T>
 ): Promise<T> {
   const workspace = await resolveSessionWorkspace(projectRoot);
-  await mkdir(join(runSessionsRoot(workspace), ".scope-locks"), { recursive: true });
+  const lockPath = await scopeLockPath(workspace, scope);
+  await mkdir(join(userInfo().homedir, ".cache", "planweave", "run-session-scope-locks"), {
+    recursive: true
+  });
   return withAdvisoryDirectoryLock(
-    {
-      lockPath: scopeLockPath(workspace, scope),
-      operation: `workspace-execution:${scope.kind}`
-    },
+    { lockPath, operation: `workspace-execution:${scope.kind}` },
     operation
   );
 }
@@ -412,58 +427,60 @@ async function readSessionState(
 
 export async function createRunSession(options: CreateRunSessionOptions): Promise<RunSessionState> {
   const workspace = await resolveSessionWorkspace(options.projectRoot);
-  const root = runSessionsRoot(workspace);
-  await mkdir(root, { recursive: true });
-  let sessionId = nextSessionId(await listExistingSessionIds(workspace));
-  for (;;) {
-    try {
-      await mkdir(sessionRoot(workspace, sessionId));
-      break;
-    } catch (error) {
-      if (!isNodeErrorWithCode(error, "EEXIST")) {
-        throw error;
+  return withCanvasStorageMutation(workspace, async () => {
+    const root = runSessionsRoot(workspace);
+    await mkdir(root, { recursive: true });
+    let sessionId = nextSessionId(await listExistingSessionIds(workspace));
+    for (;;) {
+      try {
+        await mkdir(sessionRoot(workspace, sessionId));
+        break;
+      } catch (error) {
+        if (!isNodeErrorWithCode(error, "EEXIST")) {
+          throw error;
+        }
+        sessionId = nextSessionIdAfter(sessionId);
       }
-      sessionId = nextSessionIdAfter(sessionId);
     }
-  }
-  const now = (options.now ?? new Date()).toISOString();
-  const session: RunSessionState = {
-    stateVersion: 0,
-    sessionId,
-    kind: options.kind,
-    trigger: options.trigger ?? "manual",
-    projectRoot: workspace.sourceRoot ?? workspace.rootPath,
-    canvasId: await canvasIdForWorkspace(workspace),
-    scope: options.scope ?? { kind: "project" },
-    phase: options.phase ?? "created",
-    startedAt: now,
-    updatedAt: now,
-    finishedAt: null,
-    reset: null,
-    autoRun: null,
-    latestRecordId: null,
-    latestRecordPath: null,
-    workspaceExecution: options.workspaceExecution ?? null,
-    error: null
-  };
-  try {
-    await writeJsonFile(sessionSummaryPath(workspace, sessionId), session);
-    await appendRunSessionEvent(options.projectRoot, sessionId, "session_started", {
-      timestamp: now,
-      phase: session.phase
-    });
-    return session;
-  } catch (error) {
+    const now = (options.now ?? new Date()).toISOString();
+    const session: RunSessionState = {
+      stateVersion: 0,
+      sessionId,
+      kind: options.kind,
+      trigger: options.trigger ?? "manual",
+      projectRoot: workspace.sourceRoot ?? workspace.rootPath,
+      canvasId: await canvasIdForWorkspace(workspace),
+      scope: options.scope ?? { kind: "project" },
+      phase: options.phase ?? "created",
+      startedAt: now,
+      updatedAt: now,
+      finishedAt: null,
+      reset: null,
+      autoRun: null,
+      latestRecordId: null,
+      latestRecordPath: null,
+      workspaceExecution: options.workspaceExecution ?? null,
+      error: null
+    };
     try {
-      await rm(sessionRoot(workspace, sessionId), { recursive: true, force: true });
-    } catch (cleanupError) {
-      throw new AggregateError(
-        [error, cleanupError],
-        `Run session '${sessionId}' initialization failed and cleanup did not complete.`
-      );
+      await writeJsonFile(sessionSummaryPath(workspace, sessionId), session);
+      await appendRunSessionEvent(options.projectRoot, sessionId, "session_started", {
+        timestamp: now,
+        phase: session.phase
+      });
+      return session;
+    } catch (error) {
+      try {
+        await rm(sessionRoot(workspace, sessionId), { recursive: true, force: true });
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          `Run session '${sessionId}' initialization failed and cleanup did not complete.`
+        );
+      }
+      throw error;
     }
-    throw error;
-  }
+  });
 }
 
 export async function discardRunSessionInitialization(
@@ -471,7 +488,9 @@ export async function discardRunSessionInitialization(
   sessionId: string
 ): Promise<void> {
   assertValidRunSessionId(sessionId);
-  await rm(sessionRoot(workspace, sessionId), { recursive: true, force: true });
+  await withCanvasStorageMutation(workspace, () =>
+    rm(sessionRoot(workspace, sessionId), { recursive: true, force: true })
+  );
 }
 
 export async function updateRunSession(
@@ -482,37 +501,39 @@ export async function updateRunSession(
 ): Promise<RunSessionState> {
   assertValidRunSessionId(sessionId);
   const workspace = await resolveSessionWorkspace(projectRoot);
-  return withAdvisoryDirectoryLock(
-    {
-      lockPath: sessionMutationLockPath(workspace, sessionId),
-      operation: "run-session-update"
-    },
-    async () => {
-      const current = await readSessionState(workspace, sessionId);
-      if (!current.session) {
-        throw new Error(`Run session '${sessionId}' could not be read.`);
+  return withCanvasStorageMutation(workspace, async () => {
+    return withAdvisoryDirectoryLock(
+      {
+        lockPath: sessionMutationLockPath(workspace, sessionId),
+        operation: "run-session-update"
+      },
+      async () => {
+        const current = await readSessionState(workspace, sessionId);
+        if (!current.session) {
+          throw new Error(`Run session '${sessionId}' could not be read.`);
+        }
+        if (
+          options.expectedStateVersion !== undefined &&
+          current.session.stateVersion !== options.expectedStateVersion
+        ) {
+          throw new RunSessionStateVersionConflictError(
+            sessionId,
+            options.expectedStateVersion,
+            current.session.stateVersion
+          );
+        }
+        const now = new Date().toISOString();
+        const next: RunSessionState = {
+          ...current.session,
+          ...patch,
+          stateVersion: current.session.stateVersion + 1,
+          updatedAt: now
+        };
+        await writeJsonFile(sessionSummaryPath(workspace, sessionId), next);
+        return next;
       }
-      if (
-        options.expectedStateVersion !== undefined &&
-        current.session.stateVersion !== options.expectedStateVersion
-      ) {
-        throw new RunSessionStateVersionConflictError(
-          sessionId,
-          options.expectedStateVersion,
-          current.session.stateVersion
-        );
-      }
-      const now = new Date().toISOString();
-      const next: RunSessionState = {
-        ...current.session,
-        ...patch,
-        stateVersion: current.session.stateVersion + 1,
-        updatedAt: now
-      };
-      await writeJsonFile(sessionSummaryPath(workspace, sessionId), next);
-      return next;
-    }
-  );
+    );
+  });
 }
 
 export async function appendRunSessionEvent(
@@ -523,15 +544,17 @@ export async function appendRunSessionEvent(
 ): Promise<void> {
   assertValidRunSessionId(sessionId);
   const workspace = await resolveSessionWorkspace(projectRoot);
-  const event: RunSessionEvent = {
-    timestamp: typeof data.timestamp === "string" ? data.timestamp : new Date().toISOString(),
-    sessionId,
-    type,
-    phase: typeof data.phase === "string" ? (data.phase as RunSessionPhase) : "created",
-    ...data
-  };
-  await mkdir(sessionRoot(workspace, sessionId), { recursive: true });
-  await appendFile(sessionEventsPath(workspace, sessionId), `${JSON.stringify(event)}\n`, "utf8");
+  return withCanvasStorageMutation(workspace, async () => {
+    const event: RunSessionEvent = {
+      timestamp: typeof data.timestamp === "string" ? data.timestamp : new Date().toISOString(),
+      sessionId,
+      type,
+      phase: typeof data.phase === "string" ? (data.phase as RunSessionPhase) : "created",
+      ...data
+    };
+    await mkdir(sessionRoot(workspace, sessionId), { recursive: true });
+    await appendFile(sessionEventsPath(workspace, sessionId), `${JSON.stringify(event)}\n`, "utf8");
+  });
 }
 
 export async function listRunSessions(
