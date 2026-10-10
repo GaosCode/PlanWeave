@@ -694,6 +694,7 @@
         "importRecovery.test.ts",
         "importTransactionApply.test.ts",
         "importTransactionLifecycle.test.ts",
+        "managedProjectRenameStorage.test.ts",
         "importTransactionRecovery.test.ts",
         "importTransactionWriteReservation.test.ts",
         "executorResultsWriteLease.test.ts",

@@ -1,4 +1,7 @@
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { withCanvasStorageReplacement } from "../package/withCanvasStorageMutation.js";
+import { assertNoPendingImportTransactionWrite } from "../package/importTransaction.js";
+import { assertNoExecutorResultsWriteLease } from "../package/executorResultsWriteLease.js";
 import { realpath, rename, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
@@ -366,18 +369,7 @@ async function renameManagedProject(
     nextWorkspaceRoot
   );
 
-  if (nextProjectId === previousProjectId) {
-    await withCanvasMapLayoutDiskLocks(
-      [nextWorkspace],
-      "rename-project-canvas-map-layout",
-      async () => {
-        await rewriteManagedProjectFiles(nextWorkspace, nextProject);
-      }
-    );
-    return projectSummary(nextProject, nextWorkspaceRoot);
-  }
-
-  if (await optionalStat(nextWorkspaceRoot)) {
+  if (nextProjectId !== previousProjectId && (await optionalStat(nextWorkspaceRoot))) {
     throw new Error(`PlanWeave project '${name}' already exists.`);
   }
 
@@ -386,35 +378,54 @@ async function renameManagedProject(
     previousProjectId,
     previousWorkspaceRoot
   );
-  const previousTitleSnapshot = await readSingleCanvasTitleSnapshot(previousWorkspace);
   await withCanvasMapLayoutDiskLocks(
     [previousWorkspace, nextWorkspace],
     "rename-project-canvas-map-layout",
     async () => {
       const graph = await loadProjectGraphForWorkspace(previousWorkspace);
+      const storageWorkspaces = [
+        previousWorkspace,
+        nextWorkspace,
+        ...graph.manifest.canvases.flatMap((canvas) => [
+          projectCanvasWorkspace(previousWorkspace, canvas),
+          projectCanvasWorkspace(nextWorkspace, canvas)
+        ])
+      ];
       const roots = [
         previousWorkspaceRoot,
         nextWorkspaceRoot,
-        previousWorkspace.packageDir,
-        nextWorkspace.packageDir,
-        join(previousWorkspace.workspaceRoot, "desktop", "layout.json"),
-        join(nextWorkspace.workspaceRoot, "desktop", "layout.json"),
-        ...graph.manifest.canvases.flatMap((canvas) => [
-          projectCanvasWorkspace(previousWorkspace, canvas).packageDir,
-          projectCanvasWorkspace(nextWorkspace, canvas).packageDir,
-          join(
-            projectCanvasWorkspace(previousWorkspace, canvas).workspaceRoot,
-            "desktop",
-            "layout.json"
-          ),
-          join(
-            projectCanvasWorkspace(nextWorkspace, canvas).workspaceRoot,
-            "desktop",
-            "layout.json"
-          )
+        projectGraphPath(previousWorkspace),
+        projectGraphPath(nextWorkspace),
+        ...storageWorkspaces.flatMap((workspace) => [
+          workspace.packageDir,
+          workspace.stateFile,
+          workspace.resultsDir,
+          join(workspace.workspaceRoot, "desktop", "layout.json")
         ])
       ];
       await withPackageFileConsistency(roots, async () => {
+        // Every canvas must pass before the first directory or metadata mutation.
+        for (const workspace of storageWorkspaces) {
+          await withCanvasStorageReplacement(workspace, () =>
+            assertNoPendingImportTransactionWrite({
+              workspaceRoot: dirname(workspace.projectFile),
+              target: join(workspace.workspaceRoot, "desktop", "layout.json")
+            })
+          );
+        }
+        await assertNoPendingImportTransactionWrite({
+          workspaceRoot: previousWorkspaceRoot,
+          target: projectGraphPath(previousWorkspace)
+        });
+        await assertNoExecutorResultsWriteLease(previousWorkspaceRoot);
+        if (nextProjectId === previousProjectId) {
+          await rewriteManagedProjectFiles(nextWorkspace, nextProject);
+          return;
+        }
+        if (await optionalStat(nextWorkspaceRoot)) {
+          throw new Error(`PlanWeave project '${name}' already exists.`);
+        }
+        const previousTitleSnapshot = await readSingleCanvasTitleSnapshot(previousWorkspace);
         let moved = false;
         try {
           await rename(previousWorkspaceRoot, nextWorkspaceRoot);
