@@ -1,4 +1,5 @@
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { assertNoPendingImportTransactionWrite } from "../package/importTransaction.js";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { optionalStat } from "../fs/optionalFile.js";
@@ -18,6 +19,10 @@ export async function writeManifestTitle(
   title: string
 ): Promise<string> {
   return withPackageFileConsistency([workspace.packageDir], async () => {
+    await assertNoPendingImportTransactionWrite({
+      workspaceRoot: dirname(workspace.projectFile),
+      target: workspace.packageDir
+    });
     const raw = asRecord(await readJsonFile<unknown>(workspace.manifestFile));
     if (!raw) {
       throw new Error(`Task canvas manifest '${workspace.manifestFile}' is not an object.`);

@@ -59,16 +59,17 @@ export function spawnPackageMutation(
         workspaceRoot,projectFile:join(workspaceRoot,'project.json'),packageDir:join(workspaceRoot,'package'),
         manifestFile:join(workspaceRoot,'package','manifest.json'),stateFile:join(workspaceRoot,'state.json'),resultsDir:join(workspaceRoot,'results'),projectPromptFile:join(workspaceRoot,'project-prompt.md')};
       const canvas=dirname(root);
+      const storage={...project,workspaceRoot:canvas,packageDir:root,manifestFile:join(root,'manifest.json'),stateFile:join(canvas,'state.json'),resultsDir:join(canvas,'results')};
       const staged=await stageCanvasWorkspaceWrite(project,{canvasId:'next',finalRoot:join(project.workspaceRoot,'replacement')});
       await replacePackageFiles(staged.workspace.packageDir,files);
-      await withPackageFileConsistency([root],async()=>{
-        const original=await quarantineCanvasWorkspace(project,{canvasId:'original',workspaceRoot:canvas});
+      await withPackageFileConsistency([storage.packageDir,storage.stateFile,storage.resultsDir],async()=>{
+        const original=await quarantineCanvasWorkspace(project,{canvasId:'original',workspace:storage});
         if(!original)throw new Error('original canvas missing');
         await commitCanvasWorkspaceWrite(project,{...staged,finalRoot:canvas});
         if(!held)process.stdout.write('installed\\n');
         await continued;
-        await quarantineCanvasWorkspace(project,{canvasId:'replacement',workspaceRoot:canvas});
-        await restoreQuarantinedCanvasWorkspace(project,{quarantineRoot:original,workspaceRoot:canvas});
+        await quarantineCanvasWorkspace(project,{canvasId:'replacement',workspace:storage});
+        await restoreQuarantinedCanvasWorkspace(project,{quarantineRoot:original,workspace:storage});
       });
     }
     process.stdin.destroy();

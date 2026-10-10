@@ -1,3 +1,4 @@
+import { withCanvasStorageReplacement } from "../package/withCanvasStorageMutation.js";
 import { createHash, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -46,9 +47,9 @@ export type ProjectCanvasMutationPorts = {
   removeStaging?(projectWorkspace: ProjectWorkspace, path: string): Promise<void>;
   quarantine?(
     projectWorkspace: ProjectWorkspace,
-    options: { canvasId: string; workspaceRoot: string }
+    options: { canvasId: string; workspace: ProjectWorkspace }
   ): Promise<string | null>;
-  removeFinal?(path: string): Promise<void>;
+  removeFinal?(workspace: ProjectWorkspace): Promise<void>;
   writeEmpty?(workspace: ProjectWorkspace, title: string): Promise<void>;
   populateDuplicate?(
     sourceWorkspace: ProjectWorkspace,
@@ -220,9 +221,10 @@ function resolvePorts(
     quarantine: ports.quarantine ?? quarantineCanvasWorkspace,
     removeFinal:
       ports.removeFinal ??
-      (async (path) => {
-        await rm(path, { recursive: true, force: true });
-      }),
+      (async (workspace) =>
+        withCanvasStorageReplacement(workspace, () =>
+          rm(workspace.workspaceRoot, { recursive: true, force: true })
+        )),
     writeEmpty: ports.writeEmpty ?? writeEmptyCanvasWorkspace,
     populateDuplicate: ports.populateDuplicate ?? populateDuplicatedCanvasWorkspace,
     activateCanvas: ports.activateCanvas
@@ -261,16 +263,16 @@ async function compensateFailedGraphWrite(
   ports: ReturnType<typeof resolvePorts>,
   projectWorkspace: ProjectWorkspace,
   canvasId: string,
-  finalRoot: string,
+  canvasWorkspace: ProjectWorkspace,
   graphError: unknown
 ): Promise<never> {
   try {
-    await ports.removeFinal(finalRoot);
+    await ports.removeFinal(canvasWorkspace);
   } catch (removeError) {
     try {
       const quarantineRoot = await ports.quarantine(projectWorkspace, {
         canvasId,
-        workspaceRoot: finalRoot
+        workspace: canvasWorkspace
       });
       throw new Error(
         `Task canvas '${canvasId}' was committed to disk but project graph write failed: ${errorMessage(graphError)}; final directory remove failed: ${errorMessage(removeError)}; moved to quarantine${quarantineRoot ? ` at '${quarantineRoot}'` : ""}.`
@@ -420,13 +422,7 @@ export async function createProjectCanvas(
     try {
       await ports.writeGraph(loaded.workspace, nextManifest);
     } catch (error) {
-      await compensateFailedGraphWrite(
-        ports,
-        loaded.workspace,
-        canvasId,
-        canvasWorkspace.workspaceRoot,
-        error
-      );
+      await compensateFailedGraphWrite(ports, loaded.workspace, canvasId, canvasWorkspace, error);
     }
 
     let activated = false;
@@ -509,13 +505,7 @@ export async function duplicateProjectCanvas(
     try {
       await ports.writeGraph(loaded.workspace, nextManifest);
     } catch (error) {
-      await compensateFailedGraphWrite(
-        ports,
-        loaded.workspace,
-        canvasId,
-        canvasWorkspace.workspaceRoot,
-        error
-      );
+      await compensateFailedGraphWrite(ports, loaded.workspace, canvasId, canvasWorkspace, error);
     }
 
     return mutationResult({

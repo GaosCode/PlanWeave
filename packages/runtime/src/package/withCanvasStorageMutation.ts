@@ -1,3 +1,4 @@
+import { assertNoExecutorResultsWriteLease } from "./executorResultsWriteLease.js";
 import { dirname } from "node:path";
 import { withCanvasLock, type WithCanvasLockOptions } from "../fs/withCanvasLock.js";
 import type { ProjectWorkspace } from "../types.js";
@@ -26,4 +27,22 @@ export async function withCanvasStorageMutation<T>(
       options
     )
   );
+}
+
+/** Root replacement must preflight before backup, removal or moving the canvas lock directory. */
+export async function withCanvasStorageReplacement<T>(
+  workspace: ProjectWorkspace,
+  action: () => Promise<T>
+): Promise<T> {
+  const targets = [workspace.packageDir, workspace.stateFile, workspace.resultsDir];
+  return withPackageFileConsistency(targets, async () => {
+    for (const target of targets) {
+      await assertNoPendingImportTransactionWrite({
+        workspaceRoot: dirname(workspace.projectFile),
+        target
+      });
+      await assertNoExecutorResultsWriteLease(target);
+    }
+    return action();
+  });
 }

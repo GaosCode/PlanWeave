@@ -7,6 +7,7 @@ import {
 } from "../projectGraph/index.js";
 import type { ProjectGraphSource } from "../projectGraph/index.js";
 import {
+  canvasRootWorkspace,
   canvasRecoveryPathExists,
   listCanvasWorkspaceAnomalies,
   quarantineCanvasWorkspace,
@@ -127,7 +128,7 @@ async function repairOrphanCanvasDirectory(
   try {
     await quarantineCanvasWorkspace(projectWorkspace, {
       canvasId: directory.name,
-      workspaceRoot: directory.path
+      workspace: canvasRootWorkspace(projectWorkspace, directory.path)
     });
     return canvasWorkspaceAnomalyIssue(
       "orphan_canvas_directory",

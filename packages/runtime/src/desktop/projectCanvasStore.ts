@@ -1,6 +1,9 @@
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import {
+  withCanvasStorageMutation,
+  withCanvasStorageReplacement
+} from "../package/withCanvasStorageMutation.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { initialManifest } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -274,7 +277,7 @@ function assertProjectCanvasUnreferenced(manifest: ProjectGraphManifest, canvasI
 async function restoreQuarantineAfterFailedRemoval(
   projectWorkspace: ProjectWorkspace,
   canvasId: string,
-  workspaceRoot: string,
+  workspace: ProjectWorkspace,
   quarantineRoot: string | null,
   removalError: unknown
 ): Promise<void> {
@@ -282,7 +285,7 @@ async function restoreQuarantineAfterFailedRemoval(
     return;
   }
   try {
-    await restoreQuarantinedCanvasWorkspace(projectWorkspace, { quarantineRoot, workspaceRoot });
+    await restoreQuarantinedCanvasWorkspace(projectWorkspace, { quarantineRoot, workspace });
   } catch (rollbackError) {
     throw new Error(
       `Task canvas '${canvasId}' removal failed, and its quarantined workspace could not be restored: ${errorMessage(removalError)}; rollback failed: ${errorMessage(rollbackError)}`
@@ -291,13 +294,15 @@ async function restoreQuarantineAfterFailedRemoval(
 }
 
 async function resetCanvasWorkspace(workspace: ProjectWorkspace, title: string): Promise<void> {
-  await withPackageFileConsistency([workspace.packageDir], async () => {
-    await rm(workspace.packageDir, { recursive: true, force: true });
-    await writeJsonFile(workspace.manifestFile, initialManifest(title));
-    await writeJsonFile(workspace.stateFile, createEmptyState());
-    await rm(workspace.resultsDir, { recursive: true, force: true });
-    await mkdir(workspace.resultsDir, { recursive: true });
-  });
+  await withCanvasStorageReplacement(workspace, () =>
+    withCanvasStorageMutation(workspace, async () => {
+      await rm(workspace.packageDir, { recursive: true, force: true });
+      await writeJsonFile(workspace.manifestFile, initialManifest(title));
+      await writeJsonFile(workspace.stateFile, createEmptyState());
+      await rm(workspace.resultsDir, { recursive: true, force: true });
+      await mkdir(workspace.resultsDir, { recursive: true });
+    })
+  );
 }
 
 class ProjectGraphCanvasStore implements ProjectCanvasStore {
@@ -415,7 +420,7 @@ class ProjectGraphCanvasStore implements ProjectCanvasStore {
     }
     const quarantineRoot = await quarantineCanvasWorkspace(this.loaded.workspace, {
       canvasId,
-      workspaceRoot: workspace.workspaceRoot
+      workspace
     });
     try {
       await this.writeManifest({
@@ -426,7 +431,7 @@ class ProjectGraphCanvasStore implements ProjectCanvasStore {
       await restoreQuarantineAfterFailedRemoval(
         this.loaded.workspace,
         canvasId,
-        workspace.workspaceRoot,
+        workspace,
         quarantineRoot,
         error
       );
@@ -589,7 +594,7 @@ class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
     }
     const quarantineRoot = await quarantineCanvasWorkspace(projectWorkspace, {
       canvasId,
-      workspaceRoot: workspace.workspaceRoot
+      workspace
     });
     const nextRegistry = {
       ...registry,
@@ -601,7 +606,7 @@ class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
       await restoreQuarantineAfterFailedRemoval(
         projectWorkspace,
         canvasId,
-        workspace.workspaceRoot,
+        workspace,
         quarantineRoot,
         error
       );

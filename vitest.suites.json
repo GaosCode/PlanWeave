@@ -762,6 +762,7 @@
         "workspaceExecutionCoordinator.test.ts",
         "workspaceExecutionCoordinatorObserve.test.ts",
         "workspaceExecutionInteractionCheckpoint.test.ts",
+        "workspaceStorageReplacement.test.ts",
         "packageSnapshotConsumers.test.ts",
         "preparedManualRunContentIdentity.test.ts",
         "packageSnapshotProcessConsistency.test.ts"
