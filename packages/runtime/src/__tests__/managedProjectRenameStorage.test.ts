@@ -1,7 +1,7 @@
-import { access, cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { join, relative } from "node:path";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { initManagedWorkspace } from "../initWorkspace.js";
 import { renameProject } from "../desktop/projectApi.js";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
@@ -12,15 +12,165 @@ import { createManagedProjectId } from "../projectId.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolveProjectWorkspace } from "../project.js";
 import { projectGraphPath } from "../projectGraph/index.js";
-import { layoutPathForWorkspace, saveDesktopLayoutDirect } from "../desktop/layoutStore.js";
+import {
+  getDesktopLayoutDirect,
+  layoutPathForWorkspace,
+  saveDesktopLayoutDirect
+} from "../desktop/layoutStore.js";
+import { buildCanvasCommandApplication } from "../graph/canvasCommandMutation.js";
+import { commitCanvasCommandApplication } from "../graph/canvasCommandPort.js";
+import { listPendingImportTransactions } from "../package/importRecovery.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, rename: vi.fn(actual.rename), realpath: vi.fn(actual.realpath) };
+});
+let actualFs: typeof import("node:fs/promises");
+beforeEach(async () => {
+  actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  vi.mocked(rename).mockImplementation((oldPath, newPath) => actualFs.rename(oldPath, newPath));
+  vi.mocked(realpath).mockImplementation((path, options) => actualFs.realpath(path, options));
+});
 
 const directories: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   delete process.env.PLANWEAVE_HOME;
   delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
   await Promise.all(
     directories.splice(0).map((root) => rm(root, { recursive: true, force: true }))
   );
+});
+
+function barrier() {
+  let release = () => {};
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+it.each([
+  false,
+  true
+])("keeps a created Canvas journal on its original workspace (later=%s)", async (later) => {
+  const { home, project, workspace } = await fixture();
+  const canvas = later
+    ? await resolveTaskCanvasWorkspace(
+        workspace.rootPath,
+        (await createTaskCanvas(workspace.rootPath, { name: "Pending canvas" })).canvasId
+      )
+    : workspace;
+  const application = buildCanvasCommandApplication(
+    (await loadPackage(canvas)).manifest,
+    await getDesktopLayoutDirect(canvas),
+    {
+      kind: "add_task",
+      taskId: "T-001",
+      title: "First",
+      promptMarkdown: "First prompt",
+      layout: { nodeId: "T-001", x: 77, y: 88 },
+      layoutUpdatedAt: "2030-01-01T00:00:00.000Z"
+    }
+  );
+  const created = barrier();
+  const hold = barrier();
+  const create = ImportTransaction.create;
+  vi.spyOn(ImportTransaction, "create").mockImplementation(async (options) => {
+    const transaction = await create(options);
+    created.release();
+    await hold.promise;
+    return transaction;
+  });
+  const command = commitCanvasCommandApplication({ workspace: canvas, application }).then(
+    (value) => ({ value, error: null }),
+    (error: unknown) => ({ value: null, error })
+  );
+  try {
+    await created.promise;
+    const before = await importTransactionIdentityDigest(workspace.workspaceRoot);
+    await expect(renameProject(project.id, "Storage destination")).rejects.toThrow(
+      "write conflict"
+    );
+    expect(await importTransactionIdentityDigest(workspace.workspaceRoot)).toBe(before);
+    await expect(
+      access(join(home, "projects", createManagedProjectId("Storage destination")))
+    ).rejects.toThrow();
+  } finally {
+    hold.release();
+    await command;
+  }
+  expect(await command).toMatchObject({ value: { ok: true }, error: null });
+  expect((await loadPackage(canvas)).manifest.nodes.map((node) => node.id)).toContain("T-001");
+  expect((await getDesktopLayoutDirect(canvas)).nodes).toContainEqual(
+    expect.objectContaining({ nodeId: "T-001", x: 77, y: 88 })
+  );
+  expect(await listPendingImportTransactions(canvas.workspaceRoot)).toEqual([]);
+  expect(await readFile(join(workspace.resultsDir, "history.txt"), "utf8")).toBe(
+    "history-before-rename"
+  );
+});
+
+it("rejects a transaction queued after rename preflight without recreating the old root", async () => {
+  const { home, project, workspace } = await fixture();
+  const extra = await createTaskCanvas(workspace.rootPath, { name: "Queued canvas" });
+  const canvas = await resolveTaskCanvasWorkspace(workspace.rootPath, extra.canvasId);
+  const moving = barrier();
+  const hold = barrier();
+  const attempted = barrier();
+  const nextRoot = join(home, "projects", createManagedProjectId("Storage destination"));
+  vi.mocked(rename).mockImplementation(async (oldPath, newPath) => {
+    if (oldPath === workspace.workspaceRoot && newPath === nextRoot) {
+      moving.release();
+      await hold.promise;
+    }
+    return actualFs.rename(oldPath, newPath);
+  });
+  const renameResult = renameProject(project.id, "Storage destination");
+  await moving.promise;
+  vi.mocked(realpath).mockImplementation(async (path, options) => {
+    const result = await actualFs.realpath(path, options);
+    if (path === canvas.workspaceRoot) attempted.release();
+    return result;
+  });
+  const creation = ImportTransaction.create({
+    workspaceRoot: canvas.workspaceRoot,
+    transactionId: "queued-after-preflight"
+  });
+  const outcome = creation.then(
+    () => null,
+    (error: unknown) => error
+  );
+  try {
+    await attempted.promise;
+  } finally {
+    hold.release();
+  }
+  await renameResult;
+  expect(await outcome).toBeInstanceOf(Error);
+  expect(String(await outcome)).toContain("workspace");
+  await expect(access(workspace.workspaceRoot)).rejects.toThrow();
+  expect(
+    await readFile(
+      join(nextRoot, relative(workspace.workspaceRoot, workspace.resultsDir), "history.txt"),
+      "utf8"
+    )
+  ).toBe("history-before-rename");
+  const moved = await resolveTaskCanvasWorkspace(nextRoot, extra.canvasId);
+  expect(await listPendingImportTransactions(moved.workspaceRoot)).toEqual([]);
+});
+
+it("requires committed recovery cleanup before relocating absolute journal paths", async () => {
+  const { project, workspace } = await fixture();
+  const transaction = await ImportTransaction.create({ workspaceRoot: workspace.workspaceRoot });
+  await transaction.markCommitted();
+  const before = await importTransactionIdentityDigest(workspace.workspaceRoot);
+  await expect(renameProject(project.id, "Storage destination")).rejects.toThrow("write conflict");
+  expect(await importTransactionIdentityDigest(workspace.workspaceRoot)).toBe(before);
+  await transaction.cleanupCommitted();
+  await expect(renameProject(project.id, "Storage destination")).resolves.toMatchObject({
+    name: "Storage destination"
+  });
 });
 async function fixture() {
   const home = await mkdtemp(join(tmpdir(), "planweave-managed-rename-"));

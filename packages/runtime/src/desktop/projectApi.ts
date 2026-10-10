@@ -1,6 +1,10 @@
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { withCanvasStorageReplacement } from "../package/withCanvasStorageMutation.js";
-import { assertNoPendingImportTransactionWrite } from "../package/importTransaction.js";
+import {
+  assertNoImportTransactionRelocation,
+  assertNoPendingImportTransactionWrite
+} from "../package/importTransaction.js";
+import { withImportTransactionWorkspaceLocks } from "../package/importTransactionLock.js";
 import { assertNoExecutorResultsWriteLease } from "../package/executorResultsWriteLease.js";
 import { realpath, rename, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -403,66 +407,70 @@ async function renameManagedProject(
           join(workspace.workspaceRoot, "desktop", "layout.json")
         ])
       ];
-      await withPackageFileConsistency(roots, async () => {
-        // Every canvas must pass before the first directory or metadata mutation.
-        for (const workspace of storageWorkspaces) {
-          await withCanvasStorageReplacement(workspace, () =>
-            assertNoPendingImportTransactionWrite({
-              workspaceRoot: dirname(workspace.projectFile),
-              target: join(workspace.workspaceRoot, "desktop", "layout.json")
-            })
-          );
-        }
-        await assertNoPendingImportTransactionWrite({
-          workspaceRoot: previousWorkspaceRoot,
-          target: projectGraphPath(previousWorkspace)
-        });
-        await assertNoExecutorResultsWriteLease(previousWorkspaceRoot);
-        if (nextProjectId === previousProjectId) {
-          await rewriteManagedProjectFiles(nextWorkspace, nextProject);
-          return;
-        }
-        if (await optionalStat(nextWorkspaceRoot)) {
-          throw new Error(`PlanWeave project '${name}' already exists.`);
-        }
-        const previousTitleSnapshot = await readSingleCanvasTitleSnapshot(previousWorkspace);
-        let moved = false;
-        try {
-          await rename(previousWorkspaceRoot, nextWorkspaceRoot);
-          moved = true;
-          await rewriteManagedProjectFiles(nextWorkspace, nextProject);
-          await updateSourceDefaultProjectReference(previousProjectId, {
-            projectId: nextProjectId,
-            projectRoot: nextWorkspaceRoot
-          });
-        } catch (error) {
-          if (moved) {
-            try {
-              await writeJsonFile(join(nextWorkspaceRoot, "project.json"), {
-                ...previousProject,
-                id: previousProjectId,
-                kind: "managed",
-                rootPath: previousWorkspaceRoot,
-                sourceRoot: previousProject.sourceRoot ?? null
-              });
-              await rename(nextWorkspaceRoot, previousWorkspaceRoot);
-              await rewriteManagedProjectIdentityFiles(previousWorkspace, {
-                ...previousProject,
-                id: previousProjectId,
-                kind: "managed",
-                rootPath: previousWorkspaceRoot,
-                sourceRoot: previousProject.sourceRoot ?? null
-              });
-              await restoreSingleCanvasTitleSnapshot(previousWorkspace, previousTitleSnapshot);
-            } catch (rollbackError) {
-              throw new Error(
-                `Project rename failed: ${errorMessage(error)}; rollback failed: ${errorMessage(rollbackError)}`
-              );
-            }
+      const workspaceRoots = storageWorkspaces.map((workspace) => workspace.workspaceRoot);
+      await withPackageFileConsistency(roots, () =>
+        withImportTransactionWorkspaceLocks(workspaceRoots, async () => {
+          await assertNoImportTransactionRelocation(workspaceRoots);
+          // Every canvas must pass before the first directory or metadata mutation.
+          for (const workspace of storageWorkspaces) {
+            await withCanvasStorageReplacement(workspace, () =>
+              assertNoPendingImportTransactionWrite({
+                workspaceRoot: dirname(workspace.projectFile),
+                target: join(workspace.workspaceRoot, "desktop", "layout.json")
+              })
+            );
           }
-          throw error;
-        }
-      });
+          await assertNoPendingImportTransactionWrite({
+            workspaceRoot: previousWorkspaceRoot,
+            target: projectGraphPath(previousWorkspace)
+          });
+          await assertNoExecutorResultsWriteLease(previousWorkspaceRoot);
+          if (nextProjectId === previousProjectId) {
+            await rewriteManagedProjectFiles(nextWorkspace, nextProject);
+            return;
+          }
+          if (await optionalStat(nextWorkspaceRoot)) {
+            throw new Error(`PlanWeave project '${name}' already exists.`);
+          }
+          const previousTitleSnapshot = await readSingleCanvasTitleSnapshot(previousWorkspace);
+          let moved = false;
+          try {
+            await rename(previousWorkspaceRoot, nextWorkspaceRoot);
+            moved = true;
+            await rewriteManagedProjectFiles(nextWorkspace, nextProject);
+            await updateSourceDefaultProjectReference(previousProjectId, {
+              projectId: nextProjectId,
+              projectRoot: nextWorkspaceRoot
+            });
+          } catch (error) {
+            if (moved) {
+              try {
+                await writeJsonFile(join(nextWorkspaceRoot, "project.json"), {
+                  ...previousProject,
+                  id: previousProjectId,
+                  kind: "managed",
+                  rootPath: previousWorkspaceRoot,
+                  sourceRoot: previousProject.sourceRoot ?? null
+                });
+                await rename(nextWorkspaceRoot, previousWorkspaceRoot);
+                await rewriteManagedProjectIdentityFiles(previousWorkspace, {
+                  ...previousProject,
+                  id: previousProjectId,
+                  kind: "managed",
+                  rootPath: previousWorkspaceRoot,
+                  sourceRoot: previousProject.sourceRoot ?? null
+                });
+                await restoreSingleCanvasTitleSnapshot(previousWorkspace, previousTitleSnapshot);
+              } catch (rollbackError) {
+                throw new Error(
+                  `Project rename failed: ${errorMessage(error)}; rollback failed: ${errorMessage(rollbackError)}`
+                );
+              }
+            }
+            throw error;
+          }
+        })
+      );
     }
   );
 

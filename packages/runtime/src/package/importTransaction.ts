@@ -6,7 +6,10 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { isNodeFileNotFoundError, optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { importTransactionIdentityDigest } from "./importTransactionContent.js";
-import { withImportTransactionLock } from "./importTransactionLock.js";
+import {
+  withImportTransactionLock,
+  withImportTransactionWorkspaceLocks
+} from "./importTransactionLock.js";
 
 type ImportTransactionOperationPhase =
   | "planned"
@@ -381,6 +384,27 @@ export async function readImportTransactionRecoverySummary(options: {
   };
 }
 
+/** Caller holds workspace admission through relocation; journals contain absolute paths. */
+export async function assertNoImportTransactionRelocation(
+  workspaceRoots: readonly string[]
+): Promise<void> {
+  for (const workspaceRoot of new Set(workspaceRoots.map((root) => resolve(root)))) {
+    const root = join(workspaceRoot, "desktop", "recovery", "package-import");
+    if ((await optionalStat(root)) === null) continue;
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const { recovery } = await readValidatedRecoveryFile({
+        workspaceRoot,
+        transactionId: entry.name,
+        fs: nodeFileSystem
+      });
+      throw new Error(
+        `Import transaction write conflict: transaction '${recovery.transactionId}' must be recovered or cleaned up before workspace relocation.`
+      );
+    }
+  }
+}
+
 export class ImportTransaction {
   private readonly transactionId: string;
   private readonly recoveryRoot: string;
@@ -429,13 +453,21 @@ export class ImportTransaction {
       assertWorkspaceTarget(transaction.workspaceRoot, target);
       return resolve(target);
     });
-    await withImportTransactionLock(transaction.workspaceRoot, transactionId, async () => {
-      if (await transaction.fs.optionalStat(transaction.recoveryRoot)) {
-        throw new Error(`Import transaction '${transactionId}' already exists.`);
-      }
-      await transaction.fs.mkdir(transaction.recoveryRoot, { recursive: true });
-      await transaction.writeRecoveryFile();
-    });
+    await withImportTransactionWorkspaceLocks([transaction.workspaceRoot], () =>
+      withImportTransactionLock(transaction.workspaceRoot, transactionId, async () => {
+        const workspace = await transaction.fs.optionalStat(transaction.workspaceRoot);
+        if (!workspace?.isDirectory()) {
+          throw new Error(
+            `Import transaction workspace '${transaction.workspaceRoot}' does not exist or is not a directory.`
+          );
+        }
+        if (await transaction.fs.optionalStat(transaction.recoveryRoot)) {
+          throw new Error(`Import transaction '${transactionId}' already exists.`);
+        }
+        await transaction.fs.mkdir(transaction.recoveryRoot, { recursive: true });
+        await transaction.writeRecoveryFile();
+      })
+    );
     return transaction;
   }
 
@@ -480,35 +512,37 @@ export class ImportTransaction {
     let targets = this.storageTargets(extraTargets);
     while (true) {
       const result = await withPackageFileConsistency(targets, () =>
-        withImportTransactionLock(this.workspaceRoot, this.transactionId, async () => {
-          if ((await this.fs.optionalStat(join(this.recoveryRoot, "recovery.json"))) === null) {
-            throw new Error(`Import transaction '${this.transactionId}' no longer exists.`);
-          }
-          const { recovery } = await readValidatedRecoveryFile({
-            workspaceRoot: this.workspaceRoot,
-            transactionId: this.transactionId,
-            fs: this.fs
-          });
-          if (recovery.createdAt !== this.createdAt) {
-            throw new Error(
-              `Import transaction '${this.transactionId}' recovery identity changed.`
-            );
-          }
-          const persisted = JSON.stringify(recovery);
-          if (persisted !== this.persistedRecovery) {
-            this.operations = recovery.operations;
-            this.state = recovery.state;
-            this.writeIsolationTargets = recovery.writeIsolationTargets ?? [];
-            this.persistedRecovery = persisted;
-          }
-          // Retain this handle's known progress after a failed checkpoint only while
-          // the durable journal is still exactly its last successful checkpoint.
-          const currentTargets = this.storageTargets(extraTargets);
-          if (currentTargets.some((target) => !targets.includes(target))) {
-            return { retry: true as const, targets: currentTargets };
-          }
-          return { retry: false as const, value: await action() };
-        })
+        withImportTransactionWorkspaceLocks([this.workspaceRoot], () =>
+          withImportTransactionLock(this.workspaceRoot, this.transactionId, async () => {
+            if ((await this.fs.optionalStat(join(this.recoveryRoot, "recovery.json"))) === null) {
+              throw new Error(`Import transaction '${this.transactionId}' no longer exists.`);
+            }
+            const { recovery } = await readValidatedRecoveryFile({
+              workspaceRoot: this.workspaceRoot,
+              transactionId: this.transactionId,
+              fs: this.fs
+            });
+            if (recovery.createdAt !== this.createdAt) {
+              throw new Error(
+                `Import transaction '${this.transactionId}' recovery identity changed.`
+              );
+            }
+            const persisted = JSON.stringify(recovery);
+            if (persisted !== this.persistedRecovery) {
+              this.operations = recovery.operations;
+              this.state = recovery.state;
+              this.writeIsolationTargets = recovery.writeIsolationTargets ?? [];
+              this.persistedRecovery = persisted;
+            }
+            // Retain this handle's known progress after a failed checkpoint only while
+            // the durable journal is still exactly its last successful checkpoint.
+            const currentTargets = this.storageTargets(extraTargets);
+            if (currentTargets.some((target) => !targets.includes(target))) {
+              return { retry: true as const, targets: currentTargets };
+            }
+            return { retry: false as const, value: await action() };
+          })
+        )
       );
       if (!result.retry) return result.value;
       targets = result.targets;
