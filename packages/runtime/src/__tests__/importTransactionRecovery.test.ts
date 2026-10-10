@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ImportTransaction } from "../package/importTransaction.js";
@@ -17,6 +17,126 @@ import {
 } from "./support/importTransactionTestHarness.js";
 
 describe("ImportTransaction: recovery", () => {
+  it.each([
+    "changed",
+    "identical",
+    "ABA"
+  ])("preflights all targets before restoring any when a nested file was edited in place (%s)", async (edit) => {
+    const workspaceRoot = await tempWorkspace(),
+      transactionId = "nested-edit-conflict";
+    const target = join(workspaceRoot, "package"),
+      staged = join(workspaceRoot, "staged");
+    const layout = join(workspaceRoot, "layout.json"),
+      stagedLayout = join(workspaceRoot, "staged-layout.json");
+    await writeText(join(target, "nodes", "prompt.md"), "old prompt\n");
+    await writeText(join(staged, "nodes", "prompt.md"), "installed prompt\n");
+    await writeText(layout, "old layout\n");
+    await writeText(stagedLayout, "installed layout\n");
+    const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
+    await transaction.replacePath(target, staged);
+    await transaction.replacePath(layout, stagedLayout);
+    const before = await lstat(target, { bigint: true });
+    const expected = edit === "changed" ? "external prompt\n" : "installed prompt\n";
+    if (edit === "ABA") await writeText(join(target, "nodes", "prompt.md"), "external prompt\n");
+    await writeText(join(target, "nodes", "prompt.md"), expected);
+    const after = await lstat(target, { bigint: true });
+    expect([after.ino, after.ctimeNs, after.mtimeNs]).toEqual([
+      before.ino,
+      before.ctimeNs,
+      before.mtimeNs
+    ]);
+    const recoveryFile = join(recoveryRoot(workspaceRoot, transactionId), "recovery.json");
+    const recoveryBefore = await readFile(recoveryFile, "utf8");
+    const recovered = await ImportTransaction.recover({ workspaceRoot, transactionId });
+    await expect(recovered.rollback()).rejects.toThrow("ownership conflict");
+    expect(await readFile(join(target, "nodes", "prompt.md"), "utf8")).toBe(expected);
+    expect(await readFile(layout, "utf8")).toBe("installed layout\n");
+    expect(await readFile(recoveryFile, "utf8")).toBe(recoveryBefore);
+  });
+
+  it.each([
+    "installed",
+    "restored",
+    "backedUp"
+  ])("handles legacy %s recovery without guessing installed ownership", async (phase) => {
+    const workspaceRoot = await tempWorkspace(),
+      transactionId = `legacy-${phase}`;
+    const target = join(workspaceRoot, "state.json"),
+      staged = join(workspaceRoot, "staged.json");
+    await writeText(target, "old state\n");
+    await writeText(staged, "new state\n");
+    const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
+    if (phase === "backedUp") await transaction.removePath(target);
+    else await transaction.replacePath(target, staged);
+    const recovery = await readRecovery(workspaceRoot, transactionId);
+    const operation = recovery.operations[0];
+    if (!operation) throw new Error("Missing operation");
+    if (phase === "restored") {
+      await rename(operation.backupPath, target);
+      operation.phase = "rollingBackFromInstalled";
+    }
+    const recoveryFile = join(recoveryRoot(workspaceRoot, transactionId), "recovery.json");
+    await writeJsonFile(recoveryFile, {
+      ...recovery,
+      operations: recovery.operations.map(
+        ({ target, backupPath, type, targetExisted, phase }, index) => ({
+          id: String(index + 1).padStart(6, "0"),
+          target,
+          backupPath,
+          type,
+          targetExisted,
+          phase
+        })
+      )
+    });
+    const recovered = await ImportTransaction.recover({ workspaceRoot, transactionId });
+    if (phase === "installed") {
+      await expect(recovered.rollback()).rejects.toThrow("installed identity unavailable");
+      expect(await readFile(target, "utf8")).toBe("new state\n");
+      expect(await readFile(operation.backupPath, "utf8")).toBe("old state\n");
+    } else {
+      await recovered.rollback();
+      expect(await readFile(target, "utf8")).toBe("old state\n");
+      await expect(access(recoveryFile)).rejects.toThrow();
+    }
+  });
+
+  it("restores repeated replacements of the same target despite its own rename identity changes", async () => {
+    const workspaceRoot = await tempWorkspace(),
+      transactionId = "repeated-target";
+    const target = join(workspaceRoot, "state.json"),
+      first = join(workspaceRoot, "first.json"),
+      second = join(workspaceRoot, "second.json");
+    await writeText(target, "old\n");
+    await writeText(first, "first\n");
+    await writeText(second, "second\n");
+    const transaction = await ImportTransaction.create({ workspaceRoot, transactionId });
+    await transaction.replacePath(target, first);
+    await transaction.replacePath(target, second);
+    await recoverClean(workspaceRoot, transactionId);
+    expect(await readFile(target, "utf8")).toBe("old\n");
+  });
+  it.each([
+    false,
+    true
+  ])("rejects a second transaction removing an absent target that a pending recovery may restore (nested=%s)", async (nested) => {
+    const workspaceRoot = await tempWorkspace(),
+      transactionId = "pending-remove";
+    const canvasRoot = nested ? join(workspaceRoot, "canvases", "default") : workspaceRoot;
+    const target = join(canvasRoot, "results");
+    await writeText(join(target, "result.json"), "saved result\n");
+    const first = await ImportTransaction.create({ workspaceRoot: canvasRoot, transactionId });
+    await first.removePath(target);
+    const second = await ImportTransaction.create({
+      workspaceRoot,
+      transactionId: nested ? transactionId : "later-remove"
+    });
+    await expect(second.removePath(target)).rejects.toThrow("removal conflict");
+    await second.rollback();
+    await recoverClean(canvasRoot, transactionId);
+    expect(await readFile(join(target, "result.json"), "utf8")).toBe("saved result\n");
+  });
+
   it("recovers an installed replace rollback after target removal interrupts backup restore", async () => {
     const workspaceRoot = await tempWorkspace();
     const transactionId = "recover-installed-replace-rollback";

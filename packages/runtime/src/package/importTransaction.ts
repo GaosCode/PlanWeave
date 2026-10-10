@@ -1,9 +1,10 @@
 import { withPackageFileConsistency } from "./packageFileConsistency.js";
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm } from "node:fs/promises";
+import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { isNodeFileNotFoundError, optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
+import { importTransactionIdentityDigest } from "./importTransactionContent.js";
 
 type ImportTransactionOperationPhase =
   | "planned"
@@ -20,6 +21,7 @@ type ImportTransactionOperation = {
   backupPath: string;
   targetExisted: boolean;
   phase: ImportTransactionOperationPhase;
+  installedIdentityDigest?: string;
 };
 
 type ImportTransactionRecoveryFile = {
@@ -117,7 +119,7 @@ function parseOperation(raw: unknown, recoveryFile: string): ImportTransactionOp
   if (!isRecord(raw)) {
     throw new Error(`Invalid import transaction recovery operation in ${recoveryFile}.`);
   }
-  const { id, type, target, backupPath, targetExisted, phase } = raw;
+  const { id, type, target, backupPath, targetExisted, phase, installedIdentityDigest } = raw;
   if (typeof id !== "string" || id.length === 0) {
     throw new Error(`Invalid import transaction recovery operation id in ${recoveryFile}.`);
   }
@@ -150,13 +152,20 @@ function parseOperation(raw: unknown, recoveryFile: string): ImportTransactionOp
       `Invalid import transaction remove operation without an original target in ${recoveryFile}.`
     );
   }
+  if (
+    installedIdentityDigest !== undefined &&
+    (typeof installedIdentityDigest !== "string" || !/^[a-f0-9]{64}$/.test(installedIdentityDigest))
+  ) {
+    throw new Error(`Invalid import transaction installed identity in ${recoveryFile}.`);
+  }
   return {
     id,
     type,
     target: resolve(target),
     backupPath: resolve(backupPath),
     targetExisted,
-    phase
+    phase,
+    ...(typeof installedIdentityDigest === "string" ? { installedIdentityDigest } : {})
   };
 }
 
@@ -243,6 +252,58 @@ export async function readImportTransactionRecoveryTargets(options: {
 }): Promise<string[]> {
   const { recovery } = await readValidatedRecoveryFile({ ...options, fs: nodeFileSystem });
   return [...new Set(recovery.operations.map((operation) => operation.target))];
+}
+
+/** Deletion cannot leave a newer identity on an absent target for delayed recovery to inspect. */
+export async function assertNoPendingImportTransactionRemoval(options: {
+  workspaceRoot: string;
+  target: string;
+  transactionId?: string;
+}): Promise<void> {
+  const workspaceRoots = new Set([resolve(options.workspaceRoot)]);
+  assertWorkspaceTarget(options.workspaceRoot, options.target);
+  for (
+    let ancestor = dirname(resolve(options.target));
+    ancestor !== resolve(options.workspaceRoot);
+    ancestor = dirname(ancestor)
+  ) {
+    workspaceRoots.add(ancestor);
+  }
+  for (const workspaceRoot of workspaceRoots) {
+    const root = join(workspaceRoot, "desktop", "recovery", "package-import");
+    if ((await optionalStat(root)) === null) continue;
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (
+        !entry.isDirectory() ||
+        (workspaceRoot === resolve(options.workspaceRoot) && entry.name === options.transactionId)
+      )
+        continue;
+      const { recovery } = await readValidatedRecoveryFile({
+        workspaceRoot,
+        transactionId: entry.name,
+        fs: nodeFileSystem
+      });
+      if (recovery.state === "committed") continue;
+      const target = resolve(options.target);
+      if (
+        recovery.operations.some((operation) => {
+          if (operation.phase === "rolledBack") return false;
+          const nested = relative(operation.target, target);
+          const ancestor = relative(target, operation.target);
+          return (
+            !nested ||
+            (!nested.startsWith("..") && !isAbsolute(nested)) ||
+            !ancestor ||
+            (!ancestor.startsWith("..") && !isAbsolute(ancestor))
+          );
+        })
+      ) {
+        throw new Error(
+          `Import transaction removal conflict: pending transaction '${recovery.transactionId}' overlaps ${target}`
+        );
+      }
+    }
+  }
 }
 
 export async function readImportTransactionRecoverySummary(options: {
@@ -353,6 +414,7 @@ export class ImportTransaction {
     }
     await this.fs.mkdir(dirname(target), { recursive: true });
     await this.fs.rename(staged, target);
+    operation.installedIdentityDigest = await importTransactionIdentityDigest(target);
     operation.phase = "installed";
     await this.writeRecoveryFile();
   }
@@ -363,6 +425,11 @@ export class ImportTransaction {
 
   private async removePathLocked(target: string): Promise<void> {
     assertWorkspaceTarget(this.workspaceRoot, target);
+    await assertNoPendingImportTransactionRemoval({
+      workspaceRoot: this.workspaceRoot,
+      target,
+      transactionId: this.transactionId
+    });
     if (!(await this.fs.optionalStat(target))) {
       return;
     }
@@ -390,6 +457,7 @@ export class ImportTransaction {
     if (this.state === "committed") {
       throw new Error("Committed import transaction cannot be rolled back.");
     }
+    await this.assertRollbackOwnership();
     const failures: string[] = [];
     for (const operation of [...this.operations].reverse()) {
       if (operation.phase === "rolledBack") {
@@ -425,6 +493,16 @@ export class ImportTransaction {
       }
       try {
         await this.rollbackOperation(operation);
+        // Restoring a prior replacement renames its inode and changes its identity timestamps.
+        const previous = this.operations
+          .slice(0, this.operations.indexOf(operation))
+          .reverse()
+          .find(
+            (candidate) => candidate.target === operation.target && candidate.phase === "installed"
+          );
+        if (previous && (await this.fs.optionalStat(previous.target)) !== null) {
+          previous.installedIdentityDigest = await importTransactionIdentityDigest(previous.target);
+        }
       } catch (error) {
         failures.push(`${operation.target}: ${errorSummary(error)}`);
         continue;
@@ -436,6 +514,42 @@ export class ImportTransaction {
       throw new Error(`Import transaction rollback failed: ${failures.join("; ")}`);
     }
     await this.fs.rm(this.recoveryRoot, { recursive: true, force: true });
+  }
+
+  private async assertRollbackOwnership(): Promise<void> {
+    const checked = new Set<string>();
+    for (const operation of [...this.operations].reverse()) {
+      if (operation.phase === "rolledBack" || checked.has(operation.target)) continue;
+      checked.add(operation.target);
+      if (operation.phase !== "installed" && operation.phase !== "rollingBackFromInstalled")
+        continue;
+      const targetExists = (await this.fs.optionalStat(operation.target)) !== null;
+      const backupExists = (await this.fs.optionalStat(operation.backupPath)) !== null;
+      // A completed restore (backup consumed), or interrupted restore (target absent),
+      // requires no deletion of an installed target and keeps its existing resume semantics.
+      if (!targetExists) {
+        if (operation.phase === "installed") {
+          throw new Error(
+            `Import transaction rollback failed: ownership conflict: installed target missing at ${operation.target}`
+          );
+        }
+        continue;
+      }
+      if (operation.targetExisted && !backupExists) continue;
+      if (!operation.installedIdentityDigest) {
+        throw new Error(
+          `Import transaction rollback ownership conflict: installed identity unavailable at ${operation.target}`
+        );
+      }
+      if (
+        (await importTransactionIdentityDigest(operation.target)) !==
+        operation.installedIdentityDigest
+      ) {
+        throw new Error(
+          `Import transaction rollback ownership conflict: target changed at ${operation.target}`
+        );
+      }
+    }
   }
 
   async markCommitted(): Promise<void> {

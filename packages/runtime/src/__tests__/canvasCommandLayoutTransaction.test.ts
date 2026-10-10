@@ -11,6 +11,7 @@ import {
   layoutPathForWorkspace,
   saveDesktopLayoutDirect
 } from "../desktop/layoutStore.js";
+import { resetDesktopLayoutDirect } from "../desktop/layoutStore.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { ImportTransaction } from "../package/importTransaction.js";
 import {
@@ -18,6 +19,9 @@ import {
   rollbackPendingImportTransaction
 } from "../package/importRecovery.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+import { spawnReviewRetryActor } from "./helpers/reviewRetryProcessFixture.js";
+import * as transactionContent from "../package/importTransactionContent.js";
+import { realFs } from "./support/importTransactionTestHarness.js";
 
 vi.mock("../fs/advisoryDirectoryLock.js", async (original) => {
   const actual = await original<typeof import("../fs/advisoryDirectoryLock.js")>();
@@ -223,6 +227,241 @@ it("keeps original and rollback errors and recovers both targets", async () => {
   });
   expect(await bytes(layoutPathForWorkspace(workspace))).toBeNull();
   expect((await getDesktopLayoutDirect(workspace)).nodes).toEqual([]);
+});
+it.each([
+  "command",
+  "layout",
+  "identical layout",
+  "ABA layout",
+  "child graph"
+])("preserves a later successful %s write when recovery is delayed after marker and rollback failure", async (writer) => {
+  const workspace = await fixture();
+  const original = new Error("marker_failed"),
+    rollback = new Error("rollback_failed");
+  vi.spyOn(ImportTransaction.prototype, "rollback").mockRejectedValueOnce(rollback);
+  const failure = await commitCanvasCommandApplication({
+    workspace,
+    application: await application(workspace),
+    dependencies: {
+      markTransactionCommitted: async () => {
+        throw original;
+      }
+    }
+  }).catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect((failure as AggregateError).errors).toEqual([original, rollback]);
+  const [recovery] = await listPendingImportTransactions(workspace.workspaceRoot);
+  if (!recovery) throw new Error("Missing pending transaction");
+  expect(recovery.operationCount).toBe(2);
+  const recoveryFile = `${recovery.recoveryRoot}/recovery.json`;
+  const recoveryBefore = await bytes(recoveryFile);
+  const installed = await getDesktopLayoutDirect(workspace);
+  let actor: ReturnType<typeof spawnReviewRetryActor> | undefined;
+  try {
+    if (writer === "command") {
+      expect(
+        await applyAuthorizedCanvasCommand({
+          projectRoot: workspace,
+          canvasId: "default",
+          intent: {
+            kind: "update_layout",
+            nodes: [{ nodeId: "T-002", x: 22, y: 33 }],
+            updatedAt: "2030-01-02T00:00:00.000Z"
+          }
+        })
+      ).toMatchObject({ ok: true });
+    } else if (writer === "child graph") {
+      actor = spawnReviewRetryActor(workspace, true);
+      await actor.ready;
+    } else {
+      if (writer === "ABA layout") {
+        await saveDesktopLayoutDirect(
+          workspace,
+          { ...installed, nodes: [] },
+          { updatedAt: installed.updatedAt }
+        );
+      }
+      await saveDesktopLayoutDirect(
+        workspace,
+        writer === "layout"
+          ? { ...installed, nodes: [{ nodeId: "T-002", x: 22, y: 33 }] }
+          : installed,
+        { updatedAt: installed.updatedAt }
+      );
+    }
+    const saved = {
+      manifest: await bytes(workspace.manifestFile),
+      layout: await bytes(layoutPathForWorkspace(workspace))
+    };
+    const contended = deferred();
+    if (actor) {
+      const actual = await vi.importActual<typeof import("../fs/advisoryDirectoryLock.js")>(
+        "../fs/advisoryDirectoryLock.js"
+      );
+      vi.mocked(withAdvisoryDirectoryLock).mockImplementation((options, action) => {
+        return actual.withAdvisoryDirectoryLock(
+          {
+            ...options,
+            fs: {
+              ...fs,
+              optionalStat: realFs.optionalStat,
+              mkdir: async (path) => {
+                try {
+                  await fs.mkdir(path);
+                } catch (error) {
+                  if (
+                    error &&
+                    typeof error === "object" &&
+                    "code" in error &&
+                    error.code === "EEXIST"
+                  )
+                    contended.resolve();
+                  throw error;
+                }
+              }
+            }
+          },
+          action
+        );
+      });
+    }
+    const recovering = track(
+      rollbackPendingImportTransaction({
+        workspaceRoot: workspace.workspaceRoot,
+        transactionId: recovery.transactionId
+      }).catch((error: unknown) => error)
+    );
+    if (actor) {
+      await contended.promise;
+      actor.child.stdin.write("continue\n");
+      expect(await actor.done).toMatchObject({ code: 0, stderr: "" });
+    }
+    expect(await recovering).toMatchObject({
+      message: expect.stringContaining("ownership conflict")
+    });
+    expect({
+      manifest: await bytes(workspace.manifestFile),
+      layout: await bytes(layoutPathForWorkspace(workspace))
+    }).toEqual(saved);
+    expect(await bytes(recoveryFile)).toBe(recoveryBefore);
+    expect(await listPendingImportTransactions(workspace.workspaceRoot)).toHaveLength(1);
+  } finally {
+    if (actor) {
+      if (!actor.child.stdin.destroyed) actor.child.stdin.write("continue\n");
+      await actor.done;
+    }
+  }
+});
+it("holds both targets from ownership preflight through restore while a direct layout write contends", async () => {
+  const workspace = await fixture(true);
+  vi.spyOn(ImportTransaction.prototype, "rollback").mockRejectedValueOnce(
+    new Error("rollback_failed")
+  );
+  await expect(
+    commitCanvasCommandApplication({
+      workspace,
+      application: await application(workspace),
+      dependencies: {
+        markTransactionCommitted: async () => {
+          throw new Error("marker_failed");
+        }
+      }
+    })
+  ).rejects.toThrow("canvas_command_commit_rollback_failed");
+  const [recovery] = await listPendingImportTransactions(workspace.workspaceRoot);
+  if (!recovery) throw new Error("Missing recovery");
+  const checked = deferred(),
+    release = deferred(),
+    contended = deferred();
+  const identity = transactionContent.importTransactionIdentityDigest;
+  vi.spyOn(transactionContent, "importTransactionIdentityDigest").mockImplementation(
+    async (target) => {
+      const digest = await identity(target);
+      if (target === workspace.packageDir) {
+        checked.resolve();
+        await release.promise;
+      }
+      return digest;
+    }
+  );
+  const recovering = track(
+    rollbackPendingImportTransaction({
+      workspaceRoot: workspace.workspaceRoot,
+      transactionId: recovery.transactionId
+    })
+  );
+  await checked.promise;
+  const actual = await vi.importActual<typeof import("../fs/advisoryDirectoryLock.js")>(
+    "../fs/advisoryDirectoryLock.js"
+  );
+  vi.mocked(withAdvisoryDirectoryLock).mockImplementation((options, action) => {
+    const result = actual.withAdvisoryDirectoryLock(options, action);
+    if (options.lockPath.includes("package-locks")) contended.resolve();
+    return result;
+  });
+  const writer = track(
+    saveDesktopLayoutDirect(workspace, {
+      version: "desktop-layout/v1",
+      projectId: workspace.id,
+      nodes: [{ nodeId: "T-002", x: 22, y: 33 }],
+      updatedAt: "2030-01-02T00:00:00.000Z"
+    })
+  );
+  await contended.promise;
+  expect(
+    (JSON.parse((await bytes(layoutPathForWorkspace(workspace)))!) as { nodes: unknown[] }).nodes
+  ).toContainEqual({ nodeId: "T-001", x: 777, y: 888 });
+  release.resolve();
+  await recovering;
+  await writer;
+  expect((await getDesktopLayoutDirect(workspace)).nodes).toEqual([
+    { nodeId: "T-002", x: 22, y: 33 }
+  ]);
+  expect(await listPendingImportTransactions(workspace.workspaceRoot)).toEqual([]);
+});
+it("rejects confirming an absent layout deletion while interrupted recovery still owns its backup", async () => {
+  const workspace = await fixture(true);
+  const layout = layoutPathForWorkspace(workspace);
+  const create = ImportTransaction.create;
+  const created = vi.spyOn(ImportTransaction, "create").mockImplementation((options) =>
+    create({
+      ...options,
+      fs: {
+        ...realFs,
+        rename: async (source, target) => {
+          if (String(source).includes("/backups/") && target === layout)
+            throw new Error("restore_failed");
+          return fs.rename(source, target);
+        }
+      }
+    })
+  );
+  await expect(
+    commitCanvasCommandApplication({
+      workspace,
+      application: await application(workspace),
+      dependencies: {
+        markTransactionCommitted: async () => {
+          throw new Error("marker_failed");
+        }
+      }
+    })
+  ).rejects.toThrow("canvas_command_commit_rollback_failed");
+  expect(await bytes(layout)).toBeNull();
+  const [recovery] = await listPendingImportTransactions(workspace.workspaceRoot);
+  if (!recovery) throw new Error("Missing recovery");
+  await expect(resetDesktopLayoutDirect(workspace)).rejects.toThrow("removal conflict");
+  expect(await bytes(layout)).toBeNull();
+  created.mockRestore();
+  await rollbackPendingImportTransaction({
+    workspaceRoot: workspace.workspaceRoot,
+    transactionId: recovery.transactionId
+  });
+  expect((await getDesktopLayoutDirect(workspace)).nodes).toEqual([
+    { nodeId: "T-002", x: 1, y: 2 }
+  ]);
+  await resetDesktopLayoutDirect(workspace);
+  expect(await bytes(layout)).toBeNull();
 });
 it("publishes add/remove graph and layout as one transaction", async () => {
   const workspace = await fixture();
