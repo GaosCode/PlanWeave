@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runtimeStateSchema } from "../../../runtime/src/schema/runtimeState.js";
 import {
@@ -64,7 +65,10 @@ describe("Canvas Runtime committed write lane", () => {
     fixture.receive(first);
     const firstRun = fixture.service.handle(first);
     await committed.promise;
-    expect((await fixture.snapshot()).state.blocks[identity.ref]?.remoteOwnership).toMatchObject({
+    const committedState = runtimeStateSchema.parse(
+      JSON.parse(await readFile(fixture.canvas.stateFile, "utf8"))
+    );
+    expect(committedState.blocks[identity.ref]?.remoteOwnership).toMatchObject({
       phase: "preparing",
       operationId: identity.operationId
     });
