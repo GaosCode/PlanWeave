@@ -8,10 +8,11 @@ import {
 } from "@planweave-ai/collaboration-protocol/content/version";
 import { type PackageSnapshotDigestManifest } from "@planweave-ai/collaboration-protocol/content/snapshot";
 import { capturePackageSnapshot } from "../package/packageSnapshot.js";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { PackageWorkspaceRef } from "../types.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
-import { getDesktopLayoutDirect } from "./layoutStore.js";
+import { getDesktopLayoutDirect, layoutPathForWorkspace } from "./layoutStore.js";
 
 function sha256(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
@@ -41,11 +42,17 @@ export async function captureAuthorizedCanvasContent(input: {
   if (input.expectedPackageDir !== undefined && workspace.packageDir !== input.expectedPackageDir) {
     throw new Error("runtime_package_location_mismatch");
   }
-  const captured = await capturePackageSnapshot({ projectRoot: workspace });
-  if (captured.resolvedPackageDir !== workspace.packageDir) {
-    throw new Error("runtime_package_location_mismatch");
-  }
-  const layout = await getDesktopLayoutDirect(workspace);
+  const { captured, layout } = await withPackageFileConsistency(
+    [workspace.packageDir, layoutPathForWorkspace(workspace)],
+    async () => {
+      const captured = await capturePackageSnapshot({ projectRoot: workspace });
+      if (captured.resolvedPackageDir !== workspace.packageDir) {
+        throw new Error("runtime_package_location_mismatch");
+      }
+      const layout = await getDesktopLayoutDirect(workspace);
+      return { captured, layout };
+    }
+  );
   const canonicalLayout = `${JSON.stringify(
     {
       ...layout,

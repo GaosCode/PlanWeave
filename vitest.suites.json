@@ -611,6 +611,7 @@
         "agentRunControlLocator.test.ts",
         "agentRunnerRegistry.test.ts",
         "architectureBoundaries.test.ts",
+        "authorizedCanvasContent.test.ts",
         "autoRunArtifactIdentity.test.ts",
         "autoRunCodexExecutor.test.ts",
         "autoRunExecutorProfiles.test.ts",
