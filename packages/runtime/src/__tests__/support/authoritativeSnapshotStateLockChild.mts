@@ -101,7 +101,8 @@ try {
   };
   fs.realpath = async (...args) => {
     const path = await Reflect.apply(oldReal, fs, args);
-    if (stateStarted && String(args[0]) === w.packageDir) request();
+    if (stateStarted && [w.packageDir, w.stateFile, w.resultsDir].includes(String(args[0])))
+      request();
     return path;
   };
   syncBuiltinESMExports();
