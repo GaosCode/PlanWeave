@@ -1,3 +1,4 @@
+import { capturePackageStorageIdentity } from "../package/packageStorageIdentity.js";
 import { resolve } from "node:path";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
@@ -151,7 +152,9 @@ export async function loadProjectCanvasRuntimeAggregation(
     }
     let workspace: ProjectWorkspace;
     try {
-      workspace = projectCanvasWorkspace(loaded.workspace, projectCanvas);
+      workspace = await capturePackageStorageIdentity(
+        projectCanvasWorkspace(loaded.workspace, projectCanvas)
+      );
     } catch (caught) {
       notes.push(
         `Error: ${canvasId}: ${caught instanceof Error ? caught.message : String(caught)}`

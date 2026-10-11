@@ -1,3 +1,4 @@
+import { assertPackageStorageIdentity } from "./packageStorageIdentity.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { listRegisteredCanvasWorkspacesForProject } from "../desktop/projectCanvasStore.js";
 import { resolveProjectWorkspaceInHome } from "../project.js";
@@ -29,6 +30,7 @@ export async function assertCurrentCanvasWorkspace(workspace: ProjectWorkspace):
   }
   if (!matched)
     throw new Error(`PlanWeave canvas storage identity changed at '${workspace.packageDir}'.`);
+  await assertPackageStorageIdentity(workspace);
   const [packageDir, manifest, state, results] = await Promise.all(paths.map(optionalStat));
   if (
     !packageDir?.isDirectory() ||

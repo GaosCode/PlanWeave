@@ -115,6 +115,10 @@ describe("desktop file sync API", () => {
       if (change === "reset") {
         await expect(
           refreshPackageFileChanges(captured, { changedPaths: ["manifest.json"] })
+        ).rejects.toThrow("canvas storage identity changed");
+        const current = await resolveTaskCanvasWorkspace(root, canvasId);
+        await expect(
+          refreshPackageFileChanges(current, { changedPaths: ["manifest.json"] })
         ).resolves.toMatchObject({ ok: true, refreshedPromptCount: 0 });
         expect((await loadPackage(captured)).manifest.nodes).toEqual([]);
         await expect(

@@ -1,3 +1,4 @@
+import { resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
 import {
   mkdir,
   mkdtemp,
@@ -139,7 +140,7 @@ describe("draft import owned staging", () => {
     await expect(
       applyPackageDraftImport({ projectRoot: f.root, draftRoot: f.draft })
     ).resolves.toMatchObject({ applied: true });
-    expect(installs).toBe(project ? 7 : 3);
+    expect(installs).toBe(project ? 9 : 4);
     const manifestPath = project
       ? join(workspace, "custom", "second", "package", "manifest.json")
       : f.init.workspace.manifestFile;
@@ -209,6 +210,8 @@ describe("draft import owned staging", () => {
   it("preserves failed rollback recovery and restores original bytes through formal recovery", async () => {
     const f = await fixture(false);
     const before = await readFile(f.init.workspace.manifestFile);
+    const beforeIdentity = (await resolveTaskCanvasWorkspace(f.root, "default"))
+      .packageStorageIdentity;
     const create = ImportTransaction.create;
     let installs = 0;
     vi.spyOn(ImportTransaction, "create").mockImplementation((options) =>
@@ -240,6 +243,9 @@ describe("draft import owned staging", () => {
       })
     ).rollback();
     expect(await readFile(f.init.workspace.manifestFile)).toEqual(before);
+    expect((await resolveTaskCanvasWorkspace(f.root, "default")).packageStorageIdentity).toBe(
+      beforeIdentity
+    );
     expect(
       await readFile(join(f.init.workspace.workspaceRoot, "foreign-staging-marker"), "utf8")
     ).toBe("foreign");

@@ -1,3 +1,4 @@
+import { canvasStorageIdentityFile, newCanvasStorageIdentity } from "./packageStorageIdentity.js";
 import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { ZodError } from "zod";
@@ -124,6 +125,7 @@ function draftWorkspace(draftRoot: string, packageDir: string): ProjectWorkspace
   return {
     id,
     projectCreatedAt: null,
+    packageStorageIdentity: null,
     kind: "managed",
     rootPath: draftRoot,
     sourceRoot: null,
@@ -592,7 +594,12 @@ async function applySingleCanvasDraft(options: {
   const { projectWorkspace, canvasWorkspace: workspace } = options.plan;
   await withPackageDraftImportStaging(
     projectWorkspace.workspaceRoot,
-    [workspace.packageDir, workspace.stateFile, workspace.resultsDir],
+    [
+      workspace.packageDir,
+      workspace.stateFile,
+      workspace.resultsDir,
+      canvasStorageIdentityFile(workspace)
+    ],
     async (tempRoot) => {
       const stagedPackage = join(tempRoot, "package");
       const stagedState = join(tempRoot, "state.json");
@@ -604,6 +611,9 @@ async function applySingleCanvasDraft(options: {
         await cp(resolve(options.draftRoot), stagedPackage, { recursive: true });
         await writeJsonFile(stagedState, createEmptyState());
         await mkdir(stagedResults, { recursive: true });
+        const stagedIdentity = join(tempRoot, "canvas-instance.json");
+        await writeJsonFile(stagedIdentity, newCanvasStorageIdentity());
+        await transaction.replacePath(canvasStorageIdentityFile(workspace), stagedIdentity);
         await transaction.replacePath(workspace.packageDir, stagedPackage);
         await transaction.replacePath(workspace.stateFile, stagedState);
         await transaction.replacePath(workspace.resultsDir, stagedResults);
@@ -629,7 +639,12 @@ async function applyProjectDraft(options: {
   const targets = [projectGraphPath(projectWorkspace)];
   for (const canvas of [...projectGraph.canvases, ...plan.removedCanvases]) {
     const workspace = projectCanvasWorkspace(projectWorkspace, canvas);
-    targets.push(workspace.packageDir, workspace.stateFile, workspace.resultsDir);
+    targets.push(
+      workspace.packageDir,
+      workspace.stateFile,
+      workspace.resultsDir,
+      canvasStorageIdentityFile(workspace)
+    );
   }
   await withPackageDraftImportStaging(projectWorkspace.workspaceRoot, targets, async (tempRoot) => {
     const stagedGraph = join(tempRoot, "project-graph.json");
@@ -644,6 +659,7 @@ async function applyProjectDraft(options: {
       await transaction.replacePath(projectGraphPath(projectWorkspace), stagedGraph);
       for (const canvas of plan.removedCanvases) {
         const targetWorkspace = projectCanvasWorkspace(projectWorkspace, canvas);
+        await transaction.removePath(canvasStorageIdentityFile(targetWorkspace));
         await transaction.removePath(targetWorkspace.packageDir);
         await transaction.removePath(targetWorkspace.stateFile);
         await transaction.removePath(targetWorkspace.resultsDir);
@@ -660,6 +676,9 @@ async function applyProjectDraft(options: {
         await cp(sourcePackageDir, stagedPackage, { recursive: true });
         await writeJsonFile(stagedState, createEmptyState());
         await mkdir(stagedResults, { recursive: true });
+        const stagedIdentity = join(tempRoot, "identity", `${canvas.id}.json`);
+        await writeJsonFile(stagedIdentity, newCanvasStorageIdentity());
+        await transaction.replacePath(canvasStorageIdentityFile(targetWorkspace), stagedIdentity);
         await transaction.replacePath(targetWorkspace.packageDir, stagedPackage);
         await transaction.replacePath(targetWorkspace.stateFile, stagedState);
         await transaction.replacePath(targetWorkspace.resultsDir, stagedResults);

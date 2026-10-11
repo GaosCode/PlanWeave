@@ -1,3 +1,7 @@
+import {
+  capturePackageStorageIdentity,
+  writeNewCanvasStorageIdentity
+} from "../package/packageStorageIdentity.js";
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
@@ -188,6 +192,7 @@ function legacyCanvasWorkspace(
     record.canvasId === defaultCanvasId ? projectWorkspace.workspaceRoot : dirname(packageDir);
   return {
     ...projectWorkspace,
+    packageStorageIdentity: null,
     workspaceRoot,
     packageDir,
     manifestFile: join(packageDir, "manifest.json"),
@@ -301,6 +306,7 @@ async function restoreQuarantineAfterFailedRemoval(
 async function resetCanvasWorkspace(workspace: ProjectWorkspace, title: string): Promise<void> {
   await withCanvasStorageReplacement(workspace, () =>
     withCanvasStorageMutation(workspace, async () => {
+      await writeNewCanvasStorageIdentity(workspace);
       await rm(workspace.packageDir, { recursive: true, force: true });
       await writeJsonFile(workspace.manifestFile, initialManifest(title));
       await writeJsonFile(workspace.stateFile, createEmptyState());
@@ -645,17 +651,23 @@ class ResolvingProjectCanvasStore implements ProjectCanvasStore {
   async listWorkspaces(
     options: { createRegistry?: boolean } = {}
   ): Promise<DesktopTaskCanvasWorkspace[]> {
-    return (await this.open()).listWorkspaces(options);
+    return Promise.all(
+      (await (await this.open()).listWorkspaces(options)).map(async (item) => ({
+        ...item,
+        workspace: await capturePackageStorageIdentity(item.workspace)
+      }))
+    );
   }
 
   async resolveWorkspace(canvasId?: string | null): Promise<ProjectWorkspace> {
-    return (await this.open()).resolveWorkspace(canvasId);
+    return capturePackageStorageIdentity(await (await this.open()).resolveWorkspace(canvasId));
   }
 
   async sourceCanvasWorkspace(
     canvasId: string
   ): Promise<{ name: string; workspace: ProjectWorkspace }> {
-    return (await this.open()).sourceCanvasWorkspace(canvasId);
+    const source = await (await this.open()).sourceCanvasWorkspace(canvasId);
+    return { ...source, workspace: await capturePackageStorageIdentity(source.workspace) };
   }
 
   async create(input: { name?: string | null } = {}): Promise<DesktopTaskCanvasSummary> {
@@ -728,10 +740,10 @@ export async function resolveSelectedCanvasWorkspaceForProject(
     const { activeCanvasId } = await readActiveTaskCanvasSelectionForWorkspace(loaded.workspace);
     const canvas = loaded.manifest.canvases.find((candidate) => candidate.id === activeCanvasId);
     if (!canvas) throw new Error("Project has no task canvas.");
-    return workspaceForProjectCanvas(loaded.workspace, canvas);
+    return capturePackageStorageIdentity(workspaceForProjectCanvas(loaded.workspace, canvas));
   }
   const { registry } = await readRegistry(projectWorkspace);
   const record = selectedCanvasRecord(registry);
   if (!record) throw new Error("Project has no task canvas.");
-  return legacyCanvasWorkspace(projectWorkspace, record);
+  return capturePackageStorageIdentity(legacyCanvasWorkspace(projectWorkspace, record));
 }

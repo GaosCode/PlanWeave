@@ -1,3 +1,4 @@
+import { writeNewCanvasStorageIdentity } from "../package/packageStorageIdentity.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { assertNoPendingImportTransactionWrite } from "../package/importTransaction.js";
 import { cp, mkdir } from "node:fs/promises";
@@ -65,6 +66,7 @@ export async function writeEmptyCanvasWorkspace(
   await withPackageFileConsistency([workspace.packageDir], async () => {
     await mkdir(join(workspace.packageDir, "nodes"), { recursive: true });
     await mkdir(workspace.resultsDir, { recursive: true });
+    await writeNewCanvasStorageIdentity(workspace);
     await writeJsonFile(workspace.manifestFile, initialManifest(title));
     await writeJsonFile(workspace.stateFile, createEmptyState());
   });
@@ -91,6 +93,7 @@ export async function populateDuplicatedCanvasWorkspace(
       await writeManifestTitle(targetWorkspace, title);
       await writeJsonFile(targetWorkspace.stateFile, createEmptyState());
       await mkdir(targetWorkspace.resultsDir, { recursive: true });
+      await writeNewCanvasStorageIdentity(targetWorkspace);
       await copyOptionalCanvasLayout(sourceWorkspace, targetWorkspace);
     }
   );

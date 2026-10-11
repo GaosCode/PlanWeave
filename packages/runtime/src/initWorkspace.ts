@@ -1,4 +1,8 @@
 import {
+  capturePackageStorageIdentity,
+  writeNewCanvasStorageIdentity
+} from "./package/packageStorageIdentity.js";
+import {
   withCanvasStorageMutation,
   withCanvasStorageReplacement
 } from "./package/withCanvasStorageMutation.js";
@@ -156,6 +160,7 @@ async function initializeWorkspaceLocked(
       }
 
       if (!alreadyExists || options.resetPackage) {
+        await writeNewCanvasStorageIdentity(workspace);
         await writeJsonFile(workspace.projectFile, project);
         await writeJsonFile(workspace.manifestFile, initialManifest(projectName));
         await writeJsonFile(workspace.stateFile, createEmptyState());
@@ -177,7 +182,10 @@ async function initializeWorkspaceLocked(
   const persistedProject = await readProjectMetadataFile(workspace.projectFile);
 
   return {
-    workspace: { ...workspace, projectCreatedAt: persistedProject.createdAt },
+    workspace: await capturePackageStorageIdentity({
+      ...workspace,
+      projectCreatedAt: persistedProject.createdAt
+    }),
     project: persistedProject,
     created: !alreadyExists,
     ...(projectGraph ? { projectGraph } : {}),

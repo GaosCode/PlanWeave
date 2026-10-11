@@ -1,6 +1,8 @@
+import { capturePackageSnapshot, restorePackageSnapshot } from "../package/packageSnapshot.js";
+import { applyAuthorizedCanvasCommand } from "../graph/canvasCommandPort.js";
 import { readFile, rm } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
-import { resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
+import { removeTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
 import { initWorkspace } from "../initWorkspace.js";
 import { writeJsonFile } from "../json.js";
 import { createSqlitePlanGraphStore } from "../plangraph/sqliteIndex.js";
@@ -25,7 +27,7 @@ afterEach(async () => {
   );
 });
 
-async function fixture() {
+async function fixture(preProjectIdentity = true) {
   const { root, home, init } = await createTestWorkspace();
   directories.push(root, home);
   const workspace = await resolveTaskCanvasWorkspace(root, "default");
@@ -46,7 +48,8 @@ async function fixture() {
     const legacy: unknown = JSON.parse(raw);
     if (!isRecord(legacy)) throw new Error("Expected structured workspace.");
     if (!("projectCreatedAt" in legacy)) throw new Error("Missing current identity.");
-    delete legacy.projectCreatedAt;
+    if (preProjectIdentity) delete legacy.projectCreatedAt;
+    delete legacy.packageStorageIdentity;
     db.prepare("UPDATE operation_log SET workspace_ref_json = ? WHERE id = ?").run(
       JSON.stringify(legacy),
       result.operationId
@@ -65,8 +68,11 @@ async function fixture() {
   }
 }
 
-it("replays pre-identity structured SQLite history through public undo and redo", async () => {
-  const { workspace, before } = await fixture();
+it.each([
+  true,
+  false
+])("replays structured SQLite history predating storage identity (pre-project: %s)", async (preProjectIdentity) => {
+  const { workspace, before } = await fixture(preProjectIdentity);
   await expect(undoPlanGraphCommand({ projectRoot: workspace })).resolves.toMatchObject({
     ok: true
   });
@@ -83,13 +89,21 @@ it.each([
   "partial",
   "unregistered",
   "other-home",
-  "previous-instance"
+  "previous-instance",
+  "previous-storage",
+  "explicit-storage"
 ] as const)("rejects %s legacy workspace history without changing package or undo state", async (mode) => {
   const f = await fixture();
   const altered = { ...f.legacy };
   if (mode === "partial") delete altered.kind;
   if (mode === "unregistered") altered.resultsDir = `${f.workspace.resultsDir}-different`;
   if (mode === "other-home") altered.planweaveHome = `${f.workspace.planweaveHome}-different`;
+  if (mode === "explicit-storage") altered.packageStorageIdentity = "directory:1:2:3";
+  if (mode === "previous-storage") {
+    const manifest: unknown = JSON.parse(await readFile(f.workspace.manifestFile, "utf8"));
+    await removeTaskCanvas(f.root, "default");
+    await writeJsonFile(f.workspace.manifestFile, manifest);
+  }
   if (mode === "previous-instance") {
     const manifest: unknown = JSON.parse(await readFile(f.workspace.manifestFile, "utf8"));
     await initWorkspace({ projectRoot: f.root, resetPackage: true });
@@ -126,4 +140,44 @@ it.each([
   } finally {
     after.close();
   }
+});
+
+it.each([
+  "layout",
+  "snapshot"
+] as const)("keeps task history valid after normal staged %s publication", async (kind) => {
+  const f = await createTestWorkspace();
+  directories.push(f.root, f.home);
+  const before = await resolveTaskCanvasWorkspace(f.root, "default");
+  expect(
+    await executePlanGraphCommand({
+      projectRoot: before,
+      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Published title" } }
+    })
+  ).toMatchObject({ ok: true });
+  if (kind === "layout") {
+    expect(
+      await applyAuthorizedCanvasCommand({
+        projectRoot: before,
+        canvasId: "default",
+        intent: {
+          kind: "update_layout",
+          nodes: [{ nodeId: "T-001", x: 777, y: 888 }],
+          updatedAt: "2030-01-01T00:00:00.000Z"
+        }
+      })
+    ).toMatchObject({ ok: true });
+  } else {
+    const captured = await capturePackageSnapshot({ projectRoot: before });
+    await restorePackageSnapshot({ projectRoot: before, snapshot: captured.snapshot });
+  }
+  const current = await resolveTaskCanvasWorkspace(f.root, "default");
+  expect(await undoPlanGraphCommand({ projectRoot: current })).toMatchObject({ ok: true });
+  expect(
+    manifestSchema.parse(JSON.parse(await readFile(current.manifestFile, "utf8"))).nodes[0]?.title
+  ).toBe("Implement test task");
+  expect(await redoPlanGraphCommand({ projectRoot: current })).toMatchObject({ ok: true });
+  expect(
+    manifestSchema.parse(JSON.parse(await readFile(current.manifestFile, "utf8"))).nodes[0]?.title
+  ).toBe("Published title");
 });

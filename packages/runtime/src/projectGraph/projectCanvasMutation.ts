@@ -1,3 +1,4 @@
+import { capturePackageStorageIdentity } from "../package/packageStorageIdentity.js";
 import { withCanvasStorageReplacement } from "../package/withCanvasStorageMutation.js";
 import { createHash, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
@@ -292,7 +293,7 @@ async function compensateFailedGraphWrite(
   throw graphError instanceof Error ? graphError : new Error(errorMessage(graphError));
 }
 
-function mutationResult(input: {
+async function mutationResult(input: {
   canvas: ProjectCanvasNode;
   title: string;
   created: boolean;
@@ -300,7 +301,7 @@ function mutationResult(input: {
   projectWorkspace: ProjectWorkspace;
   canvasWorkspace: ProjectWorkspace;
   persisted: boolean;
-}): ProjectCanvasMutationResult {
+}): Promise<ProjectCanvasMutationResult> {
   return {
     canvas: input.canvas,
     title: input.title,
@@ -308,7 +309,9 @@ function mutationResult(input: {
     activated: input.activated,
     projectGraphPath: projectGraphPath(input.projectWorkspace),
     projectWorkspace: input.projectWorkspace,
-    canvasWorkspace: input.canvasWorkspace,
+    canvasWorkspace: input.persisted
+      ? await capturePackageStorageIdentity(input.canvasWorkspace)
+      : input.canvasWorkspace,
     persisted: input.persisted
   };
 }

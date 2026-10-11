@@ -1,3 +1,8 @@
+import {
+  capturePackageStorageIdentity,
+  packageStorageIdentitySchema,
+  packageStorageCreatedAt
+} from "../../package/packageStorageIdentity.js";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { canonicalFileTarget } from "../../fs/canonicalFileTarget.js";
@@ -13,6 +18,7 @@ const persistedWorkspaceSchema = z
   .object({
     id: z.string().min(1),
     projectCreatedAt: z.string().datetime().nullable().optional(),
+    packageStorageIdentity: packageStorageIdentitySchema.nullable().optional(),
     kind: z.enum(projectKinds),
     rootPath: pathSchema,
     sourceRoot: pathSchema.nullable(),
@@ -52,13 +58,19 @@ export async function operationLogWorkspaceRef(
     const value: unknown = JSON.parse(raw);
     if (typeof value === "string") return pathSchema.parse(value);
     const parsed = persistedWorkspaceSchema.parse(value);
-    if (parsed.projectCreatedAt !== undefined)
-      return { ...parsed, projectCreatedAt: parsed.projectCreatedAt };
+    if (parsed.projectCreatedAt !== undefined && parsed.packageStorageIdentity !== undefined)
+      return {
+        ...parsed,
+        projectCreatedAt: parsed.projectCreatedAt,
+        packageStorageIdentity: parsed.packageStorageIdentity
+      };
 
     await assertCurrentProjectWorkspace(owner);
     const createdAt = z.string().datetime().parse(stringColumn(row, "created_at"));
     if (
       owner.projectCreatedAt === null ||
+      (parsed.projectCreatedAt !== undefined &&
+        parsed.projectCreatedAt !== owner.projectCreatedAt) ||
       Date.parse(createdAt) < Date.parse(owner.projectCreatedAt)
     ) {
       throw new Error("History predates the current project instance.");
@@ -68,7 +80,17 @@ export async function operationLogWorkspaceRef(
     for (const current of await listRegisteredCanvasWorkspacesForProject(parent)) {
       if (parsed.id !== current.id || parsed.kind !== current.kind) continue;
       const paths = await Promise.all(storageKeys.map((key) => canonicalFileTarget(current[key])));
-      if (paths.every((path, index) => path === captured[index])) return current;
+      if (!paths.every((path, index) => path === captured[index])) continue;
+      const capturedCurrent = await capturePackageStorageIdentity(current);
+      if (
+        capturedCurrent.packageStorageIdentity === null ||
+        (parsed.packageStorageIdentity !== undefined &&
+          parsed.packageStorageIdentity !== capturedCurrent.packageStorageIdentity) ||
+        Date.parse(createdAt) < packageStorageCreatedAt(capturedCurrent.packageStorageIdentity)
+      ) {
+        throw new Error("History predates the current canvas storage instance.");
+      }
+      return capturedCurrent;
     }
     throw new Error("History workspace does not match registered project and canvas storage.");
   } catch (error) {

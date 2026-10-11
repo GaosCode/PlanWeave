@@ -6,6 +6,8 @@ export type ProjectWorkspace = {
   id: string;
   /** Validated project.json identity; null for uninitialized/path-only workspaces. */
   projectCreatedAt: string | null;
+  /** Logical canvas storage instance; null for uninitialized/path-only workspaces. */
+  packageStorageIdentity: string | null;
   kind: ProjectKind;
   rootPath: string;
   sourceRoot: string | null;

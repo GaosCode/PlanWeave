@@ -1,3 +1,7 @@
+import {
+  capturePackageStorageIdentity,
+  assertPackageStorageIdentity
+} from "./package/packageStorageIdentity.js";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { PlanWeaveWorkspaceNotInitializedError } from "./errors.js";
@@ -22,6 +26,7 @@ export function projectWorkspacePaths(input: {
   const defaultCanvasWorkspace = canonicalCanvasWorkspacePaths("default");
   return {
     ...input,
+    packageStorageIdentity: null,
     projectFile: join(input.workspaceRoot, "project.json"),
     packageDir: join(input.workspaceRoot, defaultCanvasWorkspace.packageDir),
     manifestFile: join(input.workspaceRoot, defaultCanvasWorkspace.packageDir, "manifest.json"),
@@ -183,12 +188,16 @@ export async function resolveProjectWorkspaceInHome(
   projectRoot: string,
   planweaveHome: string
 ): Promise<ProjectWorkspace> {
-  return resolveProjectWorkspaceAtRoot(await realpath(projectRoot), planweaveHome);
+  return capturePackageStorageIdentity(
+    await resolveProjectWorkspaceAtRoot(await realpath(projectRoot), planweaveHome)
+  );
 }
 
 export async function resolveProjectWorkspace(projectRoot: string): Promise<ProjectWorkspace> {
   const rootPath = await realpath(projectRoot);
-  return resolveProjectWorkspaceAtRoot(rootPath, resolvePlanweaveHome());
+  return capturePackageStorageIdentity(
+    await resolveProjectWorkspaceAtRoot(rootPath, resolvePlanweaveHome())
+  );
 }
 
 export async function readProject(projectRoot: string): Promise<ProjectMetadata | null> {
@@ -236,6 +245,7 @@ export async function withCurrentProjectWorkspace<T>(
 ): Promise<T> {
   return withProjectMutationLock(dirname(workspace.projectFile), async () => {
     await assertCurrentProjectWorkspace(workspace);
+    if (workspace.packageStorageIdentity !== null) await assertPackageStorageIdentity(workspace);
     return apply();
   });
 }

@@ -1,3 +1,9 @@
+import { createEmptyState } from "../state.js";
+import {
+  executePlanGraphCommand,
+  undoPlanGraphCommand,
+  redoPlanGraphCommand
+} from "../plangraph/executeCommand.js";
 import { access, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { join } from "node:path";
@@ -275,4 +281,128 @@ it.each([
       }
     })
   ).resolves.toMatchObject({ kind: "manual" });
+});
+
+it.each([
+  "reset",
+  "recreate"
+] as const)("rejects old manual feedback after canvas storage %s", async (mode) => {
+  const { owner, canvas, workspace: extra } = await fixture();
+  const canvasId = mode === "reset" ? "default" : canvas.canvasId;
+  const captured =
+    mode === "reset" ? await resolveTaskCanvasWorkspace(owner.workspace.rootPath, canvasId) : extra;
+  await removeTaskCanvas(owner.workspace.rootPath, canvasId);
+  if (mode === "recreate") {
+    const replacement = await projectGraph.createProjectCanvas({
+      projectRoot: owner.workspace.rootPath,
+      requestedId: canvasId,
+      title: "Replacement"
+    });
+    expect(replacement.canvas.id).toBe(canvasId);
+  }
+  const feedback = (workspace: typeof captured) =>
+    runProfileFeedback({
+      projectRoot: workspace,
+      workspace,
+      executorName: "manual",
+      profile: { adapter: "manual" },
+      claim: {
+        kind: "feedback",
+        feedbackId: "FE-REPLACED-STORAGE",
+        sourceReviewBlockRef: "T-OLD#R-001",
+        taskId: "T-OLD",
+        content: "Old feedback",
+        effectiveExecutor: "manual"
+      }
+    });
+  await expect(feedback(captured)).rejects.toThrow("canvas storage identity changed");
+  await expect(access(join(captured.resultsDir, "feedback-runs"))).rejects.toMatchObject({
+    code: "ENOENT"
+  });
+  const current = await resolveTaskCanvasWorkspace(owner.workspace.rootPath, canvasId);
+  await expect(feedback(current)).resolves.toMatchObject({ kind: "manual" });
+});
+
+it("does not bind an identity-free saved request to current storage during admission", async () => {
+  const { workspace } = await fixture();
+  await expect(
+    runProfileFeedback({
+      projectRoot: workspace,
+      workspace: { ...workspace, packageStorageIdentity: null },
+      executorName: "manual",
+      profile: { adapter: "manual" },
+      claim: {
+        kind: "feedback",
+        feedbackId: "FE-NO-IDENTITY",
+        sourceReviewBlockRef: "T-001#R-001",
+        taskId: "T-001",
+        content: "Invalid captured identity",
+        effectiveExecutor: "manual"
+      }
+    })
+  ).rejects.toThrow("canvas storage identity changed");
+  await expect(access(join(workspace.resultsDir, "feedback-runs"))).rejects.toMatchObject({
+    code: "ENOENT"
+  });
+});
+
+it("keeps an unchanged peer request and history valid when canvases share a parent directory", async () => {
+  const { owner } = await fixture();
+  const canvases = ["default", "peer"].map((id, i) => ({
+    id,
+    type: "canvas" as const,
+    title: id,
+    packageDir: `canvases/shared/package-${i}`,
+    stateFile: `canvases/shared/state-${i}.json`,
+    resultsDir: `canvases/shared/results-${i}`
+  }));
+  for (const canvas of canvases) {
+    const packageDir = join(owner.workspace.workspaceRoot, canvas.packageDir);
+    const manifest = basicManifest();
+    await writeJsonFile(join(packageDir, "manifest.json"), manifest);
+    await writePromptFiles(packageDir, manifest);
+    await writeJsonFile(join(owner.workspace.workspaceRoot, canvas.stateFile), createEmptyState());
+    await actualFs.mkdir(join(owner.workspace.workspaceRoot, canvas.resultsDir), {
+      recursive: true
+    });
+  }
+  await projectGraph.writeProjectGraph(owner.workspace, {
+    version: "plan-project/v1",
+    canvases,
+    edges: [],
+    crossTaskEdges: []
+  });
+  const graph = await projectGraph.compileProjectGraph(
+    await projectGraph.loadProjectGraph(owner.workspace.rootPath)
+  );
+  expect(graph.diagnostics.errors).toEqual([]);
+  const peer = await resolveTaskCanvasWorkspace(owner.workspace.rootPath, "peer");
+  expect(
+    await executePlanGraphCommand({
+      projectRoot: peer,
+      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Peer history" } }
+    })
+  ).toMatchObject({ ok: true });
+  const before = await readFile(peer.manifestFile, "utf8");
+  await removeTaskCanvas(owner.workspace.rootPath, "default");
+  expect(await readFile(peer.manifestFile, "utf8")).toBe(before);
+  await expect(
+    runProfileFeedback({
+      projectRoot: peer,
+      workspace: peer,
+      executorName: "manual",
+      profile: { adapter: "manual" },
+      claim: {
+        kind: "feedback",
+        feedbackId: "FE-PEER",
+        sourceReviewBlockRef: "T-001#R-001",
+        taskId: "T-001",
+        content: "Unchanged peer",
+        effectiveExecutor: "manual"
+      }
+    })
+  ).resolves.toMatchObject({ kind: "manual" });
+  expect(await undoPlanGraphCommand({ projectRoot: peer })).toMatchObject({ ok: true });
+  expect(await redoPlanGraphCommand({ projectRoot: peer })).toMatchObject({ ok: true });
+  expect(await readFile(peer.manifestFile, "utf8")).toBe(before);
 });

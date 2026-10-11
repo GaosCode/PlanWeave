@@ -1,3 +1,4 @@
+import { capturePackageStorageIdentity } from "../package/packageStorageIdentity.js";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { loadProjectGraph } from "./loadProjectGraph.js";
 import type { ProjectCanvasNode } from "./types.js";
@@ -28,6 +29,7 @@ export function projectCanvasWorkspace(
   assertWorkspaceChild(projectWorkspace, resultsDir);
   return {
     ...projectWorkspace,
+    packageStorageIdentity: null,
     workspaceRoot: dirname(packageDir),
     packageDir,
     manifestFile: join(packageDir, "manifest.json"),
@@ -45,5 +47,5 @@ export async function resolveProjectCanvasWorkspace(
   if (!canvas) {
     throw new Error(`Project canvas '${canvasId}' does not exist.`);
   }
-  return projectCanvasWorkspace(workspace, canvas);
+  return capturePackageStorageIdentity(projectCanvasWorkspace(workspace, canvas));
 }
