@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { PlanWeaveWorkspaceNotInitializedError } from "./errors.js";
 import { optionalStat } from "./fs/optionalFile.js";
+import { canonicalFileTarget } from "./fs/canonicalFileTarget.js";
 import { createProjectId } from "./projectId.js";
 import { resolvePlanweaveHome } from "./paths.js";
 import { readProjectMetadataFile } from "./projectMetadata.js";
@@ -200,4 +201,18 @@ export async function requireInitializedProjectWorkspace(
     throw new PlanWeaveWorkspaceNotInitializedError(workspace);
   }
   return workspace;
+}
+
+/** Revalidate a captured workspace while its mutation or storage admission is held. */
+export async function assertCurrentProjectWorkspace(workspace: ProjectWorkspace): Promise<void> {
+  const current = await resolveProjectWorkspaceInHome(workspace.rootPath, workspace.planweaveHome);
+  const project = await readProjectMetadataFile(current.projectFile);
+  if (
+    current.id !== workspace.id ||
+    project.id !== workspace.id ||
+    (await canonicalFileTarget(current.projectFile)) !==
+      (await canonicalFileTarget(workspace.projectFile))
+  ) {
+    throw new Error(`PlanWeave project workspace identity changed at '${workspace.rootPath}'.`);
+  }
 }

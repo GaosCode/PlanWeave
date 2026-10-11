@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative } from "node:path";
 import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import type { ProjectWorkspace } from "../types.js";
+import { assertCurrentProjectWorkspace } from "../project.js";
 import { assertNoPendingImportTransactionWrite } from "./importTransaction.js";
 import {
   canonicalPackageFileTarget,
@@ -80,6 +81,7 @@ export async function acquireExecutorResultsWriteLease(
   const token = randomUUID();
   const path = join(leaseRoot(), `${token}.json`);
   const lease = await withPackageFileConsistency([workspace.resultsDir], async () => {
+    await assertCurrentProjectWorkspace(workspace);
     await assertNoPendingImportTransactionWrite({
       workspaceRoot: dirname(workspace.projectFile),
       target: workspace.resultsDir

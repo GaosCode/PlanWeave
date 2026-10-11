@@ -6,6 +6,7 @@ import { initManagedWorkspace } from "../initWorkspace.js";
 import { renameProject } from "../desktop/projectApi.js";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
 import { acquireExecutorResultsWriteLease } from "../package/executorResultsWriteLease.js";
+import { withExecutorResultsWriteLease } from "../autoRun/executorResultsLifecycle.js";
 import { ImportTransaction } from "../package/importTransaction.js";
 import { importTransactionIdentityDigest } from "../package/importTransactionContent.js";
 import { createManagedProjectId } from "../projectId.js";
@@ -272,6 +273,55 @@ async function fixture() {
   await writeFile(join(init.workspace.resultsDir, "history.txt"), "history-before-rename");
   return { home, ...init };
 }
+
+it("rejects an executor queued behind managed relocation before entering its old results path", async () => {
+  const { home, project, workspace } = await fixture();
+  const destination = join(home, "projects", createManagedProjectId("Storage destination"));
+  const moving = barrier();
+  const allowMove = barrier();
+  const leaseAttempted = barrier();
+  let watchLease = false;
+  vi.mocked(rename).mockImplementation(async (oldPath, newPath) => {
+    if (String(oldPath) === workspace.workspaceRoot && String(newPath) === destination) {
+      moving.release();
+      await allowMove.promise;
+    }
+    return actualFs.rename(oldPath, newPath);
+  });
+  vi.mocked(realpath).mockImplementation(async (path, options) => {
+    const value = await actualFs.realpath(path, options);
+    if (watchLease && String(path) === workspace.resultsDir) leaseAttempted.release();
+    return value;
+  });
+  let executorEntered = false;
+  const renaming = renameProject(project.id, "Storage destination");
+  await moving.promise;
+  watchLease = true;
+  const execution = withExecutorResultsWriteLease(workspace, "queued-relocation", async () => {
+    executorEntered = true;
+    await writeFile(join(workspace.resultsDir, "queued.log"), "queued output");
+  }).then(
+    () => ({ error: null }),
+    (error: unknown) => ({ error })
+  );
+  try {
+    await leaseAttempted.promise;
+  } finally {
+    allowMove.release();
+  }
+  const renamed = await renaming;
+  expect((await execution).error).toBeInstanceOf(Error);
+  expect(executorEntered).toBe(false);
+  await expect(access(workspace.workspaceRoot)).rejects.toThrow();
+  const moved = await resolveProjectWorkspace(renamed.rootPath);
+  expect(await readFile(join(moved.resultsDir, "history.txt"), "utf8")).toBe(
+    "history-before-rename"
+  );
+  await withExecutorResultsWriteLease(moved, "after-relocation", async () => {
+    await writeFile(join(moved.resultsDir, "next.log"), "next output");
+  });
+  expect(await readFile(join(moved.resultsDir, "next.log"), "utf8")).toBe("next output");
+});
 
 it.each([
   { kind: "package", later: false, sameId: false },
