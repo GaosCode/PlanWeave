@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { PlanWeaveWorkspaceNotInitializedError } from "./errors.js";
 import { optionalStat } from "./fs/optionalFile.js";
 import { canonicalFileTarget } from "./fs/canonicalFileTarget.js";
+import { withProjectMutationLock } from "./fs/withProjectMutationLock.js";
 import { createProjectId } from "./projectId.js";
 import { resolvePlanweaveHome } from "./paths.js";
 import { readProjectMetadataFile } from "./projectMetadata.js";
@@ -11,6 +12,7 @@ import type { ProjectKind, ProjectMetadata, ProjectWorkspace } from "./types.js"
 
 export function projectWorkspacePaths(input: {
   id: string;
+  projectCreatedAt: string | null;
   kind: ProjectKind;
   rootPath: string;
   sourceRoot: string | null;
@@ -122,6 +124,7 @@ async function workspaceFromRegisteredRoot(
   if (!(await optionalStat(projectFile))) {
     return projectWorkspacePaths({
       id: projectId,
+      projectCreatedAt: null,
       kind: "managed",
       rootPath,
       sourceRoot: null,
@@ -141,6 +144,7 @@ async function workspaceFromRegisteredRoot(
   });
   return projectWorkspacePaths({
     id: normalizedProject.id,
+    projectCreatedAt: normalizedProject.createdAt,
     kind: metadataKind(normalizedProject),
     rootPath: normalizedProject.rootPath,
     sourceRoot: sourceRootForMetadata(normalizedProject),
@@ -158,13 +162,19 @@ async function resolveProjectWorkspaceAtRoot(
     return registeredWorkspace;
   }
   const id = await createProjectId(rootPath);
+  const workspaceRoot = join(planweaveHome, "projects", id);
+  const projectFile = join(workspaceRoot, "project.json");
+  const project = (await optionalStat(projectFile))
+    ? await readProjectMetadataFile(projectFile)
+    : null;
   return projectWorkspacePaths({
     id,
+    projectCreatedAt: project?.createdAt ?? null,
     kind: "external",
     rootPath,
     sourceRoot: rootPath,
     planweaveHome,
-    workspaceRoot: join(planweaveHome, "projects", id)
+    workspaceRoot
   });
 }
 
@@ -210,9 +220,22 @@ export async function assertCurrentProjectWorkspace(workspace: ProjectWorkspace)
   if (
     current.id !== workspace.id ||
     project.id !== workspace.id ||
+    workspace.projectCreatedAt === null ||
+    project.createdAt !== workspace.projectCreatedAt ||
     (await canonicalFileTarget(current.projectFile)) !==
       (await canonicalFileTarget(workspace.projectFile))
   ) {
     throw new Error(`PlanWeave project workspace identity changed at '${workspace.rootPath}'.`);
   }
+}
+
+/** Project identity and its storage admission share the relocation lock. */
+export async function withCurrentProjectWorkspace<T>(
+  workspace: ProjectWorkspace,
+  apply: () => Promise<T>
+): Promise<T> {
+  return withProjectMutationLock(dirname(workspace.projectFile), async () => {
+    await assertCurrentProjectWorkspace(workspace);
+    return apply();
+  });
 }

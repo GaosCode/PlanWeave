@@ -123,6 +123,7 @@ function draftWorkspace(draftRoot: string, packageDir: string): ProjectWorkspace
   const id = basename(draftRoot) || "package-draft";
   return {
     id,
+    projectCreatedAt: null,
     kind: "managed",
     rootPath: draftRoot,
     sourceRoot: null,

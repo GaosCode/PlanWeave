@@ -107,6 +107,7 @@ export function response(state: AgentHostState, requestId: string) {
 export function unusedWorkspace(): ProjectWorkspace {
   return {
     id: "project-1",
+    projectCreatedAt: null,
     kind: "managed",
     rootPath: "/not-observed",
     sourceRoot: null,

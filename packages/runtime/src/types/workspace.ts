@@ -4,6 +4,8 @@ import type { ProjectKind, ProjectMetadata } from "../projectMetadata.js";
 
 export type ProjectWorkspace = {
   id: string;
+  /** Validated project.json identity; null for uninitialized/path-only workspaces. */
+  projectCreatedAt: string | null;
   kind: ProjectKind;
   rootPath: string;
   sourceRoot: string | null;

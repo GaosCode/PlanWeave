@@ -20,6 +20,7 @@ function projectGraphWorkspace(workspace: ProjectWorkspace): ProjectWorkspace {
   const workspaceRoot = join(workspace.planweaveHome, "projects", workspace.id);
   return projectWorkspacePaths({
     id: workspace.id,
+    projectCreatedAt: workspace.projectCreatedAt,
     kind: workspace.kind,
     rootPath: workspace.rootPath,
     sourceRoot: workspace.sourceRoot,

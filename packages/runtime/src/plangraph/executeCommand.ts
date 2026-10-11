@@ -1,10 +1,5 @@
 import type { PlanPackageGraphMutation } from "../graph/mutation.js";
-import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
-import {
-  assertCurrentProjectWorkspace,
-  requireInitializedProjectWorkspace,
-  resolveProjectWorkspaceInHome
-} from "../project.js";
+import { requireInitializedProjectWorkspace, withCurrentProjectWorkspace } from "../project.js";
 import { defaultPlanGraphCommandDependencies } from "./adapters.js";
 import { PlanGraphOperationLogParseError } from "./commandSchema.js";
 import { handlerForCommand, type PlanGraphCommandHandler } from "./commandHandlers/index.js";
@@ -50,11 +45,8 @@ async function withCommandProjectLock(
   const workspace =
     typeof projectRoot === "string"
       ? await requireInitializedProjectWorkspace(projectRoot)
-      : await resolveProjectWorkspaceInHome(projectRoot.rootPath, projectRoot.planweaveHome);
-  return withProjectMutationLock(workspace.workspaceRoot, async () => {
-    await assertCurrentProjectWorkspace(workspace);
-    return apply();
-  });
+      : projectRoot;
+  return withCurrentProjectWorkspace(workspace, apply);
 }
 
 function historyCommandInvalid(error: PlanGraphOperationLogParseError): PlanGraphCommandResult {

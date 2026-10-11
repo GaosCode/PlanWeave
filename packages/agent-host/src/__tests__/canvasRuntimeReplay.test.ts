@@ -44,6 +44,7 @@ async function setup() {
 function unusedWorkspace(): ProjectWorkspace {
   return {
     id: "project-1",
+    projectCreatedAt: null,
     kind: "managed",
     rootPath: "/not-observed",
     sourceRoot: null,

@@ -133,6 +133,7 @@ function projectWorkspacePathsForRename(
 ): ProjectWorkspace {
   return projectWorkspacePaths({
     id,
+    projectCreatedAt: project.createdAt,
     kind: "managed",
     rootPath: workspaceRoot,
     sourceRoot: project.sourceRoot ?? null,
@@ -503,6 +504,7 @@ export async function renameProject(
       return {
         ...projectWorkspacePaths({
           id: entry.project.id,
+          projectCreatedAt: entry.project.createdAt,
           kind: entry.project.kind === "managed" ? "managed" : "external",
           rootPath: entry.project.rootPath,
           sourceRoot: entry.project.sourceRoot ?? null,

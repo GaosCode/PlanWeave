@@ -135,6 +135,7 @@ export class ConfiguredCanvasRuntimeResolver implements CanvasRuntimeResolverPor
     }
     const runtimeProject = projectWorkspacePaths({
       id: scope.projectId,
+      projectCreatedAt: null,
       kind: configuredProject?.kind ?? "managed",
       rootPath: configuredProject?.rootPath ?? resolvedProjectRoot,
       sourceRoot: configuredProject?.sourceRoot ?? null,

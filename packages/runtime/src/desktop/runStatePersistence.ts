@@ -106,6 +106,7 @@ async function listProjectWorkspaceRoots(workspace: ProjectWorkspace): Promise<s
 function workspaceFromRoot(workspace: ProjectWorkspace, workspaceRoot: string): ProjectWorkspace {
   return projectWorkspacePaths({
     id: basename(workspaceRoot),
+    projectCreatedAt: null,
     kind: "managed",
     rootPath: workspaceRoot,
     sourceRoot: null,

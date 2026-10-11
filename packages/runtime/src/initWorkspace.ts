@@ -6,6 +6,8 @@ import { withPackageFileConsistency } from "./package/packageFileConsistency.js"
 import { cp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { optionalStat } from "./fs/optionalFile.js";
+import { withProjectMutationLock } from "./fs/withProjectMutationLock.js";
+import { readProjectMetadataFile } from "./projectMetadata.js";
 import { resolvePlanweaveHome } from "./paths.js";
 import { projectWorkspacePaths, resolveProjectWorkspace } from "./project.js";
 import { createManagedProjectId } from "./projectId.js";
@@ -49,6 +51,22 @@ async function exists(path: string): Promise<boolean> {
 }
 
 async function initializeWorkspace(
+  workspace: ProjectWorkspace,
+  project: ProjectMetadata,
+  projectName: string,
+  options: {
+    force?: boolean;
+    resetPackage?: boolean;
+    resetResults?: boolean;
+    projectGraph?: boolean;
+  }
+): Promise<InitWorkspaceResult> {
+  return withProjectMutationLock(workspace.workspaceRoot, () =>
+    initializeWorkspaceLocked(workspace, project, projectName, options)
+  );
+}
+
+async function initializeWorkspaceLocked(
   workspace: ProjectWorkspace,
   project: ProjectMetadata,
   projectName: string,
@@ -141,10 +159,11 @@ async function initializeWorkspace(
     ? await materializeProjectGraph(workspace.rootPath)
     : undefined;
   const projectGraph = options.projectGraph ? materializedProjectGraph : undefined;
+  const persistedProject = await readProjectMetadataFile(workspace.projectFile);
 
   return {
-    workspace,
-    project,
+    workspace: { ...workspace, projectCreatedAt: persistedProject.createdAt },
+    project: persistedProject,
     created: !alreadyExists,
     ...(projectGraph ? { projectGraph } : {}),
     ...(backup ? { backup } : {})
@@ -233,6 +252,7 @@ export async function initManagedWorkspace(options: {
   }
   const workspace = projectWorkspacePaths({
     id,
+    projectCreatedAt: null,
     kind: "managed",
     rootPath: workspaceRoot,
     sourceRoot: null,
