@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { planweaveToolOutputSchemas } from "../toolSchemas.js";
@@ -107,7 +107,9 @@ it("uses inventory for package/project summary aliases, counts malformed prompt/
   const bodyReads = vi
     .mocked(fs.readFile)
     .mock.calls.filter(
-      (call) => String(call[0]).startsWith(packageDir) && !String(call[0]).endsWith("manifest.json")
+      (call) =>
+        String(call[0]).startsWith(`${packageDir}${sep}`) &&
+        !String(call[0]).endsWith("manifest.json")
     );
   expect(bodyReads).toEqual([]);
   expect(
@@ -147,7 +149,8 @@ it("selected project opens just requested bodies/canvas, preserves duplicates, a
       .mocked(fs.readFile)
       .mock.calls.filter(
         (call) =>
-          String(call[0]).startsWith(packageDir) && !String(call[0]).endsWith("manifest.json")
+          String(call[0]).startsWith(`${packageDir}${sep}`) &&
+          !String(call[0]).endsWith("manifest.json")
       )
       .map((call) => String(call[0]))
   ).toEqual([join(packageDir, "b.md"), join(packageDir, "a.md")]);

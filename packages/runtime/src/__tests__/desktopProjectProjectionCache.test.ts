@@ -1,6 +1,6 @@
 import * as fsPromises from "node:fs/promises";
 import { utimes, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createTaskCanvas,
@@ -74,7 +74,7 @@ function resultReadPaths(resultsDir: string): string[] {
   const readFileMock = vi.mocked(fsPromises.readFile);
   return readFileMock.mock.calls
     .map(([path]) => (typeof path === "string" ? path : null))
-    .filter((path): path is string => path !== null && path.startsWith(resultsDir));
+    .filter((path): path is string => path !== null && path.startsWith(`${resultsDir}${sep}`));
 }
 
 function promptReadPaths(packageDir: string): string[] {
@@ -82,7 +82,7 @@ function promptReadPaths(packageDir: string): string[] {
   const readFileMock = vi.mocked(fsPromises.readFile);
   return readFileMock.mock.calls
     .map(([path]) => (typeof path === "string" ? path : null))
-    .filter((path): path is string => path !== null && path.startsWith(promptDir));
+    .filter((path): path is string => path !== null && path.startsWith(`${promptDir}${sep}`));
 }
 
 describe("desktop project projection cache", () => {
