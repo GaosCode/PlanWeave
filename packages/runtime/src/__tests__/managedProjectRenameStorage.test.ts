@@ -513,7 +513,7 @@ it("rejects an executor queued behind managed relocation before entering its old
   });
   vi.mocked(realpath).mockImplementation(async (path, options) => {
     const value = await actualFs.realpath(path, options);
-    if (watchLease && String(path) === workspace.resultsDir) leaseAttempted.release();
+    if (watchLease && String(path) === workspace.workspaceRoot) leaseAttempted.release();
     return value;
   });
   let executorEntered = false;

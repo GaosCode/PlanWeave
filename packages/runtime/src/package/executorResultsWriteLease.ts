@@ -5,7 +5,8 @@ import { dirname, isAbsolute, join, relative } from "node:path";
 import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import type { ProjectWorkspace } from "../types.js";
-import { assertCurrentProjectWorkspace } from "../project.js";
+import { withCurrentProjectWorkspace } from "../project.js";
+import { assertCurrentCanvasWorkspace } from "./assertCurrentCanvasWorkspace.js";
 import { assertNoPendingImportTransactionWrite } from "./importTransaction.js";
 import {
   canonicalPackageFileTarget,
@@ -80,25 +81,30 @@ export async function acquireExecutorResultsWriteLease(
 ): Promise<{ path: string; release(): Promise<void>; markUncertain(): Promise<void> }> {
   const token = randomUUID();
   const path = join(leaseRoot(), `${token}.json`);
-  const lease = await withPackageFileConsistency([workspace.resultsDir], async () => {
-    await assertCurrentProjectWorkspace(workspace);
-    await assertNoPendingImportTransactionWrite({
-      workspaceRoot: dirname(workspace.projectFile),
-      target: workspace.resultsDir
-    });
-    const record = leaseSchema.parse({
-      version: 1,
-      token,
-      resultsRoot: await canonicalPackageFileTarget(workspace.resultsDir),
-      ownerPid: process.pid,
-      executionIdentity,
-      createdAt: new Date().toISOString(),
-      status: "writing"
-    });
-    await mkdir(leaseRoot(), { recursive: true, mode: 0o700 });
-    await writeJsonFile(path, record);
-    return record;
-  });
+  const lease = await withCurrentProjectWorkspace(workspace, () =>
+    withPackageFileConsistency(
+      [workspace.packageDir, workspace.stateFile, workspace.resultsDir],
+      async () => {
+        await assertCurrentCanvasWorkspace(workspace);
+        await assertNoPendingImportTransactionWrite({
+          workspaceRoot: dirname(workspace.projectFile),
+          target: workspace.resultsDir
+        });
+        const record = leaseSchema.parse({
+          version: 1,
+          token,
+          resultsRoot: await canonicalPackageFileTarget(workspace.resultsDir),
+          ownerPid: process.pid,
+          executionIdentity,
+          createdAt: new Date().toISOString(),
+          status: "writing"
+        });
+        await mkdir(leaseRoot(), { recursive: true, mode: 0o700 });
+        await writeJsonFile(path, record);
+        return record;
+      }
+    )
+  );
   return {
     path,
     markUncertain: () =>

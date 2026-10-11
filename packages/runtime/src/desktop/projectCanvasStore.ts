@@ -704,6 +704,21 @@ export async function createProjectCanvasStore(projectRoot: string): Promise<Pro
   return new ResolvingProjectCanvasStore(projectRoot);
 }
 
+/** Read registered storage in the captured Home without creating a legacy registry. */
+export async function listRegisteredCanvasWorkspacesForProject(
+  projectWorkspace: ProjectWorkspace
+): Promise<ProjectWorkspace[]> {
+  const loaded = await loadProjectGraphForWorkspace(projectWorkspace);
+  if (loaded.source === "project_graph") {
+    return loaded.manifest.canvases.map((canvas) =>
+      workspaceForProjectCanvas(loaded.workspace, canvas)
+    );
+  }
+  if (loaded.source === "legacy_default_canvas") return [projectWorkspace];
+  const { registry } = await readRegistry(projectWorkspace, { createDefault: false });
+  return registry.canvases.map((record) => legacyCanvasWorkspace(projectWorkspace, record));
+}
+
 /** Resolve command/history membership using an internally resolved project owner. */
 export async function resolveSelectedCanvasWorkspaceForProject(
   projectWorkspace: ProjectWorkspace
