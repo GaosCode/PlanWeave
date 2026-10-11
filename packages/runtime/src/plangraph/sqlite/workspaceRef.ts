@@ -1,3 +1,6 @@
+import { assertCurrentCanvasWorkspace } from "../../package/assertCurrentCanvasWorkspace.js";
+import { isProjectGraphCommand } from "../projectGraphCommand.js";
+import type { PlanGraphCommand } from "../commands.js";
 import {
   capturePackageStorageIdentity,
   packageStorageIdentitySchema,
@@ -47,18 +50,55 @@ const storageKeys = [
   "projectPromptFile"
 ] as const;
 
+async function legacyRootWorkspace(
+  row: Record<string, unknown>,
+  owner: ProjectWorkspace,
+  rootPath: string,
+  command: PlanGraphCommand
+): Promise<ProjectWorkspace> {
+  await assertCurrentProjectWorkspace(owner);
+  const createdAt = z.string().datetime().parse(stringColumn(row, "created_at"));
+  if (
+    owner.projectCreatedAt === null ||
+    Date.parse(createdAt) < Date.parse(owner.projectCreatedAt) ||
+    (await canonicalFileTarget(rootPath)) !== (await canonicalFileTarget(owner.rootPath))
+  ) {
+    throw new Error("History does not belong to the current project instance.");
+  }
+  if (!isProjectGraphCommand(command)) {
+    const parent = await resolveProjectWorkspaceInHome(owner.rootPath, owner.planweaveHome);
+    if (
+      (await canonicalFileTarget(parent.packageDir)) !==
+      (await canonicalFileTarget(owner.packageDir))
+    ) {
+      throw new Error("Legacy root history has no identity for this non-default canvas.");
+    }
+    await assertCurrentCanvasWorkspace(owner);
+    if (
+      owner.packageStorageIdentity === null ||
+      Date.parse(createdAt) < packageStorageCreatedAt(owner.packageStorageIdentity)
+    ) {
+      throw new Error("History predates the current canvas storage instance.");
+    }
+  }
+  return owner;
+}
+
 /** Only persisted pre-identity rows can bind to their validated current storage owner. */
 export async function operationLogWorkspaceRef(
   row: Record<string, unknown>,
-  owner: ProjectWorkspace
+  owner: ProjectWorkspace,
+  command: PlanGraphCommand
 ): Promise<PackageWorkspaceRef> {
   try {
     const raw = row.workspace_ref_json;
     // Databases predating workspace_ref_json stored the project root in project_root.
-    if (raw === null || raw === undefined || raw === "") return owner.rootPath;
+    if (raw === null || raw === undefined || raw === "")
+      return await legacyRootWorkspace(row, owner, owner.rootPath, command);
     if (typeof raw !== "string") throw new Error("Workspace reference must be JSON text.");
     const value: unknown = JSON.parse(raw);
-    if (typeof value === "string") return pathSchema.parse(value);
+    if (typeof value === "string")
+      return await legacyRootWorkspace(row, owner, pathSchema.parse(value), command);
     const parsed = persistedWorkspaceSchema.parse(value);
     if (parsed.projectCreatedAt !== undefined && parsed.packageStorageIdentity !== undefined)
       return {

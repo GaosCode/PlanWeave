@@ -270,3 +270,57 @@ it.each([
     after.close();
   }
 });
+
+it.each([
+  "null",
+  "empty",
+  "string"
+] as const)("validates %s legacy root history against its original canvas generation", async (format) => {
+  const f = await createTestWorkspace();
+  directories.push(f.root, f.home);
+  await removeTaskCanvas(f.root, "default");
+  const { getDesktopLayoutDirect } = await import("../desktop/layoutStore.js");
+  const original = await resolveTaskCanvasWorkspace(f.root, "default");
+  const edited = await executePlanGraphCommand({
+    projectRoot: original,
+    command: {
+      type: "updateLayout",
+      layoutScope: "desktop",
+      layout: {
+        version: "desktop-layout/v1",
+        projectId: original.id,
+        nodes: [],
+        updatedAt: "2024-01-01T00:00:00.000Z"
+      }
+    }
+  });
+  if (!edited.ok) throw new Error(JSON.stringify(edited.diagnostics));
+  expect(edited.ok).toBe(true);
+  const store = await createSqlitePlanGraphStore({ projectRoot: original });
+  const db = await openDatabase(store.indexPath);
+  db.prepare("UPDATE operation_log SET workspace_ref_json = ? WHERE id = ?").run(
+    format === "null" ? null : format === "empty" ? "" : JSON.stringify(original.rootPath),
+    edited.operationId
+  );
+  db.close();
+  expect(await undoPlanGraphCommand({ projectRoot: original })).toMatchObject({ ok: true });
+  expect(await redoPlanGraphCommand({ projectRoot: original })).toMatchObject({ ok: true });
+  await removeTaskCanvas(f.root, "default");
+  const current = await resolveTaskCanvasWorkspace(f.root, "default");
+  const before = await getDesktopLayoutDirect(current);
+  const result = await undoPlanGraphCommand({ projectRoot: current });
+  expect(result).toMatchObject({
+    ok: false,
+    diagnostics: [expect.objectContaining({ code: "history_command_invalid" })]
+  });
+  expect(await getDesktopLayoutDirect(current)).toEqual(before);
+  const after = await openDatabase(store.indexPath);
+  try {
+    expect(
+      after.prepare("SELECT undone_at FROM operation_log WHERE id = ?").get(edited.operationId)
+        ?.undone_at
+    ).toBeNull();
+  } finally {
+    after.close();
+  }
+});

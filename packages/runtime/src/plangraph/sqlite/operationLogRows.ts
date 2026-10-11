@@ -74,12 +74,13 @@ export async function operationLogEntry(
   row: Record<string, unknown>,
   workspace: ProjectWorkspace
 ): Promise<PlanGraphOperationLogEntry> {
+  const command = operationLogCommand(row);
   return {
     id: numberColumn(row, "id"),
-    workspaceRef: await operationLogWorkspaceRef(row, workspace),
+    workspaceRef: await operationLogWorkspaceRef(row, workspace, command),
     graphVersionBefore: stringColumn(row, "graph_version_before"),
     graphVersionAfter: stringColumn(row, "graph_version_after"),
-    command: operationLogCommand(row),
+    command,
     inverse: operationLogInverse(row),
     affected: parseAffected(stringColumn(row, "affected_json")),
     createdAt: stringColumn(row, "created_at"),
@@ -91,10 +92,11 @@ async function operationLogCoalescingEntry(
   row: Record<string, unknown>,
   workspace: ProjectWorkspace
 ): Promise<OperationLogCoalescingEntry> {
+  const command = operationLogCommand(row);
   return {
     id: numberColumn(row, "id"),
-    workspaceRef: await operationLogWorkspaceRef(row, workspace),
-    command: operationLogCommand(row),
+    workspaceRef: await operationLogWorkspaceRef(row, workspace, command),
+    command,
     affected: parseAffected(stringColumn(row, "affected_json"))
   };
 }
