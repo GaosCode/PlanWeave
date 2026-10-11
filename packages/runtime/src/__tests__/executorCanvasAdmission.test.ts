@@ -9,7 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { initManagedWorkspace } from "../initWorkspace.js";
+import { initManagedWorkspace, initWorkspace } from "../initWorkspace.js";
 import {
   createTaskCanvas,
   removeTaskCanvas,
@@ -30,13 +30,14 @@ import { basicManifest, writePromptFiles } from "./promptTestHelpers.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...actual, rename: vi.fn(actual.rename) };
+  return { ...actual, rename: vi.fn(actual.rename), rm: vi.fn(actual.rm) };
 });
 let actualFs: typeof import("node:fs/promises");
 const directories: string[] = [];
 beforeEach(async () => {
   actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
   vi.mocked(rename).mockImplementation((source, target) => actualFs.rename(source, target));
+  vi.mocked(rm).mockImplementation((target, options) => actualFs.rm(target, options));
 });
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -405,4 +406,78 @@ it("keeps an unchanged peer request and history valid when canvases share a pare
   expect(await undoPlanGraphCommand({ projectRoot: peer })).toMatchObject({ ok: true });
   expect(await redoPlanGraphCommand({ projectRoot: peer })).toMatchObject({ ok: true });
   expect(await readFile(peer.manifestFile, "utf8")).toBe(before);
+});
+
+it("rejects old feedback queued behind a real results-only reset", async () => {
+  const { owner } = await fixture();
+  const captured = await resolveTaskCanvasWorkspace(owner.workspace.rootPath, "default");
+  await writeJsonFile(captured.manifestFile, basicManifest());
+  expect(
+    await executePlanGraphCommand({
+      projectRoot: captured,
+      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Preserved edit" } }
+    })
+  ).toMatchObject({ ok: true });
+  const canonicalResults = await actualFs.realpath(captured.resultsDir);
+  const resetting = barrier(),
+    proceed = barrier(),
+    attempted = barrier();
+  vi.mocked(rm).mockImplementation(async (target, options) => {
+    if (target === captured.resultsDir || target === canonicalResults) {
+      resetting.release();
+      await proceed.promise;
+    }
+    return actualFs.rm(target, options);
+  });
+  const reset = initWorkspace({ projectRoot: owner.workspace.rootPath, resetResults: true });
+  await Promise.race([
+    resetting.promise,
+    reset.then(() => {
+      throw new Error("Reset completed without reaching the results barrier.");
+    })
+  ]);
+  const lock = mutation.withProjectMutationLock;
+  vi.spyOn(mutation, "withProjectMutationLock").mockImplementation((root, apply, options) => {
+    attempted.release();
+    return lock(root, apply, options);
+  });
+  const feedback = (workspace: typeof captured) =>
+    runProfileFeedback({
+      projectRoot: workspace,
+      workspace,
+      executorName: "manual",
+      profile: { adapter: "manual" },
+      claim: {
+        kind: "feedback",
+        feedbackId: "FE-OLD-RESULTS",
+        sourceReviewBlockRef: "T-001#R-001",
+        taskId: "T-001",
+        content: "Pre-reset feedback",
+        effectiveExecutor: "manual"
+      }
+    });
+  const outcome = feedback(captured).then(
+    (value) => ({ value, error: null }),
+    (error: unknown) => ({ value: null, error })
+  );
+  try {
+    await attempted.promise;
+    proceed.release();
+    await reset;
+    const result = await outcome;
+    expect(String(result.error)).toContain("results storage identity changed");
+    expect(result.value).toBeNull();
+    await expect(access(join(captured.resultsDir, "feedback-runs"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    const current = await resolveTaskCanvasWorkspace(owner.workspace.rootPath, "default");
+    await expect(feedback(current)).resolves.toMatchObject({ kind: "manual" });
+    expect(await undoPlanGraphCommand({ projectRoot: current })).toMatchObject({ ok: true });
+    expect(await redoPlanGraphCommand({ projectRoot: current })).toMatchObject({ ok: true });
+    expect(await readFile(current.manifestFile, "utf8")).toContain("Preserved edit");
+  } finally {
+    proceed.release();
+    await reset;
+    await outcome;
+  }
 });

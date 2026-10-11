@@ -126,6 +126,7 @@ function draftWorkspace(draftRoot: string, packageDir: string): ProjectWorkspace
     id,
     projectCreatedAt: null,
     packageStorageIdentity: null,
+    resultsStorageIdentity: null,
     kind: "managed",
     rootPath: draftRoot,
     sourceRoot: null,

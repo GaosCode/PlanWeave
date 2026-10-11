@@ -50,7 +50,11 @@ async function currentCanvasIdentity(workspace: ProjectWorkspace): Promise<strin
 export async function capturePackageStorageIdentity(
   workspace: ProjectWorkspace
 ): Promise<ProjectWorkspace> {
-  return { ...workspace, packageStorageIdentity: await currentCanvasIdentity(workspace) };
+  return {
+    ...workspace,
+    packageStorageIdentity: await currentCanvasIdentity(workspace),
+    resultsStorageIdentity: await currentResultsIdentity(workspace)
+  };
 }
 
 export async function assertPackageStorageIdentity(workspace: ProjectWorkspace): Promise<void> {
@@ -66,4 +70,33 @@ export function packageStorageCreatedAt(identity: string): number {
   const valid = packageStorageIdentitySchema.parse(identity);
   const timestamp = valid.split(":").at(-1)!;
   return valid.startsWith("instance:") ? Number(timestamp) : Number(BigInt(timestamp) / 1_000_000n);
+}
+
+export const resultsStorageIdentitySchema = z.union([z.literal("initial"), z.string().uuid()]);
+
+function resultsStorageIdentityFile(workspace: ProjectWorkspace): string {
+  return join(
+    dirname(workspace.resultsDir),
+    `${basename(workspace.resultsDir)}.results-instance.json`
+  );
+}
+
+async function currentResultsIdentity(workspace: ProjectWorkspace): Promise<string> {
+  const raw = await optionalReadFile(resultsStorageIdentityFile(workspace), "utf8");
+  // Results predating explicit reset generations retain their original generation.
+  return raw === null ? "initial" : resultsStorageIdentitySchema.parse(JSON.parse(raw));
+}
+
+/** Caller owns the results replacement lane and the parent project lock. */
+export async function writeNewResultsStorageIdentity(workspace: ProjectWorkspace): Promise<void> {
+  await writeJsonFile(resultsStorageIdentityFile(workspace), randomUUID());
+}
+
+export async function assertResultsStorageIdentity(workspace: ProjectWorkspace): Promise<void> {
+  if (
+    typeof workspace.resultsStorageIdentity !== "string" ||
+    workspace.resultsStorageIdentity !== (await currentResultsIdentity(workspace))
+  ) {
+    throw new Error(`PlanWeave results storage identity changed at '${workspace.resultsDir}'.`);
+  }
 }

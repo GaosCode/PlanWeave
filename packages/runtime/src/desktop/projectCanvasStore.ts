@@ -193,6 +193,7 @@ function legacyCanvasWorkspace(
   return {
     ...projectWorkspace,
     packageStorageIdentity: null,
+    resultsStorageIdentity: null,
     workspaceRoot,
     packageDir,
     manifestFile: join(packageDir, "manifest.json"),

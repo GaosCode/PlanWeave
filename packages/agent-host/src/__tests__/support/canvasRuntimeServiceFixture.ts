@@ -109,6 +109,7 @@ export function unusedWorkspace(): ProjectWorkspace {
     id: "project-1",
     projectCreatedAt: null,
     packageStorageIdentity: null,
+    resultsStorageIdentity: null,
     kind: "managed",
     rootPath: "/not-observed",
     sourceRoot: null,

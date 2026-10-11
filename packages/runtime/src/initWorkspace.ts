@@ -1,5 +1,6 @@
 import {
   capturePackageStorageIdentity,
+  writeNewResultsStorageIdentity,
   writeNewCanvasStorageIdentity
 } from "./package/packageStorageIdentity.js";
 import {
@@ -147,6 +148,7 @@ async function initializeWorkspaceLocked(
       await mkdir(join(workspace.packageDir, "nodes"), { recursive: true });
       await mkdir(dirname(workspace.projectPromptFile), { recursive: true });
       await mkdir(workspace.resultsDir, { recursive: true });
+      if (options.resetResults) await writeNewResultsStorageIdentity(workspace);
 
       if (!(await exists(join(resolvePlanweaveHome(), "config", "global-prompt.md")))) {
         await writeFile(

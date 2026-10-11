@@ -27,6 +27,7 @@ export function projectWorkspacePaths(input: {
   return {
     ...input,
     packageStorageIdentity: null,
+    resultsStorageIdentity: null,
     projectFile: join(input.workspaceRoot, "project.json"),
     packageDir: join(input.workspaceRoot, defaultCanvasWorkspace.packageDir),
     manifestFile: join(input.workspaceRoot, defaultCanvasWorkspace.packageDir, "manifest.json"),

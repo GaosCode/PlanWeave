@@ -1,6 +1,7 @@
 import {
   capturePackageStorageIdentity,
   packageStorageIdentitySchema,
+  resultsStorageIdentitySchema,
   packageStorageCreatedAt
 } from "../../package/packageStorageIdentity.js";
 import { isAbsolute } from "node:path";
@@ -19,6 +20,7 @@ const persistedWorkspaceSchema = z
     id: z.string().min(1),
     projectCreatedAt: z.string().datetime().nullable().optional(),
     packageStorageIdentity: packageStorageIdentitySchema.nullable().optional(),
+    resultsStorageIdentity: resultsStorageIdentitySchema.nullable().optional(),
     kind: z.enum(projectKinds),
     rootPath: pathSchema,
     sourceRoot: pathSchema.nullable(),
@@ -62,6 +64,7 @@ export async function operationLogWorkspaceRef(
       return {
         ...parsed,
         projectCreatedAt: parsed.projectCreatedAt,
+        resultsStorageIdentity: parsed.resultsStorageIdentity ?? null,
         packageStorageIdentity: parsed.packageStorageIdentity
       };
 

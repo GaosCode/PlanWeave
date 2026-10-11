@@ -1,3 +1,4 @@
+import { assertResultsStorageIdentity } from "./packageStorageIdentity.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { userInfo } from "node:os";
@@ -86,6 +87,7 @@ export async function acquireExecutorResultsWriteLease(
       [workspace.packageDir, workspace.stateFile, workspace.resultsDir],
       async () => {
         await assertCurrentCanvasWorkspace(workspace);
+        await assertResultsStorageIdentity(workspace);
         await assertNoPendingImportTransactionWrite({
           workspaceRoot: dirname(workspace.projectFile),
           target: workspace.resultsDir

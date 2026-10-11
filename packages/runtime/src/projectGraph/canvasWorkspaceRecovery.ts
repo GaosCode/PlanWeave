@@ -73,6 +73,7 @@ export function canvasRootWorkspace(
   return {
     ...projectWorkspace,
     packageStorageIdentity: null,
+    resultsStorageIdentity: null,
     workspaceRoot,
     packageDir: join(workspaceRoot, "package"),
     manifestFile: join(workspaceRoot, "package", "manifest.json"),

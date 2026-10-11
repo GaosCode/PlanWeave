@@ -8,6 +8,8 @@ export type ProjectWorkspace = {
   projectCreatedAt: string | null;
   /** Logical canvas storage instance; null for uninitialized/path-only workspaces. */
   packageStorageIdentity: string | null;
+  /** Results generation; independent of task content and editing history. */
+  resultsStorageIdentity: string | null;
   kind: ProjectKind;
   rootPath: string;
   sourceRoot: string | null;
