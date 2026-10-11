@@ -6,7 +6,7 @@ import {
 } from "../plangraph/executeCommand.js";
 import { access, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { initManagedWorkspace, initWorkspace } from "../initWorkspace.js";
@@ -479,5 +479,63 @@ it("rejects old feedback queued behind a real results-only reset", async () => {
     proceed.release();
     await reset;
     await outcome;
+  }
+});
+
+it.each([
+  "initialization",
+  "identity-write"
+] as const)("safely retires results on a real reset failure at %s", async (failure) => {
+  const { owner } = await fixture();
+  const captured = await resolveTaskCanvasWorkspace(owner.workspace.rootPath, "default");
+  const sentinel = join(captured.resultsDir, "preserved-result.txt");
+  await writeFile(sentinel, "durable result");
+  const config = join(captured.planweaveHome, "config");
+  const savedConfig = `${config}-saved`;
+  if (failure === "initialization") {
+    await actualFs.rename(config, savedConfig);
+    await writeFile(config, "configuration collision");
+  } else {
+    const marker = join(
+      await actualFs.realpath(dirname(captured.resultsDir)),
+      `${basename(captured.resultsDir)}.results-instance.json`
+    );
+    vi.mocked(rename).mockImplementation(async (source, target) => {
+      if (target === marker)
+        throw Object.assign(new Error("Results identity write failed"), { code: "EIO" });
+      return actualFs.rename(source, target);
+    });
+  }
+  try {
+    await expect(
+      initWorkspace({ projectRoot: owner.workspace.rootPath, resetResults: true })
+    ).rejects.toThrow(failure === "initialization" ? "EEXIST" : "Results identity write failed");
+    if (failure === "identity-write") {
+      expect(await readFile(sentinel, "utf8")).toBe("durable result");
+    } else {
+      await expect(access(captured.resultsDir)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(
+        runProfileFeedback({
+          projectRoot: captured,
+          workspace: captured,
+          executorName: "manual",
+          profile: { adapter: "manual" },
+          claim: {
+            kind: "feedback",
+            feedbackId: "FE-FAILED-RESET",
+            sourceReviewBlockRef: "T-001#R-001",
+            taskId: "T-001",
+            content: "Old feedback after failed reset",
+            effectiveExecutor: "manual"
+          }
+        })
+      ).rejects.toThrow("results storage identity changed");
+      await expect(access(captured.resultsDir)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  } finally {
+    if (failure === "initialization") {
+      await actualFs.rename(config, `${config}-collision`);
+      await actualFs.rename(savedConfig, config);
+    }
   }
 });
