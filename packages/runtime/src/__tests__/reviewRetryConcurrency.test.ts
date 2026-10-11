@@ -137,18 +137,21 @@ it.each([
             : { type: "removeTask", taskId: "T-001" };
   const edited = deferred(),
     release = deferred();
-  const writer = withPackageFileConsistency([workspace.packageDir], async () => {
-    const result = await executePlanGraphCommand({
-      projectRoot: workspace,
-      command,
-      recordOperation: false
-    });
-    if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
-    edited.resolve();
-    await release.promise;
-    return result;
-  });
-  await edited.promise;
+  const writer = withPackageFileConsistency(
+    [workspace.packageDir, workspace.stateFile, workspace.resultsDir],
+    async () => {
+      const result = await executePlanGraphCommand({
+        projectRoot: workspace,
+        command,
+        recordOperation: false
+      });
+      if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
+      edited.resolve();
+      await release.promise;
+      return result;
+    }
+  );
+  await Promise.race([edited.promise, writer]);
   const protectedPaths = [
     workspace.manifestFile,
     workspace.stateFile,
@@ -394,13 +397,16 @@ it("preserves a successful policy edit when retry waits behind its package lock"
   const workspace = init.workspace;
   const edited = deferred(),
     release = deferred();
-  const writer = withPackageFileConsistency([workspace.packageDir], async () => {
-    const result = await updateCanvasExecutionPolicy(workspace, { parallelEnabled: true });
-    edited.resolve();
-    await release.promise;
-    return result;
-  });
-  await edited.promise;
+  const writer = withPackageFileConsistency(
+    [workspace.packageDir, workspace.stateFile, workspace.resultsDir],
+    async () => {
+      const result = await updateCanvasExecutionPolicy(workspace, { parallelEnabled: true });
+      edited.resolve();
+      await release.promise;
+      return result;
+    }
+  );
+  await Promise.race([edited.promise, writer]);
   const requested = await watchRequest(workspace.packageDir);
   const retry = retryReview({ projectRoot: workspace, ref: "T-001#R-001", maxFeedbackCycles: 3 });
   try {

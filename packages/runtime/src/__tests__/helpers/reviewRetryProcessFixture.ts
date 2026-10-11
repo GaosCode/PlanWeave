@@ -23,7 +23,7 @@ export function spawnReviewRetryActor(
     import { userInfo } from 'node:os';
     import { join } from 'node:path';
     const workspace = JSON.parse(process.argv[1]), source = process.argv[2];
-    const { withPackageFileConsistency } = await import(source+'package/packageFileConsistency.ts');
+    const { withPackageFileConsistency, canonicalPackageFileTarget } = await import(source+'package/packageFileConsistency.ts');
     const { executePlanGraphCommand } = await import(source+'plangraph/executeCommand.ts');
     const key=createHash('sha256').update(await realpath(workspace.packageDir)).digest('hex');
     const lockPath=join(userInfo().homedir,'.cache','planweave','package-locks',key);
@@ -37,7 +37,7 @@ export function spawnReviewRetryActor(
         ? {type:'removeTask',taskId:'T-002'}
         : {type:'updateTaskFields',taskId:'T-002',fields:{title:'Child edit'}},recordOperation:false});
     if(process.argv[3]==='hold') {
-      await withPackageFileConsistency([workspace.packageDir],async()=>{
+      await withPackageFileConsistency([workspace.packageDir,workspace.stateFile,workspace.resultsDir],async()=>{
         const result=await edit(); if('ok' in result && !result.ok)throw new Error(JSON.stringify(result.diagnostics));
         process.stdout.write('edited-held\\n');
         await continued;
@@ -45,11 +45,18 @@ export function spawnReviewRetryActor(
     } else {
       const { withAdvisoryDirectoryLock } = await import(source+'fs/advisoryDirectoryLock.ts');
       const { optionalStat } = await import(source+'fs/optionalFile.ts');
-      await withAdvisoryDirectoryLock({lockPath,operation:'review-retry-child-edit',fs:{...fs,optionalStat,mkdir:async(path)=>{
-        try { await fs.mkdir(path); } catch(error) { if(error.code==='EEXIST')process.stdout.write('contended\\n'); throw error; }
-      }}},async()=>{
-        const result=await edit(); if('ok' in result && !result.ok)throw new Error(JSON.stringify(result.diagnostics));
-      });
+      const targets=await Promise.all([workspace.packageDir,workspace.stateFile,workspace.resultsDir].map(canonicalPackageFileTarget));
+      const keys=[...new Set(targets.map(target=>createHash('sha256').update(target).digest('hex')))].sort();
+      const acquire=async(index)=>{
+        if(index===keys.length) {
+          const result=await edit(); if('ok' in result && !result.ok)throw new Error(JSON.stringify(result.diagnostics));
+          return;
+        }
+        await withAdvisoryDirectoryLock({lockPath:join(userInfo().homedir,'.cache','planweave','package-locks',keys[index]),operation:'review-retry-child-edit',fs:{...fs,optionalStat,mkdir:async(path)=>{
+          try { await fs.mkdir(path); } catch(error) { if(error.code==='EEXIST')process.stdout.write('contended\\n'); throw error; }
+        }}},()=>acquire(index+1));
+      };
+      await acquire(0);
       process.stdout.write('edited\\n');
     }
     process.stdin.destroy();
