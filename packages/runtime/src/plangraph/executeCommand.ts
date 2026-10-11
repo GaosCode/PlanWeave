@@ -1,3 +1,6 @@
+import { assertCurrentCanvasWorkspace } from "../package/assertCurrentCanvasWorkspace.js";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { PlanPackageGraphMutation } from "../graph/mutation.js";
 import { requireInitializedProjectWorkspace, withCurrentProjectWorkspace } from "../project.js";
 import { defaultPlanGraphCommandDependencies } from "./adapters.js";
@@ -47,6 +50,14 @@ async function withCommandProjectLock(
       ? await requireInitializedProjectWorkspace(projectRoot)
       : projectRoot;
   return withCurrentProjectWorkspace(workspace, apply);
+}
+
+async function assertCanvasCommandWorkspace(projectRoot: PackageWorkspaceRef): Promise<void> {
+  const workspace = await resolvePackageWorkspace(projectRoot);
+  await withPackageFileConsistency(
+    [workspace.packageDir, workspace.stateFile, workspace.resultsDir],
+    () => assertCurrentCanvasWorkspace(workspace)
+  );
 }
 
 function historyCommandInvalid(error: PlanGraphOperationLogParseError): PlanGraphCommandResult {
@@ -330,6 +341,7 @@ async function executePlanGraphCommandLocked(
       dependencies
     );
   }
+  await assertCanvasCommandWorkspace(options.projectRoot);
   if (options.command.type === "updateLayout") {
     return executeLayoutCommand(options, dependencies);
   }
@@ -467,6 +479,8 @@ async function applyHistoryCommand(
       workspaceRef
     );
   }
+  await assertCanvasCommandWorkspace(options.projectRoot);
+  await assertCanvasCommandWorkspace(workspaceRef);
   const loaded = await dependencies.repository.load(workspaceRef);
   if (loaded.graph.graphVersion !== expectedGraphVersion) {
     return fail({

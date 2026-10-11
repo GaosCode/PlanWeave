@@ -1,3 +1,4 @@
+import { loadProjectGraph, projectCanvasWorkspace } from "../projectGraph/index.js";
 import { capturePackageSnapshot, restorePackageSnapshot } from "../package/packageSnapshot.js";
 import { applyAuthorizedCanvasCommand } from "../graph/canvasCommandPort.js";
 import { readFile, rm } from "node:fs/promises";
@@ -180,4 +181,92 @@ it.each([
   expect(
     manifestSchema.parse(JSON.parse(await readFile(current.manifestFile, "utf8"))).nodes[0]?.title
   ).toBe("Published title");
+});
+
+it.each([
+  "execute",
+  "undo",
+  "redo"
+] as const)("rejects an identity-free saved canvas writer at %s admission", async (action) => {
+  const f = await createTestWorkspace();
+  directories.push(f.root, f.home);
+  const graph = await loadProjectGraph(f.root);
+  const canvas = graph.manifest.canvases.find((item) => item.id === "default");
+  if (!canvas) throw new Error("Missing default canvas.");
+  const saved = projectCanvasWorkspace(graph.workspace, canvas);
+  const replacementManifest = JSON.parse(await readFile(saved.manifestFile, "utf8"));
+  await removeTaskCanvas(f.root, "default");
+  await writeJsonFile(saved.manifestFile, replacementManifest);
+  const current = await resolveTaskCanvasWorkspace(f.root, "default");
+  expect(
+    await executePlanGraphCommand({
+      projectRoot: current,
+      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Valid history" } }
+    })
+  ).toMatchObject({ ok: true });
+  if (action === "redo")
+    expect(await undoPlanGraphCommand({ projectRoot: current })).toMatchObject({ ok: true });
+  const before = await readFile(current.manifestFile, "utf8");
+  const store = await createSqlitePlanGraphStore({ projectRoot: current });
+  const db = await openDatabase(store.indexPath);
+  const rows = db.prepare("SELECT id, undone_at FROM operation_log ORDER BY id").all();
+  db.close();
+  const operation =
+    action === "execute"
+      ? executePlanGraphCommand({
+          projectRoot: saved,
+          command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Invalid edit" } }
+        })
+      : action === "undo"
+        ? undoPlanGraphCommand({ projectRoot: saved })
+        : redoPlanGraphCommand({ projectRoot: saved });
+  await expect(operation).rejects.toThrow("canvas storage identity changed");
+  expect(await readFile(current.manifestFile, "utf8")).toBe(before);
+  const after = await openDatabase(store.indexPath);
+  try {
+    expect(after.prepare("SELECT id, undone_at FROM operation_log ORDER BY id").all()).toEqual(
+      rows
+    );
+  } finally {
+    after.close();
+  }
+});
+
+it.each([
+  "undo",
+  "redo"
+] as const)("rejects historical explicit-null canvas identities during %s", async (action) => {
+  const f = await createTestWorkspace();
+  directories.push(f.root, f.home);
+  const workspace = await resolveTaskCanvasWorkspace(f.root, "default");
+  const result = await executePlanGraphCommand({
+    projectRoot: workspace,
+    command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Old unbound history" } }
+  });
+  expect(result.ok).toBe(true);
+  if (action === "redo")
+    expect(await undoPlanGraphCommand({ projectRoot: workspace })).toMatchObject({ ok: true });
+  const store = await createSqlitePlanGraphStore({ projectRoot: workspace });
+  const db = await openDatabase(store.indexPath);
+  const rows = db.prepare("SELECT id, undone_at FROM operation_log ORDER BY id").all();
+  db.prepare("UPDATE operation_log SET workspace_ref_json = ? WHERE id = ?").run(
+    JSON.stringify({ ...workspace, packageStorageIdentity: null }),
+    result.operationId
+  );
+  db.close();
+  const before = await readFile(workspace.manifestFile, "utf8");
+  await expect(
+    action === "undo"
+      ? undoPlanGraphCommand({ projectRoot: workspace })
+      : redoPlanGraphCommand({ projectRoot: workspace })
+  ).rejects.toThrow("canvas storage identity changed");
+  expect(await readFile(workspace.manifestFile, "utf8")).toBe(before);
+  const after = await openDatabase(store.indexPath);
+  try {
+    expect(after.prepare("SELECT id, undone_at FROM operation_log ORDER BY id").all()).toEqual(
+      rows
+    );
+  } finally {
+    after.close();
+  }
 });
