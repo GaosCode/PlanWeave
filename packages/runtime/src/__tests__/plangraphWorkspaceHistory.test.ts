@@ -1,7 +1,13 @@
-import { loadProjectGraph, projectCanvasWorkspace } from "../projectGraph/index.js";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import {
+  createProjectCanvas,
+  loadProjectGraph,
+  projectCanvasWorkspace
+} from "../projectGraph/index.js";
 import { capturePackageSnapshot, restorePackageSnapshot } from "../package/packageSnapshot.js";
 import { applyAuthorizedCanvasCommand } from "../graph/canvasCommandPort.js";
-import { readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
 import { removeTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
 import { initWorkspace } from "../initWorkspace.js";
@@ -322,5 +328,75 @@ it.each([
     ).toBeNull();
   } finally {
     after.close();
+  }
+});
+
+it.each([
+  "execute",
+  "undo",
+  "redo"
+] as const)("keeps captured project %s and SQLite history in Home A while Home B is active", async (action) => {
+  const f = {
+    root: await mkdtemp(join(tmpdir(), "planweave-project-history-source-")),
+    home: await mkdtemp(join(tmpdir(), "planweave-project-history-home-A-"))
+  };
+  process.env.PLANWEAVE_HOME = f.home;
+  process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = join(f.home, "settings.json");
+  await initWorkspace({ projectRoot: f.root, projectGraph: true });
+  directories.push(f.root, f.home);
+  await createProjectCanvas({ projectRoot: f.root, requestedId: "peer", title: "Peer" });
+  const a = await resolveTaskCanvasWorkspace(f.root, "default");
+  const command = {
+    type: "addCanvasDependency" as const,
+    fromCanvasId: "default",
+    toCanvasId: "peer"
+  };
+  if (action !== "execute")
+    expect(await executePlanGraphCommand({ projectRoot: a, command })).toMatchObject({ ok: true });
+  if (action === "redo")
+    expect(await undoPlanGraphCommand({ projectRoot: a })).toMatchObject({ ok: true });
+  const homeB = await mkdtemp(join(tmpdir(), "planweave-project-history-home-B-"));
+  directories.push(homeB);
+  process.env.PLANWEAVE_HOME = homeB;
+  await initWorkspace({ projectRoot: f.root, projectGraph: true });
+  await createProjectCanvas({ projectRoot: f.root, requestedId: "peer", title: "Peer" });
+  const b = await resolveTaskCanvasWorkspace(f.root, "default");
+  if (action !== "execute")
+    expect(await executePlanGraphCommand({ projectRoot: b, command })).toMatchObject({ ok: true });
+  if (action === "redo")
+    expect(await undoPlanGraphCommand({ projectRoot: b })).toMatchObject({ ok: true });
+  const aGraph = join(a.planweaveHome, "projects", a.id, "project-graph.json");
+  const bGraph = join(b.planweaveHome, "projects", b.id, "project-graph.json");
+  const beforeA = await readFile(aGraph, "utf8"),
+    beforeB = await readFile(bGraph, "utf8");
+  const bStore = await createSqlitePlanGraphStore({ projectRoot: b });
+  await bStore.log.latestUndoable();
+  const beforeDb = await openDatabase(bStore.indexPath);
+  const beforeRows = beforeDb.prepare("SELECT * FROM operation_log ORDER BY id").all();
+  beforeDb.close();
+  const result =
+    action === "execute"
+      ? await executePlanGraphCommand({ projectRoot: a, command })
+      : action === "undo"
+        ? await undoPlanGraphCommand({ projectRoot: a })
+        : await redoPlanGraphCommand({ projectRoot: a });
+  expect(result).toMatchObject({ ok: true });
+  expect(await readFile(aGraph, "utf8")).not.toBe(beforeA);
+  expect(await readFile(bGraph, "utf8")).toBe(beforeB);
+  const afterDb = await openDatabase(bStore.indexPath);
+  try {
+    expect(afterDb.prepare("SELECT * FROM operation_log ORDER BY id").all()).toEqual(beforeRows);
+  } finally {
+    afterDb.close();
+  }
+  const aStore = await createSqlitePlanGraphStore({ projectRoot: a });
+  const aDb = await openDatabase(aStore.indexPath);
+  try {
+    const row = aDb.prepare("SELECT undone_at FROM operation_log ORDER BY id DESC LIMIT 1").get();
+    expect(row).toBeDefined();
+    if (action === "undo") expect(row?.undone_at).not.toBeNull();
+    else expect(row?.undone_at).toBeNull();
+  } finally {
+    aDb.close();
   }
 });

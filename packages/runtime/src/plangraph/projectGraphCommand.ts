@@ -1,6 +1,7 @@
+import { dirname } from "node:path";
 import {
   compileProjectGraph,
-  loadProjectGraph,
+  loadProjectGraphForWorkspace,
   projectCanvasEdgeKey,
   projectCrossTaskEdgeKey,
   projectGraphPath,
@@ -10,7 +11,7 @@ import {
   type ProjectGraphManifest,
   type ProjectTaskRef
 } from "../projectGraph/index.js";
-import type { PackageWorkspaceRef } from "../types.js";
+import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { assertCurrentProjectWorkspace, requireInitializedProjectWorkspace } from "../project.js";
 import type {
@@ -34,10 +35,6 @@ type ExecuteProjectGraphCommandOptions = {
 
 function diagnostic(code: string, message: string, path?: string): PlanGraphCommandDiagnostic {
   return { code, message, path };
-}
-
-function projectRootString(projectRoot: PackageWorkspaceRef): string {
-  return typeof projectRoot === "string" ? projectRoot : projectRoot.rootPath;
 }
 
 function projectGraphVersion(manifest: ProjectGraphManifest): string {
@@ -180,22 +177,25 @@ export async function executeProjectGraphCommand(
   options: ExecuteProjectGraphCommandOptions,
   dependencies: PlanGraphCommandDependencies
 ): Promise<PlanGraphCommandResult> {
-  const workspace = await requireInitializedProjectWorkspace(
-    projectRootString(options.projectRoot)
-  );
-  return withProjectMutationLock(workspace.workspaceRoot, async () => {
+  const workspace =
+    typeof options.projectRoot === "string"
+      ? await requireInitializedProjectWorkspace(options.projectRoot)
+      : options.projectRoot;
+  return withProjectMutationLock(dirname(workspace.projectFile), async () => {
     await assertCurrentProjectWorkspace(workspace);
-    return executeProjectGraphCommandLocked(options, dependencies);
+    return executeProjectGraphCommandLocked({ ...options, projectRoot: workspace }, dependencies);
   });
 }
 
 async function executeProjectGraphCommandLocked(
-  options: ExecuteProjectGraphCommandOptions,
+  options: Omit<ExecuteProjectGraphCommandOptions, "projectRoot"> & {
+    projectRoot: ProjectWorkspace;
+  },
   dependencies: PlanGraphCommandDependencies
 ): Promise<PlanGraphCommandResult> {
   const recordOperation = options.recordOperation ?? true;
-  const projectRoot = projectRootString(options.projectRoot);
-  const loaded = await loadProjectGraph(projectRoot);
+  const loaded = await loadProjectGraphForWorkspace(options.projectRoot);
+  const projectRoot = loaded.workspace;
   const beforeVersion = projectGraphVersion(loaded.manifest);
   const beforeFingerprint = projectGraphFingerprint(loaded.manifest);
   const baseVersionDiagnostic = validateBaseVersion(beforeVersion, options.command);
@@ -275,15 +275,18 @@ export async function applyProjectGraphHistoryCommand(
   expectedGraphVersion: string,
   workspaceRef: PackageWorkspaceRef
 ): Promise<PlanGraphCommandResult> {
-  const workspace = await requireInitializedProjectWorkspace(projectRootString(workspaceRef));
-  return withProjectMutationLock(workspace.workspaceRoot, async () => {
+  const workspace =
+    typeof workspaceRef === "string"
+      ? await requireInitializedProjectWorkspace(workspaceRef)
+      : workspaceRef;
+  return withProjectMutationLock(dirname(workspace.projectFile), async () => {
     await assertCurrentProjectWorkspace(workspace);
     return applyProjectGraphHistoryCommandLocked(
       options,
       dependencies,
       command,
       expectedGraphVersion,
-      workspaceRef
+      workspace
     );
   });
 }
@@ -293,10 +296,10 @@ async function applyProjectGraphHistoryCommandLocked(
   dependencies: PlanGraphCommandDependencies,
   command: ProjectGraphCommand,
   expectedGraphVersion: string,
-  workspaceRef: PackageWorkspaceRef
+  workspaceRef: ProjectWorkspace
 ): Promise<PlanGraphCommandResult> {
-  const projectRoot = projectRootString(workspaceRef);
-  const loaded = await loadProjectGraph(projectRoot);
+  const loaded = await loadProjectGraphForWorkspace(workspaceRef);
+  const projectRoot = loaded.workspace;
   const currentVersion = projectGraphVersion(loaded.manifest);
   if (currentVersion !== expectedGraphVersion) {
     return fail({

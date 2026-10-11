@@ -2,7 +2,9 @@ import { assertCurrentCanvasWorkspace } from "../package/assertCurrentCanvasWork
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { PlanPackageGraphMutation } from "../graph/mutation.js";
-import { requireInitializedProjectWorkspace, withCurrentProjectWorkspace } from "../project.js";
+import { assertCurrentProjectWorkspace } from "../project.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
+import { dirname } from "node:path";
 import { defaultPlanGraphCommandDependencies } from "./adapters.js";
 import { PlanGraphOperationLogParseError } from "./commandSchema.js";
 import { handlerForCommand, type PlanGraphCommandHandler } from "./commandHandlers/index.js";
@@ -13,7 +15,7 @@ import {
   executeProjectGraphCommand,
   isProjectGraphCommand
 } from "./projectGraphCommand.js";
-import type { PackageWorkspaceRef } from "../types.js";
+import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 import type {
   AppliedPlanGraphCommand,
   PlanGraphAffectedRefs,
@@ -43,13 +45,13 @@ type ResolvedPlanGraphCommandDependencies = PlanGraphCommandDependencies;
 
 async function withCommandProjectLock(
   projectRoot: PackageWorkspaceRef,
-  apply: () => Promise<PlanGraphCommandResult>
+  apply: (workspace: ProjectWorkspace) => Promise<PlanGraphCommandResult>
 ): Promise<PlanGraphCommandResult> {
-  const workspace =
-    typeof projectRoot === "string"
-      ? await requireInitializedProjectWorkspace(projectRoot)
-      : projectRoot;
-  return withCurrentProjectWorkspace(workspace, apply);
+  const workspace = await resolvePackageWorkspace(projectRoot);
+  return withProjectMutationLock(dirname(workspace.projectFile), async () => {
+    await assertCurrentProjectWorkspace(workspace);
+    return apply(workspace);
+  });
 }
 
 async function assertCanvasCommandWorkspace(projectRoot: PackageWorkspaceRef): Promise<void> {
@@ -320,7 +322,9 @@ async function executeLayoutCommand(
 export async function executePlanGraphCommand(
   options: ExecutePlanGraphCommandOptions
 ): Promise<PlanGraphCommandResult> {
-  return withCommandProjectLock(options.projectRoot, () => executePlanGraphCommandLocked(options));
+  return withCommandProjectLock(options.projectRoot, (workspace) =>
+    executePlanGraphCommandLocked({ ...options, projectRoot: workspace })
+  );
 }
 
 async function executePlanGraphCommandLocked(
@@ -535,7 +539,9 @@ function commandForHistoryReplay(command: PlanGraphCommand): PlanGraphCommand {
 export async function undoPlanGraphCommand(
   options: PlanGraphHistoryOptions
 ): Promise<PlanGraphCommandResult> {
-  return withCommandProjectLock(options.projectRoot, () => undoPlanGraphCommandLocked(options));
+  return withCommandProjectLock(options.projectRoot, (workspace) =>
+    undoPlanGraphCommandLocked({ ...options, projectRoot: workspace })
+  );
 }
 
 async function undoPlanGraphCommandLocked(
@@ -576,7 +582,9 @@ async function undoPlanGraphCommandLocked(
 export async function redoPlanGraphCommand(
   options: PlanGraphHistoryOptions
 ): Promise<PlanGraphCommandResult> {
-  return withCommandProjectLock(options.projectRoot, () => redoPlanGraphCommandLocked(options));
+  return withCommandProjectLock(options.projectRoot, (workspace) =>
+    redoPlanGraphCommandLocked({ ...options, projectRoot: workspace })
+  );
 }
 
 async function redoPlanGraphCommandLocked(
