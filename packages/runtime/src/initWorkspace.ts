@@ -131,8 +131,6 @@ async function initializeWorkspaceLocked(
             await cp(workspace.stateFile, stateBackup);
             backup.stateFile = stateBackup;
           }
-          await rm(workspace.packageDir, { recursive: true, force: true });
-          await rm(workspace.stateFile, { force: true });
         }
         if (options.resetResults) {
           const resultsBackup = join(backupDir, "results");
@@ -140,7 +138,14 @@ async function initializeWorkspaceLocked(
             await cp(workspace.resultsDir, resultsBackup, { recursive: true });
             backup.resultsDir = resultsBackup;
           }
-          await writeNewResultsStorageIdentity(workspace);
+        }
+        if (options.resetPackage) await writeNewCanvasStorageIdentity(workspace);
+        if (options.resetResults) await writeNewResultsStorageIdentity(workspace);
+        if (options.resetPackage) {
+          await rm(workspace.packageDir, { recursive: true, force: true });
+          await rm(workspace.stateFile, { force: true });
+        }
+        if (options.resetResults) {
           await rm(workspace.resultsDir, { recursive: true, force: true });
         }
       }
@@ -162,7 +167,7 @@ async function initializeWorkspaceLocked(
       }
 
       if (!alreadyExists || options.resetPackage) {
-        await writeNewCanvasStorageIdentity(workspace);
+        if (!alreadyExists) await writeNewCanvasStorageIdentity(workspace);
         await writeJsonFile(workspace.projectFile, project);
         await writeJsonFile(workspace.manifestFile, initialManifest(projectName));
         await writeJsonFile(workspace.stateFile, createEmptyState());

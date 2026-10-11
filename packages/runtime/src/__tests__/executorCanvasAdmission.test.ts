@@ -1,3 +1,4 @@
+import { capturePackageSnapshot, restorePackageSnapshot } from "../package/packageSnapshot.js";
 import { createEmptyState } from "../state.js";
 import {
   executePlanGraphCommand,
@@ -482,60 +483,112 @@ it("rejects old feedback queued behind a real results-only reset", async () => {
   }
 });
 
-it.each([
-  "initialization",
-  "identity-write"
-] as const)("safely retires results on a real reset failure at %s", async (failure) => {
+it.each(
+  [
+    { scope: "results", resetPackage: false, resetResults: true },
+    { scope: "package", resetPackage: true, resetResults: false },
+    { scope: "combined", resetPackage: true, resetResults: true }
+  ].flatMap((reset) => [
+    { ...reset, failure: "initialization" },
+    ...(reset.resetPackage ? [{ ...reset, failure: "canvas-identity" }] : []),
+    ...(reset.resetResults ? [{ ...reset, failure: "results-identity" }] : [])
+  ])
+)("safely retires $scope storage on a real reset failure at $failure", async (reset) => {
   const { owner } = await fixture();
   const captured = await resolveTaskCanvasWorkspace(owner.workspace.rootPath, "default");
+  await writeJsonFile(captured.manifestFile, basicManifest());
+  await writePromptFiles(captured.packageDir, basicManifest());
+  const original = await Promise.all(
+    [captured.manifestFile, captured.stateFile].map((path) => readFile(path, "utf8"))
+  );
+  const { snapshot } = await capturePackageSnapshot({ projectRoot: captured });
   const sentinel = join(captured.resultsDir, "preserved-result.txt");
   await writeFile(sentinel, "durable result");
   const config = join(captured.planweaveHome, "config");
   const savedConfig = `${config}-saved`;
-  if (failure === "initialization") {
+  if (reset.failure === "initialization") {
     await actualFs.rename(config, savedConfig);
     await writeFile(config, "configuration collision");
   } else {
+    const storage = reset.failure === "canvas-identity" ? captured.packageDir : captured.resultsDir;
+    const suffix = reset.failure === "canvas-identity" ? "canvas" : "results";
     const marker = join(
-      await actualFs.realpath(dirname(captured.resultsDir)),
-      `${basename(captured.resultsDir)}.results-instance.json`
+      await actualFs.realpath(dirname(storage)),
+      `${basename(storage)}.${suffix}-instance.json`
     );
     vi.mocked(rename).mockImplementation(async (source, target) => {
       if (target === marker)
-        throw Object.assign(new Error("Results identity write failed"), { code: "EIO" });
+        throw Object.assign(new Error("Storage identity write failed"), { code: "EIO" });
       return actualFs.rename(source, target);
     });
   }
   try {
     await expect(
-      initWorkspace({ projectRoot: owner.workspace.rootPath, resetResults: true })
-    ).rejects.toThrow(failure === "initialization" ? "EEXIST" : "Results identity write failed");
-    if (failure === "identity-write") {
-      expect(await readFile(sentinel, "utf8")).toBe("durable result");
-    } else {
-      await expect(access(captured.resultsDir)).rejects.toMatchObject({ code: "ENOENT" });
-      await expect(
-        runProfileFeedback({
-          projectRoot: captured,
-          workspace: captured,
-          executorName: "manual",
-          profile: { adapter: "manual" },
-          claim: {
-            kind: "feedback",
-            feedbackId: "FE-FAILED-RESET",
-            sourceReviewBlockRef: "T-001#R-001",
-            taskId: "T-001",
-            content: "Old feedback after failed reset",
-            effectiveExecutor: "manual"
-          }
-        })
-      ).rejects.toThrow("results storage identity changed");
-      await expect(access(captured.resultsDir)).rejects.toMatchObject({ code: "ENOENT" });
-    }
+      initWorkspace({
+        projectRoot: captured.rootPath,
+        resetPackage: reset.resetPackage,
+        resetResults: reset.resetResults
+      })
+    ).rejects.toThrow(
+      reset.failure === "initialization" ? "EEXIST" : "Storage identity write failed"
+    );
   } finally {
-    if (failure === "initialization") {
+    if (reset.failure === "initialization") {
       await actualFs.rename(config, `${config}-collision`);
       await actualFs.rename(savedConfig, config);
     }
   }
+  if (reset.failure !== "initialization") {
+    expect(
+      await Promise.all(
+        [captured.manifestFile, captured.stateFile].map((path) => readFile(path, "utf8"))
+      )
+    ).toEqual(original);
+    expect(await readFile(sentinel, "utf8")).toBe("durable result");
+    return;
+  }
+  if (reset.resetPackage) {
+    await expect(access(captured.packageDir)).rejects.toMatchObject({ code: "ENOENT" });
+    await initWorkspace({ projectRoot: captured.rootPath });
+  }
+  const current = await resolveTaskCanvasWorkspace(captured.rootPath, "default");
+  if (reset.resetPackage) await restorePackageSnapshot({ projectRoot: current, snapshot });
+  const feedback = (workspace: typeof captured) =>
+    runProfileFeedback({
+      projectRoot: workspace,
+      workspace,
+      executorName: "manual",
+      profile: { adapter: "manual" },
+      claim: {
+        kind: "feedback",
+        feedbackId: "FE-FAILED-RESET",
+        sourceReviewBlockRef: "T-001#R-001",
+        taskId: "T-001",
+        content: "Feedback after failed reset",
+        effectiveExecutor: "manual"
+      }
+    });
+  if (reset.resetPackage)
+    await expect(
+      executePlanGraphCommand({
+        projectRoot: captured,
+        command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Stale edit" } }
+      })
+    ).rejects.toThrow("canvas storage identity changed");
+  await expect(feedback(captured)).rejects.toThrow(
+    reset.resetPackage ? "canvas storage identity changed" : "results storage identity changed"
+  );
+  await expect(access(join(current.resultsDir, "feedback-runs"))).rejects.toMatchObject({
+    code: "ENOENT"
+  });
+  await expect(feedback(current)).resolves.toMatchObject({ kind: "manual" });
+  expect(
+    await executePlanGraphCommand({
+      projectRoot: current,
+      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "Fresh edit" } }
+    })
+  ).toMatchObject({ ok: true });
+  expect(await undoPlanGraphCommand({ projectRoot: current })).toMatchObject({ ok: true });
+  expect(await redoPlanGraphCommand({ projectRoot: current })).toMatchObject({ ok: true });
+  expect(await readFile(current.manifestFile, "utf8")).toContain("Fresh edit");
 });
