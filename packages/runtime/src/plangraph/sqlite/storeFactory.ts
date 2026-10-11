@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { loadPackage } from "../../package/loadPackage.js";
+import { resolvePackageWorkspace } from "../../package/loadPackage.js";
 import { resolveProjectWorkspaceInHome } from "../../project.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "../../types.js";
 import type { PlanGraph } from "../domain/types.js";
@@ -35,7 +35,7 @@ async function resolveIndexPath(
   projectRoot: PackageWorkspaceRef,
   indexPath?: string
 ): Promise<{ workspace: ProjectWorkspace; indexPath: string }> {
-  const { workspace } = await loadPackage(projectRoot);
+  const workspace = await resolvePackageWorkspace(projectRoot);
   if (indexPath !== undefined) return { workspace, indexPath };
   const projectWorkspace = await resolveProjectWorkspaceInHome(
     workspace.rootPath,
@@ -60,6 +60,7 @@ export async function createSqlitePlanGraphStore(options: {
   indexPath?: string;
 }): Promise<PlanGraphIndexStore & { log: PlanGraphOperationLog; indexPath: string }> {
   const { workspace, indexPath } = await resolveIndexPath(options.projectRoot, options.indexPath);
+  options = { ...options, projectRoot: workspace };
   const graphKey = workspace.workspaceRoot;
   const historyKey = workspace.rootPath;
   const rebuild = async (rebuildOptions: { clearHistory?: boolean } = {}): Promise<PlanGraph> => {

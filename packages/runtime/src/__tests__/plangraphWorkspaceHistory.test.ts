@@ -1,13 +1,15 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  compileProjectGraph,
+  writeProjectGraph,
   createProjectCanvas,
   loadProjectGraph,
   projectCanvasWorkspace
 } from "../projectGraph/index.js";
 import { capturePackageSnapshot, restorePackageSnapshot } from "../package/packageSnapshot.js";
 import { applyAuthorizedCanvasCommand } from "../graph/canvasCommandPort.js";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
 import { removeTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
 import { initWorkspace } from "../initWorkspace.js";
@@ -398,5 +400,69 @@ it.each([
     else expect(row?.undone_at).toBeNull();
   } finally {
     aDb.close();
+  }
+});
+
+it.each([
+  false,
+  true
+])("records and replays project history without a default package (custom mapping: %s)", async (custom) => {
+  const f = await createTestWorkspace();
+  directories.push(f.root, f.home);
+  await createProjectCanvas({ projectRoot: f.root, requestedId: "one", title: "One" });
+  await createProjectCanvas({ projectRoot: f.root, requestedId: "two", title: "Two" });
+  const graph = await loadProjectGraph(f.root);
+  const manifest = {
+    ...graph.manifest,
+    canvases: graph.manifest.canvases.filter((c) => c.id !== "default")
+  };
+  if (custom) {
+    const one = await resolveTaskCanvasWorkspace(f.root, "one");
+    const mapped = join(graph.workspace.workspaceRoot, "mapped", "one");
+    await mkdir(dirname(mapped), { recursive: true });
+    await rename(dirname(one.packageDir), mapped);
+    manifest.canvases = manifest.canvases.map((c) =>
+      c.id === "one"
+        ? {
+            ...c,
+            packageDir: "mapped/one/package",
+            stateFile: "mapped/one/state.json",
+            resultsDir: "mapped/one/results"
+          }
+        : c
+    );
+  }
+  await writeProjectGraph(graph.workspace, manifest);
+  await rename(
+    join(graph.workspace.workspaceRoot, "canvases", "default"),
+    join(f.home, "retired-default")
+  );
+  const compiled = await compileProjectGraph({
+    workspace: graph.workspace,
+    manifest,
+    source: "project_graph",
+    diagnostics: []
+  });
+  expect(compiled.diagnostics.errors).toEqual([]);
+  const one = await resolveTaskCanvasWorkspace(f.root, "one");
+  expect(
+    await executePlanGraphCommand({
+      projectRoot: one,
+      command: { type: "addCanvasDependency", fromCanvasId: "one", toCanvasId: "two" }
+    })
+  ).toMatchObject({ ok: true, operationId: 1 });
+  expect((await loadProjectGraph(f.root)).manifest.edges).toHaveLength(1);
+  expect(await undoPlanGraphCommand({ projectRoot: one })).toMatchObject({ ok: true });
+  expect((await loadProjectGraph(f.root)).manifest.edges).toHaveLength(0);
+  expect(await redoPlanGraphCommand({ projectRoot: one })).toMatchObject({ ok: true });
+  expect((await loadProjectGraph(f.root)).manifest.edges).toHaveLength(1);
+  const store = await createSqlitePlanGraphStore({ projectRoot: one });
+  const db = await openDatabase(store.indexPath);
+  try {
+    expect(db.prepare("SELECT id, undone_at FROM operation_log").all()).toEqual([
+      { id: 1, undone_at: null }
+    ]);
+  } finally {
+    db.close();
   }
 });
