@@ -33,7 +33,7 @@ export async function assertCurrentCanvasWorkspace(workspace: ProjectWorkspace):
   if (
     !packageDir?.isDirectory() ||
     !manifest?.isFile() ||
-    !state?.isFile() ||
+    (state !== null && !state.isFile()) ||
     (results !== null && !results.isDirectory())
   ) {
     throw new Error(`PlanWeave canvas storage is unavailable at '${workspace.packageDir}'.`);

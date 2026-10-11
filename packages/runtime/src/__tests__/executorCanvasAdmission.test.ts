@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { access, mkdtemp, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -117,7 +117,7 @@ it.each([
   const remaining = await removal;
   const result = await feedback;
   expect(remaining.some((item) => item.canvasId === canvas.canvasId)).toBe(false);
-  expect(result.error).toBeInstanceOf(Error);
+  expect(String(result.error)).toContain("canvas storage identity changed");
   expect(result.value).toBeNull();
   await expect(access(workspace.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
 });
@@ -142,19 +142,32 @@ it("rejects a captured storage mapping after registration redirects the results 
       },
       (error: unknown) => error
     );
-    expect(outcome).toBeInstanceOf(Error);
+    expect(String(outcome)).toContain("canvas storage identity changed");
   } finally {
     await lease?.release();
   }
 });
 
-it("admits a valid registered canvas whose empty results directory is absent", async () => {
+it.each([
+  "resultsDir",
+  "stateFile"
+] as const)("admits real manual feedback when optional %s is absent", async (target) => {
   const { workspace } = await fixture();
-  await rm(workspace.resultsDir, { recursive: true });
-  const lease = await acquireExecutorResultsWriteLease(workspace, "empty-results");
-  try {
-    await mkdir(workspace.resultsDir);
-  } finally {
-    await lease.release();
-  }
+  await rm(workspace[target], { recursive: true });
+  await expect(
+    runProfileFeedback({
+      projectRoot: workspace,
+      workspace,
+      executorName: "manual",
+      profile: { adapter: "manual" },
+      claim: {
+        kind: "feedback",
+        feedbackId: "FE-EMPTY-STORAGE",
+        sourceReviewBlockRef: "T-001#R-001",
+        taskId: "T-001",
+        content: "Valid feedback",
+        effectiveExecutor: "manual"
+      }
+    })
+  ).resolves.toMatchObject({ kind: "manual" });
 });

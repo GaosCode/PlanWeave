@@ -45,6 +45,12 @@ import { listPendingImportTransactions } from "../package/importRecovery.js";
 import * as projectMutation from "../fs/withProjectMutationLock.js";
 import * as projectGraph from "../projectGraph/index.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import {
+  createDesktopPackageFileSnapshot,
+  detectDesktopPackageFileChanges,
+  refreshChangedDesktopPackagePrompts,
+  refreshPackageFileChanges
+} from "../desktop/fileSyncApi.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -300,6 +306,88 @@ async function fixture() {
   await writeFile(join(init.workspace.resultsDir, "history.txt"), "history-before-rename");
   return { home, ...init };
 }
+
+it.each([
+  "detect",
+  "refresh",
+  "refresh-changed"
+] as const)("clears real %s file-sync history before project relocation", async (kind) => {
+  const { project, workspace } = await fixture();
+  const manifest = basicManifest();
+  await writeJsonFile(workspace.manifestFile, manifest);
+  await writePromptFiles(workspace.packageDir, manifest);
+  await createTaskCanvas(workspace.rootPath, { name: "File sync peer" });
+  expect(
+    await executePlanGraphCommand({
+      projectRoot: workspace.rootPath,
+      command: {
+        type: "updateTaskFields",
+        taskId: "T-001",
+        fields: { title: "Before external edit" }
+      }
+    })
+  ).toMatchObject({ ok: true });
+  const canvas = await resolveTaskCanvasWorkspace(workspace.rootPath, "default");
+  const snapshot = await createDesktopPackageFileSnapshot(canvas);
+  const prompt = manifest.nodes[0]!.prompt;
+  await writeFile(join(canvas.packageDir, prompt), "# Changed externally\n");
+  const writing = barrier(),
+    allowWrite = barrier(),
+    renameAttempted = barrier();
+  const cacheRoot = join(await actualFs.realpath(workspace.workspaceRoot), "cache");
+  let cacheOpens = 0;
+  vi.mocked(mkdir).mockImplementation(async (path, options) => {
+    if (String(path) === cacheRoot && ++cacheOpens === 3) {
+      writing.release();
+      await allowWrite.promise;
+    }
+    return actualFs.mkdir(path, options);
+  });
+  const syncing = (
+    kind === "detect"
+      ? detectDesktopPackageFileChanges(canvas, snapshot.snapshotId)
+      : kind === "refresh-changed"
+        ? refreshChangedDesktopPackagePrompts(canvas, snapshot.snapshotId)
+        : refreshPackageFileChanges(canvas, { changedPaths: [prompt] })
+  ).then(
+    (value) => ({ value, error: null }),
+    (error: unknown) => ({ value: null, error })
+  );
+  await writing.promise;
+  const projectLock = projectMutation.withProjectMutationLock;
+  vi.spyOn(projectMutation, "withProjectMutationLock").mockImplementation(
+    (root, apply, options) => {
+      if (typeof root !== "string") renameAttempted.release();
+      return projectLock(root, apply, options);
+    }
+  );
+  let finished = false;
+  const renaming = renameProject(project.id, "Storage destination").then((value) => {
+    finished = true;
+    return value;
+  });
+  let renamedWhilePaused = false;
+  try {
+    await renameAttempted.promise;
+    await delay(80);
+    renamedWhilePaused = finished;
+  } finally {
+    allowWrite.release();
+  }
+  const result = await syncing;
+  const renamed = await renaming;
+  expect(renamedWhilePaused).toBe(false);
+  expect(result).toMatchObject({ error: null, value: { ok: true, diagnostics: [] } });
+  await expect(access(workspace.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  const db = await openDatabase(join(renamed.rootPath, "cache", "plangraph.sqlite"));
+  try {
+    expect(db.prepare("SELECT COUNT(*) AS count FROM operation_log").get()).toMatchObject({
+      count: 0
+    });
+  } finally {
+    db.close();
+  }
+});
 
 it.each([
   "undo",

@@ -7,7 +7,10 @@ import {
   refreshChangedPackagePromptsForPaths as refreshRuntimeChangedPackagePromptsForPaths
 } from "../package/fileChanges.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
-import { createSqlitePlanGraphStore } from "../plangraph/index.js";
+import { createSqlitePlanGraphStore, defaultPlanGraphIndexPath } from "../plangraph/sqliteIndex.js";
+import { resolveProjectWorkspaceInHome, withCurrentProjectWorkspace } from "../project.js";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { assertCurrentCanvasWorkspace } from "../package/assertCurrentCanvasWorkspace.js";
 import type {
   CompiledExecutionGraph,
   FileFingerprint,
@@ -85,6 +88,22 @@ function changedPackagePaths(previous: PackageFileSnapshot, next: PackageFileSna
 
 async function snapshotKey(projectRoot: PackageWorkspaceRef): Promise<string> {
   return (await resolvePackageWorkspace(projectRoot)).workspaceRoot;
+}
+
+async function withFileSyncWorkspace<T>(
+  projectRoot: PackageWorkspaceRef,
+  apply: (workspace: ProjectWorkspace) => Promise<T>
+): Promise<T> {
+  const workspace = await resolvePackageWorkspace(projectRoot);
+  return withCurrentProjectWorkspace(workspace, () =>
+    withPackageFileConsistency(
+      [workspace.packageDir, workspace.stateFile, workspace.resultsDir],
+      async () => {
+        await assertCurrentCanvasWorkspace(workspace);
+        return apply(workspace);
+      }
+    )
+  );
 }
 
 function normalizeWatcherPath(path: string): string {
@@ -262,7 +281,15 @@ async function indexPlanGraphExternalChange(
     return result;
   }
   try {
-    const store = await createSqlitePlanGraphStore({ projectRoot });
+    const workspace = await resolvePackageWorkspace(projectRoot);
+    const project = await resolveProjectWorkspaceInHome(
+      workspace.rootPath,
+      workspace.planweaveHome
+    );
+    const store = await createSqlitePlanGraphStore({
+      projectRoot: workspace,
+      indexPath: defaultPlanGraphIndexPath(project)
+    });
     const latestOperation = await store.log.latestUndoable();
     const graph = await store.indexChangedPaths(paths);
     if (!latestOperation || latestOperation.graphVersionAfter !== graph.graphVersion) {
@@ -288,23 +315,41 @@ async function indexPlanGraphExternalChange(
 export async function createDesktopPackageFileSnapshot(
   projectRoot: PackageWorkspaceRef
 ): Promise<DesktopPackageFileSnapshotRef> {
+  return withFileSyncWorkspace(projectRoot, (workspace) =>
+    createDesktopPackageFileSnapshotLocked(workspace, displayProjectRoot(projectRoot))
+  );
+}
+
+async function createDesktopPackageFileSnapshotLocked(
+  projectRoot: ProjectWorkspace,
+  displayRoot = projectRoot.rootPath
+): Promise<DesktopPackageFileSnapshotRef> {
   invalidateDesktopProjectProjection(projectRoot);
   const projectKey = await snapshotKey(projectRoot);
   const snapshot = await createRuntimePackageFileSnapshot(projectRoot);
   snapshots.set(projectKey, snapshot);
   dirtyRefsByProject.set(projectKey, []);
-  return snapshotRef(projectKey, displayProjectRoot(projectRoot), snapshot);
+  return snapshotRef(projectKey, displayRoot, snapshot);
 }
 
 export async function detectDesktopPackageFileChanges(
   projectRoot: PackageWorkspaceRef,
   snapshotId?: string | null
 ): Promise<DesktopPackageFileSyncResult> {
+  return withFileSyncWorkspace(projectRoot, (workspace) =>
+    detectDesktopPackageFileChangesLocked(workspace, snapshotId)
+  );
+}
+
+async function detectDesktopPackageFileChangesLocked(
+  projectRoot: ProjectWorkspace,
+  snapshotId?: string | null
+): Promise<DesktopPackageFileSyncResult> {
   invalidateDesktopProjectProjection(projectRoot);
   const projectKey = await snapshotKey(projectRoot);
   const previous = previousSnapshot(projectKey, snapshotId);
   if (!previous) {
-    await createDesktopPackageFileSnapshot(projectRoot);
+    await createDesktopPackageFileSnapshotLocked(projectRoot);
     return {
       ok: true,
       primed: true,
@@ -337,11 +382,20 @@ export async function refreshChangedDesktopPackagePrompts(
   projectRoot: PackageWorkspaceRef,
   snapshotId?: string | null
 ): Promise<DesktopPackageFileSyncResult> {
+  return withFileSyncWorkspace(projectRoot, (workspace) =>
+    refreshChangedDesktopPackagePromptsLocked(workspace, snapshotId)
+  );
+}
+
+async function refreshChangedDesktopPackagePromptsLocked(
+  projectRoot: ProjectWorkspace,
+  snapshotId?: string | null
+): Promise<DesktopPackageFileSyncResult> {
   invalidateDesktopProjectProjection(projectRoot);
   const projectKey = await snapshotKey(projectRoot);
   const previous = previousSnapshot(projectKey, snapshotId);
   if (!previous) {
-    await createDesktopPackageFileSnapshot(projectRoot);
+    await createDesktopPackageFileSnapshotLocked(projectRoot);
     return {
       ok: true,
       primed: true,
@@ -389,11 +443,20 @@ export async function refreshPackageFileChanges(
   projectRoot: PackageWorkspaceRef,
   options: DesktopPackageFileRefreshOptions = {}
 ): Promise<DesktopPackageFileSyncResult> {
+  return withFileSyncWorkspace(projectRoot, (workspace) =>
+    refreshPackageFileChangesLocked(workspace, options)
+  );
+}
+
+async function refreshPackageFileChangesLocked(
+  projectRoot: ProjectWorkspace,
+  options: DesktopPackageFileRefreshOptions
+): Promise<DesktopPackageFileSyncResult> {
   await invalidateProjectionForPackageRefresh(projectRoot, options);
   const projectKey = await snapshotKey(projectRoot);
   const previous = snapshots.get(projectKey);
   if (!previous) {
-    await createDesktopPackageFileSnapshot(projectRoot);
+    await createDesktopPackageFileSnapshotLocked(projectRoot);
     return {
       ok: true,
       primed: true,

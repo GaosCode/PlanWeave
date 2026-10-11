@@ -1,4 +1,4 @@
-import { rm, writeFile } from "node:fs/promises";
+import { access, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -12,12 +12,69 @@ import { undoDesktopPlanGraphCommand, updateTaskTitle } from "../desktop/graphAp
 import { writeJsonFile } from "../json.js";
 import { executePlanGraphCommand, undoPlanGraphCommand } from "../plangraph/index.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+import {
+  createTaskCanvas,
+  removeTaskCanvas,
+  resolveTaskCanvasWorkspace
+} from "../desktop/canvasApi.js";
+import { loadProjectGraph, writeProjectGraph } from "../projectGraph/index.js";
+import { loadPackage } from "../package/loadPackage.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
 });
 
 describe("desktop file sync API", () => {
+  it.each([
+    "removed",
+    "remapped",
+    "reset"
+  ] as const)("handles a delayed structured canvas watcher after storage is %s", async (change) => {
+    const fixture = await createTestWorkspace();
+    const { root, init } = fixture;
+    try {
+      const canvasId =
+        change === "removed"
+          ? (await createTaskCanvas(root, { name: "Disposable" })).canvasId
+          : "default";
+      const captured = await resolveTaskCanvasWorkspace(root, canvasId);
+      await createDesktopPackageFileSnapshot(captured);
+      if (change === "remapped") {
+        const graph = await loadProjectGraph(root);
+        await writeProjectGraph(graph.workspace, {
+          ...graph.manifest,
+          canvases: graph.manifest.canvases.map((canvas) =>
+            canvas.id === canvasId
+              ? { ...canvas, resultsDir: "canvases/default/replacement-results" }
+              : canvas
+          )
+        });
+      } else {
+        await removeTaskCanvas(root, canvasId);
+      }
+      if (change === "reset") {
+        await expect(
+          refreshPackageFileChanges(captured, { changedPaths: ["manifest.json"] })
+        ).resolves.toMatchObject({ ok: true, refreshedPromptCount: 0 });
+        expect((await loadPackage(captured)).manifest.nodes).toEqual([]);
+        await expect(
+          access(join(captured.packageDir, "nodes/T-001/prompt.md"))
+        ).rejects.toMatchObject({ code: "ENOENT" });
+      } else {
+        await expect(
+          refreshPackageFileChanges(captured, { changedPaths: ["manifest.json"] })
+        ).rejects.toThrow("canvas storage identity changed");
+        if (change === "removed")
+          await expect(access(captured.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+      }
+    } finally {
+      await Promise.all([
+        rm(init.workspace.workspaceRoot, { recursive: true, force: true }),
+        rm(fixture.home, { recursive: true, force: true }),
+        rm(fixture.root, { recursive: true, force: true })
+      ]);
+    }
+  });
   it("keeps package file snapshots inside runtime and returns serializable dirty prompt refs", async () => {
     const { root, init } = await createTestWorkspace();
 
