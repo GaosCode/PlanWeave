@@ -1,4 +1,10 @@
 import type { PlanPackageGraphMutation } from "../graph/mutation.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
+import {
+  assertCurrentProjectWorkspace,
+  requireInitializedProjectWorkspace,
+  resolveProjectWorkspaceInHome
+} from "../project.js";
 import { defaultPlanGraphCommandDependencies } from "./adapters.js";
 import { PlanGraphOperationLogParseError } from "./commandSchema.js";
 import { handlerForCommand, type PlanGraphCommandHandler } from "./commandHandlers/index.js";
@@ -36,6 +42,20 @@ export type PlanGraphHistoryOptions = {
 };
 
 type ResolvedPlanGraphCommandDependencies = PlanGraphCommandDependencies;
+
+async function withCommandProjectLock(
+  projectRoot: PackageWorkspaceRef,
+  apply: () => Promise<PlanGraphCommandResult>
+): Promise<PlanGraphCommandResult> {
+  const workspace =
+    typeof projectRoot === "string"
+      ? await requireInitializedProjectWorkspace(projectRoot)
+      : await resolveProjectWorkspaceInHome(projectRoot.rootPath, projectRoot.planweaveHome);
+  return withProjectMutationLock(workspace.workspaceRoot, async () => {
+    await assertCurrentProjectWorkspace(workspace);
+    return apply();
+  });
+}
 
 function historyCommandInvalid(error: PlanGraphOperationLogParseError): PlanGraphCommandResult {
   return fail({
@@ -297,6 +317,12 @@ async function executeLayoutCommand(
 export async function executePlanGraphCommand(
   options: ExecutePlanGraphCommandOptions
 ): Promise<PlanGraphCommandResult> {
+  return withCommandProjectLock(options.projectRoot, () => executePlanGraphCommandLocked(options));
+}
+
+async function executePlanGraphCommandLocked(
+  options: ExecutePlanGraphCommandOptions
+): Promise<PlanGraphCommandResult> {
   const dependencies = {
     ...defaultPlanGraphCommandDependencies,
     ...options.dependencies
@@ -503,6 +529,12 @@ function commandForHistoryReplay(command: PlanGraphCommand): PlanGraphCommand {
 export async function undoPlanGraphCommand(
   options: PlanGraphHistoryOptions
 ): Promise<PlanGraphCommandResult> {
+  return withCommandProjectLock(options.projectRoot, () => undoPlanGraphCommandLocked(options));
+}
+
+async function undoPlanGraphCommandLocked(
+  options: PlanGraphHistoryOptions
+): Promise<PlanGraphCommandResult> {
   const dependencies = {
     ...defaultPlanGraphCommandDependencies,
     ...options.dependencies
@@ -536,6 +568,12 @@ export async function undoPlanGraphCommand(
 }
 
 export async function redoPlanGraphCommand(
+  options: PlanGraphHistoryOptions
+): Promise<PlanGraphCommandResult> {
+  return withCommandProjectLock(options.projectRoot, () => redoPlanGraphCommandLocked(options));
+}
+
+async function redoPlanGraphCommandLocked(
   options: PlanGraphHistoryOptions
 ): Promise<PlanGraphCommandResult> {
   const dependencies = {

@@ -18,7 +18,15 @@ import { renameProject } from "../desktop/projectApi.js";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
 import { acquireExecutorResultsWriteLease } from "../package/executorResultsWriteLease.js";
 import { withExecutorResultsWriteLease } from "../autoRun/executorResultsLifecycle.js";
-import { executePlanGraphCommand } from "../plangraph/executeCommand.js";
+import {
+  executePlanGraphCommand,
+  redoPlanGraphCommand,
+  undoPlanGraphCommand
+} from "../plangraph/executeCommand.js";
+import { createSqlitePlanGraphStore } from "../plangraph/sqliteIndex.js";
+import { openDatabase } from "../plangraph/sqlite/connection.js";
+import { writeJsonFile } from "../json.js";
+import { basicManifest, writePromptFiles } from "./promptTestHelpers.js";
 import { createProjectCanvasStore } from "../desktop/projectCanvasStore.js";
 import { ImportTransaction } from "../package/importTransaction.js";
 import { importTransactionIdentityDigest } from "../package/importTransactionContent.js";
@@ -292,6 +300,132 @@ async function fixture() {
   await writeFile(join(init.workspace.resultsDir, "history.txt"), "history-before-rename");
   return { home, ...init };
 }
+
+it.each([
+  "undo",
+  "redo",
+  "command",
+  "layout"
+] as const)("finishes %s history writes before relocating the default SQLite index", async (kind) => {
+  const { project, workspace } = await fixture();
+  const manifest = basicManifest();
+  await writeJsonFile(workspace.manifestFile, manifest);
+  await writePromptFiles(workspace.packageDir, manifest);
+  const extra = await createTaskCanvas(workspace.rootPath, { name: "History canvas" });
+  if (kind === "undo" || kind === "redo") {
+    expect(
+      await executePlanGraphCommand({
+        projectRoot: workspace.rootPath,
+        command: {
+          type: "addCanvasDependency",
+          fromCanvasId: "default",
+          toCanvasId: extra.canvasId
+        }
+      })
+    ).toMatchObject({ ok: true });
+    if (kind === "redo") {
+      expect(await undoPlanGraphCommand({ projectRoot: workspace.rootPath })).toMatchObject({
+        ok: true
+      });
+    }
+  }
+  const writing = barrier();
+  const allowWrite = barrier();
+  const pause = async () => {
+    writing.release();
+    await allowWrite.promise;
+  };
+  const dependencies = {
+    createIndexStore: async (options: Parameters<typeof createSqlitePlanGraphStore>[0]) => {
+      const store = await createSqlitePlanGraphStore(options);
+      return {
+        ...store,
+        log: {
+          ...store.log,
+          append: async (entry: Parameters<typeof store.log.append>[0]) => {
+            if (kind === "command" || kind === "layout") await pause();
+            return store.log.append(entry);
+          },
+          markUndone: async (id: number) => {
+            if (kind === "undo") await pause();
+            return store.log.markUndone(id);
+          },
+          markRedone: async (id: number) => {
+            if (kind === "redo") await pause();
+            return store.log.markRedone(id);
+          }
+        }
+      };
+    }
+  };
+  const options = { projectRoot: workspace.rootPath, dependencies };
+  const mutation =
+    kind === "undo"
+      ? undoPlanGraphCommand(options)
+      : kind === "redo"
+        ? redoPlanGraphCommand(options)
+        : executePlanGraphCommand({
+            ...options,
+            command:
+              kind === "command"
+                ? { type: "updateTaskFields", taskId: "T-001", fields: { title: "Changed" } }
+                : {
+                    type: "updateLayout",
+                    layoutScope: "desktop",
+                    layout: {
+                      version: "desktop-layout/v1",
+                      projectId: project.id,
+                      nodes: [{ nodeId: "T-001", x: 10, y: 20 }],
+                      updatedAt: "2026-10-11T00:00:00.000Z"
+                    }
+                  }
+          });
+  await writing.promise;
+  const renaming = renameProject(project.id, "History destination");
+  let relocatedWhileWriting: boolean;
+  try {
+    relocatedWhileWriting = await Promise.race([
+      renaming.then(() => true),
+      delay(150).then(() => false)
+    ]);
+  } finally {
+    allowWrite.release();
+  }
+  const result = await mutation;
+  const renamed = await renaming;
+  expect(relocatedWhileWriting).toBe(false);
+  expect(result).toMatchObject({ ok: true });
+  await expect(access(workspace.workspaceRoot)).rejects.toThrow();
+  const db = await openDatabase(join(renamed.rootPath, "cache", "plangraph.sqlite"));
+  try {
+    const rows = db.prepare("SELECT command_json, undone_at FROM operation_log").all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      undone_at: kind === "undo" ? expect.any(String) : null
+    });
+    if (kind === "command" || kind === "layout") {
+      expect(rows[0]).toMatchObject({
+        command_json: expect.stringContaining(
+          kind === "command" ? "updateTaskFields" : "updateLayout"
+        )
+      });
+    }
+  } finally {
+    db.close();
+  }
+  if (kind === "undo" || kind === "redo") {
+    const graph = await projectGraph.loadProjectGraph(renamed.rootPath);
+    expect(graph.manifest.edges).toEqual(
+      kind === "undo" ? [] : [{ from: "default", to: extra.canvasId, type: "depends_on" }]
+    );
+  } else if (kind === "command") {
+    const moved = await loadPackage(renamed.rootPath);
+    expect(moved.manifest.nodes[0]?.title).toBe("Changed");
+  } else {
+    const moved = await getDesktopLayoutDirect(renamed.rootPath);
+    expect(moved.nodes).toEqual([{ nodeId: "T-001", x: 10, y: 20 }]);
+  }
+});
 
 it.each([
   "command",
