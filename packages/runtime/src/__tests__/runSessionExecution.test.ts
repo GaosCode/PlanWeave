@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getRunSession, runWithSession } from "../runSessions/index.js";
@@ -7,7 +7,11 @@ import { readJsonFile } from "../json.js";
 import { listBlockRunRecords } from "../desktop/index.js";
 import { isTmuxAvailable, killActiveTmuxSessions } from "../autoRun/tmuxExecutor.js";
 import type { RuntimeState } from "../types.js";
-import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
+import { writeJsonFile } from "../json.js";
+import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
+import { selectTaskCanvas } from "../desktop/canvasSelectionApi.js";
+import { trustCommand } from "../taskManager/hookTrustStore.js";
+import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
 const noTmux = { tmuxEnabled: false } as const;
@@ -111,6 +115,81 @@ async function waitForAutoRunStatus(
 }
 
 describe("runWithSession", () => {
+  it.each([
+    "unchanged",
+    "string-switch",
+    "captured-switch"
+  ] as const)("keeps the outer session and events in their original canvas for %s", async (mode) => {
+    const { home, root, init } = await createTestWorkspace();
+    const other = await createTaskCanvas(root, { name: "Other" });
+    const a = await resolveTaskCanvasWorkspace(root, "default");
+    const b = await resolveTaskCanvasWorkspace(root, other.canvasId);
+    const ready = join(home, "review-ready");
+    const finish = join(home, "review-finish");
+    const profile = {
+      adapter: "local-review" as const,
+      command: process.execPath,
+      args: [
+        "-e",
+        `const fs=require('node:fs/promises');(async()=>{await fs.writeFile(${JSON.stringify(ready)},'ready');for(let n=0;n<500;n++){try{await fs.readFile(${JSON.stringify(finish)});break;}catch(e){if(e.code!=='ENOENT')throw e;}await new Promise(r=>setTimeout(r,20));}console.log(JSON.stringify({reviewBlockRef:'T-001#R-001',taskId:'T-001',verdict:'passed',content:'Review completed'}));})().catch(e=>{console.error(e);process.exitCode=1;});`
+      ],
+      timeoutMs: 12000
+    };
+    const manifest = basicManifest();
+    manifest.executors = { review: profile };
+    manifest.execution.defaultExecutor = "review";
+    manifest.nodes[0]!.blocks = manifest.nodes[0]!.blocks.filter(
+      (block) => block.type === "review"
+    );
+    manifest.nodes[0]!.blocks[0]!.depends_on = [];
+    for (const workspace of [a, b]) {
+      await writeJsonFile(workspace.manifestFile, manifest);
+      await writePromptFiles(workspace.packageDir, manifest);
+    }
+    await trustCommand(a, profile.command, profile.args);
+    await selectTaskCanvas(root, "default");
+    const execution = runWithSession({
+      projectRoot: mode === "captured-switch" ? a : root,
+      executorName: "review",
+      once: true,
+      ...noTmux
+    }).then(
+      (value) => ({ value, error: null }),
+      (error: unknown) => ({ value: null, error })
+    );
+    try {
+      for (let n = 0; n < 300; n++) {
+        if (
+          await access(ready).then(
+            () => true,
+            () => false
+          )
+        )
+          break;
+        await sleep(20);
+      }
+      await expect(access(ready)).resolves.toBeUndefined();
+      if (mode !== "unchanged") await selectTaskCanvas(root, other.canvasId);
+      await writeFile(finish, "finish");
+      const outcome = await execution;
+      expect(outcome.error).toBeNull();
+      expect(outcome.value).toMatchObject({ ok: true, session: { phase: "completed" } });
+      const detail = await getRunSession(a, outcome.value!.session.sessionId);
+      expect(detail.session.phase).toBe("completed");
+      expect(detail.events.map((event) => event.type)).toContain("step_finish");
+      expect(detail.events.at(-1)?.type).toBe("session_completed");
+      expect(detail.session.latestRecordPath).toContain(a.resultsDir);
+      await expect(access(join(b.resultsDir, "run-sessions"))).rejects.toMatchObject({
+        code: "ENOENT"
+      });
+      const state = await readJsonFile<RuntimeState>(init.workspace.stateFile);
+      expect(state.blocks["T-001#R-001"]?.status).toBe("completed");
+    } finally {
+      await writeFile(finish, "finish");
+      await execution;
+      await Promise.all([home, root].map((path) => rm(path, { recursive: true, force: true })));
+    }
+  });
   it("creates a run session, resets state, and records the first block run", async () => {
     const { root, init } = await createTestWorkspace(automaticManifest());
 

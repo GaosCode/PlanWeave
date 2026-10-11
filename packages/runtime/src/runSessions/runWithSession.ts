@@ -360,6 +360,11 @@ async function updateSessionAutoRunSummary(options: {
 export async function runWithSession(
   options: RunWithSessionOptions
 ): Promise<RunWithSessionResult> {
+  options = {
+    ...options,
+    projectRoot:
+      options.executionSnapshot?.workspace ?? (await resolvePackageWorkspace(options.projectRoot))
+  };
   const session = await createRunSession({
     projectRoot: options.projectRoot,
     kind: "run",
