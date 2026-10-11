@@ -14,6 +14,7 @@ import { initManagedWorkspace, initWorkspace } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import {
+  assertCurrentProjectWorkspace,
   normalizeProjectMetadata,
   projectWorkspacePaths,
   readProject,
@@ -391,6 +392,7 @@ async function renameManagedProject(
         [previousWorkspace, nextWorkspace],
         "rename-project-canvas-map-layout",
         async () => {
+          await assertCurrentProjectWorkspace(previousWorkspace);
           const graph = await loadProjectGraphForWorkspace(previousWorkspace);
           const storageWorkspaces = [
             previousWorkspace,

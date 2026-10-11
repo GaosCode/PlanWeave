@@ -9,7 +9,11 @@ import { optionalStat } from "./fs/optionalFile.js";
 import { withProjectMutationLock } from "./fs/withProjectMutationLock.js";
 import { readProjectMetadataFile } from "./projectMetadata.js";
 import { resolvePlanweaveHome } from "./paths.js";
-import { projectWorkspacePaths, resolveProjectWorkspace } from "./project.js";
+import {
+  assertCurrentProjectWorkspace,
+  projectWorkspacePaths,
+  resolveProjectWorkspace
+} from "./project.js";
 import { createManagedProjectId } from "./projectId.js";
 import { createEmptyState } from "./state.js";
 import { writeJsonFile } from "./json.js";
@@ -61,6 +65,16 @@ async function initializeWorkspace(
     projectGraph?: boolean;
   }
 ): Promise<InitWorkspaceResult> {
+  if (
+    (options.resetPackage || options.resetResults) &&
+    workspace.projectCreatedAt === null &&
+    (await exists(workspace.projectFile))
+  ) {
+    workspace = {
+      ...workspace,
+      projectCreatedAt: (await readProjectMetadataFile(workspace.projectFile)).createdAt
+    };
+  }
   return withProjectMutationLock(workspace.workspaceRoot, () =>
     initializeWorkspaceLocked(workspace, project, projectName, options)
   );
@@ -90,6 +104,7 @@ async function initializeWorkspaceLocked(
       `PlanWeave workspace for project '${workspace.rootPath}' has not been initialized.`
     );
   }
+  if (resetting) await assertCurrentProjectWorkspace(workspace);
 
   let backup: InitWorkspaceResult["backup"];
   const initializeStorage = async () => {

@@ -1,7 +1,9 @@
-import { access, mkdtemp, rm, symlink } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import * as projectMutation from "../fs/withProjectMutationLock.js";
 import { initManagedWorkspace, initWorkspace } from "../initWorkspace.js";
 import { linkProjectSourceRoot, renameProject } from "../desktop/projectApi.js";
 import { runProfileFeedback } from "../autoRun/profileExecutor.js";
@@ -11,11 +13,106 @@ import { readProjectMetadataFile } from "../projectMetadata.js";
 
 const directories: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   delete process.env.PLANWEAVE_HOME;
   delete process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE;
   await Promise.all(
     directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))
   );
+});
+
+function barrier() {
+  let release = () => {};
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+it.each([
+  "path-package",
+  "path-results",
+  "managed-package",
+  "managed-results"
+] as const)("rejects a queued %s reset after a new project reuses its paths", async (mode) => {
+  const { project, workspace } = await fixture();
+  const held = barrier();
+  const queued = barrier();
+  const replace = barrier();
+  let replacement = workspace;
+  const lock = projectMutation.withProjectMutationLock;
+  const holder = lock(workspace.workspaceRoot, async () => {
+    held.release();
+    await replace.promise;
+    await renameProject(project.id, "Moved project");
+    await delay(5);
+    replacement = (await initManagedWorkspace({ name: "Captured project" })).workspace;
+    await writeFile(join(replacement.packageDir, "marker"), "new package");
+    await writeFile(join(replacement.resultsDir, "marker"), "new results");
+  });
+  await held.promise;
+  vi.spyOn(projectMutation, "withProjectMutationLock").mockImplementation((root, fn, options) => {
+    queued.release();
+    return lock(root, fn, options);
+  });
+  const options = mode.endsWith("package") ? { resetPackage: true } : { resetResults: true };
+  const reset = (
+    mode.startsWith("path")
+      ? initWorkspace({ projectRoot: workspace.rootPath, ...options })
+      : initManagedWorkspace({ name: "Captured project", ...options })
+  ).then(
+    () => null,
+    (error: unknown) => error
+  );
+  await queued.promise;
+  replace.release();
+  await holder;
+  expect(String(await reset)).toContain("identity changed");
+  expect((await readProjectMetadataFile(replacement.projectFile)).createdAt).toBe(
+    replacement.projectCreatedAt
+  );
+  await expect(readFile(join(replacement.packageDir, "marker"), "utf8")).resolves.toBe(
+    "new package"
+  );
+  await expect(readFile(join(replacement.resultsDir, "marker"), "utf8")).resolves.toBe(
+    "new results"
+  );
+});
+
+it.each([
+  "Moved project",
+  "Captured project"
+])("rejects a queued rename to %s after package reset", async (name) => {
+  const { project, workspace } = await fixture();
+  const held = barrier();
+  const queued = barrier();
+  const resetAllowed = barrier();
+  let replacement = workspace;
+  const lock = projectMutation.withProjectMutationLock;
+  const holder = lock(workspace.workspaceRoot, async () => {
+    held.release();
+    await resetAllowed.promise;
+    await delay(5);
+    replacement = (await initWorkspace({ projectRoot: workspace.rootPath, resetPackage: true }))
+      .workspace;
+  });
+  await held.promise;
+  vi.spyOn(projectMutation, "withProjectMutationLock").mockImplementation((root, fn, options) => {
+    queued.release();
+    return lock(root, fn, options);
+  });
+  const rename = renameProject(project.id, name).then(
+    () => null,
+    (error: unknown) => error
+  );
+  await queued.promise;
+  resetAllowed.release();
+  await holder;
+  expect(String(await rename)).toContain("identity changed");
+  expect((await readProjectMetadataFile(replacement.projectFile)).createdAt).toBe(
+    replacement.projectCreatedAt
+  );
+  expect(replacement.projectCreatedAt).not.toBe(project.createdAt);
 });
 async function fixture() {
   const home = await mkdtemp(join(tmpdir(), "planweave-workspace-identity-"));
