@@ -19,7 +19,7 @@ import type {
   ProjectWorkspace
 } from "../types.js";
 import type { PromptRefreshStats } from "../package/fileChanges.js";
-import { listTaskCanvasWorkspaces } from "./canvasApi.js";
+import { loadProjectGraphForWorkspace, projectCanvasWorkspace } from "../projectGraph/index.js";
 import {
   invalidateDesktopCanvasProjection,
   invalidateDesktopProjectProjection,
@@ -159,11 +159,13 @@ async function resolveCanvasIdForPackageWorkspace(
   workspace: ProjectWorkspace
 ): Promise<string | null> {
   const packageDir = stableResolvedPath(workspace.packageDir);
-  const canvases = await listTaskCanvasWorkspaces(workspace.rootPath);
-  const match = canvases.find(
-    (canvas) => stableResolvedPath(canvas.workspace.packageDir) === packageDir
+  const parent = await resolveProjectWorkspaceInHome(workspace.rootPath, workspace.planweaveHome);
+  const graph = await loadProjectGraphForWorkspace(parent);
+  const match = graph.manifest.canvases.find(
+    (canvas) =>
+      stableResolvedPath(projectCanvasWorkspace(graph.workspace, canvas).packageDir) === packageDir
   );
-  return match?.canvasId ?? null;
+  return match?.id ?? null;
 }
 
 async function invalidateProjectionForPackageRefresh(

@@ -1,4 +1,5 @@
-import { access, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -19,6 +20,65 @@ import {
 } from "../desktop/canvasApi.js";
 import { loadProjectGraph, writeProjectGraph } from "../projectGraph/index.js";
 import { loadPackage } from "../package/loadPackage.js";
+import { initWorkspace } from "../initWorkspace.js";
+import { createSqlitePlanGraphStore } from "../plangraph/sqliteIndex.js";
+import { openDatabase } from "../plangraph/sqlite/connection.js";
+import { writePromptFiles } from "./promptTestHelpers.js";
+
+it.each([
+  "valid",
+  "invalid"
+])("keeps a prompt-only watcher in its captured Home when the other Home graph is %s", async (mode) => {
+  const a = await createTestWorkspace();
+  const homeB = await mkdtemp(join(tmpdir(), "planweave-other-home-"));
+  try {
+    const captured = await resolveTaskCanvasWorkspace(a.root, "default");
+    await createDesktopPackageFileSnapshot(captured);
+    await executePlanGraphCommand({
+      projectRoot: captured,
+      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "A history" } }
+    });
+    const storeA = await createSqlitePlanGraphStore({ projectRoot: captured });
+    process.env.PLANWEAVE_HOME = homeB;
+    const b = await initWorkspace({ projectRoot: a.root });
+    const manifest = basicManifest();
+    await writeJsonFile(b.workspace.manifestFile, manifest);
+    await writePromptFiles(b.workspace.packageDir, manifest);
+    const currentB = await resolveTaskCanvasWorkspace(a.root, "default");
+    await executePlanGraphCommand({
+      projectRoot: currentB,
+      command: { type: "updateTaskFields", taskId: "T-001", fields: { title: "B history" } }
+    });
+    const storeB = await createSqlitePlanGraphStore({ projectRoot: currentB });
+    if (mode === "invalid")
+      await writeFile(
+        join(b.workspace.workspaceRoot, "project-graph.json"),
+        '{"version":"invalid-other-home"}'
+      );
+    const prompt = "nodes/T-001/prompt.md";
+    await writeFile(join(captured.packageDir, prompt), "# External A prompt\n");
+    await expect(
+      refreshPackageFileChanges(captured, { changedPaths: [prompt] })
+    ).resolves.toMatchObject({ ok: true, diagnostics: [] });
+    for (const [store, expected] of [
+      [storeA, 0],
+      [storeB, 1]
+    ] as const) {
+      const db = await openDatabase(store.indexPath);
+      try {
+        expect(db.prepare("SELECT COUNT(*) AS count FROM operation_log").get()?.count).toBe(
+          expected
+        );
+      } finally {
+        db.close();
+      }
+    }
+  } finally {
+    await Promise.all(
+      [a.root, a.home, homeB].map((path) => rm(path, { recursive: true, force: true }))
+    );
+  }
+});
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
