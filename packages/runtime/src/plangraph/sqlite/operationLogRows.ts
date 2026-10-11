@@ -1,3 +1,4 @@
+import { stableJson } from "../hash.js";
 import {
   parsePlanGraphCommand,
   parsePlanGraphCommandArrayOrSingle,
@@ -8,13 +9,7 @@ import type { PlanGraphAffectedRefs, PlanGraphCommand } from "../commands.js";
 import type { PlanGraphOperationLogEntry } from "../ports.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "../../types.js";
 import { operationLogWorkspaceRef } from "./workspaceRef.js";
-import {
-  jsonString,
-  nullableStringColumn,
-  numberColumn,
-  parseJsonRecord,
-  stringColumn
-} from "./columns.js";
+import { nullableStringColumn, numberColumn, parseJsonRecord, stringColumn } from "./columns.js";
 
 export type OperationLogCoalescingEntry = {
   id: number;
@@ -162,5 +157,8 @@ export function mergeAffectedRefs(
 }
 
 export function sameWorkspaceRef(left: PackageWorkspaceRef, right: PackageWorkspaceRef): boolean {
-  return jsonString(left) === jsonString(right);
+  if (typeof left === "string" || typeof right === "string") return left === right;
+  const { resultsStorageIdentity: _leftResults, ...leftContent } = left;
+  const { resultsStorageIdentity: _rightResults, ...rightContent } = right;
+  return stableJson(leftContent) === stableJson(rightContent);
 }
