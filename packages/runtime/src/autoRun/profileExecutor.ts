@@ -53,7 +53,7 @@ export async function runProfileBlock(input: ExecutorBlockInput) {
   const workspace =
     input.executionSnapshot?.workspace ?? (await resolvePackageWorkspace(input.projectRoot));
   return withExecutorResultsWriteLease(workspace, `block:${input.claim.ref}`, () =>
-    runProfileBlockWithLease(input)
+    runProfileBlockWithLease({ ...input, projectRoot: workspace })
   );
 }
 

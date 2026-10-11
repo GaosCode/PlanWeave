@@ -17,7 +17,7 @@ import {
   withExecutionStateLock
 } from "./executionStateBoundary.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
-import { loadPackage } from "../package/loadPackage.js";
+import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
 import type {
   AutoRunStepResult,
@@ -577,6 +577,11 @@ export async function runAutoRunStep(options: {
   session?: ExecutionGraphSession;
   executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<AutoRunStepResult> {
+  options = {
+    ...options,
+    projectRoot:
+      options.executionSnapshot?.workspace ?? (await resolvePackageWorkspace(options.projectRoot))
+  };
   let claim = await claimNext({
     projectRoot: options.projectRoot,
     parallel: options.parallel,

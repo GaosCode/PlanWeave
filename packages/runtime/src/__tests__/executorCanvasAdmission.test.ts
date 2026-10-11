@@ -1,4 +1,5 @@
-import { access, mkdtemp, rename, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -13,6 +14,13 @@ import * as projectGraph from "../projectGraph/index.js";
 import * as consistency from "../package/packageFileConsistency.js";
 import * as mutation from "../fs/withProjectMutationLock.js";
 import { acquireExecutorResultsWriteLease } from "../package/executorResultsWriteLease.js";
+import * as leases from "../package/executorResultsWriteLease.js";
+import * as taskManager from "../taskManager/index.js";
+import { runAutoRunStep } from "../taskManager/autoRunStep.js";
+import { selectTaskCanvas } from "../desktop/canvasSelectionApi.js";
+import { trustCommand } from "../taskManager/hookTrustStore.js";
+import { writeJsonFile } from "../json.js";
+import { basicManifest, writePromptFiles } from "./promptTestHelpers.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -49,6 +57,103 @@ async function fixture() {
   const workspace = await resolveTaskCanvasWorkspace(owner.workspace.rootPath, canvas.canvasId);
   return { owner, canvas, workspace };
 }
+
+it.each([
+  "after-claim",
+  "after-lease"
+] as const)("binds a real default-string execution to its canvas when selection changes %s", async (phase) => {
+  const { owner, canvas, workspace: a } = await fixture();
+  const b = await resolveTaskCanvasWorkspace(owner.workspace.rootPath, "default");
+  const ready = join(owner.workspace.workspaceRoot, "child-ready");
+  const finish = join(owner.workspace.workspaceRoot, "child-finish");
+  const profile = {
+    adapter: "local-review" as const,
+    command: process.execPath,
+    args: [
+      "-e",
+      `const fs=require('node:fs/promises'); (async()=>{await fs.writeFile(${JSON.stringify(ready)},'ready');for(let i=0;i<300;i++){try{await fs.readFile(${JSON.stringify(finish)});break;}catch(e){if(e.code!=='ENOENT')throw e;}await new Promise(r=>setTimeout(r,20));}console.log(JSON.stringify({reviewBlockRef:'T-001#R-001',taskId:'T-001',verdict:'passed',content:'actual child review'}));})().catch(e=>{console.error(e);process.exitCode=1;});`
+    ],
+    timeoutMs: 10000
+  };
+  const manifest = basicManifest();
+  manifest.executors = { "local-review": profile };
+  manifest.execution.defaultExecutor = "local-review";
+  manifest.nodes[0]!.blocks = manifest.nodes[0]!.blocks.filter((block) => block.type === "review");
+  manifest.nodes[0]!.blocks[0]!.depends_on = [];
+  for (const workspace of [a, b]) {
+    await writeJsonFile(workspace.manifestFile, manifest);
+    await writePromptFiles(workspace.packageDir, manifest);
+  }
+  await trustCommand(a, profile.command, profile.args);
+  await selectTaskCanvas(owner.workspace.rootPath, canvas.canvasId);
+  const admitted = barrier(),
+    proceed = barrier();
+  if (phase === "after-claim") {
+    const claim = taskManager.claimNext;
+    vi.spyOn(taskManager, "claimNext").mockImplementation(async (options) => {
+      const result = await claim(options);
+      admitted.release();
+      await proceed.promise;
+      return result;
+    });
+  } else {
+    const acquire = leases.acquireExecutorResultsWriteLease;
+    vi.spyOn(leases, "acquireExecutorResultsWriteLease").mockImplementation(
+      async (workspace, identity) => {
+        const lease = await acquire(workspace, identity);
+        admitted.release();
+        await proceed.promise;
+        return lease;
+      }
+    );
+  }
+  const execution = runAutoRunStep({
+    projectRoot: owner.workspace.rootPath,
+    executorName: "local-review",
+    tmuxEnabled: false
+  });
+  const outcome = execution.then(
+    (value) => ({ value, error: null }),
+    (error: unknown) => ({ value: null, error })
+  );
+  try {
+    await admitted.promise;
+    await selectTaskCanvas(owner.workspace.rootPath, "default");
+    proceed.release();
+    for (let i = 0; i < 300; i++) {
+      if (
+        await actualFs.stat(ready).then(
+          () => true,
+          () => false
+        )
+      )
+        break;
+      await delay(10);
+    }
+    await expect(access(ready)).resolves.toBeUndefined();
+    await expect(leases.assertNoExecutorResultsWriteLease(a.resultsDir)).rejects.toThrow("lease");
+    await expect(removeTaskCanvas(owner.workspace.rootPath, canvas.canvasId)).rejects.toThrow(
+      "lease"
+    );
+    await expect(
+      access(join(a.resultsDir, "T-001/blocks/R-001/runs/RUN-001/metadata.json"))
+    ).resolves.toBeUndefined();
+    await expect(access(join(b.resultsDir, "T-001/blocks/R-001/runs"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    await writeFile(finish, "finish");
+    expect(await outcome).toMatchObject({ value: { kind: "submitted" }, error: null });
+    const state: unknown = JSON.parse(await readFile(a.stateFile, "utf8"));
+    expect(state).toMatchObject({ blocks: { "T-001#R-001": { status: "completed" } } });
+    await leases.assertNoExecutorResultsWriteLease(a.resultsDir);
+    await removeTaskCanvas(owner.workspace.rootPath, canvas.canvasId);
+    await expect(access(a.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    proceed.release();
+    await writeFile(finish, "finish");
+    await outcome;
+  }
+});
 it.each([
   "before-quarantine",
   "before-unregister"
