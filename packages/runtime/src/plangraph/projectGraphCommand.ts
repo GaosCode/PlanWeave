@@ -11,6 +11,8 @@ import {
   type ProjectTaskRef
 } from "../projectGraph/index.js";
 import type { PackageWorkspaceRef } from "../types.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
+import { assertCurrentProjectWorkspace, requireInitializedProjectWorkspace } from "../project.js";
 import type {
   AppliedPlanGraphCommand,
   PlanGraphAffectedRefs,
@@ -178,6 +180,19 @@ export async function executeProjectGraphCommand(
   options: ExecuteProjectGraphCommandOptions,
   dependencies: PlanGraphCommandDependencies
 ): Promise<PlanGraphCommandResult> {
+  const workspace = await requireInitializedProjectWorkspace(
+    projectRootString(options.projectRoot)
+  );
+  return withProjectMutationLock(workspace.workspaceRoot, async () => {
+    await assertCurrentProjectWorkspace(workspace);
+    return executeProjectGraphCommandLocked(options, dependencies);
+  });
+}
+
+async function executeProjectGraphCommandLocked(
+  options: ExecuteProjectGraphCommandOptions,
+  dependencies: PlanGraphCommandDependencies
+): Promise<PlanGraphCommandResult> {
   const recordOperation = options.recordOperation ?? true;
   const projectRoot = projectRootString(options.projectRoot);
   const loaded = await loadProjectGraph(projectRoot);
@@ -254,6 +269,26 @@ export async function executeProjectGraphCommand(
 }
 
 export async function applyProjectGraphHistoryCommand(
+  options: { indexPath?: string },
+  dependencies: PlanGraphCommandDependencies,
+  command: ProjectGraphCommand,
+  expectedGraphVersion: string,
+  workspaceRef: PackageWorkspaceRef
+): Promise<PlanGraphCommandResult> {
+  const workspace = await requireInitializedProjectWorkspace(projectRootString(workspaceRef));
+  return withProjectMutationLock(workspace.workspaceRoot, async () => {
+    await assertCurrentProjectWorkspace(workspace);
+    return applyProjectGraphHistoryCommandLocked(
+      options,
+      dependencies,
+      command,
+      expectedGraphVersion,
+      workspaceRef
+    );
+  });
+}
+
+async function applyProjectGraphHistoryCommandLocked(
   options: { indexPath?: string },
   dependencies: PlanGraphCommandDependencies,
   command: ProjectGraphCommand,

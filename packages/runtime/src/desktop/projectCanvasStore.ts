@@ -28,7 +28,12 @@ import {
   duplicateProjectCanvas,
   nextDefaultDesktopCanvasTitle
 } from "../projectGraph/projectCanvasMutation.js";
-import { resolveProjectWorkspace } from "../project.js";
+import {
+  assertCurrentProjectWorkspace,
+  requireInitializedProjectWorkspace,
+  resolveProjectWorkspace
+} from "../project.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { createEmptyState } from "../state.js";
 import type { PackageWorkspaceRef, ProjectWorkspace, ValidationIssue } from "../types.js";
 import {
@@ -679,11 +684,19 @@ class ResolvingProjectCanvasStore implements ProjectCanvasStore {
   }
 
   async rename(canvasId: string, name: string): Promise<DesktopTaskCanvasSummary> {
-    return (await this.open()).rename(canvasId, name);
+    const workspace = await requireInitializedProjectWorkspace(this.projectRoot);
+    return withProjectMutationLock(workspace.workspaceRoot, async () => {
+      await assertCurrentProjectWorkspace(workspace);
+      return (await this.open()).rename(canvasId, name);
+    });
   }
 
   async remove(canvasId: string): Promise<DesktopTaskCanvasSummary[]> {
-    return (await this.open()).remove(canvasId);
+    const workspace = await requireInitializedProjectWorkspace(this.projectRoot);
+    return withProjectMutationLock(workspace.workspaceRoot, async () => {
+      await assertCurrentProjectWorkspace(workspace);
+      return (await this.open()).remove(canvasId);
+    });
   }
 }
 

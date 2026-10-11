@@ -6,7 +6,8 @@ import { compilePackageGraph } from "../graph/compileTaskGraph.js";
 import { validateGraphQuality } from "../graph/validateGraphQuality.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
-import { requireInitializedProjectWorkspace } from "../project.js";
+import { assertCurrentProjectWorkspace, requireInitializedProjectWorkspace } from "../project.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import {
   compileProjectGraph,
   loadProjectGraph,
@@ -670,6 +671,18 @@ async function applyProjectDraft(options: {
 }
 
 export async function applyPackageDraftImport(options: {
+  draftRoot: string;
+  projectRoot: string;
+  canvasId?: string | null;
+}): Promise<PackageDraftImportApplyResult> {
+  const workspace = await requireInitializedProjectWorkspace(options.projectRoot);
+  return withProjectMutationLock(workspace.workspaceRoot, async () => {
+    await assertCurrentProjectWorkspace(workspace);
+    return applyPackageDraftImportLocked(options);
+  });
+}
+
+async function applyPackageDraftImportLocked(options: {
   draftRoot: string;
   projectRoot: string;
   canvasId?: string | null;

@@ -1,5 +1,7 @@
 import { withCanvasStorageReplacement } from "../package/withCanvasStorageMutation.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
+import { assertCurrentProjectWorkspace } from "../project.js";
 import { cp, mkdir, readFile, rename } from "node:fs/promises";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { isNodeFileNotFoundError, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
@@ -362,17 +364,20 @@ async function quarantineLegacyPaths(
 export async function applyDefaultCanvasWorkspaceMigration(
   projectWorkspace: ProjectWorkspace
 ): Promise<DefaultCanvasWorkspaceMigrationApplyResult> {
-  return withPackageFileConsistency(
-    [
-      legacyDefaultCanvasWorkspacePaths(projectWorkspace).packageDir,
-      legacyDefaultCanvasWorkspacePaths(projectWorkspace).stateFile,
-      legacyDefaultCanvasWorkspacePaths(projectWorkspace).resultsDir,
-      canonicalDefaultCanvasWorkspacePaths(projectWorkspace).packageDir,
-      canonicalDefaultCanvasWorkspacePaths(projectWorkspace).stateFile,
-      canonicalDefaultCanvasWorkspacePaths(projectWorkspace).resultsDir
-    ],
-    () => applyDefaultCanvasWorkspaceMigrationLocked(projectWorkspace)
-  );
+  return withProjectMutationLock(projectWorkspace.workspaceRoot, async () => {
+    await assertCurrentProjectWorkspace(projectWorkspace);
+    return withPackageFileConsistency(
+      [
+        legacyDefaultCanvasWorkspacePaths(projectWorkspace).packageDir,
+        legacyDefaultCanvasWorkspacePaths(projectWorkspace).stateFile,
+        legacyDefaultCanvasWorkspacePaths(projectWorkspace).resultsDir,
+        canonicalDefaultCanvasWorkspacePaths(projectWorkspace).packageDir,
+        canonicalDefaultCanvasWorkspacePaths(projectWorkspace).stateFile,
+        canonicalDefaultCanvasWorkspacePaths(projectWorkspace).resultsDir
+      ],
+      () => applyDefaultCanvasWorkspaceMigrationLocked(projectWorkspace)
+    );
+  });
 }
 
 async function applyDefaultCanvasWorkspaceMigrationLocked(

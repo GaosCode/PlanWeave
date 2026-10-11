@@ -1,4 +1,15 @@
-import { access, cp, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile
+} from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -7,6 +18,8 @@ import { renameProject } from "../desktop/projectApi.js";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
 import { acquireExecutorResultsWriteLease } from "../package/executorResultsWriteLease.js";
 import { withExecutorResultsWriteLease } from "../autoRun/executorResultsLifecycle.js";
+import { executePlanGraphCommand } from "../plangraph/executeCommand.js";
+import { createProjectCanvasStore } from "../desktop/projectCanvasStore.js";
 import { ImportTransaction } from "../package/importTransaction.js";
 import { importTransactionIdentityDigest } from "../package/importTransactionContent.js";
 import { createManagedProjectId } from "../projectId.js";
@@ -27,13 +40,19 @@ import { withPackageFileConsistency } from "../package/packageFileConsistency.js
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...actual, rename: vi.fn(actual.rename), realpath: vi.fn(actual.realpath) };
+  return {
+    ...actual,
+    rename: vi.fn(actual.rename),
+    realpath: vi.fn(actual.realpath),
+    mkdir: vi.fn(actual.mkdir)
+  };
 });
 let actualFs: typeof import("node:fs/promises");
 beforeEach(async () => {
   actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
   vi.mocked(rename).mockImplementation((oldPath, newPath) => actualFs.rename(oldPath, newPath));
   vi.mocked(realpath).mockImplementation((path, options) => actualFs.realpath(path, options));
+  vi.mocked(mkdir).mockImplementation((path, options) => actualFs.mkdir(path, options));
 });
 
 const directories: string[] = [];
@@ -273,6 +292,76 @@ async function fixture() {
   await writeFile(join(init.workspace.resultsDir, "history.txt"), "history-before-rename");
   return { home, ...init };
 }
+
+it.each([
+  "command",
+  "canvas-rename",
+  "canvas-remove"
+] as const)("finishes %s graph writes before relocating their project", async (kind) => {
+  const { home, project, workspace } = await fixture();
+  const extra = await createTaskCanvas(workspace.rootPath, { name: "Concurrent canvas" });
+  const store = await createProjectCanvasStore(workspace.rootPath);
+  const writing = barrier();
+  const allowWrite = barrier();
+  let pauseWrite = true;
+  vi.mocked(mkdir).mockImplementation(async (path, options) => {
+    if (pauseWrite && String(path) === workspace.workspaceRoot) {
+      pauseWrite = false;
+      writing.release();
+      await allowWrite.promise;
+    }
+    return actualFs.mkdir(path, options);
+  });
+  const mutation = (
+    kind === "command"
+      ? executePlanGraphCommand({
+          projectRoot: workspace.rootPath,
+          command: {
+            type: "addCanvasDependency",
+            fromCanvasId: "default",
+            toCanvasId: extra.canvasId
+          },
+          indexPath: join(home, "graph-command.sqlite"),
+          recordOperation: false
+        }).then((result) => {
+          expect(result.ok).toBe(true);
+        })
+      : kind === "canvas-rename"
+        ? store.rename(extra.canvasId, "Updated canvas")
+        : store.remove(extra.canvasId)
+  ).then(
+    () => ({ error: null }),
+    (error: unknown) => ({ error })
+  );
+  await writing.promise;
+  const renaming = renameProject(project.id, "Storage destination");
+  let relocatedWhileWriting: boolean;
+  try {
+    relocatedWhileWriting = await Promise.race([
+      renaming.then(() => true),
+      delay(150).then(() => false)
+    ]);
+  } finally {
+    allowWrite.release();
+  }
+  const renamed = await renaming;
+  const result = await mutation;
+  expect(relocatedWhileWriting).toBe(false);
+  expect(result.error).toBeNull();
+  await expect(access(workspace.workspaceRoot)).rejects.toThrow();
+  const moved = await projectGraph.loadProjectGraph(renamed.rootPath);
+  if (kind === "command") {
+    expect(moved.manifest.edges).toEqual([
+      { from: "default", to: extra.canvasId, type: "depends_on" }
+    ]);
+  } else if (kind === "canvas-rename") {
+    expect(moved.manifest.canvases.find((canvas) => canvas.id === extra.canvasId)?.title).toBe(
+      "Updated canvas"
+    );
+  } else {
+    expect(moved.manifest.canvases.some((canvas) => canvas.id === extra.canvasId)).toBe(false);
+  }
+});
 
 it("rejects an executor queued behind managed relocation before entering its old results path", async () => {
   const { home, project, workspace } = await fixture();
