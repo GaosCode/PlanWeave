@@ -722,6 +722,7 @@
         "persistentRunnerInteractionChannel.test.ts",
         "plangraphCommand.test.ts",
         "plangraphCommandHistorySchema.test.ts",
+        "plangraphWorkspaceHistory.test.ts",
         "plangraphDependencyHistory.test.ts",
         "plangraphProjection.test.ts",
         "projectCanvasMutation.test.ts",

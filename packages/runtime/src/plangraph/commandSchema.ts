@@ -349,12 +349,12 @@ const planGraphCommandArrayOrSingleSchema = z.union([
 
 export class PlanGraphOperationLogParseError extends Error {
   readonly operationId: number;
-  readonly fieldName: "command_json" | "inverse_json";
+  readonly fieldName: "command_json" | "inverse_json" | "workspace_ref_json";
   readonly issueSummary: string;
 
   constructor(options: {
     operationId: number;
-    fieldName: "command_json" | "inverse_json";
+    fieldName: "command_json" | "inverse_json" | "workspace_ref_json";
     issueSummary: string;
   }) {
     super(

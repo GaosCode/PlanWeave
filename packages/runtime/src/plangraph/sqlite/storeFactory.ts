@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { loadPackage } from "../../package/loadPackage.js";
-import { resolveProjectWorkspace } from "../../project.js";
+import { resolveProjectWorkspaceInHome } from "../../project.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "../../types.js";
 import type { PlanGraph } from "../domain/types.js";
 import { loadPlanGraphPackage } from "../packageRepository.js";
@@ -37,7 +37,10 @@ async function resolveIndexPath(
 ): Promise<{ workspace: ProjectWorkspace; indexPath: string }> {
   const { workspace } = await loadPackage(projectRoot);
   if (indexPath !== undefined) return { workspace, indexPath };
-  const projectWorkspace = await resolveProjectWorkspace(workspace.rootPath);
+  const projectWorkspace = await resolveProjectWorkspaceInHome(
+    workspace.rootPath,
+    workspace.planweaveHome
+  );
   return { workspace, indexPath: indexPath ?? defaultPlanGraphIndexPath(projectWorkspace) };
 }
 
@@ -141,7 +144,7 @@ export async function createSqlitePlanGraphStore(options: {
               )
               .get(historyKey);
             if (latest) {
-              const latestEntry = tryOperationLogCoalescingEntry(latest, historyKey);
+              const latestEntry = await tryOperationLogCoalescingEntry(latest, workspace);
               if (
                 latestEntry &&
                 promptHistoryTarget(latestEntry.command) === promptTarget &&
@@ -191,7 +194,7 @@ export async function createSqlitePlanGraphStore(options: {
               "SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1"
             )
             .get(historyKey);
-          return row ? operationLogEntry(row, historyKey) : null;
+          return row ? await operationLogEntry(row, workspace) : null;
         } finally {
           db.close();
         }
@@ -204,7 +207,7 @@ export async function createSqlitePlanGraphStore(options: {
               "SELECT * FROM operation_log WHERE project_root = ? AND undone_at IS NOT NULL ORDER BY undone_at DESC, id ASC LIMIT 1"
             )
             .get(historyKey);
-          return row ? operationLogEntry(row, historyKey) : null;
+          return row ? await operationLogEntry(row, workspace) : null;
         } finally {
           db.close();
         }

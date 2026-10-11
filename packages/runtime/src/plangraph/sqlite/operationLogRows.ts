@@ -7,8 +7,8 @@ import {
 import type { PlanGraphAffectedRefs, PlanGraphCommand } from "../commands.js";
 import type { PlanGraphOperationLogEntry } from "../ports.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "../../types.js";
+import { operationLogWorkspaceRef } from "./workspaceRef.js";
 import {
-  isRecord,
   jsonString,
   nullableStringColumn,
   numberColumn,
@@ -22,20 +22,6 @@ export type OperationLogCoalescingEntry = {
   command: PlanGraphCommand;
   affected: PlanGraphAffectedRefs;
 };
-
-function parseWorkspaceRef(value: unknown, fallbackProjectRoot: string): PackageWorkspaceRef {
-  if (typeof value !== "string" || !value.trim()) {
-    return fallbackProjectRoot;
-  }
-  const parsed: unknown = JSON.parse(value);
-  if (typeof parsed === "string") {
-    return parsed;
-  }
-  if (isRecord(parsed)) {
-    return parsed as ProjectWorkspace;
-  }
-  return fallbackProjectRoot;
-}
 
 function parseAffected(value: string): PlanGraphAffectedRefs {
   return parseJsonRecord(value, "affected_json") as PlanGraphAffectedRefs;
@@ -89,13 +75,13 @@ function operationLogInverse(row: Record<string, unknown>): PlanGraphCommand | P
   }
 }
 
-export function operationLogEntry(
+export async function operationLogEntry(
   row: Record<string, unknown>,
-  projectRoot: string
-): PlanGraphOperationLogEntry {
+  workspace: ProjectWorkspace
+): Promise<PlanGraphOperationLogEntry> {
   return {
     id: numberColumn(row, "id"),
-    workspaceRef: parseWorkspaceRef(row.workspace_ref_json, projectRoot),
+    workspaceRef: await operationLogWorkspaceRef(row, workspace),
     graphVersionBefore: stringColumn(row, "graph_version_before"),
     graphVersionAfter: stringColumn(row, "graph_version_after"),
     command: operationLogCommand(row),
@@ -106,24 +92,24 @@ export function operationLogEntry(
   };
 }
 
-function operationLogCoalescingEntry(
+async function operationLogCoalescingEntry(
   row: Record<string, unknown>,
-  projectRoot: string
-): OperationLogCoalescingEntry {
+  workspace: ProjectWorkspace
+): Promise<OperationLogCoalescingEntry> {
   return {
     id: numberColumn(row, "id"),
-    workspaceRef: parseWorkspaceRef(row.workspace_ref_json, projectRoot),
+    workspaceRef: await operationLogWorkspaceRef(row, workspace),
     command: operationLogCommand(row),
     affected: parseAffected(stringColumn(row, "affected_json"))
   };
 }
 
-export function tryOperationLogCoalescingEntry(
+export async function tryOperationLogCoalescingEntry(
   row: Record<string, unknown>,
-  projectRoot: string
-): OperationLogCoalescingEntry | null {
+  workspace: ProjectWorkspace
+): Promise<OperationLogCoalescingEntry | null> {
   try {
-    return operationLogCoalescingEntry(row, projectRoot);
+    return await operationLogCoalescingEntry(row, workspace);
   } catch {
     return null;
   }
