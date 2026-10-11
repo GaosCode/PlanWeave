@@ -507,7 +507,8 @@ export class ImportTransaction {
 
   private async withLockedRecovery<T>(
     extraTargets: readonly string[],
-    action: () => Promise<T>
+    action: () => Promise<T>,
+    alreadyCleaned?: () => Promise<T>
   ): Promise<T> {
     let targets = this.storageTargets(extraTargets);
     while (true) {
@@ -515,6 +516,14 @@ export class ImportTransaction {
         withImportTransactionWorkspaceLocks([this.workspaceRoot], () =>
           withImportTransactionLock(this.workspaceRoot, this.transactionId, async () => {
             if ((await this.fs.optionalStat(join(this.recoveryRoot, "recovery.json"))) === null) {
+              if (
+                alreadyCleaned &&
+                this.state === "committed" &&
+                (await this.fs.optionalStat(this.recoveryRoot)) === null &&
+                (await this.fs.optionalStat(this.workspaceRoot))?.isDirectory()
+              ) {
+                return { retry: false as const, value: await alreadyCleaned() };
+              }
               throw new Error(`Import transaction '${this.transactionId}' no longer exists.`);
             }
             const { recovery } = await readValidatedRecoveryFile({
@@ -764,13 +773,19 @@ export class ImportTransaction {
   }
 
   async cleanupCommitted(): Promise<void> {
-    await this.withLockedRecovery([], async () => {
-      if (this.state !== "committed") {
-        throw new Error("Active import transaction cannot be finalized as committed.");
+    await this.withLockedRecovery(
+      [],
+      async () => {
+        if (this.state !== "committed") {
+          throw new Error("Active import transaction cannot be finalized as committed.");
+        }
+        await this.fs.rm(this.recoveryRoot, { recursive: true, force: true });
+        this.operations = [];
+      },
+      async () => {
+        this.operations = [];
       }
-      await this.fs.rm(this.recoveryRoot, { recursive: true, force: true });
-      this.operations = [];
-    });
+    );
   }
 
   async commit(): Promise<void> {

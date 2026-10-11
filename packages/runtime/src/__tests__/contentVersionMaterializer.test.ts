@@ -359,6 +359,39 @@ describe("authoritative content materializer", () => {
     ).toEqual([]);
   });
 
+  it("allows concurrent authority recovery to finish the same committed layout transaction", async () => {
+    const fixture = await createTestWorkspace();
+    directories.push(fixture.home, fixture.root);
+    const workspace = await resolveTaskCanvasWorkspace(fixture.root, "default");
+    const target = join(workspace.workspaceRoot, "desktop", "layout.json");
+    const staged = join(workspace.workspaceRoot, "staged-layout.json");
+    const layout = JSON.stringify({
+      version: "desktop-layout/v1",
+      projectId: workspace.id,
+      nodes: [],
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    });
+    await writeFile(staged, layout);
+    const transaction = await ImportTransaction.create({
+      workspaceRoot: workspace.workspaceRoot,
+      transactionId: "concurrent-committed-layout",
+      writeIsolationTargets: [target]
+    });
+    await transaction.replacePath(target, staged);
+    await transaction.markCommitted();
+
+    await expect(
+      Promise.all([
+        recoverPendingAuthoritativeCanvasMaterialization(workspace),
+        recoverPendingAuthoritativeCanvasMaterialization(workspace)
+      ])
+    ).resolves.toEqual([undefined, undefined]);
+    expect(await readFile(target, "utf8")).toBe(layout);
+    expect(
+      await readdir(join(workspace.workspaceRoot, "desktop", "recovery", "package-import"))
+    ).toEqual([]);
+  });
+
   it("rejects newly introduced recovery targets without rolling them back under the canvas lock", async () => {
     const fixture = await createTestWorkspace();
     directories.push(fixture.home, fixture.root);

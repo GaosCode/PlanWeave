@@ -93,3 +93,29 @@ it("does not let a second queued recovery recreate the removed journal", async (
   expect(await readFile(target, "utf8")).toBe("first-old");
   await expect(access(recoveryRoot(workspaceRoot, transactionId))).rejects.toThrow();
 });
+
+it("allows an already committed handle to finish cleanup after another handle", async () => {
+  const { workspaceRoot, transactionId, transaction } = await fixture();
+  const target = await install(workspaceRoot, transaction, "first");
+  await transaction.markCommitted();
+  const second = await ImportTransaction.recover({ workspaceRoot, transactionId });
+  await transaction.cleanupCommitted();
+  await expect(second.cleanupCommitted()).resolves.toBeUndefined();
+  expect(await readFile(target, "utf8")).toBe("first-new");
+  await expect(second.rollback()).rejects.toThrow("no longer exists");
+});
+
+it.each([
+  "missing-journal",
+  "missing-active-transaction",
+  "missing-workspace"
+])("refuses cleanup for %s instead of treating corruption as completed", async (scenario) => {
+  const { workspaceRoot, transactionId, transaction } = await fixture();
+  if (scenario !== "missing-active-transaction") await transaction.markCommitted();
+  const root = recoveryRoot(workspaceRoot, transactionId);
+  if (scenario === "missing-journal") await rm(join(root, "recovery.json"));
+  else if (scenario === "missing-workspace") {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  } else await rm(root, { recursive: true, force: true });
+  await expect(transaction.cleanupCommitted()).rejects.toThrow("no longer exists");
+});

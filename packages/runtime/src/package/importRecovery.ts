@@ -2,6 +2,10 @@ import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { optionalStat } from "../fs/optionalFile.js";
 import { ImportTransaction, readImportTransactionRecoverySummary } from "./importTransaction.js";
+import {
+  withImportTransactionLock,
+  withImportTransactionWorkspaceLocks
+} from "./importTransactionLock.js";
 
 export type PendingImportTransaction = {
   transactionId: string;
@@ -39,18 +43,31 @@ export async function listPendingImportTransactions(
   );
   const pending: PendingImportTransaction[] = [];
   for (const transactionId of transactionIds) {
-    const summary = await readImportTransactionRecoverySummary({
-      workspaceRoot: resolvedWorkspaceRoot,
-      transactionId
-    });
-    if (summary.state === "committed") {
-      const transaction = await ImportTransaction.recover({
-        workspaceRoot: resolvedWorkspaceRoot,
-        transactionId
-      });
-      await transaction.cleanupCommitted();
+    const entry = await withImportTransactionWorkspaceLocks([resolvedWorkspaceRoot], () =>
+      withImportTransactionLock(resolvedWorkspaceRoot, transactionId, async () => {
+        const root = join(packageImportRecoveryRoot(resolvedWorkspaceRoot), transactionId);
+        if ((await optionalStat(root)) === null) return null;
+        const summary = await readImportTransactionRecoverySummary({
+          workspaceRoot: resolvedWorkspaceRoot,
+          transactionId
+        });
+        const transaction =
+          summary.state === "committed"
+            ? await ImportTransaction.recover({
+                workspaceRoot: resolvedWorkspaceRoot,
+                transactionId
+              })
+            : null;
+        return { summary, transaction };
+      })
+    );
+    if (!entry) continue;
+    // Release journal admission before acquiring the cleanup's storage targets.
+    if (entry.transaction) {
+      await entry.transaction.cleanupCommitted();
       continue;
     }
+    const { summary } = entry;
     pending.push({
       transactionId: summary.transactionId,
       recoveryRoot: summary.recoveryRoot,
