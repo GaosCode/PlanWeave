@@ -14,6 +14,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/setup";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { CollaborationWorkspaceConnection } from "../../../desktop/src/main/collaboration/collaborationWorkspaceConnection.js";
+import { CollaborationWorkspaceConnectionFacade } from "../../../desktop/src/main/collaboration/collaborationWorkspaceConnectionFacade.js";
 import { WorkspaceConnectionProfileStore } from "../../../desktop/src/main/collaboration/workspaceConnectionProfileStore.js";
 import { CollaborationCredentialVault } from "../../../desktop/src/main/collaboration/collaborationCredentialVault.js";
 import type { CollaborationObserverSignal } from "../../../desktop/src/shared/collaborationReadModels.js";
@@ -138,6 +139,15 @@ async function fixture() {
     onObserverSignal: (signal) => signals.push(signal)
   });
   connections.push(connection);
+  const facade = new CollaborationWorkspaceConnectionFacade({
+    connection,
+    publishStatus: async () => {
+      throw new Error("read_fixture_cannot_publish_status");
+    },
+    setSession: () => {
+      throw new Error("read_fixture_cannot_mutate_session");
+    }
+  });
   // Match the exact Desktop origin used in the real WS handshake.
   config.allowedClientOrigins = [origin];
   config.deployment.allowedClientOrigins = [origin];
@@ -155,6 +165,7 @@ async function fixture() {
     server,
     config,
     connection,
+    facade,
     signals,
     invalidations,
     json,
@@ -204,15 +215,17 @@ async function fixture() {
 }
 it("refreshes real Desktop member devices when an existing identity adds a device", async () => {
   const f = await fixture();
-  const before = await f.connection.listMembers(0, 100);
+  const before = await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 });
   expect(before.items).toHaveLength(1);
   expect(before.items[0]?.devices).toHaveLength(2);
   await f.issueDevice("Owner", f.redeemed.identityToken);
   await vi.waitFor(() => expect(f.invalidations()).toHaveLength(2));
-  const after = await f.connection.listMembers(0, 100);
+  const after = await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 });
   expect(after.items).toHaveLength(1);
   expect(after.items[0]?.devices).toHaveLength(3);
-  expect((await f.connection.getSelf()).deviceSessionId).toBe(f.redeemed.deviceSessionId);
+  expect((await f.facade.getWorkspaceConnectionSelf()).deviceSessionId).toBe(
+    f.redeemed.deviceSessionId
+  );
 });
 it("invalidates the Desktop device directory after owner recovery without another membership transition", async () => {
   const f = await fixture();
@@ -222,7 +235,7 @@ it("invalidates the Desktop device directory after owner recovery without anothe
     f.legacy.deviceToken
   );
   await vi.waitFor(() => expect(f.invalidations()).toHaveLength(2));
-  const before = await f.connection.listMembers(0, 100);
+  const before = await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 });
   expect(before.items).toHaveLength(1);
   expect(before.items[0]?.devices).toHaveLength(1);
   const database = await openServerDatabase(f.config.databasePath, 5_000);
@@ -235,7 +248,9 @@ it("invalidates the Desktop device directory after owner recovery without anothe
         displayName: "Owner"
       })
     ).rejects.toThrow();
-    expect(await f.connection.listMembers(0, 100)).toEqual(before);
+    expect(await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 })).toEqual(
+      before
+    );
     expect(f.invalidations()).toHaveLength(2);
   } finally {
     database.exec("DROP TRIGGER IF EXISTS fail_recovery_projection");
@@ -250,10 +265,12 @@ it("invalidates the Desktop device directory after owner recovery without anothe
   expect(recovered.created).toBe(false);
   expect(recovered.deviceToken).toBeDefined();
   await vi.waitFor(() => expect(f.invalidations()).toHaveLength(3));
-  const after = await f.connection.listMembers(0, 100);
+  const after = await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 });
   expect(after.items).toHaveLength(1);
   expect(after.items[0]?.devices).toHaveLength(2);
-  expect((await f.connection.getSelf()).deviceSessionId).toBe(f.redeemed.deviceSessionId);
+  expect((await f.facade.getWorkspaceConnectionSelf()).deviceSessionId).toBe(
+    f.redeemed.deviceSessionId
+  );
   const idempotent = humanBootstrapResponseSchema.parse(
     await f.json(`/api/v1/projects/${f.projectId}/human/bootstrap`, {
       humanPrincipalId: f.legacy.principal.humanPrincipalId,
@@ -261,21 +278,23 @@ it("invalidates the Desktop device directory after owner recovery without anothe
     })
   );
   expect(idempotent.deviceToken).toBeUndefined();
-  expect(await f.connection.listMembers(0, 100)).toEqual(after);
+  expect(await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 })).toEqual(after);
   expect(f.invalidations()).toHaveLength(3);
 });
 it("refreshes real Desktop roster and device ownership after identity merge", async () => {
   const f = await fixture();
   const source = await f.issueDevice("Source");
   await vi.waitFor(() => expect(f.invalidations()).toHaveLength(2));
-  expect((await f.connection.listMembers(0, 100)).items).toHaveLength(2);
+  expect(
+    (await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 })).items
+  ).toHaveLength(2);
   await f.json("/api/v1/human-identity/merge", {
     schemaVersion: "human-identity/v1",
     sourceIdentityToken: source.identityToken,
     canonicalIdentityToken: f.redeemed.identityToken
   });
   await vi.waitFor(() => expect(f.invalidations()).toHaveLength(3));
-  const after = await f.connection.listMembers(0, 100);
+  const after = await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 });
   expect(after.items).toHaveLength(1);
   expect(after.items[0]?.humanPrincipalId).toBe(f.redeemed.humanPrincipalId);
   expect(after.items[0]?.devices).toHaveLength(3);
@@ -362,13 +381,15 @@ it("suppresses device invalidation when redemption writes roll back", async () =
   const f = await fixture();
   const database = await openServerDatabase(f.config.databasePath, 5_000);
   try {
-    const before = await f.connection.listMembers(0, 100);
+    const before = await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 });
     // A persistent trigger is required for the HTTP composition's independent connection.
     database.exec(`CREATE TRIGGER fail_identity_http BEFORE INSERT ON human_identity_credentials
       BEGIN SELECT RAISE(ABORT, 'identity_issue_failed'); END`);
     await expect(f.issueDevice("Owner", f.redeemed.identityToken)).rejects.toThrow();
     await Promise.resolve();
-    expect(await f.connection.listMembers(0, 100)).toEqual(before);
+    expect(await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 })).toEqual(
+      before
+    );
     expect(f.invalidations()).toHaveLength(1);
   } finally {
     database.exec("DROP TRIGGER IF EXISTS fail_identity_http");
@@ -378,7 +399,9 @@ it("suppresses device invalidation when redemption writes roll back", async () =
 it("delivers real Server rename/join/remove invalidation to a Workspace-only Desktop client and revalidates after reconnect", async () => {
   const f = await fixture();
   expect(
-    (await f.connection.listMembers(0, 100)).items.map((member) => member.displayName)
+    (await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 })).items.map(
+      (member) => member.displayName
+    )
   ).toEqual(["Owner"]);
   await f.json(
     "/api/v1/workspace-connection/self",
@@ -387,7 +410,7 @@ it("delivers real Server rename/join/remove invalidation to a Workspace-only Des
     "PATCH"
   );
   await vi.waitFor(() => expect(f.invalidations()).toHaveLength(2));
-  expect((await f.connection.getSelf()).displayName).toBe("Renamed");
+  expect((await f.facade.getWorkspaceConnectionSelf()).displayName).toBe("Renamed");
   const invitation = humanCreateInvitationResponseSchema.parse(
     await f.json(`/api/v1/projects/${f.projectId}/human/invitations`, {}, f.legacy.deviceToken)
   );
@@ -398,7 +421,9 @@ it("delivers real Server rename/join/remove invalidation to a Workspace-only Des
     })
   );
   await vi.waitFor(() => expect(f.invalidations()).toHaveLength(3));
-  expect((await f.connection.listMembers(0, 100)).items).toHaveLength(2);
+  expect(
+    (await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 })).items
+  ).toHaveLength(2);
   await f.json(
     `/api/v1/projects/${f.projectId}/human/members/${joined.principal.humanPrincipalId}/remove`,
     {},
@@ -406,13 +431,15 @@ it("delivers real Server rename/join/remove invalidation to a Workspace-only Des
   );
   await vi.waitFor(() => expect(f.invalidations()).toHaveLength(4));
   expect(
-    (await f.connection.listMembers(0, 100)).items.map((member) => member.displayName)
+    (await f.facade.listWorkspaceConnectionMembers({ cursor: 0, limit: 100 })).items.map(
+      (member) => member.displayName
+    )
   ).toEqual(["Renamed"]);
   for (let index = 0; index < 5; index++) await f.connection.buildView();
   expect(f.invalidations()).toHaveLength(4);
   await f.restart();
   await vi.waitFor(() => expect(f.invalidations()).toHaveLength(5));
-  expect((await f.connection.getSelf()).displayName).toBe("Renamed");
+  expect((await f.facade.getWorkspaceConnectionSelf()).displayName).toBe("Renamed");
   for (const signal of f.invalidations())
     expect(Object.keys(signal).sort()).toEqual([
       "profileId",
