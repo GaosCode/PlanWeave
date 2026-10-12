@@ -89,6 +89,7 @@ export async function withImportAdmissions<T>(
       );
     }
     const receipt = join(readers, `${randomUUID()}.json`);
+    let result: { ok: true; value: T } | { ok: false; error: unknown };
     try {
       await withAdvisoryDirectoryLock(
         { lockPath: path, operation: "import-transaction-scan" },
@@ -97,11 +98,25 @@ export async function withImportAdmissions<T>(
           await writeJsonFile(receipt, { pid: process.pid });
         }
       );
-      return await heldAdmissions.run(next, () => acquire(index + 1));
-    } finally {
-      // Release without the gate so an exclusive waiter can drain existing readers.
-      await rm(receipt, { force: true });
+      result = { ok: true, value: await heldAdmissions.run(next, () => acquire(index + 1)) };
+    } catch (error) {
+      result = { ok: false, error };
     }
+    // Release without the gate so an exclusive waiter can drain existing readers.
+    try {
+      await rm(receipt, { force: true });
+    } catch (releaseError) {
+      const failures = result.ok ? [releaseError] : [result.error, releaseError];
+      try {
+        await rm(receipt, { force: true });
+      } catch (retryError) {
+        failures.push(retryError);
+      }
+      if (failures.length === 1) throw releaseError;
+      throw new AggregateError(failures, `Import reader receipt release failed at '${receipt}'.`);
+    }
+    if (!result.ok) throw result.error;
+    return result.value;
   }
   return acquire(0);
 }
