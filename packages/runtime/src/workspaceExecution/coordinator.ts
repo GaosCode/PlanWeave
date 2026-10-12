@@ -678,39 +678,45 @@ export class WorkspaceExecutionCoordinator {
     signal?: AbortSignal,
     evidenceCursor?: RemoteWorkspaceExecutionHandle["cursor"]
   ): Promise<WorkspaceExecutionCoordinatorResult> {
-    const persisted = await persistRemoteObservation({
-      sessions: this.sessions,
+    const { persisted, persistedHandle, checkpointAccepted } = await this.sessions.withMutation(
       storage,
-      binding,
-      original: session,
-      snapshot,
-      clock: this.input.clock
-    });
-    const persistedHandle = remoteWorkspaceExecutionHandleSchema.parse(
-      persisted.workspaceExecution?.handle
-    );
-    const checkpointAccepted =
-      persistedHandle.operationRevision === snapshot.handle.operationRevision &&
-      (!terminalPhases.has(persisted.phase) || snapshot.terminal.terminal);
-    if (checkpointAccepted) {
-      await this.sessions.appendEvent(
-        storage,
-        persisted.sessionId,
-        "workspace_execution_checkpoint",
-        {
-          phase: persisted.phase,
-          authorityBindingId: binding.bindingId,
-          target: "remote",
-          operationId: snapshot.handle.operationId,
-          operationRevision: snapshot.handle.operationRevision,
-          attemptStateVersion: snapshot.handle.attemptStateVersion,
-          executionAttemptId: snapshot.handle.executionAttemptId,
-          eventCursor: snapshot.handle.cursor.eventCursor,
-          terminal: snapshot.terminal.terminal,
-          outcome: snapshot.terminal.terminal ? snapshot.terminal.outcome : null
+      async () => {
+        const persisted = await persistRemoteObservation({
+          sessions: this.sessions,
+          storage,
+          binding,
+          original: session,
+          snapshot,
+          clock: this.input.clock
+        });
+        const persistedHandle = remoteWorkspaceExecutionHandleSchema.parse(
+          persisted.workspaceExecution?.handle
+        );
+        const checkpointAccepted =
+          persistedHandle.operationRevision === snapshot.handle.operationRevision &&
+          (!terminalPhases.has(persisted.phase) || snapshot.terminal.terminal);
+        if (checkpointAccepted) {
+          await this.sessions.appendEvent(
+            storage,
+            persisted.sessionId,
+            "workspace_execution_checkpoint",
+            {
+              phase: persisted.phase,
+              authorityBindingId: binding.bindingId,
+              target: "remote",
+              operationId: snapshot.handle.operationId,
+              operationRevision: snapshot.handle.operationRevision,
+              attemptStateVersion: snapshot.handle.attemptStateVersion,
+              executionAttemptId: snapshot.handle.executionAttemptId,
+              eventCursor: snapshot.handle.cursor.eventCursor,
+              terminal: snapshot.terminal.terminal,
+              outcome: snapshot.terminal.terminal ? snapshot.terminal.outcome : null
+            }
+          );
         }
-      );
-    }
+        return { persisted, persistedHandle, checkpointAccepted };
+      }
+    );
     const checkpointSnapshot = { ...snapshot, handle: persistedHandle };
     const checkpointEvents = [
       ...(selectedTarget

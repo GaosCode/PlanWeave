@@ -6,6 +6,7 @@ import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { canonicalPackageFileTarget } from "../package/packageFileConsistency.js";
 import { withCurrentRunSessionStorage } from "./storageMutation.js";
+import { allocateSessionId, ensureSessionAllocation } from "./sessionAllocation.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { commandCanvasIdForWorkspace } from "../taskManager/canvasCommandScope.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -133,20 +134,6 @@ async function listExistingSessionIds(workspace: ProjectWorkspace): Promise<stri
       ?.filter((entry) => entry.isDirectory() && sessionIdPattern.test(entry.name))
       .map((entry) => entry.name) ?? []
   );
-}
-
-function nextSessionId(existing: string[]): string {
-  const highest = existing.reduce((max, sessionId) => {
-    const match = sessionIdPattern.exec(sessionId);
-    return match ? Math.max(max, Number.parseInt(match[1], 10)) : max;
-  }, 0);
-  return `SESSION-${String(highest + 1).padStart(4, "0")}`;
-}
-
-function nextSessionIdAfter(sessionId: string): string {
-  const match = sessionIdPattern.exec(sessionId);
-  const current = match ? Number.parseInt(match[1], 10) : 0;
-  return `SESSION-${String(current + 1).padStart(4, "0")}`;
 }
 
 function isNodeErrorWithCode(error: unknown, code: string): boolean {
@@ -425,12 +412,17 @@ async function readSessionState(
   }
 }
 
+async function requireSessionState(workspace: ProjectWorkspace, sessionId: string): Promise<void> {
+  const current = await readSessionState(workspace, sessionId);
+  if (!current.session) throw new Error(`Run session '${sessionId}' could not be read.`);
+}
+
 export async function createRunSession(options: CreateRunSessionOptions): Promise<RunSessionState> {
   const workspace = await resolveSessionWorkspace(options.projectRoot);
   return withCurrentRunSessionStorage(workspace, async () => {
     const root = runSessionsRoot(workspace);
     await mkdir(root, { recursive: true });
-    let sessionId = nextSessionId(await listExistingSessionIds(workspace));
+    let sessionId = await allocateSessionId(workspace);
     for (;;) {
       try {
         await mkdir(sessionRoot(workspace, sessionId));
@@ -439,7 +431,7 @@ export async function createRunSession(options: CreateRunSessionOptions): Promis
         if (!isNodeErrorWithCode(error, "EEXIST")) {
           throw error;
         }
-        sessionId = nextSessionIdAfter(sessionId);
+        sessionId = await allocateSessionId(workspace);
       }
     }
     const now = (options.now ?? new Date()).toISOString();
@@ -488,9 +480,11 @@ export async function discardRunSessionInitialization(
   sessionId: string
 ): Promise<void> {
   assertValidRunSessionId(sessionId);
-  await withCurrentRunSessionStorage(workspace, () =>
-    rm(sessionRoot(workspace, sessionId), { recursive: true, force: true })
-  );
+  await withCurrentRunSessionStorage(workspace, async () => {
+    await requireSessionState(workspace, sessionId);
+    await ensureSessionAllocation(workspace);
+    await rm(sessionRoot(workspace, sessionId), { recursive: true, force: false });
+  });
 }
 
 export async function updateRunSession(
@@ -502,6 +496,7 @@ export async function updateRunSession(
   assertValidRunSessionId(sessionId);
   const workspace = await resolveSessionWorkspace(projectRoot);
   return withCurrentRunSessionStorage(workspace, async () => {
+    await requireSessionState(workspace, sessionId);
     return withAdvisoryDirectoryLock(
       {
         lockPath: sessionMutationLockPath(workspace, sessionId),
@@ -545,6 +540,7 @@ export async function appendRunSessionEvent(
   assertValidRunSessionId(sessionId);
   const workspace = await resolveSessionWorkspace(projectRoot);
   return withCurrentRunSessionStorage(workspace, async () => {
+    await requireSessionState(workspace, sessionId);
     const event: RunSessionEvent = {
       timestamp: typeof data.timestamp === "string" ? data.timestamp : new Date().toISOString(),
       sessionId,
@@ -552,7 +548,6 @@ export async function appendRunSessionEvent(
       phase: typeof data.phase === "string" ? (data.phase as RunSessionPhase) : "created",
       ...data
     };
-    await mkdir(sessionRoot(workspace, sessionId), { recursive: true });
     await appendFile(sessionEventsPath(workspace, sessionId), `${JSON.stringify(event)}\n`, "utf8");
   });
 }

@@ -83,6 +83,7 @@ import {
   appendRunSessionEvent,
   createRunSession,
   resetRuntimeState,
+  updateRunSessionWithEvent,
   updateRunSession
 } from "../runSessions/index.js";
 import { discardRunSessionInitialization } from "../runSessions/repository.js";
@@ -979,15 +980,20 @@ export async function resetDesktopRuntimeState(
     }
     invalidateDesktopProjectProjection(projectRoot);
     const finishedAt = new Date().toISOString();
-    const completedSession = await updateRunSession(workspace, session.sessionId, {
-      phase: "completed",
-      finishedAt
-    });
-    await appendRunSessionEvent(workspace, session.sessionId, "session_completed", {
-      phase: "completed",
-      finishedAt,
-      stoppedAutoRunIds
-    });
+    const completedSession = await updateRunSessionWithEvent(
+      workspace,
+      session.sessionId,
+      {
+        phase: "completed",
+        finishedAt
+      },
+      "session_completed",
+      {
+        phase: "completed",
+        finishedAt,
+        stoppedAutoRunIds
+      }
+    );
     return {
       ...reset,
       session: completedSession,
@@ -996,17 +1002,22 @@ export async function resetDesktopRuntimeState(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const finishedAt = new Date().toISOString();
-    await updateRunSession(workspace, session.sessionId, {
-      phase: "failed",
-      finishedAt,
-      error: message
-    });
-    await appendRunSessionEvent(workspace, session.sessionId, "session_failed", {
-      phase: "failed",
-      finishedAt,
-      error: message,
-      stoppedAutoRunIds
-    });
+    await updateRunSessionWithEvent(
+      workspace,
+      session.sessionId,
+      {
+        phase: "failed",
+        finishedAt,
+        error: message
+      },
+      "session_failed",
+      {
+        phase: "failed",
+        finishedAt,
+        error: message,
+        stoppedAutoRunIds
+      }
+    );
     throw error;
   } finally {
     if (ownsResetTarget) {

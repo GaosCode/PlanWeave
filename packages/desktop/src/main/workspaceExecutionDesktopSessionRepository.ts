@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { appendFile, chmod, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -53,6 +54,7 @@ export class DesktopWorkspaceExecutionSessionRepository
   implements WorkspaceExecutionSessionRepositoryPort
 {
   private readonly queues = new Map<string, Promise<void>>();
+  private readonly heldMutationNamespaces = new AsyncLocalStorage<Set<string>>();
 
   constructor(
     private readonly root: string,
@@ -63,35 +65,37 @@ export class DesktopWorkspaceExecutionSessionRepository
     storage: WorkspaceExecutionSessionStorage,
     input: WorkspaceExecutionSessionCreateInput
   ): Promise<WorkspaceExecutionSessionRecord> {
-    return this.withQueue(`${namespaceDirectory(this.root, storage)}\u0000allocation`, async () => {
-      const sessions = (await this.list(storage)).sessions;
-      const sequence =
-        sessions.reduce((max, session) => {
-          const value = Number(session.sessionId.slice("SESSION-".length));
-          return Number.isSafeInteger(value) ? Math.max(max, value) : max;
-        }, 0) + 1;
-      const now = this.clock().toISOString();
-      const session = parseWorkspaceExecutionSessionRecord({
-        stateVersion: 1,
-        sessionId: `SESSION-${String(sequence).padStart(4, "0")}`,
-        kind: "run",
-        trigger: input.trigger,
-        canvasId: input.workspaceExecution.binding.canvasId,
-        scope: input.scope,
-        phase: input.phase,
-        startedAt: now,
-        updatedAt: now,
-        finishedAt: null,
-        reset: null,
-        autoRun: null,
-        latestRecordId: null,
-        latestRecordPath: null,
-        workspaceExecution: input.workspaceExecution,
-        error: null
-      });
-      await writeSession(this.root, storage, session);
-      return session;
-    });
+    return this.withMutation(storage, () =>
+      this.withQueue(`${namespaceDirectory(this.root, storage)}\u0000allocation`, async () => {
+        const sessions = (await this.list(storage)).sessions;
+        const sequence =
+          sessions.reduce((max, session) => {
+            const value = Number(session.sessionId.slice("SESSION-".length));
+            return Number.isSafeInteger(value) ? Math.max(max, value) : max;
+          }, 0) + 1;
+        const now = this.clock().toISOString();
+        const session = parseWorkspaceExecutionSessionRecord({
+          stateVersion: 1,
+          sessionId: `SESSION-${String(sequence).padStart(4, "0")}`,
+          kind: "run",
+          trigger: input.trigger,
+          canvasId: input.workspaceExecution.binding.canvasId,
+          scope: input.scope,
+          phase: input.phase,
+          startedAt: now,
+          updatedAt: now,
+          finishedAt: null,
+          reset: null,
+          autoRun: null,
+          latestRecordId: null,
+          latestRecordPath: null,
+          workspaceExecution: input.workspaceExecution,
+          error: null
+        });
+        await writeSession(this.root, storage, session);
+        return session;
+      })
+    );
   }
 
   async get(storage: WorkspaceExecutionSessionStorage, sessionId: string) {
@@ -126,23 +130,25 @@ export class DesktopWorkspaceExecutionSessionRepository
     patch: Partial<WorkspaceExecutionSessionRecord>,
     options: { expectedStateVersion: number }
   ): Promise<WorkspaceExecutionSessionRecord> {
-    return this.withQueue(`${sessionFile(this.root, storage, sessionId)}\u0000update`, async () => {
-      const current = await readSession(this.root, storage, sessionId);
-      if (current.stateVersion !== options.expectedStateVersion) {
-        throw new WorkspaceExecutionSessionVersionConflictError(
-          "workspace_execution_session_version_conflict"
-        );
-      }
-      const next = parseWorkspaceExecutionSessionRecord({
-        ...current,
-        ...patch,
-        sessionId: current.sessionId,
-        stateVersion: current.stateVersion + 1,
-        updatedAt: this.clock().toISOString()
-      });
-      await writeSession(this.root, storage, next);
-      return next;
-    });
+    return this.withMutation(storage, () =>
+      this.withQueue(`${sessionFile(this.root, storage, sessionId)}\u0000update`, async () => {
+        const current = await readSession(this.root, storage, sessionId);
+        if (current.stateVersion !== options.expectedStateVersion) {
+          throw new WorkspaceExecutionSessionVersionConflictError(
+            "workspace_execution_session_version_conflict"
+          );
+        }
+        const next = parseWorkspaceExecutionSessionRecord({
+          ...current,
+          ...patch,
+          sessionId: current.sessionId,
+          stateVersion: current.stateVersion + 1,
+          updatedAt: this.clock().toISOString()
+        });
+        await writeSession(this.root, storage, next);
+        return next;
+      })
+    );
   }
 
   async appendEvent(
@@ -151,13 +157,28 @@ export class DesktopWorkspaceExecutionSessionRepository
     type: string,
     data: Record<string, unknown>
   ): Promise<void> {
-    const directory = namespaceDirectory(this.root, storage);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await chmod(directory, 0o700);
-    await appendFile(
-      join(directory, `${sessionId}.events.jsonl`),
-      `${JSON.stringify({ type, ...data })}\n`,
-      { encoding: "utf8", mode: 0o600 }
+    return this.withMutation(storage, async () => {
+      await readSession(this.root, storage, sessionId);
+      const directory = namespaceDirectory(this.root, storage);
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      await chmod(directory, 0o700);
+      await appendFile(
+        join(directory, `${sessionId}.events.jsonl`),
+        `${JSON.stringify({ type, ...data })}\n`,
+        { encoding: "utf8", mode: 0o600 }
+      );
+    });
+  }
+
+  async withMutation<T>(
+    storage: WorkspaceExecutionSessionStorage,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const key = `${namespaceDirectory(this.root, storage)}\u0000mutation`;
+    const held = this.heldMutationNamespaces.getStore();
+    if (held?.has(key)) return operation();
+    return this.withQueue(key, () =>
+      this.heldMutationNamespaces.run(new Set([...(held ?? []), key]), operation)
     );
   }
 

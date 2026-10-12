@@ -16,6 +16,7 @@ import {
 } from "./contracts.js";
 import type { ValidatedWorkspaceAuthorityBinding } from "./authorityBinding.js";
 import { WorkspaceExecutionError } from "./errors.js";
+import { withCurrentRunSessionStorage } from "../runSessions/storageMutation.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { ProjectWorkspace, PackageWorkspaceRef } from "../types.js";
 
@@ -85,6 +86,10 @@ export interface WorkspaceExecutionSessionRepositoryPort {
     type: string,
     data: Record<string, unknown>
   ): Promise<unknown>;
+  withMutation<T>(
+    storage: WorkspaceExecutionSessionStorage,
+    operation: () => Promise<T>
+  ): Promise<T>;
   withScopeLock<T>(
     storage: WorkspaceExecutionSessionStorage,
     scope: WorkspaceExecutionScope,
@@ -142,6 +147,9 @@ export function createPackageWorkspaceExecutionSessionRepository(): WorkspaceExe
     },
     async appendEvent(storage, sessionId, type, data) {
       return appendRunSessionEvent(await owner(storage), sessionId, type, data);
+    },
+    async withMutation(storage, operation) {
+      return withCurrentRunSessionStorage(await owner(storage), operation);
     },
     async withScopeLock(storage, scope, operation) {
       return withRunSessionScopeLock(await owner(storage), scope, operation);

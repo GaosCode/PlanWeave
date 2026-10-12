@@ -751,6 +751,8 @@
         "runSessionExecution.test.ts",
         "runSessionRepository.test.ts",
         "runSessionRetention.test.ts",
+        "runSessionPruneLifecycle.test.ts",
+        "runSessionTerminalRetention.test.ts",
         "runnerInteractionStore.test.ts",
         "runnerRecordFileObserver.test.ts",
         "runnerRecordMailboxProjection.test.ts",

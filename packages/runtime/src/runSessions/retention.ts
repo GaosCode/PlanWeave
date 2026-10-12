@@ -63,6 +63,8 @@ import {
 } from "../package/packageStorageIdentitySchema.js";
 import { canonicalPackageFileTarget } from "../package/packageFileConsistency.js";
 import { withCurrentRunSessionStorage } from "./storageMutation.js";
+import { ensureSessionAllocation } from "./sessionAllocation.js";
+import { pruneArtifactIdentity } from "./pruneArtifactIdentity.js";
 import { readJsonFile } from "../json.js";
 import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
 import { readState } from "../state.js";
@@ -101,6 +103,7 @@ export type PrunePlanItem = {
   path: string;
   id: string;
   reason: string;
+  artifactIdentity: string;
   taskId?: string;
   blockId?: string;
   ref?: string;
@@ -678,7 +681,7 @@ function selectPrunable(
   keepLast: number | null,
   nowMs: number
 ): {
-  items: PrunePlanItem[];
+  items: Array<Omit<PrunePlanItem, "artifactIdentity">>;
   excludedCount: number;
 } {
   const byContainer = new Map<string, ArtifactCandidate[]>();
@@ -688,7 +691,7 @@ function selectPrunable(
     byContainer.set(candidate.containerKey, list);
   }
 
-  const items: PrunePlanItem[] = [];
+  const items: Array<Omit<PrunePlanItem, "artifactIdentity">> = [];
   let excludedCount = 0;
 
   for (const group of byContainer.values()) {
@@ -780,7 +783,14 @@ export async function computePrunePlan(
 
     return {
       storageIdentity: await pruneStorageIdentity(workspace),
-      items,
+      items: await Promise.all(
+        items.map(async (item) => {
+          const artifactIdentity = await pruneArtifactIdentity(item.path, item.kind === "session");
+          if (!artifactIdentity)
+            throw new Error(`Prune candidate '${item.path}' disappeared during planning.`);
+          return { ...item, artifactIdentity };
+        })
+      ),
       excludedCount,
       options: {
         olderThanMs: filters.olderThanMs,
@@ -810,8 +820,16 @@ export async function applyPrunePlan(
     if (JSON.stringify(identity) !== JSON.stringify(await pruneStorageIdentity(workspace))) {
       throw new Error("Run session prune storage identity changed since plan creation.");
     }
+    await ensureSessionAllocation(workspace);
     const state = await readState(workspace.stateFile);
     const { candidates } = await collectAllCandidates(workspace, state);
+    const currentSelection = selectPrunable(
+      candidates,
+      plan.options.olderThanMs,
+      plan.options.keepLast,
+      new Date(plan.options.nowIso).getTime()
+    );
+    const eligibleNow = new Set(currentSelection.items.map((item) => resolve(item.path)));
     const protectedNow = new Set(
       candidates.filter((item) => item.protected).map((item) => resolve(item.path))
     );
@@ -829,6 +847,23 @@ export async function applyPrunePlan(
       }
       if (protectedNow.has(absolutePath)) {
         skipped.push({ ...item, skipReason: "referenced or protected at apply time" });
+        continue;
+      }
+      if (!eligibleNow.has(absolutePath)) {
+        skipped.push({
+          ...item,
+          skipReason: "no longer eligible under the planned retention rules"
+        });
+        continue;
+      }
+      if (
+        item.artifactIdentity !==
+        (await pruneArtifactIdentity(absolutePath, item.kind === "session"))
+      ) {
+        skipped.push({
+          ...item,
+          skipReason: "artifact instance or summary changed since plan creation"
+        });
         continue;
       }
       if (!(await optionalStat(absolutePath))) {

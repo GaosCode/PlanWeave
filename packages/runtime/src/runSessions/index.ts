@@ -1,3 +1,4 @@
+export { updateRunSessionWithEvent } from "./sessionCompletion.js";
 export {
   appendRunSessionEvent,
   createRunSession,

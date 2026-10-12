@@ -1,3 +1,4 @@
+import { withCurrentRunSessionStorage } from "../runSessions/storageMutation.js";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -379,62 +380,65 @@ export async function projectSessionForTransition(
   buildSessionSummary: SessionSummaryBuilder,
   adapters?: TransitionPersistenceAdapters
 ): Promise<void> {
-  if (!state.runSessionId) {
+  const runSessionId = state.runSessionId;
+  if (!runSessionId) {
     return;
   }
-  const a = mergeAdapters(adapters);
-  const phase = runSessionPhaseForPhase(state.phase);
-  const finishedAt = isTerminalRunSessionPhase(phase) ? state.updatedAt : undefined;
-  const summary = await buildSessionSummary(workspace, state, intent.eventType);
-  await a.updateSession(workspace, state.runSessionId, {
-    phase,
-    ...(finishedAt ? { finishedAt } : {}),
-    autoRun: summary,
-    latestRecordId: state.latestRecordId,
-    latestRecordPath: state.latestRecordPath,
-    error: state.error
-  });
+  return withCurrentRunSessionStorage(workspace, async () => {
+    const a = mergeAdapters(adapters);
+    const phase = runSessionPhaseForPhase(state.phase);
+    const finishedAt = isTerminalRunSessionPhase(phase) ? state.updatedAt : undefined;
+    const summary = await buildSessionSummary(workspace, state, intent.eventType);
+    await a.updateSession(workspace, runSessionId, {
+      phase,
+      ...(finishedAt ? { finishedAt } : {}),
+      autoRun: summary,
+      latestRecordId: state.latestRecordId,
+      latestRecordPath: state.latestRecordPath,
+      error: state.error
+    });
 
-  const eventData = {
-    phase,
-    desktopRunId: state.runId,
-    autoRunPhase: state.phase,
-    stepCount: state.stepCount,
-    currentRef: state.currentRef,
-    latestRecordId: state.latestRecordId,
-    latestRecordPath: state.latestRecordPath,
-    error: state.error,
-    transitionId: intent.transitionId,
-    previousPhase: intent.previousPhase,
-    nextPhase: intent.nextPhase,
-    ...intent.data
-  };
+    const eventData = {
+      phase,
+      desktopRunId: state.runId,
+      autoRunPhase: state.phase,
+      stepCount: state.stepCount,
+      currentRef: state.currentRef,
+      latestRecordId: state.latestRecordId,
+      latestRecordPath: state.latestRecordPath,
+      error: state.error,
+      transitionId: intent.transitionId,
+      previousPhase: intent.previousPhase,
+      nextPhase: intent.nextPhase,
+      ...intent.data
+    };
 
-  const hasEvent = await hasSessionTransitionEvent(
-    workspace,
-    state.runSessionId,
-    intent.transitionId,
-    intent.eventType,
-    a.getSession
-  );
-  if (!hasEvent) {
-    await a.appendSessionEvent(workspace, state.runSessionId, intent.eventType, eventData);
-  }
-
-  const finalType = finalRunSessionEventTypeForPhase(phase);
-  if (finalType) {
-    const detail = await a.getSession(workspace, state.runSessionId);
-    const alreadyHasFinal = detail.events.some((e) => finalRunSessionEventTypes.has(e.type));
-    if (!alreadyHasFinal) {
-      await a.appendSessionEvent(workspace, state.runSessionId, finalType, {
-        phase,
-        finishedAt,
-        desktopRunId: state.runId,
-        stepCount: state.stepCount,
-        transitionId: intent.transitionId
-      });
+    const hasEvent = await hasSessionTransitionEvent(
+      workspace,
+      runSessionId,
+      intent.transitionId,
+      intent.eventType,
+      a.getSession
+    );
+    if (!hasEvent) {
+      await a.appendSessionEvent(workspace, runSessionId, intent.eventType, eventData);
     }
-  }
+
+    const finalType = finalRunSessionEventTypeForPhase(phase);
+    if (finalType) {
+      const detail = await a.getSession(workspace, runSessionId);
+      const alreadyHasFinal = detail.events.some((e) => finalRunSessionEventTypes.has(e.type));
+      if (!alreadyHasFinal) {
+        await a.appendSessionEvent(workspace, runSessionId, finalType, {
+          phase,
+          finishedAt,
+          desktopRunId: state.runId,
+          stepCount: state.stepCount,
+          transitionId: intent.transitionId
+        });
+      }
+    }
+  });
 }
 
 /**
