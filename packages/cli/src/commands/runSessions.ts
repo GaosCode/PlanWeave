@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import {
+  loadPackage,
   applyPrunePlan,
   computePrunePlan,
   getRunSession,
@@ -146,7 +147,7 @@ export function registerRunSessionsCommands(program: Command): void {
       throw new Error("run-sessions prune requires at least one of --older-than or --keep-last.");
     }
 
-    const projectRoot = await resolveCliPackageWorkspace(options);
+    const { workspace: projectRoot } = await loadPackage(await resolveCliPackageWorkspace(options));
     const plan = await computePrunePlan(projectRoot, {
       olderThan: options.olderThan,
       keepLast: parseKeepLast(options.keepLast)
@@ -234,7 +235,7 @@ export function registerRunSessionsCommands(program: Command): void {
       .option("--event-format <format>", "remote event format: legacy or execution-v1")
       .option("--connection-profile <profileId>", "select a preconfigured Workspace connection")
   ).action(async (sessionId: string, options: RunSessionCommandOptions) => {
-    const projectRoot = await resolveCliPackageWorkspace(options);
+    const { workspace: projectRoot } = await loadPackage(await resolveCliPackageWorkspace(options));
     const result = await getRunSession(projectRoot, sessionId);
     const runnerReadModel = await readRunnerRecordReadModelForArtifact(
       result.session.latestRecordPath

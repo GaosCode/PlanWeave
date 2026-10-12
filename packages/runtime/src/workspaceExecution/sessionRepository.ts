@@ -16,7 +16,8 @@ import {
 } from "./contracts.js";
 import type { ValidatedWorkspaceAuthorityBinding } from "./authorityBinding.js";
 import { WorkspaceExecutionError } from "./errors.js";
-import type { PackageWorkspaceRef } from "../types.js";
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
+import type { ProjectWorkspace, PackageWorkspaceRef } from "../types.js";
 
 export type WorkspaceExecutionSessionStorage =
   | { kind: "package"; packageWorkspace: PackageWorkspaceRef }
@@ -106,21 +107,30 @@ function record(session: RunSessionState): WorkspaceExecutionSessionRecord {
 }
 
 export function createPackageWorkspaceExecutionSessionRepository(): WorkspaceExecutionSessionRepositoryPort {
+  const owners = new WeakMap<WorkspaceExecutionSessionStorage, Promise<ProjectWorkspace>>();
+  function owner(storage: WorkspaceExecutionSessionStorage): Promise<ProjectWorkspace> {
+    let captured = owners.get(storage);
+    if (!captured) {
+      captured = resolvePackageWorkspace(packageWorkspace(storage));
+      owners.set(storage, captured);
+    }
+    return captured;
+  }
   return {
     async create(storage, input) {
-      return record(await createRunSession({ projectRoot: packageWorkspace(storage), ...input }));
+      return record(await createRunSession({ projectRoot: await owner(storage), ...input }));
     },
     async get(storage, sessionId) {
-      const detail = await getRunSession(packageWorkspace(storage), sessionId);
+      const detail = await getRunSession(await owner(storage), sessionId);
       return { session: record(detail.session) };
     },
     async list(storage) {
-      const listed = await listRunSessions(packageWorkspace(storage));
+      const listed = await listRunSessions(await owner(storage));
       return { ...listed, sessions: listed.sessions.map(record) };
     },
     async update(storage, sessionId, patch, options) {
       try {
-        return record(await updateRunSession(packageWorkspace(storage), sessionId, patch, options));
+        return record(await updateRunSession(await owner(storage), sessionId, patch, options));
       } catch (error) {
         if (error instanceof RunSessionStateVersionConflictError) {
           throw new WorkspaceExecutionSessionVersionConflictError(error.message, {
@@ -130,11 +140,11 @@ export function createPackageWorkspaceExecutionSessionRepository(): WorkspaceExe
         throw error;
       }
     },
-    appendEvent(storage, sessionId, type, data) {
-      return appendRunSessionEvent(packageWorkspace(storage), sessionId, type, data);
+    async appendEvent(storage, sessionId, type, data) {
+      return appendRunSessionEvent(await owner(storage), sessionId, type, data);
     },
-    withScopeLock(storage, scope, operation) {
-      return withRunSessionScopeLock(packageWorkspace(storage), scope, operation);
+    async withScopeLock(storage, scope, operation) {
+      return withRunSessionScopeLock(await owner(storage), scope, operation);
     }
   };
 }

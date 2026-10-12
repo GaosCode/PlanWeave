@@ -1,4 +1,4 @@
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -12,6 +12,7 @@ import {
 } from "../runSessions/index.js";
 import { runDoctor } from "../taskManager/index.js";
 import { writeJsonFile } from "../json.js";
+import { initWorkspace } from "../initWorkspace.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
 
 async function writeRunDir(options: {
@@ -43,6 +44,24 @@ async function writeRunDir(options: {
 }
 
 describe("run session / results retention", () => {
+  it("rejects a prune plan from retired results when a terminal session id is reused", async () => {
+    const { root, init } = await createTestWorkspace();
+    const old = await createRunSession({ projectRoot: root, kind: "run" });
+    await updateRunSession(root, old.sessionId, { phase: "completed" });
+    const plan = await computePrunePlan(root, { keepLast: 0 });
+    expect(plan.items.some((item) => item.id === old.sessionId)).toBe(true);
+    await initWorkspace({ projectRoot: root, resetResults: true });
+    const fresh = await createRunSession({ projectRoot: root, kind: "run", trigger: "api" });
+    await updateRunSession(root, fresh.sessionId, { phase: "completed" });
+    expect(fresh.sessionId).toBe(old.sessionId);
+    const path = join(init.workspace.resultsDir, "run-sessions", fresh.sessionId, "session.json");
+    const before = await readFile(path, "utf8");
+    await expect(applyPrunePlan(root, plan, { reason: "retired plan" })).rejects.toThrow(
+      "identity changed"
+    );
+    expect(await readFile(path, "utf8")).toBe(before);
+  });
+
   it("retains artifacts for an in-flight remote-owned block", async () => {
     const { root, init } = await createTestWorkspace();
     await writeRunDir({

@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import {
+  loadPackage,
   appendRunSessionEvent,
   createRunSession,
   resetRuntimeState,
@@ -33,7 +34,7 @@ export function registerResetCommand(program: Command): void {
       .option("--reason <text>", "record why the reset is being performed")
       .option("--json", "print JSON output")
   ).action(async (options: ResetCommandOptions) => {
-    const projectRoot = await resolveCliPackageWorkspace(options);
+    const { workspace: projectRoot } = await loadPackage(await resolveCliPackageWorkspace(options));
     const session = await createRunSession({ projectRoot, kind: "reset", phase: "resetting" });
     try {
       const reset = await resetRuntimeState({

@@ -1,4 +1,4 @@
-import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { withCurrentRunSessionStorage } from "./storageMutation.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { createEmptyState, ensureStateForManifest, readState, writeState } from "../state.js";
 import { runtimeResetReceiptSchema } from "../schema/runtimeState.js";
@@ -57,14 +57,15 @@ function activeWorkMessage(summary: RunSessionResetSummary): string {
 export async function resetRuntimeState(
   options: ResetRuntimeStateOptions
 ): Promise<ResetRuntimeStateResult> {
-  const { workspace, manifest } = await loadPackage(options.projectRoot);
+  const { workspace } = await loadPackage(options.projectRoot);
   const sessionId = options.session?.sessionId ?? options.sessionId ?? null;
   if (sessionId) {
     assertValidRunSessionId(sessionId);
   }
 
   // Serialize active-work check + wipe against concurrent claim/submit on the same canvas.
-  return withCanvasStorageMutation(workspace, async () => {
+  return withCurrentRunSessionStorage(workspace, async () => {
+    const { manifest } = await loadPackage(workspace);
     const previousState = await readState(workspace.stateFile);
     const summary: RunSessionResetSummary = {
       performed: true,

@@ -1,7 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
+import { createPackageWorkspaceExecutionSessionRepository } from "../workspaceExecution/sessionRepository.js";
+import { initWorkspace } from "../initWorkspace.js";
+import { loadPackage } from "../package/loadPackage.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { discardRunSessionInitialization } from "../runSessions/repository.js";
 import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
 import {
   appendRunSessionEvent,
@@ -13,6 +19,95 @@ import {
 import { createTestWorkspace } from "./promptTestHelpers.js";
 
 describe("run session repository", () => {
+  it.each(
+    ["create", "update", "event", "discard"].flatMap((kind) =>
+      ["results", "package"].map((reset) => ({ kind, reset }))
+    )
+  )("rejects queued $kind after $reset retirement without touching a reused session id", async ({
+    kind,
+    reset
+  }) => {
+    const { root } = await createTestWorkspace();
+    const { workspace } = await loadPackage(root);
+    const old = await createRunSession({ projectRoot: workspace, kind: "run" });
+    let admit!: () => void;
+    let release!: () => void;
+    const acquired = new Promise<void>((resolve) => {
+      admit = resolve;
+    });
+    const proceed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let freshSummary = "";
+    let freshEvents = "";
+    const summaryPath = join(workspace.resultsDir, "run-sessions", old.sessionId, "session.json");
+    const eventsPath = join(workspace.resultsDir, "run-sessions", old.sessionId, "events.ndjson");
+    const holder = withProjectMutationLock(dirname(workspace.projectFile), () =>
+      withPackageFileConsistency(
+        [workspace.packageDir, workspace.stateFile, workspace.resultsDir],
+        async () => {
+          admit();
+          await proceed;
+          await initWorkspace({
+            projectRoot: root,
+            resetResults: true,
+            resetPackage: reset === "package"
+          });
+          const fresh = await createRunSession({ projectRoot: root, kind: "run", trigger: "api" });
+          expect(fresh.sessionId).toBe(old.sessionId);
+          freshSummary = await readFile(summaryPath, "utf8");
+          freshEvents = await readFile(eventsPath, "utf8");
+        }
+      )
+    );
+    await acquired;
+    const pending = (
+      kind === "create"
+        ? createRunSession({ projectRoot: workspace, kind: "run" })
+        : kind === "update"
+          ? updateRunSession(workspace, old.sessionId, { phase: "failed", error: "retired" })
+          : kind === "event"
+            ? appendRunSessionEvent(workspace, old.sessionId, "retired_event")
+            : discardRunSessionInitialization(workspace, old.sessionId)
+    ).then(
+      () => null,
+      (error: unknown) => error
+    );
+    try {
+      await delay(40);
+      release();
+      await holder;
+      expect(await pending).toMatchObject({ message: expect.stringContaining("identity changed") });
+      expect(await readFile(summaryPath, "utf8")).toBe(freshSummary);
+      expect(await readFile(eventsPath, "utf8")).toBe(freshEvents);
+      expect((await listRunSessions(root)).sessions.map((session) => session.sessionId)).toEqual([
+        old.sessionId
+      ]);
+    } finally {
+      release();
+      await holder;
+      await pending;
+    }
+  });
+
+  it("pins string storage across a workspace execution scope operation", async () => {
+    const { root } = await createTestWorkspace();
+    const old = await createRunSession({ projectRoot: root, kind: "run" });
+    const repository = createPackageWorkspaceExecutionSessionRepository();
+    const storage = { kind: "package" as const, packageWorkspace: root };
+    await repository.withScopeLock(storage, { kind: "project" }, async () => {
+      await initWorkspace({ projectRoot: root, resetResults: true });
+      const fresh = await createRunSession({ projectRoot: root, kind: "run", trigger: "api" });
+      expect(fresh.sessionId).toBe(old.sessionId);
+      await expect(
+        repository.appendEvent(storage, old.sessionId, "retired_event", {})
+      ).rejects.toThrow("identity changed");
+      expect(
+        (await getRunSession(root, fresh.sessionId)).events.map((event) => event.type)
+      ).toEqual(["session_started"]);
+    });
+  });
+
   it("creates the first session in an empty canvas", async () => {
     const { root, init } = await createTestWorkspace();
 

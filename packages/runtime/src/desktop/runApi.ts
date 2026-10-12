@@ -20,7 +20,7 @@ import {
   type MaxCycleReviewResetTransaction
 } from "../taskManager/reviewRetry.js";
 import { loadPackage } from "../package/loadPackage.js";
-import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { withCurrentRunSessionStorage } from "../runSessions/storageMutation.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import {
   assertDesktopAgentRunControlAccepted,
@@ -744,7 +744,7 @@ export async function startAutoRun(
   options?: DesktopAutoRunOptions
 ): Promise<DesktopAutoRunState> {
   const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
-  const state = await withCanvasStorageMutation(workspace, () =>
+  const state = await withCurrentRunSessionStorage(workspace, () =>
     initializeAutoRunUnderCanvasLock(workspace, projectRoot, canvasId, scope, stepLimit, options)
   );
   launchInitializedAutoRun(state.runId);

@@ -5,7 +5,7 @@ import { userInfo } from "node:os";
 import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { canonicalPackageFileTarget } from "../package/packageFileConsistency.js";
-import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { withCurrentRunSessionStorage } from "./storageMutation.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { commandCanvasIdForWorkspace } from "../taskManager/canvasCommandScope.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -427,7 +427,7 @@ async function readSessionState(
 
 export async function createRunSession(options: CreateRunSessionOptions): Promise<RunSessionState> {
   const workspace = await resolveSessionWorkspace(options.projectRoot);
-  return withCanvasStorageMutation(workspace, async () => {
+  return withCurrentRunSessionStorage(workspace, async () => {
     const root = runSessionsRoot(workspace);
     await mkdir(root, { recursive: true });
     let sessionId = nextSessionId(await listExistingSessionIds(workspace));
@@ -464,7 +464,7 @@ export async function createRunSession(options: CreateRunSessionOptions): Promis
     };
     try {
       await writeJsonFile(sessionSummaryPath(workspace, sessionId), session);
-      await appendRunSessionEvent(options.projectRoot, sessionId, "session_started", {
+      await appendRunSessionEvent(workspace, sessionId, "session_started", {
         timestamp: now,
         phase: session.phase
       });
@@ -488,7 +488,7 @@ export async function discardRunSessionInitialization(
   sessionId: string
 ): Promise<void> {
   assertValidRunSessionId(sessionId);
-  await withCanvasStorageMutation(workspace, () =>
+  await withCurrentRunSessionStorage(workspace, () =>
     rm(sessionRoot(workspace, sessionId), { recursive: true, force: true })
   );
 }
@@ -501,7 +501,7 @@ export async function updateRunSession(
 ): Promise<RunSessionState> {
   assertValidRunSessionId(sessionId);
   const workspace = await resolveSessionWorkspace(projectRoot);
-  return withCanvasStorageMutation(workspace, async () => {
+  return withCurrentRunSessionStorage(workspace, async () => {
     return withAdvisoryDirectoryLock(
       {
         lockPath: sessionMutationLockPath(workspace, sessionId),
@@ -544,7 +544,7 @@ export async function appendRunSessionEvent(
 ): Promise<void> {
   assertValidRunSessionId(sessionId);
   const workspace = await resolveSessionWorkspace(projectRoot);
-  return withCanvasStorageMutation(workspace, async () => {
+  return withCurrentRunSessionStorage(workspace, async () => {
     const event: RunSessionEvent = {
       timestamp: typeof data.timestamp === "string" ? data.timestamp : new Date().toISOString(),
       sessionId,

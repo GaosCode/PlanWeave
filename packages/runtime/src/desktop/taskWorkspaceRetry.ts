@@ -1,5 +1,5 @@
 import { runnerRunIdentitySchema } from "../autoRun/runnerContractSchemas.js";
-import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { withCurrentRunSessionStorage } from "../runSessions/storageMutation.js";
 import { unblockBlock } from "../taskManager/blockStatusMutations.js";
 import { loadRuntimeReadonly } from "../taskManager/runtimeContext.js";
 import {
@@ -149,7 +149,7 @@ export function sameTaskWorkspaceRetryIdentity(
 
 export async function executeTaskWorkspaceRetry(identity: TaskWorkspaceRetryIdentity) {
   const workspace = await resolveTaskCanvasWorkspace(identity.projectRoot, identity.canvasId);
-  const state = await withCanvasStorageMutation(workspace, async () => {
+  const state = await withCurrentRunSessionStorage(workspace, async () => {
     const context = await loadRuntimeReadonly({ projectRoot: workspace });
     if (
       context.workspace.id !== identity.projectId ||

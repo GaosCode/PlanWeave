@@ -9,7 +9,7 @@ import {
 } from "../autoRun/acpRunRecovery.js";
 import { projectAcpRecoveryToolSummary } from "../autoRun/acpRecoveryToolSummary.js";
 import { listExecutorProfiles, resolveExecutorAcpExecutionProfile } from "../autoRun/executors.js";
-import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { withCurrentRunSessionStorage } from "../runSessions/storageMutation.js";
 import { unblockBlock } from "../taskManager/blockStatusMutations.js";
 import { loadRuntimeReadonly } from "../taskManager/runtimeContext.js";
 import {
@@ -265,7 +265,7 @@ export async function recoverTaskWorkspaceAcpRun(
   const requestedBy = z.string().min(1).max(128).parse(audit.source);
   const reason = z.string().min(1).max(4096).parse(audit.reason);
   const workspace = await resolveTaskCanvasWorkspace(identity.projectRoot, identity.canvasId);
-  const state = await withCanvasStorageMutation(workspace, async () => {
+  const state = await withCurrentRunSessionStorage(workspace, async () => {
     const context = await loadRuntimeReadonly({ projectRoot: workspace });
     const block = getBlock(context.graph, identity.claimRef);
     if (

@@ -56,7 +56,13 @@
 import { rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
-import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { z } from "zod";
+import {
+  packageStorageIdentitySchema,
+  resultsStorageIdentitySchema
+} from "../package/packageStorageIdentity.js";
+import { canonicalPackageFileTarget } from "../package/packageFileConsistency.js";
+import { withCurrentRunSessionStorage } from "./storageMutation.js";
 import { readJsonFile } from "../json.js";
 import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
 import { readState } from "../state.js";
@@ -109,7 +115,32 @@ export type ComputePrunePlanOptions = {
   now?: Date;
 };
 
+const pruneStorageIdentitySchema = z
+  .object({
+    projectFile: z.string().min(1),
+    packageDir: z.string().min(1),
+    resultsDir: z.string().min(1),
+    projectCreatedAt: z.string().datetime(),
+    packageStorageIdentity: packageStorageIdentitySchema,
+    resultsStorageIdentity: resultsStorageIdentitySchema
+  })
+  .strict();
+
+async function pruneStorageIdentity(
+  workspace: ProjectWorkspace
+): Promise<z.infer<typeof pruneStorageIdentitySchema>> {
+  return pruneStorageIdentitySchema.parse({
+    projectFile: await canonicalPackageFileTarget(workspace.projectFile),
+    packageDir: await canonicalPackageFileTarget(workspace.packageDir),
+    resultsDir: await canonicalPackageFileTarget(workspace.resultsDir),
+    projectCreatedAt: workspace.projectCreatedAt,
+    packageStorageIdentity: workspace.packageStorageIdentity,
+    resultsStorageIdentity: workspace.resultsStorageIdentity
+  });
+}
+
 export type PrunePlan = {
+  storageIdentity: z.infer<typeof pruneStorageIdentitySchema>;
   items: PrunePlanItem[];
   excludedCount: number;
   options: {
@@ -733,30 +764,33 @@ export async function computePrunePlan(
 ): Promise<PrunePlan> {
   const filters = resolvePruneFilters(options);
   const workspace = await resolvePackageWorkspace(projectRoot);
-  const state = await readState(workspace.stateFile);
-  const { candidates, totals } = await collectAllCandidates(workspace, state);
-  const { items, excludedCount } = selectPrunable(
-    candidates,
-    filters.olderThanMs,
-    filters.keepLast,
-    filters.now.getTime()
-  );
-  const cutoffIso =
-    filters.olderThanMs === null
-      ? null
-      : new Date(filters.now.getTime() - filters.olderThanMs).toISOString();
+  return withCurrentRunSessionStorage(workspace, async () => {
+    const state = await readState(workspace.stateFile);
+    const { candidates, totals } = await collectAllCandidates(workspace, state);
+    const { items, excludedCount } = selectPrunable(
+      candidates,
+      filters.olderThanMs,
+      filters.keepLast,
+      filters.now.getTime()
+    );
+    const cutoffIso =
+      filters.olderThanMs === null
+        ? null
+        : new Date(filters.now.getTime() - filters.olderThanMs).toISOString();
 
-  return {
-    items,
-    excludedCount,
-    options: {
-      olderThanMs: filters.olderThanMs,
-      keepLast: filters.keepLast,
-      cutoffIso,
-      nowIso: filters.now.toISOString()
-    },
-    totals
-  };
+    return {
+      storageIdentity: await pruneStorageIdentity(workspace),
+      items,
+      excludedCount,
+      options: {
+        olderThanMs: filters.olderThanMs,
+        keepLast: filters.keepLast,
+        cutoffIso,
+        nowIso: filters.now.toISOString()
+      },
+      totals
+    };
+  });
 }
 
 export async function applyPrunePlan(
@@ -771,7 +805,11 @@ export async function applyPrunePlan(
 
   const { workspace } = await loadPackage(projectRoot);
 
-  return withCanvasStorageMutation(workspace, async () => {
+  return withCurrentRunSessionStorage(workspace, async () => {
+    const identity = pruneStorageIdentitySchema.parse(plan.storageIdentity);
+    if (JSON.stringify(identity) !== JSON.stringify(await pruneStorageIdentity(workspace))) {
+      throw new Error("Run session prune storage identity changed since plan creation.");
+    }
     const state = await readState(workspace.stateFile);
     const { candidates } = await collectAllCandidates(workspace, state);
     const protectedNow = new Set(
