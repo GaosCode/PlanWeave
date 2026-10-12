@@ -78,6 +78,68 @@ async function fixture() {
 }
 
 describe("work authority request ordering", () => {
+  it.each(
+    ["members", "assignments", "activity", "comments"].flatMap((reader) =>
+      ["resolve", "reject"].map((outcome) => ({ reader, outcome }))
+    )
+  )("retires aggregate $reader before its late $outcome when changing canvas", async ({
+    reader,
+    outcome
+  }) => {
+    const f = await fixture();
+    await f.controller.trackWorkItemComments(workItem);
+    const read = {
+      members: f.listMembers,
+      assignments: f.listAssignments,
+      activity: f.listActivity,
+      comments: f.listComments
+    }[reader]!;
+    const value = await read();
+    const gate = deferred<void>();
+    const started = deferred<void>();
+    let retired: unknown;
+    let nextFinished = false;
+    let aggregate: Promise<unknown> | undefined;
+    let next: Promise<void> | undefined;
+    try {
+      read.mockImplementationOnce(async () => {
+        started.resolve();
+        await gate.promise;
+        if (outcome === "reject") throw new Error("retired_read_failed");
+        return value;
+      });
+      aggregate = f.controller.refreshAuthoritative().then((result) => {
+        retired = result;
+      });
+      await started.promise;
+      next = f.controller
+        .setActiveProject({
+          profileId: "profile-demo-001",
+          projectId: "project-demo-001",
+          canvasId: "canvas-2"
+        })
+        .then(() => {
+          nextFinished = true;
+        });
+      await vi.waitFor(() => {
+        expect(retired).toEqual({ status: "retired" });
+        expect(nextFinished).toBe(true);
+        expect(f.controller.getSnapshot()).toMatchObject({
+          canvasId: "canvas-2",
+          syncPhase: "ready",
+          loadingKinds: []
+        });
+      });
+      const snapshot = f.controller.getSnapshot();
+      gate.resolve();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(f.controller.getSnapshot()).toEqual(snapshot);
+    } finally {
+      gate.resolve();
+      await Promise.all([aggregate, next]);
+      f.controller.dispose();
+    }
+  });
   it.each([
     "multi",
     "scope",

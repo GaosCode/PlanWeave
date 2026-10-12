@@ -17,16 +17,19 @@ import {
   type CollaborationCommentEditInput,
   type CollaborationCommentListQueryInput,
   type CollaborationCommentTombstoneInput,
-  type CollaborationHostProjection,
   type CollaborationObserverSignal,
   type CollaborationReadModelSnapshot,
-  type CollaborationRemoteRunProjection,
   type CollaborationResponsibilityUpdateInput,
   type CollaborationReviewerUpdateInput,
   type CollaborationSyncPhase,
   type CollaborationMemberSummary
 } from "../../shared/collaborationReadModels.js";
-import { isCollaborationSessionConnected } from "./sessionState";
+import {
+  emptyState,
+  mapSessionPhaseToSync,
+  type InternalState
+} from "./collaborationReadModelState.js";
+import { AuthoritativeRefreshQueue } from "./authoritativeRefreshQueue.js";
 import { readBoundedNumberCursorPages } from "./boundedPagination.js";
 import {
   buildAssignmentRefreshProjection,
@@ -89,30 +92,6 @@ export type CollaborationReadModelControllerOptions = {
   createMutationId?: () => string;
 };
 
-type InternalState = {
-  profileId: string | null;
-  projectId: string | null;
-  canvasId: string | null;
-  syncPhase: CollaborationSyncPhase;
-  observerCursor: number;
-  members: CollaborationMemberSummary[];
-  hosts: Map<string, CollaborationHostProjection>;
-  assignments: Map<string, AssignmentDisplayProjection>;
-  workAuthorities: Map<string, WorkAuthorityProjection>;
-  comments: Map<string, CommentDisplayProjection[]>;
-  commentInvalidationVersions: Map<string, number>;
-  activity: CollaborationReadModelSnapshot["activity"];
-  remoteRuns: Map<string, CollaborationRemoteRunProjection>;
-  mutations: CollaborationMutationLedger;
-  lastError: CollaborationBoundaryErrorView | null;
-  loadingKinds: Map<string, number>;
-  trackedCommentWorkItems: Map<string, WorkItemRef>;
-  trackedAuthorityWorkItems: Map<string, WorkItemRef>;
-  eventCursors: CollaborationEventCursorWindow;
-  generation: number;
-  updatedAt: string;
-};
-
 const DEFAULT_PAGE_LIMIT = WORK_ELIGIBLE_HOST_BATCH_MAX;
 type RefreshApplication = "applied" | "superseded";
 type ObserverEventSignal = Extract<CollaborationObserverSignal, { type: "human.observer.event" }>;
@@ -124,74 +103,6 @@ type ObserverEventQueueEntry = {
 
 const OBSERVER_INVALIDATION_CONCURRENCY = 4;
 const OBSERVER_EVENT_QUEUE_LIMIT = 128;
-
-function emptyState(now: string): InternalState {
-  return {
-    profileId: null,
-    projectId: null,
-    canvasId: null,
-    syncPhase: "idle",
-    observerCursor: 0,
-    members: [],
-    hosts: new Map(),
-    assignments: new Map(),
-    workAuthorities: new Map(),
-    comments: new Map(),
-    commentInvalidationVersions: new Map(),
-    activity: [],
-    remoteRuns: new Map(),
-    mutations: new CollaborationMutationLedger(),
-    lastError: null,
-    loadingKinds: new Map(),
-    trackedCommentWorkItems: new Map(),
-    trackedAuthorityWorkItems: new Map(),
-    eventCursors: new CollaborationEventCursorWindow(),
-    generation: 0,
-    updatedAt: now
-  };
-}
-
-function mapSessionPhaseToSync(
-  status: CollaborationStatus,
-  current: CollaborationSyncPhase
-): CollaborationSyncPhase {
-  const phase = status.session.phase;
-  const detail = status.session.detail ?? "";
-  if (phase === "idle" || phase === "ready") return "disconnected";
-  if (phase === "connecting") {
-    if (detail.includes("reconnecting")) return "reconnecting";
-    return current === "ready" || current === "degraded" ? "reconnecting" : "loading";
-  }
-  if (phase === "error") {
-    if (
-      status.session.lastErrorCode === "human_device_expired" ||
-      detail.includes("auth_expired")
-    ) {
-      return "auth_expired";
-    }
-    if (
-      status.session.lastErrorCode?.includes("forbidden") ||
-      status.session.lastErrorCode === "http_403"
-    ) {
-      return "forbidden";
-    }
-    return "error";
-  }
-  if (isCollaborationSessionConnected(status)) {
-    if (status.session.lastErrorCode?.startsWith("collaboration_observer_")) {
-      return "degraded";
-    }
-    if (current === "loading") return "loading";
-    if (current === "stale_conflict") return "stale_conflict";
-    if (current === "degraded") return "degraded";
-    return current === "idle" || current === "disconnected" || current === "error"
-      ? "loading"
-      : current === "reconnecting"
-        ? "ready"
-        : current;
-  }
-  return current;
-}
 
 /**
  * Owns server collaboration projections for one active profile/project.
@@ -228,9 +139,7 @@ export class CollaborationReadModelController {
   private assignmentReloadSeqByKey = new Map<string, number>();
   private readonly authorityReads: WorkAuthorityReadArbitrator;
   private assignmentChangeVersionByKey = new Map<string, number>();
-  private refreshQueue: Promise<AuthoritativeRefreshResult> = Promise.resolve({
-    status: "retired"
-  });
+  private refreshQueue = new AuthoritativeRefreshQueue();
   /** Cached for useSyncExternalStore — must be referentially stable between emissions. */
   private cachedSnapshot: CollaborationReadModelSnapshot;
 
@@ -305,6 +214,8 @@ export class CollaborationReadModelController {
       this.state.comments = new Map();
       this.state.trackedCommentWorkItems = new Map();
       this.state.commentInvalidationVersions = new Map();
+      this.state.syncPhase = "loading";
+      this.emit();
     }
 
     const generation = this.state.generation;
@@ -350,87 +261,83 @@ export class CollaborationReadModelController {
     this.refreshRequestSeq += 1;
     const refreshRequest = this.refreshRequestSeq;
 
-    this.refreshQueue = this.refreshQueue
-      .catch(() => undefined)
-      .then<AuthoritativeRefreshResult>(async () => {
-        if (this.disposed || generation !== this.state.generation) return { status: "retired" };
-        if (meta.reason === "observer_cursor_window") {
-          for (const workItem of this.state.trackedCommentWorkItems.values()) {
-            this.invalidateComments(workItem);
-          }
+    return this.refreshQueue.enqueue(async () => {
+      if (this.disposed || generation !== this.state.generation) return { status: "retired" };
+      if (meta.reason === "observer_cursor_window") {
+        for (const workItem of this.state.trackedCommentWorkItems.values()) {
+          this.invalidateComments(workItem);
         }
-        this.refreshArbitration.beginAggregate();
-        const errorAtStart = this.state.lastError;
-        const snapshotLoading = beginLoading(this.state, "snapshot");
-        if (this.state.syncPhase !== "reconnecting" && this.state.syncPhase !== "auth_expired") {
-          this.state.syncPhase = "loading";
-        }
-        this.emit();
+      }
+      this.refreshArbitration.beginAggregate();
+      const errorAtStart = this.state.lastError;
+      const snapshotLoading = beginLoading(this.state, "snapshot");
+      if (this.state.syncPhase !== "reconnecting" && this.state.syncPhase !== "auth_expired") {
+        this.state.syncPhase = "loading";
+      }
+      this.emit();
 
-        const trackedComments = [...this.state.trackedCommentWorkItems.values()];
-        const authorityRequests = new Map<number, WorkAuthorityReadRequest>();
-        const results = await Promise.allSettled([
-          this.reloadMembers(generation),
-          this.reloadAssignments(generation),
-          this.reloadActivity(generation),
-          ...trackedComments.map((workItem) => this.reloadComments(workItem, generation)),
-          ...[...this.state.trackedAuthorityWorkItems.values()].map((workItem, index) => {
-            return this.authorityReads.read(workItem, generation, (request) =>
-              authorityRequests.set(3 + trackedComments.length + index, request)
-            );
-          })
-        ]);
+      const trackedComments = [...this.state.trackedCommentWorkItems.values()];
+      const authorityRequests = new Map<number, WorkAuthorityReadRequest>();
+      const results = await Promise.allSettled([
+        this.reloadMembers(generation),
+        this.reloadAssignments(generation),
+        this.reloadActivity(generation),
+        ...trackedComments.map((workItem) => this.reloadComments(workItem, generation)),
+        ...[...this.state.trackedAuthorityWorkItems.values()].map((workItem, index) => {
+          return this.authorityReads.read(workItem, generation, (request) =>
+            authorityRequests.set(3 + trackedComments.length + index, request)
+          );
+        })
+      ]);
 
-        let authorities = authorityRequests.size
-          ? await this.authorityReads.waitForAggregate(authorityRequests, generation)
-          : [];
-        while (
-          !this.disposed &&
-          generation === this.state.generation &&
-          authorities.some(({ request }) => !this.authorityReads.isCurrent(request))
-        ) {
-          authorities = await this.authorityReads.waitForAggregate(authorityRequests, generation);
-        }
-        snapshotLoading.release();
-        if (this.disposed || generation !== this.state.generation) return { status: "retired" };
+      let authorities = authorityRequests.size
+        ? await this.authorityReads.waitForAggregate(authorityRequests, generation)
+        : [];
+      while (
+        !this.disposed &&
+        generation === this.state.generation &&
+        authorities.some(({ request }) => !this.authorityReads.isCurrent(request))
+      ) {
+        authorities = await this.authorityReads.waitForAggregate(authorityRequests, generation);
+      }
+      snapshotLoading.release();
+      if (this.disposed || generation !== this.state.generation) return { status: "retired" };
 
-        const failures = results.flatMap((result, index) =>
-          result.status === "rejected" && !authorityRequests.has(index)
-            ? [{ reason: result.reason }]
+      const failures = results.flatMap((result, index) =>
+        result.status === "rejected" && !authorityRequests.has(index)
+          ? [{ reason: result.reason }]
+          : []
+      );
+      const authorityFailures = authorities.flatMap(({ outcome }) =>
+        outcome.status === "failed" ? [outcome] : []
+      );
+      let outcome: AuthoritativeRefreshResult;
+      if (failures.length === 0 && authorityFailures.length === 0) {
+        const replacements = results.flatMap((result) =>
+          result.status === "fulfilled" && result.value && typeof result.value === "object"
+            ? [result.value as AggregateRefreshApplication]
             : []
         );
-        const authorityFailures = authorities.flatMap(({ outcome }) =>
-          outcome.status === "failed" ? [outcome] : []
-        );
-        let outcome: AuthoritativeRefreshResult;
-        if (failures.length === 0 && authorityFailures.length === 0) {
-          const replacements = results.flatMap((result) =>
-            result.status === "fulfilled" && result.value && typeof result.value === "object"
-              ? [result.value as AggregateRefreshApplication]
-              : []
-          );
-          if (this.refreshArbitration.settleAggregate(generation, replacements)) {
-            this.lastSuccessfulRefreshRequest = refreshRequest;
-            if (!this.state.lastError || this.state.lastError === errorAtStart)
-              this.markReadyUnlessTerminal();
-            outcome = { status: "applied" };
-          } else outcome = { status: "incomplete" };
-        } else {
-          this.refreshArbitration.cancelAggregate();
-          // Authority failures were published by their request owner, never remap them here.
-          if (failures.length)
-            this.applyBoundaryError(collaborationBoundaryErrorFromUnknown(failures[0]!.reason));
-          this.markIncompleteAuthoritativeRefresh();
-          if (failures.length) outcome = { status: "failed", error: failures[0]!.reason };
-          else {
-            outcome = { status: "failed", error: authorityFailures[0]!.error };
-          }
+        if (this.refreshArbitration.settleAggregate(generation, replacements)) {
+          this.lastSuccessfulRefreshRequest = refreshRequest;
+          if (!this.state.lastError || this.state.lastError === errorAtStart)
+            this.markReadyUnlessTerminal();
+          outcome = { status: "applied" };
+        } else outcome = { status: "incomplete" };
+      } else {
+        this.refreshArbitration.cancelAggregate();
+        // Authority failures were published by their request owner, never remap them here.
+        if (failures.length)
+          this.applyBoundaryError(collaborationBoundaryErrorFromUnknown(failures[0]!.reason));
+        this.markIncompleteAuthoritativeRefresh();
+        if (failures.length) outcome = { status: "failed", error: failures[0]!.reason };
+        else {
+          outcome = { status: "failed", error: authorityFailures[0]!.error };
         }
-        this.emit();
-        return outcome;
-      });
-
-    return await this.refreshQueue;
+      }
+      this.emit();
+      return outcome;
+    });
   }
 
   async updateAssignment(
@@ -759,6 +666,10 @@ export class CollaborationReadModelController {
   }
 
   private nextGeneration(scopeChanged = false): number {
+    this.refreshQueue.retire();
+    this.refreshQueue = new AuthoritativeRefreshQueue();
+    this.refreshArbitration.cancelAggregate();
+    this.state.loadingKinds = new Map();
     this.authorityReads.reset();
     this.generationEpoch += 1;
     if (scopeChanged) this.mutationScopeGeneration = this.generationEpoch;
@@ -840,7 +751,7 @@ export class CollaborationReadModelController {
       });
       if (!isCurrentReload()) {
         loading.release();
-        this.emit();
+        if (generation === this.state.generation) this.emit();
         return { application: "superseded", resource: "members", token: reloadToken };
       }
       const uniqueMembers = new Map<string, CollaborationMemberSummary>();
@@ -855,7 +766,7 @@ export class CollaborationReadModelController {
     } catch (error) {
       if (!isCurrentReload()) {
         loading.release();
-        this.emit();
+        if (generation === this.state.generation) this.emit();
         return { application: "superseded", resource: "members", token: reloadToken };
       }
       loading.release();
@@ -890,7 +801,7 @@ export class CollaborationReadModelController {
       });
       if (!isCurrentProject()) {
         loading.release();
-        this.emit();
+        if (generation === this.state.generation) this.emit();
         return { application: "superseded", resource: "assignments", token: reloadToken };
       }
 
@@ -902,12 +813,12 @@ export class CollaborationReadModelController {
       });
       if (!projection) {
         loading.release();
-        this.emit();
+        if (generation === this.state.generation) this.emit();
         return { application: "superseded", resource: "assignments", token: reloadToken };
       }
       if (!isCurrentProject()) {
         loading.release();
-        this.emit();
+        if (generation === this.state.generation) this.emit();
         return { application: "superseded", resource: "assignments", token: reloadToken };
       }
       for (const [key, current] of this.state.assignments) {
@@ -932,7 +843,7 @@ export class CollaborationReadModelController {
     } catch (error) {
       if (!isCurrentProject()) {
         loading.release();
-        this.emit();
+        if (generation === this.state.generation) this.emit();
         return { application: "superseded", resource: "assignments", token: reloadToken };
       }
       loading.release();
