@@ -253,7 +253,7 @@ describe("desktop auto run control events", () => {
         command: process.execPath,
         args: [
           "-e",
-          "const fs = require('node:fs'); const [marker, started, release] = process.argv.slice(1); process.on('exit', () => fs.writeFileSync(marker, 'done')); let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { fs.writeFileSync(started, 'started'); const timer = setInterval(() => { if (fs.existsSync(release)) { clearInterval(timer); console.log('late terminal auto run ' + input.split('\\n')[0]); } }, 20); });",
+          "const fs = require('node:fs'); const [marker, started, release] = process.argv.slice(1); const watchdog = setTimeout(() => process.exit(2), 8000); process.on('exit', () => fs.writeFileSync(marker, 'done')); let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { fs.writeFileSync(started, 'started'); const timer = setInterval(() => { if (fs.existsSync(release)) { clearInterval(timer); clearTimeout(watchdog); console.log('late terminal auto run ' + input.split('\\n')[0]); } }, 20); });",
           markerPath,
           startedPath,
           releasePath
