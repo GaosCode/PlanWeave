@@ -125,10 +125,17 @@ describe("authoritative materialization captured owner lifetime", () => {
       await Promise.allSettled([creation, replacement]);
     }
   });
-  it("does not let a queued removal delete a recreated project", async () => {
+  it.each([
+    false,
+    true
+  ])("does not let a queued removal delete a recreated project (sameTimestamp=%s)", async (sameTimestamp) => {
     const fixture = await createTestWorkspace();
     directories.push(fixture.home, fixture.root);
     const old = fixture.init.workspace;
+    if (sameTimestamp) {
+      if (!old.projectCreatedAt) throw new Error("Expected a registered project timestamp.");
+      vi.spyOn(Date.prototype, "toISOString").mockReturnValue(old.projectCreatedAt);
+    }
     let entered!: () => void;
     let release!: () => void;
     let queued!: () => void;

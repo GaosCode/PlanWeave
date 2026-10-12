@@ -215,10 +215,15 @@ export async function removeProject(projectId: string): Promise<void> {
   const projectsRoot = resolve(planweaveHome, "projects");
   const workspaceRoot = resolve(projectsRoot, projectId);
   assertDirectProjectWorkspace(projectsRoot, workspaceRoot, projectId, "removed");
+  const capturedRoot = await optionalStat(workspaceRoot);
   const entry = await readRegisteredProject(projectId, planweaveHome);
   await withProjectMutationLock(workspaceRoot, async () => {
+    const currentRoot = await optionalStat(workspaceRoot);
     const current = await readRegisteredProject(projectId, planweaveHome);
     if (
+      currentRoot?.dev !== capturedRoot?.dev ||
+      currentRoot?.ino !== capturedRoot?.ino ||
+      currentRoot?.birthtimeMs !== capturedRoot?.birthtimeMs ||
       current?.project.createdAt !== entry?.project.createdAt ||
       current?.project.rootPath !== entry?.project.rootPath
     ) {
