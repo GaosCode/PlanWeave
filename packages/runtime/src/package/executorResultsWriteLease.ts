@@ -1,3 +1,4 @@
+import { withImportTransactionReadAdmission } from "./importTransactionLock.js";
 import { assertResultsStorageIdentity } from "./packageStorageIdentity.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, rm } from "node:fs/promises";
@@ -86,24 +87,30 @@ export async function acquireExecutorResultsWriteLease(
     withPackageFileConsistency(
       [workspace.packageDir, workspace.stateFile, workspace.resultsDir],
       async () => {
-        await assertCurrentCanvasWorkspace(workspace);
-        await assertResultsStorageIdentity(workspace);
-        await assertNoPendingImportTransactionWrite({
-          workspaceRoot: dirname(workspace.projectFile),
-          target: workspace.resultsDir
-        });
-        const record = leaseSchema.parse({
-          version: 1,
-          token,
-          resultsRoot: await canonicalPackageFileTarget(workspace.resultsDir),
-          ownerPid: process.pid,
-          executionIdentity,
-          createdAt: new Date().toISOString(),
-          status: "writing"
-        });
-        await mkdir(leaseRoot(), { recursive: true, mode: 0o700 });
-        await writeJsonFile(path, record);
-        return record;
+        return withImportTransactionReadAdmission(
+          [dirname(workspace.projectFile)],
+          [workspace.resultsDir],
+          async () => {
+            await assertCurrentCanvasWorkspace(workspace);
+            await assertResultsStorageIdentity(workspace);
+            await assertNoPendingImportTransactionWrite({
+              workspaceRoot: dirname(workspace.projectFile),
+              target: workspace.resultsDir
+            });
+            const record = leaseSchema.parse({
+              version: 1,
+              token,
+              resultsRoot: await canonicalPackageFileTarget(workspace.resultsDir),
+              ownerPid: process.pid,
+              executionIdentity,
+              createdAt: new Date().toISOString(),
+              status: "writing"
+            });
+            await mkdir(leaseRoot(), { recursive: true, mode: 0o700 });
+            await writeJsonFile(path, record);
+            return record;
+          }
+        );
       }
     )
   );

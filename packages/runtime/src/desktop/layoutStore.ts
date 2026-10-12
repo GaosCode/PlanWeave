@@ -1,3 +1,4 @@
+import { withImportTransactionReadAdmission } from "../package/importTransactionLock.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import {
   assertNoPendingImportTransactionRemoval,
@@ -174,24 +175,30 @@ export async function saveDesktopLayoutDirect(
   return withPackageFileConsistency(
     [workspace.packageDir, layoutPathForWorkspace(workspace)],
     async () => {
-      await assertNoPendingImportTransactionWrite({
-        workspaceRoot: dirname(workspace.projectFile),
-        target: layoutPathForWorkspace(workspace)
-      });
-      const { manifest } = await loadPackage(workspace);
-      const next = filterLayoutNodes(
-        {
-          ...layout,
-          version: "desktop-layout/v1",
-          projectId: workspace.id,
-          updatedAt: options.updatedAt ?? new Date().toISOString()
-        },
-        manifest
+      return withImportTransactionReadAdmission(
+        [dirname(workspace.projectFile)],
+        [layoutPathForWorkspace(workspace)],
+        async () => {
+          await assertNoPendingImportTransactionWrite({
+            workspaceRoot: dirname(workspace.projectFile),
+            target: layoutPathForWorkspace(workspace)
+          });
+          const { manifest } = await loadPackage(workspace);
+          const next = filterLayoutNodes(
+            {
+              ...layout,
+              version: "desktop-layout/v1",
+              projectId: workspace.id,
+              updatedAt: options.updatedAt ?? new Date().toISOString()
+            },
+            manifest
+          );
+          const path = layoutPathForWorkspace(workspace);
+          await mkdir(dirname(path), { recursive: true });
+          await writeJsonFile(path, next);
+          return next;
+        }
       );
-      const path = layoutPathForWorkspace(workspace);
-      await mkdir(dirname(path), { recursive: true });
-      await writeJsonFile(path, next);
-      return next;
     }
   );
 }
@@ -203,12 +210,18 @@ export async function resetDesktopLayoutDirect(
   return withPackageFileConsistency(
     [workspace.packageDir, layoutPathForWorkspace(workspace)],
     async () => {
-      await assertNoPendingImportTransactionRemoval({
-        workspaceRoot: dirname(workspace.projectFile),
-        target: layoutPathForWorkspace(workspace)
-      });
-      await rm(layoutPathForWorkspace(workspace), { force: true });
-      return defaultDesktopLayout(workspace.id);
+      return withImportTransactionReadAdmission(
+        [dirname(workspace.projectFile)],
+        [layoutPathForWorkspace(workspace)],
+        async () => {
+          await assertNoPendingImportTransactionRemoval({
+            workspaceRoot: dirname(workspace.projectFile),
+            target: layoutPathForWorkspace(workspace)
+          });
+          await rm(layoutPathForWorkspace(workspace), { force: true });
+          return defaultDesktopLayout(workspace.id);
+        }
+      );
     }
   );
 }

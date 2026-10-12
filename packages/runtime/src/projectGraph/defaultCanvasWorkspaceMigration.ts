@@ -1,3 +1,5 @@
+import { writeProjectGraph } from "./loadProjectGraph.js";
+import { withImportTransactionMutationAdmission } from "../package/importTransactionLock.js";
 import { withCanvasStorageReplacement } from "../package/withCanvasStorageMutation.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
@@ -5,7 +7,7 @@ import { assertCurrentProjectWorkspace } from "../project.js";
 import { cp, mkdir, readFile, rename } from "node:fs/promises";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { isNodeFileNotFoundError, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
-import { readJsonFile, writeJsonFile } from "../json.js";
+import { readJsonFile } from "../json.js";
 import type { ProjectWorkspace, ValidationIssue } from "../types.js";
 import { normalizeRegistry } from "../desktop/canvasRegistry.js";
 import { manifestSchema } from "../schema/manifest.js";
@@ -306,7 +308,7 @@ async function writeCanonicalProjectGraph(
     ...graph,
     canvases: nextCanvases
   }) as ProjectGraphManifest;
-  await writeJsonFile(projectGraphPath(projectWorkspace), nextGraph);
+  await writeProjectGraph(projectWorkspace, nextGraph);
 }
 
 async function copyIfExists(
@@ -368,6 +370,7 @@ export async function applyDefaultCanvasWorkspaceMigration(
     await assertCurrentProjectWorkspace(projectWorkspace);
     return withPackageFileConsistency(
       [
+        projectGraphPath(projectWorkspace),
         legacyDefaultCanvasWorkspacePaths(projectWorkspace).packageDir,
         legacyDefaultCanvasWorkspacePaths(projectWorkspace).stateFile,
         legacyDefaultCanvasWorkspacePaths(projectWorkspace).resultsDir,
@@ -397,42 +400,55 @@ async function applyDefaultCanvasWorkspaceMigrationLocked(
     );
   }
 
-  return withCanvasStorageReplacement(
-    {
-      ...projectWorkspace,
-      ...plan.legacyPaths,
-      manifestFile: join(plan.legacyPaths.packageDir, "manifest.json")
-    },
+  return withImportTransactionMutationAdmission(
+    [plan.legacyPaths.workspaceRoot, plan.canonicalPaths.workspaceRoot],
+    [plan.legacyPaths, plan.canonicalPaths].flatMap((paths) => [
+      paths.packageDir,
+      paths.stateFile,
+      paths.resultsDir,
+      join(paths.workspaceRoot, "desktop", "layout.json")
+    ]),
     () =>
       withCanvasStorageReplacement(
         {
           ...projectWorkspace,
-          ...plan.canonicalPaths,
-          manifestFile: join(plan.canonicalPaths.packageDir, "manifest.json")
+          ...plan.legacyPaths,
+          manifestFile: join(plan.legacyPaths.packageDir, "manifest.json")
         },
-        async () => {
-          if (plan.action === "migrate") {
-            await copyIfExists(plan.legacyPaths.packageDir, plan.canonicalPaths.packageDir, {
-              recursive: true
-            });
-            await copyIfExists(plan.legacyPaths.stateFile, plan.canonicalPaths.stateFile);
-            await copyIfExists(plan.legacyPaths.resultsDir, plan.canonicalPaths.resultsDir, {
-              recursive: true
-            });
-          }
+        () =>
+          withCanvasStorageReplacement(
+            {
+              ...projectWorkspace,
+              ...plan.canonicalPaths,
+              manifestFile: join(plan.canonicalPaths.packageDir, "manifest.json")
+            },
+            async () => {
+              if (plan.action === "migrate") {
+                await copyIfExists(plan.legacyPaths.packageDir, plan.canonicalPaths.packageDir, {
+                  recursive: true
+                });
+                await copyIfExists(plan.legacyPaths.stateFile, plan.canonicalPaths.stateFile);
+                await copyIfExists(plan.legacyPaths.resultsDir, plan.canonicalPaths.resultsDir, {
+                  recursive: true
+                });
+              }
 
-          await verifyCanonical(plan.canonicalPaths);
-          await writeCanonicalProjectGraph(
-            projectWorkspace,
-            await defaultCanvasTitle(plan.canonicalPaths)
-          );
-          const legacyBackupPaths = await quarantineLegacyPaths(projectWorkspace, plan.legacyPaths);
-          return {
-            ...plan,
-            projectGraphPath: projectGraphPath(projectWorkspace),
-            legacyBackupPaths
-          };
-        }
+              await verifyCanonical(plan.canonicalPaths);
+              await writeCanonicalProjectGraph(
+                projectWorkspace,
+                await defaultCanvasTitle(plan.canonicalPaths)
+              );
+              const legacyBackupPaths = await quarantineLegacyPaths(
+                projectWorkspace,
+                plan.legacyPaths
+              );
+              return {
+                ...plan,
+                projectGraphPath: projectGraphPath(projectWorkspace),
+                legacyBackupPaths
+              };
+            }
+          )
       )
   );
 }

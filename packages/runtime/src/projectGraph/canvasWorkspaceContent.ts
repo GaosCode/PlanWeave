@@ -1,3 +1,4 @@
+import { withImportTransactionReadAdmission } from "../package/importTransactionLock.js";
 import { writeNewCanvasStorageIdentity } from "../package/packageStorageIdentity.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { assertNoPendingImportTransactionWrite } from "../package/importTransaction.js";
@@ -20,27 +21,35 @@ export async function writeManifestTitle(
   title: string
 ): Promise<string> {
   return withPackageFileConsistency([workspace.packageDir], async () => {
-    await assertNoPendingImportTransactionWrite({
-      workspaceRoot: dirname(workspace.projectFile),
-      target: workspace.packageDir
-    });
-    const raw = asRecord(await readJsonFile<unknown>(workspace.manifestFile));
-    if (!raw) {
-      throw new Error(`Task canvas manifest '${workspace.manifestFile}' is not an object.`);
-    }
-    const project = asRecord(raw.project);
-    if (!project || typeof project.title !== "string") {
-      throw new Error(`Task canvas manifest '${workspace.manifestFile}' is missing project.title.`);
-    }
-    const previousTitle = project.title;
-    await writeJsonFile(workspace.manifestFile, {
-      ...raw,
-      project: {
-        ...project,
-        title
+    return withImportTransactionReadAdmission(
+      [dirname(workspace.projectFile)],
+      [workspace.packageDir],
+      async () => {
+        await assertNoPendingImportTransactionWrite({
+          workspaceRoot: dirname(workspace.projectFile),
+          target: workspace.packageDir
+        });
+        const raw = asRecord(await readJsonFile<unknown>(workspace.manifestFile));
+        if (!raw) {
+          throw new Error(`Task canvas manifest '${workspace.manifestFile}' is not an object.`);
+        }
+        const project = asRecord(raw.project);
+        if (!project || typeof project.title !== "string") {
+          throw new Error(
+            `Task canvas manifest '${workspace.manifestFile}' is missing project.title.`
+          );
+        }
+        const previousTitle = project.title;
+        await writeJsonFile(workspace.manifestFile, {
+          ...raw,
+          project: {
+            ...project,
+            title
+          }
+        });
+        return previousTitle;
       }
-    });
-    return previousTitle;
+    );
   });
 }
 

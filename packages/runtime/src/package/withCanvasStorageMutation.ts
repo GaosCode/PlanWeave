@@ -1,5 +1,7 @@
+import { canvasStorageIdentityFile, resultsStorageIdentityFile } from "./packageStorageIdentity.js";
+import { withImportTransactionMutationAdmission } from "./importTransactionLock.js";
 import { assertNoExecutorResultsWriteLease } from "./executorResultsWriteLease.js";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { withCanvasLock, type WithCanvasLockOptions } from "../fs/withCanvasLock.js";
 import type { ProjectWorkspace } from "../types.js";
 import { assertNoPendingImportTransactionWrite } from "./importTransaction.js";
@@ -12,19 +14,29 @@ export async function withCanvasStorageMutation<T>(
   options?: WithCanvasLockOptions
 ): Promise<T> {
   const targets = [workspace.packageDir, workspace.stateFile, workspace.resultsDir];
+  const reservedTargets = [
+    ...targets,
+    canvasStorageIdentityFile(workspace),
+    resultsStorageIdentityFile(workspace)
+  ];
   return withPackageFileConsistency(targets, () =>
-    withCanvasLock(
-      dirname(workspace.stateFile),
-      async () => {
-        for (const target of targets) {
-          await assertNoPendingImportTransactionWrite({
-            workspaceRoot: dirname(workspace.projectFile),
-            target
-          });
-        }
-        return action();
-      },
-      options
+    withImportTransactionMutationAdmission(
+      [workspace.workspaceRoot],
+      [...reservedTargets, join(workspace.workspaceRoot, "desktop", "layout.json")],
+      () =>
+        withCanvasLock(
+          dirname(workspace.stateFile),
+          async () => {
+            for (const target of reservedTargets) {
+              await assertNoPendingImportTransactionWrite({
+                workspaceRoot: dirname(workspace.projectFile),
+                target
+              });
+            }
+            return action();
+          },
+          options
+        )
     )
   );
 }
@@ -35,14 +47,27 @@ export async function withCanvasStorageReplacement<T>(
   action: () => Promise<T>
 ): Promise<T> {
   const targets = [workspace.packageDir, workspace.stateFile, workspace.resultsDir];
-  return withPackageFileConsistency(targets, async () => {
-    for (const target of targets) {
-      await assertNoPendingImportTransactionWrite({
-        workspaceRoot: dirname(workspace.projectFile),
-        target
-      });
-      await assertNoExecutorResultsWriteLease(target);
-    }
-    return action();
-  });
+  const reservedTargets = [
+    ...targets,
+    canvasStorageIdentityFile(workspace),
+    resultsStorageIdentityFile(workspace)
+  ];
+  return withPackageFileConsistency(targets, () =>
+    withImportTransactionMutationAdmission(
+      [workspace.workspaceRoot],
+      [...reservedTargets, join(workspace.workspaceRoot, "desktop", "layout.json")],
+      async () => {
+        for (const target of reservedTargets) {
+          await assertNoPendingImportTransactionWrite({
+            workspaceRoot: dirname(workspace.projectFile),
+            target
+          });
+        }
+        for (const target of targets) {
+          await assertNoExecutorResultsWriteLease(target);
+        }
+        return action();
+      }
+    )
+  );
 }

@@ -1,3 +1,4 @@
+import { withImportTransactionReadAdmission } from "./importTransactionLock.js";
 import { randomUUID } from "node:crypto";
 import {
   lstat,
@@ -211,8 +212,13 @@ export async function replacePackageFilesWithFileSystem(
   try {
     try {
       await withPackageFileConsistency([targetRoot], async () => {
-        await assertNoPendingImportTransactionWrite({ workspaceRoot: parent, target: targetRoot });
-        await replacePreparedPackageFiles(fs, targetRoot, parent, preparedFiles);
+        return withImportTransactionReadAdmission([parent], [targetRoot], async () => {
+          await assertNoPendingImportTransactionWrite({
+            workspaceRoot: parent,
+            target: targetRoot
+          });
+          await replacePreparedPackageFiles(fs, targetRoot, parent, preparedFiles);
+        });
       });
     } catch (error) {
       replacementFailed = true;

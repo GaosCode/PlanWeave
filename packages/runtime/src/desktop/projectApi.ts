@@ -4,7 +4,7 @@ import {
   assertNoImportTransactionRelocation,
   assertNoPendingImportTransactionWrite
 } from "../package/importTransaction.js";
-import { withImportTransactionWorkspaceLocks } from "../package/importTransactionLock.js";
+import { withImportTransactionMutationAdmission } from "../package/importTransactionLock.js";
 import { assertNoExecutorResultsWriteLease } from "../package/executorResultsWriteLease.js";
 import { realpath, rename, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -416,7 +416,7 @@ async function renameManagedProject(
           ];
           const workspaceRoots = storageWorkspaces.map((workspace) => workspace.workspaceRoot);
           await withPackageFileConsistency(roots, () =>
-            withImportTransactionWorkspaceLocks(workspaceRoots, async () => {
+            withImportTransactionMutationAdmission(workspaceRoots, roots, async () => {
               await assertNoImportTransactionRelocation(workspaceRoots);
               // Every canvas must pass before the first directory or metadata mutation.
               for (const workspace of storageWorkspaces) {

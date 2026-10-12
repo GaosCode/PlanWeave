@@ -7,6 +7,9 @@ import { isNodeFileNotFoundError, optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { importTransactionIdentityDigest } from "./importTransactionContent.js";
 import {
+  importTransactionScanRoots,
+  withImportTransactionReadAdmission,
+  withImportTransactionMutationAdmission,
   withImportTransactionLock,
   withImportTransactionWorkspaceLocks
 } from "./importTransactionLock.js";
@@ -294,8 +297,21 @@ export async function readImportTransactionRecoveryTargets(options: {
   workspaceRoot: string;
   transactionId: string;
 }): Promise<string[]> {
-  const { recovery } = await readValidatedRecoveryFile({ ...options, fs: nodeFileSystem });
-  return [...new Set(recovery.operations.map((operation) => operation.target))];
+  return withImportTransactionReadAdmission([options.workspaceRoot], [], () =>
+    withImportTransactionLock(options.workspaceRoot, options.transactionId, async () => {
+      assertValidImportTransactionId(options.transactionId);
+      const root = join(
+        resolve(options.workspaceRoot),
+        "desktop",
+        "recovery",
+        "package-import",
+        options.transactionId
+      );
+      if ((await optionalStat(root)) === null) return [];
+      const { recovery } = await readValidatedRecoveryFile({ ...options, fs: nodeFileSystem });
+      return [...new Set(recovery.operations.map((operation) => operation.target))];
+    })
+  );
 }
 
 async function assertNoPendingImportTransactionMutation(options: {
@@ -304,47 +320,45 @@ async function assertNoPendingImportTransactionMutation(options: {
   transactionId?: string;
   operation: "write" | "removal";
 }): Promise<void> {
-  const workspaceRoots = new Set([resolve(options.workspaceRoot)]);
   assertWorkspaceTarget(options.workspaceRoot, options.target);
-  for (let ancestor = dirname(resolve(options.target)); ; ancestor = dirname(ancestor)) {
-    workspaceRoots.add(ancestor);
-    if (dirname(ancestor) === ancestor) break;
-  }
-  for (const workspaceRoot of workspaceRoots) {
-    const root = join(workspaceRoot, "desktop", "recovery", "package-import");
-    if ((await optionalStat(root)) === null) continue;
-    for (const entry of await readdir(root, { withFileTypes: true })) {
-      if (
-        !entry.isDirectory() ||
-        (workspaceRoot === resolve(options.workspaceRoot) && entry.name === options.transactionId)
-      )
-        continue;
-      const { recovery } = await readValidatedRecoveryFile({
-        workspaceRoot,
-        transactionId: entry.name,
-        fs: nodeFileSystem
-      });
-      if (recovery.state === "committed") continue;
-      if (recovery.operations.every((operation) => operation.phase === "rolledBack")) continue;
-      const target = resolve(options.target);
-      if (
-        recovery.operations.some((operation) => {
-          const nested = relative(operation.target, target);
-          const ancestor = relative(target, operation.target);
-          return (
-            !nested ||
-            (!nested.startsWith("..") && !isAbsolute(nested)) ||
-            !ancestor ||
-            (!ancestor.startsWith("..") && !isAbsolute(ancestor))
+  const workspaceRoots = importTransactionScanRoots([options.workspaceRoot], [options.target]);
+  return withImportTransactionReadAdmission([options.workspaceRoot], [options.target], async () => {
+    for (const workspaceRoot of workspaceRoots) {
+      const root = join(workspaceRoot, "desktop", "recovery", "package-import");
+      if ((await optionalStat(root)) === null) continue;
+      for (const entry of await readdir(root, { withFileTypes: true })) {
+        if (
+          !entry.isDirectory() ||
+          (workspaceRoot === resolve(options.workspaceRoot) && entry.name === options.transactionId)
+        )
+          continue;
+        const { recovery } = await readValidatedRecoveryFile({
+          workspaceRoot,
+          transactionId: entry.name,
+          fs: nodeFileSystem
+        });
+        if (recovery.state === "committed") continue;
+        if (recovery.operations.every((operation) => operation.phase === "rolledBack")) continue;
+        const target = resolve(options.target);
+        if (
+          recovery.operations.some((operation) => {
+            const nested = relative(operation.target, target);
+            const ancestor = relative(target, operation.target);
+            return (
+              !nested ||
+              (!nested.startsWith("..") && !isAbsolute(nested)) ||
+              !ancestor ||
+              (!ancestor.startsWith("..") && !isAbsolute(ancestor))
+            );
+          })
+        ) {
+          throw new Error(
+            `Import transaction ${options.operation} conflict: pending transaction '${recovery.transactionId}' overlaps ${target}`
           );
-        })
-      ) {
-        throw new Error(
-          `Import transaction ${options.operation} conflict: pending transaction '${recovery.transactionId}' overlaps ${target}`
-        );
+        }
       }
     }
-  }
+  });
 }
 
 /** Pending rollback reserves every dependent target until all operations are restored. */
@@ -368,20 +382,24 @@ export async function readImportTransactionRecoverySummary(options: {
   workspaceRoot: string;
   transactionId: string;
 }): Promise<ImportTransactionRecoverySummary> {
-  const { workspaceRoot, recoveryRoot, recovery } = await readValidatedRecoveryFile({
-    workspaceRoot: options.workspaceRoot,
-    transactionId: options.transactionId,
-    fs: nodeFileSystem
-  });
-  return {
-    transactionId: recovery.transactionId,
-    recoveryRoot,
-    workspaceRoot,
-    createdAt: recovery.createdAt,
-    operationCount: recovery.operations.length,
-    phases: [...new Set(recovery.operations.map((operation) => operation.phase))],
-    state: recovery.state
-  };
+  return withImportTransactionReadAdmission([options.workspaceRoot], [], () =>
+    withImportTransactionLock(options.workspaceRoot, options.transactionId, async () => {
+      const { workspaceRoot, recoveryRoot, recovery } = await readValidatedRecoveryFile({
+        workspaceRoot: options.workspaceRoot,
+        transactionId: options.transactionId,
+        fs: nodeFileSystem
+      });
+      return {
+        transactionId: recovery.transactionId,
+        recoveryRoot,
+        workspaceRoot,
+        createdAt: recovery.createdAt,
+        operationCount: recovery.operations.length,
+        phases: [...new Set(recovery.operations.map((operation) => operation.phase))],
+        state: recovery.state
+      };
+    })
+  );
 }
 
 /** Caller holds workspace admission through relocation; journals contain absolute paths. */
@@ -476,23 +494,27 @@ export class ImportTransaction {
     transactionId: string;
     fs?: ImportTransactionFileSystem;
   }): Promise<ImportTransaction> {
-    const fs = options.fs ?? nodeFileSystem;
-    const { workspaceRoot, recovery } = await readValidatedRecoveryFile({
-      workspaceRoot: options.workspaceRoot,
-      transactionId: options.transactionId,
-      fs
-    });
-    const transaction = new ImportTransaction({
-      workspaceRoot,
-      transactionId: recovery.transactionId,
-      createdAt: recovery.createdAt,
-      fs
-    });
-    transaction.operations = recovery.operations;
-    transaction.state = recovery.state;
-    transaction.writeIsolationTargets = recovery.writeIsolationTargets ?? [];
-    transaction.persistedRecovery = JSON.stringify(recovery);
-    return transaction;
+    return withImportTransactionReadAdmission([options.workspaceRoot], [], () =>
+      withImportTransactionLock(options.workspaceRoot, options.transactionId, async () => {
+        const fs = options.fs ?? nodeFileSystem;
+        const { workspaceRoot, recovery } = await readValidatedRecoveryFile({
+          workspaceRoot: options.workspaceRoot,
+          transactionId: options.transactionId,
+          fs
+        });
+        const transaction = new ImportTransaction({
+          workspaceRoot,
+          transactionId: recovery.transactionId,
+          createdAt: recovery.createdAt,
+          fs
+        });
+        transaction.operations = recovery.operations;
+        transaction.state = recovery.state;
+        transaction.writeIsolationTargets = recovery.writeIsolationTargets ?? [];
+        transaction.persistedRecovery = JSON.stringify(recovery);
+        return transaction;
+      })
+    );
   }
 
   private storageTargets(extraTargets: readonly string[]): string[] {
@@ -513,7 +535,7 @@ export class ImportTransaction {
     let targets = this.storageTargets(extraTargets);
     while (true) {
       const result = await withPackageFileConsistency(targets, () =>
-        withImportTransactionWorkspaceLocks([this.workspaceRoot], () =>
+        withImportTransactionMutationAdmission([this.workspaceRoot], targets, () =>
           withImportTransactionLock(this.workspaceRoot, this.transactionId, async () => {
             if ((await this.fs.optionalStat(join(this.recoveryRoot, "recovery.json"))) === null) {
               if (

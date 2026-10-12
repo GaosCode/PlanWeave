@@ -60,7 +60,7 @@ import { z } from "zod";
 import {
   packageStorageIdentitySchema,
   resultsStorageIdentitySchema
-} from "../package/packageStorageIdentity.js";
+} from "../package/packageStorageIdentitySchema.js";
 import { canonicalPackageFileTarget } from "../package/packageFileConsistency.js";
 import { withCurrentRunSessionStorage } from "./storageMutation.js";
 import { readJsonFile } from "../json.js";

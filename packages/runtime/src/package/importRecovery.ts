@@ -4,7 +4,7 @@ import { optionalStat } from "../fs/optionalFile.js";
 import { ImportTransaction, readImportTransactionRecoverySummary } from "./importTransaction.js";
 import {
   withImportTransactionLock,
-  withImportTransactionWorkspaceLocks
+  withImportTransactionReadAdmission
 } from "./importTransactionLock.js";
 
 export type PendingImportTransaction = {
@@ -38,29 +38,37 @@ export async function listPendingImportTransactions(
   workspaceRoot: string
 ): Promise<PendingImportTransaction[]> {
   const resolvedWorkspaceRoot = resolve(workspaceRoot);
-  const transactionIds = await listRecoveryTransactionIds(
-    packageImportRecoveryRoot(resolvedWorkspaceRoot)
+  const entries = await withImportTransactionReadAdmission(
+    [resolvedWorkspaceRoot],
+    [],
+    async () => {
+      const transactionIds = await listRecoveryTransactionIds(
+        packageImportRecoveryRoot(resolvedWorkspaceRoot)
+      );
+      return Promise.all(
+        transactionIds.map((transactionId) =>
+          withImportTransactionLock(resolvedWorkspaceRoot, transactionId, async () => {
+            const root = join(packageImportRecoveryRoot(resolvedWorkspaceRoot), transactionId);
+            if ((await optionalStat(root)) === null) return null;
+            const summary = await readImportTransactionRecoverySummary({
+              workspaceRoot: resolvedWorkspaceRoot,
+              transactionId
+            });
+            const transaction =
+              summary.state === "committed"
+                ? await ImportTransaction.recover({
+                    workspaceRoot: resolvedWorkspaceRoot,
+                    transactionId
+                  })
+                : null;
+            return { summary, transaction };
+          })
+        )
+      );
+    }
   );
   const pending: PendingImportTransaction[] = [];
-  for (const transactionId of transactionIds) {
-    const entry = await withImportTransactionWorkspaceLocks([resolvedWorkspaceRoot], () =>
-      withImportTransactionLock(resolvedWorkspaceRoot, transactionId, async () => {
-        const root = join(packageImportRecoveryRoot(resolvedWorkspaceRoot), transactionId);
-        if ((await optionalStat(root)) === null) return null;
-        const summary = await readImportTransactionRecoverySummary({
-          workspaceRoot: resolvedWorkspaceRoot,
-          transactionId
-        });
-        const transaction =
-          summary.state === "committed"
-            ? await ImportTransaction.recover({
-                workspaceRoot: resolvedWorkspaceRoot,
-                transactionId
-              })
-            : null;
-        return { summary, transaction };
-      })
-    );
+  for (const entry of entries) {
     if (!entry) continue;
     // Release journal admission before acquiring the cleanup's storage targets.
     if (entry.transaction) {

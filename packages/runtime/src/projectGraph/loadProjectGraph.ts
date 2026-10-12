@@ -1,4 +1,7 @@
-import { join } from "node:path";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { withImportTransactionReadAdmission } from "../package/importTransactionLock.js";
+import { assertNoPendingImportTransactionWrite } from "../package/importTransaction.js";
+import { dirname, join } from "node:path";
 import { isNodeFileNotFoundError, optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { projectWorkspacePaths, resolveProjectWorkspace } from "../project.js";
@@ -116,6 +119,13 @@ export async function writeProjectGraph(
   manifest: ProjectGraphManifest
 ): Promise<ProjectGraphManifest> {
   const parsed = projectGraphManifestSchema.parse(manifest) as ProjectGraphManifest;
-  await writeJsonFile(projectGraphPath(workspace), parsed);
+  const target = projectGraphPath(workspace);
+  const workspaceRoot = dirname(workspace.projectFile);
+  await withPackageFileConsistency([target], () =>
+    withImportTransactionReadAdmission([workspaceRoot], [target], async () => {
+      await assertNoPendingImportTransactionWrite({ workspaceRoot, target });
+      await writeJsonFile(target, parsed);
+    })
+  );
   return parsed;
 }

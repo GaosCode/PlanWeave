@@ -2,7 +2,11 @@ import { spawn } from "node:child_process";
 import type { ProjectWorkspace } from "../../types.js";
 
 /** Observe the native writer's own package-lock mkdir, without acquiring a fixture lock. */
-export function spawnImportStorageWriter(workspace: ProjectWorkspace, kind: "state" | "results") {
+export function spawnImportStorageWriter(
+  workspace: ProjectWorkspace,
+  kind: "state" | "results",
+  holdBeforePublish = false
+) {
   const child = spawn(
     process.execPath,
     [
@@ -17,12 +21,25 @@ export function spawnImportStorageWriter(workspace: ProjectWorkspace, kind: "sta
     fs.mkdir = async (...args) => {
       try { return await mkdir(...args); }
       catch(error) {
-        if(error.code==='EEXIST' && String(args[0]).includes('/package-locks/')) process.stdout.write('contended\\n');
+        if(error.code==='EEXIST' && (String(args[0]).includes('/package-locks/') || String(args[0]).includes('/import-transaction-locks/'))) process.stdout.write('contended\\n');
         throw error;
       }
     };
     syncBuiltinESMExports();
     const workspace=JSON.parse(process.argv[1]), source=process.argv[2];
+    if(process.argv[4]==='hold') {
+      const rename = fs.rename;
+      const canonicalState = await fs.realpath(workspace.stateFile);
+      fs.rename = async (...args) => {
+        if(String(args[1])===workspace.stateFile || String(args[1])===canonicalState) {
+          process.stdout.write('writing\\n');
+          await new Promise(() => setInterval(() => {}, 1000));
+        }
+        return rename(...args);
+      };
+      syncBuiltinESMExports();
+    }
+
     if(process.argv[3]==='state') {
       const {createEmptyState,writeState}=await import(source+'state.ts');
       await writeState(workspace.stateFile,{...createEmptyState(),currentRefs:['T-001#B-001']});
@@ -34,7 +51,8 @@ export function spawnImportStorageWriter(workspace: ProjectWorkspace, kind: "sta
   `,
       JSON.stringify(workspace),
       new URL("../../", import.meta.url).href,
-      kind
+      kind,
+      holdBeforePublish ? "hold" : "normal"
     ],
     { stdio: ["ignore", "pipe", "pipe"] }
   );
@@ -56,9 +74,9 @@ export function spawnImportStorageWriter(workspace: ProjectWorkspace, kind: "sta
     const output = String(value);
     if (output.includes("contended\n")) {
       observedContention = true;
-      resolveReady();
+      if (!holdBeforePublish) resolveReady();
     }
-    if (output.includes("saved\n")) resolveReady();
+    if (output.includes("writing\n") || output.includes("saved\n")) resolveReady();
   });
   child.stderr.on("data", (value) => {
     stderr += String(value);

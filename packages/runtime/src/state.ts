@@ -1,3 +1,4 @@
+import { withImportTransactionReadAdmission } from "./package/importTransactionLock.js";
 import { mkdir } from "node:fs/promises";
 import { assertNoPendingImportTransactionWrite } from "./package/importTransaction.js";
 import { withPackageFileConsistency } from "./package/packageFileConsistency.js";
@@ -47,12 +48,14 @@ export async function readState(stateFile: string): Promise<RuntimeState> {
 
 export async function writeState(stateFile: string, state: RuntimeState): Promise<void> {
   await withPackageFileConsistency([stateFile], async () => {
-    await assertNoPendingImportTransactionWrite({
-      workspaceRoot: dirname(stateFile),
-      target: stateFile
+    return withImportTransactionReadAdmission([dirname(stateFile)], [stateFile], async () => {
+      await assertNoPendingImportTransactionWrite({
+        workspaceRoot: dirname(stateFile),
+        target: stateFile
+      });
+      await mkdir(dirname(stateFile), { recursive: true });
+      await writeJsonFile(stateFile, state);
     });
-    await mkdir(dirname(stateFile), { recursive: true });
-    await writeJsonFile(stateFile, state);
   });
 }
 

@@ -1,3 +1,4 @@
+import { withImportTransactionReadAdmission } from "../package/importTransactionLock.js";
 import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname } from "node:path";
@@ -228,23 +229,29 @@ export async function commitStagedPlanPackageGraphMutation(options: {
   }
   const { workspace } = await loadPackage(options.projectRoot);
   return withPackageFileConsistency([workspace.packageDir], async () => {
-    await assertNoPendingImportTransactionWrite({
-      workspaceRoot: dirname(workspace.projectFile),
-      target: workspace.packageDir
-    });
-    const current = await loadPackage(workspace);
-    const conflict = checkPlanPackageGraphMutationVersion(current.manifest, options.mutation);
-    if (conflict) return conflict;
-    await applyMutationSideEffectsWithRollback(
-      workspace.packageDir,
-      options.mutation.sideEffects,
-      () => writeJsonFile(workspace.manifestFile, prepared.value.manifest)
-    );
-    return result(
-      prepared.value.manifest,
-      options.mutation.affectedTasks,
-      [],
-      prepared.value.graph
+    return withImportTransactionReadAdmission(
+      [dirname(workspace.projectFile)],
+      [workspace.packageDir],
+      async () => {
+        await assertNoPendingImportTransactionWrite({
+          workspaceRoot: dirname(workspace.projectFile),
+          target: workspace.packageDir
+        });
+        const current = await loadPackage(workspace);
+        const conflict = checkPlanPackageGraphMutationVersion(current.manifest, options.mutation);
+        if (conflict) return conflict;
+        await applyMutationSideEffectsWithRollback(
+          workspace.packageDir,
+          options.mutation.sideEffects,
+          () => writeJsonFile(workspace.manifestFile, prepared.value.manifest)
+        );
+        return result(
+          prepared.value.manifest,
+          options.mutation.affectedTasks,
+          [],
+          prepared.value.graph
+        );
+      }
     );
   });
 }

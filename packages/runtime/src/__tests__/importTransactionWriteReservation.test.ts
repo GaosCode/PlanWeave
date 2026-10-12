@@ -1,8 +1,21 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as content from "../package/importTransactionContent.js";
 import * as consistency from "../package/packageFileConsistency.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { listPendingImportTransactions } from "../package/importRecovery.js";
+import {
+  loadProjectGraphForWorkspace,
+  projectGraphPath,
+  writeProjectGraph
+} from "../projectGraph/loadProjectGraph.js";
+import {
+  canvasStorageIdentityFile,
+  writeNewCanvasStorageIdentity,
+  writeNewResultsStorageIdentity
+} from "../package/packageStorageIdentity.js";
+import { withCanvasStorageReplacement } from "../package/withCanvasStorageMutation.js";
 import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { spawnImportStorageWriter } from "./helpers/importTransactionStorageWriterProcessFixture.js";
 import { ImportTransaction } from "../package/importTransaction.js";
@@ -30,6 +43,168 @@ afterEach(async () => {
   );
 });
 describe("Import transaction write reservations", () => {
+  it("recovers admission after a real storage writer exits before publication", async () => {
+    const fixture = await createTestWorkspace();
+    directories.push(fixture.root, fixture.home);
+    const workspace = fixture.init.workspace;
+    const original = await readFile(workspace.stateFile, "utf8");
+    const writer = spawnImportStorageWriter(workspace, "state", true);
+    try {
+      await writer.ready;
+    } finally {
+      writer.child.kill("SIGTERM");
+      await writer.done;
+    }
+    expect(await readFile(workspace.stateFile, "utf8")).toBe(original);
+    const transaction = await ImportTransaction.create({
+      workspaceRoot: workspace.workspaceRoot,
+      transactionId: "after-writer-exit"
+    });
+    await transaction.commit();
+    expect(await listPendingImportTransactions(workspace.workspaceRoot)).toEqual([]);
+  });
+  it.each([
+    "graph",
+    "canvas",
+    "results"
+  ] as const)("preserves a pending %s replacement across ordinary writes", async (kind) => {
+    const fixture = await createTestWorkspace();
+    directories.push(fixture.root, fixture.home);
+    const workspace = fixture.init.workspace;
+    const project = (await loadProjectGraphForWorkspace(workspace)).workspace;
+    const graph = (await loadProjectGraphForWorkspace(workspace)).manifest;
+    const target =
+      kind === "graph"
+        ? projectGraphPath(project)
+        : kind === "canvas"
+          ? canvasStorageIdentityFile(workspace)
+          : join(dirname(workspace.resultsDir), "results.results-instance.json");
+    if (kind === "graph") await writeProjectGraph(project, graph);
+    else if (kind === "canvas") await writeNewCanvasStorageIdentity(workspace);
+    else await writeNewResultsStorageIdentity(workspace);
+    const original = await readFile(target, "utf8");
+    const staged = join(workspace.workspaceRoot, `staged-${kind}.json`);
+    await writeText(staged, original);
+    const transaction = await ImportTransaction.create({
+      workspaceRoot: project.workspaceRoot,
+      transactionId: `reserved-${kind}`
+    });
+    await transaction.replacePath(target, staged);
+    const installed = await readFile(target, "utf8");
+    let entered = false;
+    try {
+      const write =
+        kind === "graph"
+          ? writeProjectGraph(project, {
+              ...graph,
+              canvases: graph.canvases.map((canvas) => ({ ...canvas, title: "Changed" }))
+            })
+          : withCanvasStorageReplacement(workspace, async () => {
+              entered = true;
+              if (kind === "canvas") await writeNewCanvasStorageIdentity(workspace);
+              else await writeNewResultsStorageIdentity(workspace);
+            });
+      await expect(write).rejects.toThrow("write conflict");
+      expect(entered).toBe(false);
+      expect(await readFile(target, "utf8")).toBe(installed);
+    } finally {
+      await transaction.rollback();
+    }
+    expect(await readFile(target, "utf8")).toBe(original);
+  });
+  it.each(
+    ["write", "list", "process"].flatMap((kind) =>
+      ["publish", "cleanup"].map((phase) => ({ kind, phase }))
+    )
+  )("waits for $phase admission before $kind, while another workspace remains writable", async ({
+    kind,
+    phase
+  }) => {
+    const fixture = await createTestWorkspace();
+    directories.push(fixture.root, fixture.home);
+    const workspace = fixture.init.workspace;
+    const workspaceRoot = workspace.workspaceRoot;
+    let entered!: () => void;
+    let release!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const proceed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const creation = ImportTransaction.create({
+      workspaceRoot,
+      transactionId: "journal-admission",
+      fs: {
+        ...realFs,
+        writeJsonFile: async (path, value) => {
+          if (phase === "publish") {
+            entered();
+            await proceed;
+          }
+          return writeJsonFile(path, value);
+        },
+        rm: async (path, options) => {
+          await realFs.rm(path, options);
+          if (phase === "cleanup") {
+            entered();
+            await proceed;
+          }
+        }
+      }
+    });
+    const lifecycle =
+      phase === "publish"
+        ? creation
+        : creation.then(async (transaction) => {
+            await transaction.commit();
+            return transaction;
+          });
+    await paused;
+    let completed = false;
+    const actor = kind === "process" ? spawnImportStorageWriter(workspace, "state") : null;
+    const reader = (
+      actor
+        ? actor.done.then(({ code, stderr }) => {
+            if (code !== 0) throw new Error(stderr);
+          })
+        : kind === "write"
+          ? writeState(workspace.stateFile, createEmptyState())
+          : listPendingImportTransactions(workspaceRoot)
+    )
+      .then(
+        (result) => ({ result }),
+        (error: unknown) => ({ error })
+      )
+      .finally(() => {
+        completed = true;
+      });
+    try {
+      if (actor) await actor.ready;
+      else await delay(40);
+      expect(completed).toBe(false);
+      const unrelated = await tempWorkspace();
+      directories.push(unrelated);
+      await writeState(join(unrelated, "state.json"), createEmptyState());
+      release();
+      const transaction = await lifecycle;
+      expect(await reader).not.toHaveProperty("error");
+      if (kind === "write")
+        expect(await readState(workspace.stateFile)).toEqual(createEmptyState());
+      else if (kind === "process")
+        expect((await readState(workspace.stateFile)).currentRefs).toEqual(["T-001#B-001"]);
+      else
+        expect(await reader).toMatchObject({
+          result: phase === "publish" ? [{ transactionId: "journal-admission" }] : []
+        });
+      if (phase === "publish") await transaction.rollback();
+    } finally {
+      release();
+      await lifecycle;
+      await reader;
+    }
+  });
+
   it.each([
     { later: false, legacy: false },
     { later: true, legacy: false },

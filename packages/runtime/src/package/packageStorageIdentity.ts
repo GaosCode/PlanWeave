@@ -1,3 +1,9 @@
+import {
+  packageStorageIdentitySchema,
+  resultsStorageIdentitySchema
+} from "./packageStorageIdentitySchema.js";
+import { withImportTransactionReadAdmission } from "./importTransactionLock.js";
+import { assertNoPendingImportTransactionWrite } from "./importTransaction.js";
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -9,10 +15,6 @@ import type { ProjectWorkspace } from "../types.js";
 const canvasInstanceSchema = z
   .object({ version: z.literal(1), id: z.string().uuid(), createdAt: z.string().datetime() })
   .strict();
-export const packageStorageIdentitySchema = z.union([
-  z.string().regex(/^directory:\d+:\d+:\d+$/),
-  z.string().regex(/^instance:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:\d+$/)
-]);
 
 export function canvasStorageIdentityFile(workspace: ProjectWorkspace): string {
   return join(
@@ -27,7 +29,11 @@ export function newCanvasStorageIdentity(): z.infer<typeof canvasInstanceSchema>
 
 /** Caller owns the canvas replacement lane; the identity survives ordinary package publication. */
 export async function writeNewCanvasStorageIdentity(workspace: ProjectWorkspace): Promise<void> {
-  await writeJsonFile(canvasStorageIdentityFile(workspace), newCanvasStorageIdentity());
+  await writeStorageIdentity(
+    workspace,
+    canvasStorageIdentityFile(workspace),
+    newCanvasStorageIdentity()
+  );
 }
 
 async function currentCanvasIdentity(workspace: ProjectWorkspace): Promise<string | null> {
@@ -72,9 +78,7 @@ export function packageStorageCreatedAt(identity: string): number {
   return valid.startsWith("instance:") ? Number(timestamp) : Number(BigInt(timestamp) / 1_000_000n);
 }
 
-export const resultsStorageIdentitySchema = z.union([z.literal("initial"), z.string().uuid()]);
-
-function resultsStorageIdentityFile(workspace: ProjectWorkspace): string {
+export function resultsStorageIdentityFile(workspace: ProjectWorkspace): string {
   return join(
     dirname(workspace.resultsDir),
     `${basename(workspace.resultsDir)}.results-instance.json`
@@ -89,7 +93,7 @@ async function currentResultsIdentity(workspace: ProjectWorkspace): Promise<stri
 
 /** Caller owns the results replacement lane and the parent project lock. */
 export async function writeNewResultsStorageIdentity(workspace: ProjectWorkspace): Promise<void> {
-  await writeJsonFile(resultsStorageIdentityFile(workspace), randomUUID());
+  await writeStorageIdentity(workspace, resultsStorageIdentityFile(workspace), randomUUID());
 }
 
 export async function assertResultsStorageIdentity(workspace: ProjectWorkspace): Promise<void> {
@@ -99,4 +103,16 @@ export async function assertResultsStorageIdentity(workspace: ProjectWorkspace):
   ) {
     throw new Error(`PlanWeave results storage identity changed at '${workspace.resultsDir}'.`);
   }
+}
+
+async function writeStorageIdentity(
+  workspace: ProjectWorkspace,
+  target: string,
+  value: unknown
+): Promise<void> {
+  const workspaceRoot = dirname(workspace.projectFile);
+  await withImportTransactionReadAdmission([workspaceRoot], [target], async () => {
+    await assertNoPendingImportTransactionWrite({ workspaceRoot, target });
+    await writeJsonFile(target, value);
+  });
 }

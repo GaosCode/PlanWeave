@@ -1,10 +1,12 @@
+import {
+  packageStorageIdentitySchema,
+  resultsStorageIdentitySchema
+} from "../../package/packageStorageIdentitySchema.js";
 import { assertCurrentCanvasWorkspace } from "../../package/assertCurrentCanvasWorkspace.js";
 import { isProjectGraphCommand } from "../projectGraphCommand.js";
 import type { PlanGraphCommand } from "../commands.js";
 import {
   capturePackageStorageIdentity,
-  packageStorageIdentitySchema,
-  resultsStorageIdentitySchema,
   packageStorageCreatedAt
 } from "../../package/packageStorageIdentity.js";
 import { isAbsolute } from "node:path";
