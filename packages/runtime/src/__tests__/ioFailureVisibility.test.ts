@@ -1,5 +1,5 @@
 import type { PathLike } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -474,13 +474,33 @@ describe("filesystem I/O failure visibility", () => {
     await expect(readProjectPrompt(root)).resolves.toBe("");
   });
 
-  it("does not create run sessions from an inaccessible run-sessions directory snapshot", async () => {
+  it.each([
+    "legacy directory",
+    "allocation record"
+  ] as const)("does not allocate a run session when its %s is inaccessible", async (source) => {
     const { root, init } = await createTestWorkspace();
     await createRunSession({ projectRoot: root, kind: "run" });
     const sessionsRoot = join(init.workspace.resultsDir, "run-sessions");
-    const expected = failOnce("readdir", sessionsRoot, "EACCES");
+    const allocationPath = join(sessionsRoot, ".session-sequence.json");
+    const allocationBefore = await readFile(allocationPath, "utf8");
+    const sessionPath = join(sessionsRoot, "SESSION-0001", "session.json");
+    const sessionBefore = await readFile(sessionPath, "utf8");
+    if (source === "legacy directory") await rm(allocationPath);
+    const expected =
+      source === "legacy directory"
+        ? failOnce("readdir", sessionsRoot, "EACCES")
+        : failOnce("readFile", allocationPath, "EACCES");
 
     await expect(createRunSession({ projectRoot: root, kind: "run" })).rejects.toBe(expected);
+    await expect(access(join(sessionsRoot, "SESSION-0002"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+    expect(await readFile(sessionPath, "utf8")).toBe(sessionBefore);
+    if (source === "legacy directory") {
+      await expect(access(allocationPath)).rejects.toMatchObject({ code: "ENOENT" });
+    } else {
+      expect(await readFile(allocationPath, "utf8")).toBe(allocationBefore);
+    }
   });
 
   it("does not allocate RUN-001 when executor run directory listing fails", async () => {
