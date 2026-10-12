@@ -350,9 +350,10 @@ async function submitBlockResultArtifact(
   ) {
     throw new Error("Verified implementation artifact reference does not match its bytes.");
   }
-  const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
-  return withExecutionStateLock(options, dirname(lockWorkspace.stateFile), async () => {
-    const context = await loadRuntime(options);
+  const { workspace: lockWorkspace } =
+    options.executionSnapshot ?? (await loadPackage(options.projectRoot));
+  return withExecutionStateLock(options, lockWorkspace, async () => {
+    const context = await loadRuntime({ ...options, projectRoot: lockWorkspace });
     const { workspace, manifest, graph } = context;
     let { state } = context;
     const { taskId, blockId } = parseBlockRef(options.ref);

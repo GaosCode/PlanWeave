@@ -1,4 +1,3 @@
-import { dirname } from "node:path";
 import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
@@ -23,9 +22,9 @@ export async function claimDispatchedBlock(options: {
   session?: ExecutionGraphSession;
   executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<ClaimResult> {
-  const { workspace } = await loadPackage(options.projectRoot);
-  return withExecutionStateLock(options, dirname(workspace.stateFile), async () => {
-    const context = await loadRuntime(options);
+  const { workspace } = options.executionSnapshot ?? (await loadPackage(options.projectRoot));
+  return withExecutionStateLock(options, workspace, async () => {
+    const context = await loadRuntime({ ...options, projectRoot: workspace });
     const { workspace: lockedWorkspace, manifest, graph, state } = context;
     const invalidScope = validateClaimScope({ kind: "block", blockRef: options.ref }, graph);
     if (invalidScope) {

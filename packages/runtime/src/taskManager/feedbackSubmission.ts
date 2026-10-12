@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
 import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { writeJsonFile } from "../json.js";
@@ -136,9 +136,10 @@ export async function submitFeedbackFromBytes(
   reportBytes: Buffer
 ): Promise<SubmitFeedbackResult> {
   const reportHash = createHash("sha256").update(reportBytes).digest("hex");
-  const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
-  return withExecutionStateLock(options, dirname(lockWorkspace.stateFile), async () => {
-    const context = await loadRuntime(options);
+  const { workspace: lockWorkspace } =
+    options.executionSnapshot ?? (await loadPackage(options.projectRoot));
+  return withExecutionStateLock(options, lockWorkspace, async () => {
+    const context = await loadRuntime({ ...options, projectRoot: lockWorkspace });
     const { workspace, manifest, graph } = context;
     let { state } = context;
     const feedbackId = state.currentFeedbackId;

@@ -4,6 +4,7 @@ import { withCurrentProjectWorkspace } from "../project.js";
 import { assertCurrentCanvasWorkspace } from "../package/assertCurrentCanvasWorkspace.js";
 import { assertResultsStorageIdentity } from "../package/packageStorageIdentity.js";
 import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { isNodeFileNotFoundError } from "../fs/optionalFile.js";
 import { commitPlanPackageGraphMutation } from "../graph/editGraph.js";
 import { buildPlanPackageBlockFieldEditMutation } from "../graph/fieldEditMutation.js";
@@ -145,12 +146,17 @@ export async function resetMaxCycleReviewsForRetryWithRollback(options: {
   scope: ClaimScope;
 }): Promise<MaxCycleReviewResetTransaction> {
   const { workspace } = await loadPackage(options.projectRoot);
-  return withCanvasStorageMutation(workspace, async () =>
+  const transaction = await withExecutionStateLock(options, workspace, async () =>
     resetMaxCycleReviewsUnderCanvasLock(
       await loadRuntime({ projectRoot: workspace }),
       options.scope
     )
   );
+  return {
+    refs: transaction.refs,
+    rollback: () =>
+      withExecutionStateLock({ projectRoot: workspace }, workspace, transaction.rollback)
+  };
 }
 
 export async function resetMaxCycleReviewsForRetry(options: {

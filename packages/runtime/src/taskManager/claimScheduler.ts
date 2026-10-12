@@ -1,4 +1,3 @@
-import { dirname } from "node:path";
 import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
@@ -56,9 +55,10 @@ export async function claimNext(options: {
   }
 
   // Resolve workspace path for the lock without writing; the locked body reloads state.
-  const workspace = await resolvePackageWorkspace(options.projectRoot);
-  return withExecutionStateLock(options, dirname(workspace.stateFile), async () =>
-    claimNextUnlocked({ ...options, dryRun: false })
+  const workspace =
+    options.executionSnapshot?.workspace ?? (await resolvePackageWorkspace(options.projectRoot));
+  return withExecutionStateLock(options, workspace, async () =>
+    claimNextUnlocked({ ...options, projectRoot: workspace, dryRun: false })
   );
 }
 

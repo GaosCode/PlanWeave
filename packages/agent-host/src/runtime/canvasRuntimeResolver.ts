@@ -2,6 +2,10 @@ import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   canonicalProjectCanvasNode,
+  capturePackageStorageIdentity,
+  projectMetadataSchema,
+  readProjectMetadataFile,
+  withProjectMutationLock,
   createEmptyState,
   projectCanvasWorkspace,
   projectGraphManifestSchema,
@@ -133,23 +137,48 @@ export class ConfiguredCanvasRuntimeResolver implements CanvasRuntimeResolverPor
     ) {
       throw new CanvasRuntimeResolutionError("runtime_project_escape");
     }
-    const runtimeProject = projectWorkspacePaths({
+    let runtimeProject = projectWorkspacePaths({
       id: scope.projectId,
       projectCreatedAt: null,
-      kind: configuredProject?.kind ?? "managed",
-      rootPath: configuredProject?.rootPath ?? resolvedProjectRoot,
-      sourceRoot: configuredProject?.sourceRoot ?? null,
+      kind: "managed",
+      rootPath: resolvedProjectRoot,
+      sourceRoot: configuredProject?.sourceRoot ?? configuredProject?.rootPath ?? null,
       planweaveHome: resolvedRuntimeHome,
       workspaceRoot: resolvedProjectRoot
     });
-    const canvasNode = canonicalProjectCanvasNode({
-      id: scope.canvasId,
-      title: scope.canvasId
+    return withProjectMutationLock(runtimeProject.workspaceRoot, async () => {
+      const metadata = projectMetadataSchema.parse({
+        id: runtimeProject.id,
+        name: runtimeProject.id,
+        kind: runtimeProject.kind,
+        rootPath: runtimeProject.rootPath,
+        sourceRoot: runtimeProject.sourceRoot,
+        createdAt: new Date().toISOString()
+      });
+      await this.writeOnce(runtimeProject.projectFile, `${JSON.stringify(metadata, null, 2)}\n`);
+      const stored = await readProjectMetadataFile(runtimeProject.projectFile);
+      if (
+        stored.id !== metadata.id ||
+        stored.kind !== metadata.kind ||
+        stored.rootPath !== metadata.rootPath ||
+        stored.sourceRoot !== metadata.sourceRoot
+      ) {
+        throw new CanvasRuntimeResolutionError("runtime_project_identity_mismatch");
+      }
+      runtimeProject = { ...runtimeProject, projectCreatedAt: stored.createdAt };
+      const canvasNode = canonicalProjectCanvasNode({
+        id: scope.canvasId,
+        title: scope.canvasId
+      });
+      const canvas = projectCanvasWorkspace(runtimeProject, canvasNode);
+      await this.ensureProjectGraph(runtimeProject, canvasNode);
+      await this.ensureManagedCanvas(canvas);
+      return {
+        scope,
+        project: configuredProject ?? runtimeProject,
+        canvas: await capturePackageStorageIdentity(canvas)
+      };
     });
-    const canvas = projectCanvasWorkspace(runtimeProject, canvasNode);
-    await this.ensureProjectGraph(runtimeProject, canvasNode);
-    await this.ensureManagedCanvas(canvas);
-    return { scope, project: configuredProject ?? runtimeProject, canvas };
   }
 
   private async ensureProjectGraph(

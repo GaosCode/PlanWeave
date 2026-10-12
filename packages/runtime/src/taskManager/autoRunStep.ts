@@ -224,14 +224,16 @@ async function markBlockPipelineFailure(options: {
   executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<BlockedStep> {
   const reason = `${options.stage} failed for ${options.ref}: ${errorMessage(options.error)}`;
-  const { workspace } = await loadPackage(options.projectRoot);
-  return withExecutionStateLock<BlockedStep>(options, dirname(workspace.stateFile), async () => {
-    const current = await loadRuntimeReadonly(options).catch((cleanupError: unknown) => {
-      throw new AggregateError(
-        [options.error, cleanupError],
-        `${reason}; failed to mark the block blocked: ${errorMessage(cleanupError)}`
-      );
-    });
+  const { workspace } = options.executionSnapshot ?? (await loadPackage(options.projectRoot));
+  return withExecutionStateLock<BlockedStep>(options, workspace, async () => {
+    const current = await loadRuntimeReadonly({ ...options, projectRoot: workspace }).catch(
+      (cleanupError: unknown) => {
+        throw new AggregateError(
+          [options.error, cleanupError],
+          `${reason}; failed to mark the block blocked: ${errorMessage(cleanupError)}`
+        );
+      }
+    );
     if (
       !ownsWritableBlockClaim(
         current.state,
@@ -242,7 +244,7 @@ async function markBlockPipelineFailure(options: {
     )
       throw options.error;
     try {
-      const blocked = await markBlockBlocked({ ...options, reason });
+      const blocked = await markBlockBlocked({ ...options, projectRoot: workspace, reason });
       return {
         kind: "blocked",
         claim: { kind: "blocked", ref: blocked.ref, reason: blocked.reason },
@@ -307,10 +309,11 @@ async function releaseFeedbackAfterFailure(options: {
   session?: ExecutionGraphSession;
   executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<void> {
-  const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
-  await withExecutionStateLock(options, dirname(lockWorkspace.stateFile), async () => {
+  const { workspace: lockWorkspace } =
+    options.executionSnapshot ?? (await loadPackage(options.projectRoot));
+  await withExecutionStateLock(options, lockWorkspace, async () => {
     const context = await loadRuntime({
-      projectRoot: options.projectRoot,
+      projectRoot: lockWorkspace,
       executionSnapshot: options.executionSnapshot,
       session: options.session
     });
@@ -447,10 +450,10 @@ async function executeBlockClaim(options: {
   } catch (error) {
     if (error instanceof ExecutorClaimRejectedError) throw error;
     if (isExecutorCancelledError(error)) {
-      const { workspace } = await loadPackage(options.projectRoot);
-      return withExecutionStateLock(options, dirname(workspace.stateFile), async () => {
+      const { workspace } = options.executionSnapshot ?? (await loadPackage(options.projectRoot));
+      return withExecutionStateLock(options, workspace, async () => {
         const current = await loadRuntimeReadonly({
-          projectRoot: options.projectRoot,
+          projectRoot: workspace,
           executionSnapshot: options.executionSnapshot,
           session: options.session
         });
@@ -464,7 +467,7 @@ async function executeBlockClaim(options: {
         )
           throw error;
         await releaseInProgressBlock({
-          projectRoot: options.projectRoot,
+          projectRoot: workspace,
           ref: options.claim.ref,
           executionSnapshot: options.executionSnapshot,
           session: options.session
@@ -538,10 +541,10 @@ async function releaseBatchRefIfInProgress(options: {
   session?: ExecutionGraphSession;
   executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<void> {
-  const { workspace } = await loadPackage(options.projectRoot);
-  await withExecutionStateLock(options, dirname(workspace.stateFile), async () => {
+  const { workspace } = options.executionSnapshot ?? (await loadPackage(options.projectRoot));
+  await withExecutionStateLock(options, workspace, async () => {
     const context = await loadRuntimeReadonly({
-      projectRoot: options.projectRoot,
+      projectRoot: workspace,
       executionSnapshot: options.executionSnapshot,
       session: options.session
     });

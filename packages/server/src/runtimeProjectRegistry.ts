@@ -1,4 +1,5 @@
 import {
+  capturePackageStorageIdentity,
   createRemoteBlockArtifactSource,
   createRemoteBlockRuntimePort,
   loadProjectGraph,
@@ -139,7 +140,9 @@ export async function createTrustedRuntimeRegistry(
         canvasWorkItemPorts.set(projectScopeKey, projectPorts);
       }
       for (const canvas of selectedCanvases) {
-        const workspace = projectCanvasWorkspace(loaded.workspace, canvas);
+        const workspace = await capturePackageStorageIdentity(
+          projectCanvasWorkspace(loaded.workspace, canvas)
+        );
         const locator = {
           workspaceId: project.workspaceId,
           projectId: project.projectId,

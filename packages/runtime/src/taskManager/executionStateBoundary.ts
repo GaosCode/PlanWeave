@@ -1,7 +1,15 @@
 import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
-import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
+import { assertCurrentCanvasWorkspace } from "../package/assertCurrentCanvasWorkspace.js";
+import { assertResultsStorageIdentity } from "../package/packageStorageIdentity.js";
+import { withCurrentProjectWorkspace } from "../project.js";
+import { loadPackage } from "../package/loadPackage.js";
 import type { PackageExecutionSnapshot } from "../package/packageExecutionSnapshot.js";
-import type { PackageWorkspaceRef, PlanPackageManifest, RuntimeState } from "../types.js";
+import type {
+  PackageWorkspaceRef,
+  PlanPackageManifest,
+  ProjectWorkspace,
+  RuntimeState
+} from "../types.js";
 
 export class PackageExecutionStateConflictError extends Error {
   readonly code = "package_execution_state_conflict";
@@ -57,16 +65,19 @@ export async function assertExecutionStateCompatible(
     throw new PackageExecutionStateConflictError();
 }
 
-/** Package first, canvas second; release both before any executor invocation. */
+/** Parent, storage, then canvas; release all admission before invoking an executor. */
 export async function withExecutionStateLock<T>(
   options: { projectRoot: PackageWorkspaceRef; executionSnapshot?: PackageExecutionSnapshot },
-  _canvasDir: string,
+  workspace: ProjectWorkspace,
   action: () => Promise<T>
 ): Promise<T> {
   const snapshot = options.executionSnapshot;
-  const workspace = snapshot?.workspace ?? (await resolvePackageWorkspace(options.projectRoot));
-  return withCanvasStorageMutation(workspace, async () => {
-    if (snapshot) await assertExecutionStateCompatible(snapshot);
-    return action();
-  });
+  return withCurrentProjectWorkspace(workspace, () =>
+    withCanvasStorageMutation(workspace, async () => {
+      await assertCurrentCanvasWorkspace(workspace);
+      await assertResultsStorageIdentity(workspace);
+      if (snapshot) await assertExecutionStateCompatible(snapshot);
+      return action();
+    })
+  );
 }

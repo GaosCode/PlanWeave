@@ -5,6 +5,7 @@ import {
   compileProjectGraph,
   DEFAULT_ACP_SHUTDOWN_POLICY,
   initManagedWorkspace,
+  markBlockBlocked,
   loadProjectGraphForWorkspace,
   resolveAgentProcessEnvironment
 } from "@planweave-ai/runtime";
@@ -18,6 +19,11 @@ import { observeHostReadiness } from "../config/readiness.js";
 import { parseAgentHostConfig } from "../config/schema.js";
 import { ConfiguredCanvasRuntimeResolver } from "../runtime/canvasRuntimeResolver.js";
 import { commandCanvasIdForWorkspace } from "../../../runtime/src/taskManager/canvasCommandScope.js";
+
+import {
+  basicManifest,
+  writePromptFiles
+} from "../../../runtime/src/__tests__/promptTestHelpers.js";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -277,7 +283,14 @@ describe("Agent Host configuration", () => {
       canvasId: "shared-canvas"
     };
     const localManifestBefore = await readFile(first.workspace.manifestFile, "utf8");
-    const resolved = await resolver.resolve(scope);
+    const [resolved, concurrentResolved] = await Promise.all([
+      resolver.resolve(scope),
+      resolver.resolve(scope)
+    ]);
+    expect(concurrentResolved.canvas.projectCreatedAt).toBe(resolved.canvas.projectCreatedAt);
+    expect(concurrentResolved.canvas.packageStorageIdentity).toBe(
+      resolved.canvas.packageStorageIdentity
+    );
     expect(resolved).toMatchObject({
       scope: { workspaceId: "workspace-a", projectId: first.project.id, canvasId: "shared-canvas" }
     });
@@ -296,6 +309,26 @@ describe("Agent Host configuration", () => {
     );
     expect(resolved.canvas.packageDir).toBe(join(resolved.canvas.workspaceRoot, "package"));
     await writeFile(resolved.canvas.manifestFile, localManifestBefore, "utf8");
+    const runtimeManifest = basicManifest();
+    await writeFile(resolved.canvas.manifestFile, JSON.stringify(runtimeManifest));
+    await writePromptFiles(resolved.canvas.packageDir, runtimeManifest);
+    await expect(
+      markBlockBlocked({
+        projectRoot: resolved.canvas,
+        ref: "T-001#B-001",
+        reason: "host runtime admission"
+      })
+    ).resolves.toMatchObject({ status: "blocked" });
+    const unconfigured = await resolver.resolve({ ...scope, projectId: "runtime-unmapped" });
+    await writeFile(unconfigured.canvas.manifestFile, JSON.stringify(runtimeManifest));
+    await writePromptFiles(unconfigured.canvas.packageDir, runtimeManifest);
+    await expect(
+      markBlockBlocked({
+        projectRoot: unconfigured.canvas,
+        ref: "T-001#B-001",
+        reason: "unmapped host admission"
+      })
+    ).resolves.toMatchObject({ status: "blocked" });
     const loadedRuntimeProject = await loadProjectGraphForWorkspace(resolved.canvas);
     expect((await compileProjectGraph(loadedRuntimeProject)).diagnostics.errors).toEqual([]);
     await expect(commandCanvasIdForWorkspace(resolved.canvas)).resolves.toBe("shared-canvas");

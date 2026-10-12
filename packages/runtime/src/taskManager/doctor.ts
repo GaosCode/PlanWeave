@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { inspectPendingTransitionsForWorkspace } from "../autoRun/pendingTransitionIntent.js";
 import { optionalStat } from "../fs/optionalFile.js";
-import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { requireMapValue } from "../graph/requireMapValue.js";
 import { findOrphanResultsFromGraph } from "../package/orphans.js";
@@ -369,7 +369,7 @@ export async function runDoctor(options: {
 
   // Repair mutates state.json (and may nest updateTaskIndex); hold the canvas lock for the full RMW.
   if (options.repair) {
-    return withCanvasStorageMutation(workspace, diagnose);
+    return withExecutionStateLock(options, workspace, diagnose);
   }
   return diagnose();
 }

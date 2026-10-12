@@ -1128,3 +1128,7 @@ export {
 } from "./autoRun/acpSessionConfiguration.js";
 
 export { withAdvisoryDirectoryLock } from "./fs/advisoryDirectoryLock.js";
+
+export { capturePackageStorageIdentity } from "./package/packageStorageIdentity.js";
+export { projectMetadataSchema, readProjectMetadataFile } from "./projectMetadata.js";
+export { withProjectMutationLock } from "./fs/withProjectMutationLock.js";

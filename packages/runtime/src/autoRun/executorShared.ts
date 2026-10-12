@@ -368,9 +368,10 @@ export async function prepareBlockRun(options: {
       missingImplementationClaimIdentityReason(options.claim.ref)
     );
   }
-  const workspace = await resolvePackageWorkspace(options.projectRoot);
+  const workspace =
+    options.executionSnapshot?.workspace ?? (await resolvePackageWorkspace(options.projectRoot));
   const { taskId, blockId } = parseBlockRef(options.claim.ref);
-  return withExecutionStateLock(options, dirname(workspace.stateFile), async () => {
+  return withExecutionStateLock(options, workspace, async () => {
     if (submissionAttemptId !== undefined) {
       const state = await readState(workspace.stateFile);
       const current = state.blocks[options.claim.ref];

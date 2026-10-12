@@ -15,7 +15,7 @@ import {
 } from "../autoRun/runnerInteractionAvailability.js";
 import { runnerIdentitySchema } from "../autoRun/runnerContractSchemas.js";
 import { projectRunnerNextActions } from "../autoRun/runnerNextActions.js";
-import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { withExecutionStateLock } from "../taskManager/executionStateBoundary.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { markBlockBlocked } from "../taskManager/blockStatusMutations.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
@@ -135,7 +135,7 @@ export async function reconcileOrphanedAcpRun(
   if (!Number.isFinite(now.getTime())) throw new Error("ACP orphan reconciliation now is invalid.");
   const thresholdMs = options.freshnessThresholdMs ?? RUNNER_OWNER_FRESHNESS_THRESHOLD_MS;
   const workspace = await resolveTaskCanvasWorkspace(options.projectRoot, options.canvasId);
-  return withCanvasStorageMutation(workspace, async () => {
+  return withExecutionStateLock(options, workspace, async () => {
     const record = await getRunRecord(workspace, options.recordId);
     const latest = (await listBlockMainRunRecords(workspace, record.ref))[0];
     if (latest?.recordId !== record.recordId || record.runnerReadModel === null) {

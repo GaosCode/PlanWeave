@@ -1,4 +1,3 @@
-import { dirname } from "node:path";
 import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { writeState } from "../state.js";
@@ -51,9 +50,9 @@ async function withLockedRuntime<T>(
   },
   fn: (context: Awaited<ReturnType<typeof loadRuntime>>) => Promise<T>
 ): Promise<T> {
-  const { workspace } = await loadPackage(options.projectRoot);
-  return withExecutionStateLock(options, dirname(workspace.stateFile), async () =>
-    fn(await loadRuntime(options))
+  const { workspace } = options.executionSnapshot ?? (await loadPackage(options.projectRoot));
+  return withExecutionStateLock(options, workspace, async () =>
+    fn(await loadRuntime({ ...options, projectRoot: workspace }))
   );
 }
 

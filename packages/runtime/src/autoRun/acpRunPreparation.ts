@@ -36,9 +36,9 @@ export async function prepareAcpBlockRun(input: {
   prompt: string;
   executionWaveId?: ExecutionWaveId;
 }): Promise<PreparedAcpRun> {
-  const { workspace } = await loadPackage(input.projectRoot);
+  const { workspace } = input.executionSnapshot ?? (await loadPackage(input.projectRoot));
   if (input.claim.blockType === "implementation") {
-    const run = await prepareBlockRun({ ...input, adapter: "agent" });
+    const run = await prepareBlockRun({ ...input, projectRoot: workspace, adapter: "agent" });
     if (!run.executionAdmittedAt)
       throw new Error("ACP implementation preparation has no execution admission.");
     return {
@@ -61,7 +61,7 @@ export async function prepareAcpBlockRun(input: {
     };
   }
   const { taskId, blockId } = parseBlockRef(input.claim.ref);
-  return withExecutionStateLock(input, dirname(workspace.stateFile), () =>
+  return withExecutionStateLock(input, workspace, () =>
     prepare(join(workspace.resultsDir, taskId, "blocks", blockId, "runs"), workspace, input.prompt)
   );
 }

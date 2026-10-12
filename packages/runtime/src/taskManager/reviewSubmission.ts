@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { z } from "zod";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
 import { withExecutionStateLock } from "./executionStateBoundary.js";
@@ -392,9 +392,10 @@ export async function submitReviewResultValue(
 ): Promise<SubmitReviewResult> {
   const parsed = reviewResultSchema.parse(value);
   const resultHash = reviewResultHash(parsed);
-  const { workspace: lockWorkspace } = await loadPackage(options.projectRoot);
-  return withExecutionStateLock(options, dirname(lockWorkspace.stateFile), async () =>
-    submitReviewResultLocked(options, parsed, resultHash)
+  const { workspace: lockWorkspace } =
+    options.executionSnapshot ?? (await loadPackage(options.projectRoot));
+  return withExecutionStateLock(options, lockWorkspace, async () =>
+    submitReviewResultLocked({ ...options, projectRoot: lockWorkspace }, parsed, resultHash)
   );
 }
 
@@ -412,21 +413,23 @@ export async function submitRemoteReviewResult(options: {
     bytes: options.reportBytes
   });
   const { workspace } = await loadPackage(options.projectRoot);
-  const stagingDir = join(workspace.resultsDir, taskId, "blocks", "remote-review-staging");
-  await mkdir(stagingDir, { recursive: true });
-  const resultPath = join(stagingDir, `${options.ownership.executionAttemptId}.json`);
-  await writeFile(resultPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-  return submitReviewResultValue(
-    {
-      projectRoot: options.projectRoot,
-      ref: options.ref,
-      resultPath,
-      remote: options.ownership,
-      reportBytes: options.reportBytes,
-      ...(options.transcript ? { transcript: options.transcript } : {})
-    },
-    parsed
-  );
+  return withExecutionStateLock(options, workspace, async () => {
+    const stagingDir = join(workspace.resultsDir, taskId, "blocks", "remote-review-staging");
+    await mkdir(stagingDir, { recursive: true });
+    const resultPath = join(stagingDir, `${options.ownership.executionAttemptId}.json`);
+    await writeFile(resultPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+    return submitReviewResultValue(
+      {
+        projectRoot: workspace,
+        ref: options.ref,
+        resultPath,
+        remote: options.ownership,
+        reportBytes: options.reportBytes,
+        ...(options.transcript ? { transcript: options.transcript } : {})
+      },
+      parsed
+    );
+  });
 }
 
 async function submitReviewResultLocked(

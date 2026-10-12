@@ -22,6 +22,7 @@ import type {
   ValidationIssue
 } from "../types.js";
 import { runDoctor } from "./doctor.js";
+import { capturePackageStorageIdentity } from "../package/packageStorageIdentity.js";
 import {
   canvasDoctorIssue,
   canvasWorkspaceIssue,
@@ -266,6 +267,7 @@ export async function runProjectDoctor(options: {
     let workspace: ProjectWorkspace;
     try {
       workspace = projectCanvasWorkspace(loaded.workspace, canvas);
+      if (options.repair) workspace = await capturePackageStorageIdentity(workspace);
     } catch (error) {
       const issue = canvasWorkspaceIssue(canvasId, canvasIndexPath(canvasIndex), error);
       canvasReports.push({ canvasId, ok: false, repaired: false, errors: [issue], warnings: [] });

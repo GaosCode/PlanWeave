@@ -258,18 +258,23 @@ export class LocalFilesystemExecutionRuntimeAdapter
         throw new Error("remote_runtime_scope_unavailable");
       }
       if (!project.projectRoot || !canvas.packageDir) {
-        try {
-          return {
-            runtime: this.registry.registry.resolve(scope),
-            artifacts: this.registry.registry.resolveArtifactSource(scope),
-            release() {}
-          };
-        } catch (error) {
-          if (isUnavailableRuntimeBinding(error)) {
-            throw new Error("remote_runtime_scope_unavailable");
-          }
-          throw error;
+        const location = this.registry.resolveExactCanvasLocation(scope);
+        if (!location) throw new Error("remote_runtime_scope_unavailable");
+        const workspace = await resolveProjectCanvasWorkspace(location.projectRoot, scope.canvasId);
+        if (
+          workspace.id !== scope.projectId ||
+          resolve(workspace.packageDir) !== resolve(location.packageDir)
+        ) {
+          throw new Error("remote_runtime_registry_path_mismatch");
         }
+        return {
+          runtime: canonicalRemoteRuntimePort(
+            createRemoteBlockRuntimePort({ projectRoot: workspace }),
+            scope.workspaceId
+          ),
+          artifacts: createRemoteBlockArtifactSource({ projectRoot: workspace }),
+          release() {}
+        };
       }
       const workspace = await resolveProjectCanvasWorkspace(project.projectRoot, scope.canvasId);
       if (resolve(workspace.packageDir) !== resolve(canvas.packageDir)) {

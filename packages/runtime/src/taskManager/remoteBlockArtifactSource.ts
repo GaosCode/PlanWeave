@@ -5,7 +5,7 @@ import {
   executionEnvelopeFieldSchemas
 } from "@planweave-ai/agent-host-protocol/browser";
 import { z } from "zod";
-import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
+import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { loadPackage } from "../package/loadPackage.js";
 import type { PackageWorkspaceRef } from "../types.js";
 import { remoteBlockSourceSnapshotWithArtifacts } from "./remoteBlockSourceSnapshot.js";
@@ -49,8 +49,8 @@ export function createRemoteBlockArtifactSource(options: {
     read: async (rawInput) => {
       const input = remoteBlockArtifactReadInputSchema.parse(rawInput);
       const { workspace } = await loadPackage(options.projectRoot);
-      return withCanvasStorageMutation(workspace, async () => {
-        const context = await loadRuntime({ projectRoot: options.projectRoot });
+      return withExecutionStateLock(options, workspace, async () => {
+        const context = await loadRuntime({ projectRoot: workspace });
         const { snapshot, materializedInputArtifacts } =
           await remoteBlockSourceSnapshotWithArtifacts(context, input.targetBlockRef);
         if (snapshot.sourceRevision !== input.sourceRevision) {
