@@ -232,6 +232,13 @@ describe("STEP-1 CLI contract: run sessions", () => {
           Object.entries(aBefore).filter(([path]) => !path.startsWith(removedPrefix))
         );
         const afterA = await snapshotTree(a.canvasRoot);
+        const sequencePath = "results/run-sessions/.session-sequence.json";
+        const sequenceBytes = await readFile(join(a.canvasRoot, sequencePath));
+        expect(JSON.parse(sequenceBytes.toString("utf8"))).toEqual({
+          version: 1,
+          highestAllocated: 1
+        });
+        expectedA[sequencePath] = createHash("sha256").update(sequenceBytes).digest("hex");
         const indexPrefix = "results/T-001/blocks/B-001/runs/.planweave-task-workspace-run-index/";
         expect(
           Object.fromEntries(
