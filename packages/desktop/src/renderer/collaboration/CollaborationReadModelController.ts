@@ -128,13 +128,7 @@ export class CollaborationReadModelController {
   private refreshRequestSeq = 0;
   private lastSuccessfulRefreshRequest = 0;
   private readonly observerCursorRecovery = new CollaborationObserverRecovery();
-  private readonly observerEventQueue = new CollaborationObserverQueue<ObserverEventQueueEntry>({
-    concurrency: OBSERVER_INVALIDATION_CONCURRENCY,
-    queueLimit: OBSERVER_EVENT_QUEUE_LIMIT,
-    key: (entry) => entry.signal.event.cursor,
-    isCurrent: (entry) => this.matchesObserverContext(entry),
-    execute: (entry) => this.applyObserverEvent(entry)
-  });
+  private observerEventQueue = this.createObserverEventQueue();
   private refreshArbitration = new AuthoritativeRefreshArbitrator();
   private assignmentReloadSeqByKey = new Map<string, number>();
   private readonly authorityReads: WorkAuthorityReadArbitrator;
@@ -195,7 +189,6 @@ export class CollaborationReadModelController {
       this.state.profileId === input.profileId && this.state.projectId === input.projectId;
     if (!sameIdentity) {
       this.teardownSubscriptions();
-      this.observerEventQueue.cancelQueued();
       this.state = {
         ...emptyState(this.clock.now().toISOString()),
         profileId: input.profileId,
@@ -225,7 +218,6 @@ export class CollaborationReadModelController {
   /** Stop all subscriptions and clear server projections (project switch / logout). */
   clear(): void {
     this.teardownSubscriptions();
-    this.observerEventQueue.cancelQueued();
     this.observerCursorRecovery.clear();
     this.state = {
       ...emptyState(this.clock.now().toISOString()),
@@ -564,7 +556,6 @@ export class CollaborationReadModelController {
 
     if (signal.type === "human.observer.catchup_required") {
       // Retention gaps reload bounded APIs; retain comment pages until replacement succeeds.
-      this.observerEventQueue.cancelQueued();
       this.state.generation = this.nextGeneration();
       this.state.observerCursor = signal.resumeCursor;
       this.state.eventCursors.resetForCatchup();
@@ -666,6 +657,8 @@ export class CollaborationReadModelController {
   }
 
   private nextGeneration(scopeChanged = false): number {
+    this.observerEventQueue.retire();
+    this.observerEventQueue = this.createObserverEventQueue();
     this.refreshQueue.retire();
     this.refreshQueue = new AuthoritativeRefreshQueue();
     this.refreshArbitration.cancelAggregate();
@@ -674,6 +667,16 @@ export class CollaborationReadModelController {
     this.generationEpoch += 1;
     if (scopeChanged) this.mutationScopeGeneration = this.generationEpoch;
     return this.generationEpoch;
+  }
+
+  private createObserverEventQueue(): CollaborationObserverQueue<ObserverEventQueueEntry> {
+    return new CollaborationObserverQueue({
+      concurrency: OBSERVER_INVALIDATION_CONCURRENCY,
+      queueLimit: OBSERVER_EVENT_QUEUE_LIMIT,
+      key: (entry) => entry.signal.event.cursor,
+      isCurrent: (entry) => this.matchesObserverContext(entry),
+      execute: (entry) => this.applyObserverEvent(entry)
+    });
   }
 
   private async invalidateFromEvent(
