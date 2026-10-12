@@ -130,14 +130,13 @@ async function createLocalFixture(): Promise<CanvasRuntimeAdapterContractFixture
   const trusted = await createTrustedRuntimeRegistry([
     { ...scope, trustAllDeclaredCanvases: false, projectRoot: workspace.root }
   ]);
-  const runtime = trusted.registry.resolve(scope);
-  const artifacts = trusted.registry.resolveArtifactSource(scope);
+  const binding = await trusted.registry.acquire(scope);
   let releaseDelegateCalls = 0;
   trusted.registry.setScopedResolver(async () => ({
-    runtime,
-    artifacts,
+    ...binding,
     release() {
       releaseDelegateCalls += 1;
+      return binding.release();
     }
   }));
   let locationAttached = true;
