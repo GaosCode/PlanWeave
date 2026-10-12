@@ -604,6 +604,7 @@
         "acpRunnerLifecycle.test.ts",
         "acpPreparedContentRevisionLifecycle.test.ts",
         "advisoryDirectoryLock.test.ts",
+        "advisoryDirectoryLockRelease.test.ts",
         "agentProcessEnvironmentIsolation.test.ts",
         "agentRunControlClient.test.ts",
         "agentRunControlEndpoint.test.ts",

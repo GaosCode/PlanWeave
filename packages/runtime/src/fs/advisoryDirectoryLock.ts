@@ -435,11 +435,27 @@ export async function withAdvisoryDirectoryLock<T>(
       fsAdapter,
       clock
     );
+    let result: { ok: true; value: T } | { ok: false; error: unknown };
     try {
-      return await heldLockPaths.run(nextHeld, fn);
-    } finally {
-      await removeLockIfIdentityMatches(lockPath, `token:${ownerToken}`, fsAdapter);
+      result = { ok: true, value: await heldLockPaths.run(nextHeld, fn) };
+    } catch (error) {
+      result = { ok: false, error };
     }
+    try {
+      await removeLockIfIdentityMatches(lockPath, `token:${ownerToken}`, fsAdapter);
+    } catch (releaseError) {
+      const failures = result.ok ? [releaseError] : [result.error, releaseError];
+      try {
+        // Recheck ownership before retrying a failed fence; a successor may now own the path.
+        await removeLockIfIdentityMatches(lockPath, `token:${ownerToken}`, fsAdapter);
+      } catch (retryError) {
+        failures.push(retryError);
+      }
+      if (failures.length === 1) throw releaseError;
+      throw new AggregateError(failures, `Directory lock release failed at '${lockPath}'`);
+    }
+    if (!result.ok) throw result.error;
+    return result.value;
   } finally {
     release();
     if (inProcessTails.get(lockPath) === tail) {
