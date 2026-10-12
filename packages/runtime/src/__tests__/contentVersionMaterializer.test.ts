@@ -26,6 +26,8 @@ import {
 } from "../desktop/contentVersionMaterializer.js";
 import { ImportTransaction } from "../package/importTransaction.js";
 import * as importRecovery from "../package/importRecovery.js";
+import { canonicalPackageFileTarget } from "../package/packageFileConsistency.js";
+import { layoutPathForWorkspace } from "../desktop/layoutStore.js";
 
 const directories: string[] = [];
 const originalHome = process.env.PLANWEAVE_HOME;
@@ -387,6 +389,48 @@ describe("authoritative content materializer", () => {
       ])
     ).resolves.toEqual([undefined, undefined]);
     expect(await readFile(target, "utf8")).toBe(layout);
+    expect(
+      await readdir(join(workspace.workspaceRoot, "desktop", "recovery", "package-import"))
+    ).toEqual([]);
+  });
+
+  it.each([
+    "active",
+    "committed"
+  ] as const)("recovers %s transactions with reserved targets before taking authority admission", async (state) => {
+    const fixture = await createTestWorkspace();
+    directories.push(fixture.home, fixture.root);
+    const workspace = fixture.init.workspace;
+    const heldKeys = await Promise.all(
+      [
+        workspace.packageDir,
+        workspace.stateFile,
+        workspace.resultsDir,
+        layoutPathForWorkspace(workspace)
+      ].map(async (path) => sha256(await canonicalPackageFileTarget(path)))
+    );
+    const greatest = heldKeys.sort().at(-1)!;
+    let target = "";
+    for (let index = 0; index < 64; index += 1) {
+      const candidate = join(workspace.workspaceRoot, `reserved-member-${index}.txt`);
+      if (sha256(await canonicalPackageFileTarget(candidate)) < greatest) {
+        target = candidate;
+        break;
+      }
+    }
+    expect(target).not.toBe("");
+    await writeFile(target, "reserved unchanged\n");
+    const before = await readFile(workspace.manifestFile, "utf8");
+    const transaction = await ImportTransaction.create({
+      workspaceRoot: workspace.workspaceRoot,
+      writeIsolationTargets: [target]
+    });
+    if (state === "committed") await transaction.markCommitted();
+    await expect(
+      recoverPendingAuthoritativeCanvasMaterialization(workspace)
+    ).resolves.toBeUndefined();
+    expect(await readFile(target, "utf8")).toBe("reserved unchanged\n");
+    expect(await readFile(workspace.manifestFile, "utf8")).toBe(before);
     expect(
       await readdir(join(workspace.workspaceRoot, "desktop", "recovery", "package-import"))
     ).toEqual([]);

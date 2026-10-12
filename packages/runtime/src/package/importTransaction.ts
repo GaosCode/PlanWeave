@@ -43,6 +43,20 @@ type ImportTransactionRecoveryFile = {
   writeIsolationTargets?: string[];
 };
 
+function transactionStorageTargets(
+  operations: readonly ImportTransactionOperation[],
+  writeIsolationTargets: readonly string[],
+  extraTargets: readonly string[] = []
+): string[] {
+  return [
+    ...new Set([
+      ...operations.map((operation) => operation.target),
+      ...writeIsolationTargets,
+      ...extraTargets.map((target) => resolve(target))
+    ])
+  ];
+}
+
 export type ImportTransactionRecoverySummary = {
   transactionId: string;
   recoveryRoot: string;
@@ -309,7 +323,7 @@ export async function readImportTransactionRecoveryTargets(options: {
       );
       if ((await optionalStat(root)) === null) return [];
       const { recovery } = await readValidatedRecoveryFile({ ...options, fs: nodeFileSystem });
-      return [...new Set(recovery.operations.map((operation) => operation.target))];
+      return transactionStorageTargets(recovery.operations, recovery.writeIsolationTargets ?? []);
     })
   );
 }
@@ -518,13 +532,7 @@ export class ImportTransaction {
   }
 
   private storageTargets(extraTargets: readonly string[]): string[] {
-    return [
-      ...new Set([
-        ...this.operations.map((operation) => operation.target),
-        ...this.writeIsolationTargets,
-        ...extraTargets.map((target) => resolve(target))
-      ])
-    ];
+    return transactionStorageTargets(this.operations, this.writeIsolationTargets, extraTargets);
   }
 
   private async withLockedRecovery<T>(
@@ -639,7 +647,7 @@ export class ImportTransaction {
   }
 
   getRecoveryTargets(): readonly string[] {
-    return this.operations.map((operation) => operation.target);
+    return this.storageTargets([]);
   }
 
   async rollback(): Promise<void> {
