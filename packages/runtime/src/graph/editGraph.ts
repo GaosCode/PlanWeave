@@ -4,6 +4,9 @@ import { dirname } from "node:path";
 import { affectedTaskIdsForManifestChange } from "./affectedTasks.js";
 import { compileTaskGraph } from "./compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
+import { withCurrentProjectWorkspace } from "../project.js";
+import { assertCurrentCanvasWorkspace } from "../package/assertCurrentCanvasWorkspace.js";
+import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { assertNoPendingImportTransactionWrite } from "../package/importTransaction.js";
@@ -201,6 +204,20 @@ export async function commitPlanPackageGraphMutation(options: {
   projectRoot: PackageWorkspaceRef;
   mutation: PlanPackageGraphMutation;
 }): Promise<GraphEditResult> {
+  const { workspace } = await loadPackage(options.projectRoot);
+  return withCurrentProjectWorkspace(workspace, () =>
+    withCanvasStorageMutation(workspace, async () => {
+      await assertCurrentCanvasWorkspace(workspace);
+      return commitStagedPlanPackageGraphMutation({ ...options, projectRoot: workspace });
+    })
+  );
+}
+
+/** Internal package writer for caller-owned staging; canonical admission belongs to the publisher. */
+export async function commitStagedPlanPackageGraphMutation(options: {
+  projectRoot: PackageWorkspaceRef;
+  mutation: PlanPackageGraphMutation;
+}): Promise<GraphEditResult> {
   const prepared = prepareManifestForWrite(options.mutation.nextManifest);
   if (!prepared.ok) {
     return {
@@ -237,7 +254,7 @@ export async function addNode(options: {
   node: ManifestNode;
   promptMarkdown?: string;
 }): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { workspace, manifest } = await loadPackage(options.projectRoot);
   if (manifest.nodes.some((node) => node.id === options.node.id)) {
     return result(
       manifest,
@@ -246,7 +263,7 @@ export async function addNode(options: {
     );
   }
   return commitPlanPackageGraphMutation({
-    projectRoot: options.projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageGraphMutation(manifest, {
       kind: "addNode",
       node: options.node,
@@ -259,7 +276,7 @@ export async function updateNode(options: {
   projectRoot: PackageWorkspaceRef;
   node: ManifestNode;
 }): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { workspace, manifest } = await loadPackage(options.projectRoot);
   if (!manifest.nodes.some((node) => node.id === options.node.id)) {
     return result(
       manifest,
@@ -268,7 +285,7 @@ export async function updateNode(options: {
     );
   }
   return commitPlanPackageGraphMutation({
-    projectRoot: options.projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageGraphMutation(manifest, { kind: "updateNode", node: options.node })
   });
 }
@@ -278,7 +295,7 @@ export async function removeNode(options: {
   nodeId: string;
   removePrompt?: boolean;
 }): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { workspace, manifest } = await loadPackage(options.projectRoot);
   const node = manifest.nodes.find((item) => item.id === options.nodeId);
   if (!node) {
     return result(
@@ -292,14 +309,14 @@ export async function removeNode(options: {
     nodeId: options.nodeId,
     removePrompt: options.removePrompt
   });
-  return commitPlanPackageGraphMutation({ projectRoot: options.projectRoot, mutation });
+  return commitPlanPackageGraphMutation({ projectRoot: workspace, mutation });
 }
 
 export async function addEdge(options: {
   projectRoot: PackageWorkspaceRef;
   edge: ManifestEdge;
 }): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { workspace, manifest } = await loadPackage(options.projectRoot);
   if (
     manifest.edges.some(
       (edge) =>
@@ -311,7 +328,7 @@ export async function addEdge(options: {
     return result(manifest, [], [issue("edge_duplicate", "Edge already exists.", "edges")]);
   }
   return commitPlanPackageGraphMutation({
-    projectRoot: options.projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageGraphMutation(manifest, { kind: "addEdge", edge: options.edge })
   });
 }
@@ -320,9 +337,9 @@ export async function removeEdge(options: {
   projectRoot: PackageWorkspaceRef;
   edge: ManifestEdge;
 }): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { workspace, manifest } = await loadPackage(options.projectRoot);
   return commitPlanPackageGraphMutation({
-    projectRoot: options.projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageGraphMutation(manifest, { kind: "removeEdge", edge: options.edge })
   });
 }
@@ -332,7 +349,7 @@ export async function updatePromptSurface(options: {
   taskId: string;
   taskBody: string;
 }): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { workspace, manifest } = await loadPackage(options.projectRoot);
   const task = manifest.nodes.find((node) => node.type === "task" && node.id === options.taskId);
   if (!task || task.type !== "task") {
     return result(
@@ -342,7 +359,7 @@ export async function updatePromptSurface(options: {
     );
   }
   return commitPlanPackageGraphMutation({
-    projectRoot: options.projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageGraphMutation(manifest, {
       kind: "writeTaskPrompt",
       taskId: task.id,

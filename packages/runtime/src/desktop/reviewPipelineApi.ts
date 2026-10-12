@@ -256,7 +256,7 @@ export async function bulkApplyReviewPipeline(
   if (updates.length === 0) {
     throw new Error("updates must contain at least one review pipeline update.");
   }
-  const { manifest } = await loadPackage(projectRoot);
+  const { workspace, manifest } = await loadPackage(projectRoot);
   let nextManifest = manifest;
   const sideEffects: ReturnType<typeof buildPlanPackageManifestChangeMutation>["sideEffects"] = [];
   const affectedTasks: string[] = [];
@@ -267,7 +267,7 @@ export async function bulkApplyReviewPipeline(
     affectedTasks.push(mutation.taskId);
   }
   const result = await commitPlanPackageGraphMutation({
-    projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
       affectedTasks,
       sideEffects

@@ -116,7 +116,7 @@ export async function setTaskDependencies(options: {
   taskId: string;
   dependsOn: string[];
 }): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { workspace, manifest } = await loadPackage(options.projectRoot);
   const diagnostics = [
     ensureTaskExists(manifest, options.taskId, "taskId"),
     ...options.dependsOn.map((taskId) => ensureTaskExists(manifest, taskId, "dependsOn"))
@@ -138,7 +138,7 @@ export async function setTaskDependencies(options: {
     ])
   };
   return commitPlanPackageGraphMutation({
-    projectRoot: options.projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
       affectedTasks: [options.taskId, ...options.dependsOn]
     })
@@ -149,7 +149,7 @@ export async function bulkAddTaskDependencies(options: {
   projectRoot: PackageWorkspaceRef;
   edges: TaskDependencyInput[];
 }): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { workspace, manifest } = await loadPackage(options.projectRoot);
   const diagnostics = options.edges.flatMap((edge) =>
     [
       ensureTaskExists(manifest, edge.dependentTaskId, "dependentTaskId"),
@@ -171,7 +171,7 @@ export async function bulkAddTaskDependencies(options: {
     ])
   };
   return commitPlanPackageGraphMutation({
-    projectRoot: options.projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
       affectedTasks: options.edges.flatMap((edge) => [edge.dependentTaskId, edge.dependsOnTaskId])
     })
@@ -182,7 +182,7 @@ export async function bulkSetTaskDependencies(options: {
   projectRoot: PackageWorkspaceRef;
   updates: Array<{ taskId: string; dependsOn: string[] }>;
 }): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { workspace, manifest } = await loadPackage(options.projectRoot);
   const diagnostics = [
     ...duplicateValues(options.updates.map((update) => update.taskId)).map((taskId) =>
       issue(
@@ -218,7 +218,7 @@ export async function bulkSetTaskDependencies(options: {
     ])
   };
   return commitPlanPackageGraphMutation({
-    projectRoot: options.projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
       affectedTasks: options.updates.flatMap((update) => [update.taskId, ...update.dependsOn])
     })
@@ -229,7 +229,7 @@ export async function bulkSetBlockDependencies(options: {
   projectRoot: PackageWorkspaceRef;
   updates: BlockDependencyUpdate[];
 }): Promise<GraphEditResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
+  const { workspace, manifest } = await loadPackage(options.projectRoot);
   const diagnostics = [
     ...duplicateValues(options.updates.map((update) => update.blockRef)).map((blockRef) =>
       issue(
@@ -277,7 +277,7 @@ export async function bulkSetBlockDependencies(options: {
   };
 
   return commitPlanPackageGraphMutation({
-    projectRoot: options.projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
       affectedTasks: [...updatesByTask.keys()]
     })

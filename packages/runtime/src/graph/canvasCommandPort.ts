@@ -16,8 +16,10 @@ import {
 } from "./canvasCommandMutation.js";
 import {
   checkPlanPackageGraphMutationVersion,
-  commitPlanPackageGraphMutation
+  commitStagedPlanPackageGraphMutation
 } from "./editGraph.js";
+import { withCurrentProjectWorkspace } from "../project.js";
+import { assertCurrentCanvasWorkspace } from "../package/assertCurrentCanvasWorkspace.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { ImportTransaction } from "../package/importTransaction.js";
 import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
@@ -103,119 +105,129 @@ export async function commitCanvasCommandApplication(options: {
   application: CanvasCommandApplication;
   dependencies?: Partial<CanvasCommandCommitDependencies>;
 }): Promise<GraphEditResult> {
-  const dependencies = {
-    ...canvasCommandCommitDependencies,
-    ...options.dependencies
-  };
-  const staging = await mkdtemp(
-    join(dirname(options.workspace.packageDir), ".planweave-canvas-command-")
-  );
-  const layoutStagingRoot = await mkdtemp(
-    join(dirname(options.workspace.packageDir), ".planweave-canvas-layout-")
-  );
-  const stagedWorkspace: ProjectWorkspace = {
-    ...options.workspace,
-    workspaceRoot: layoutStagingRoot,
-    packageDir: staging,
-    manifestFile: join(staging, "manifest.json")
-  };
-  const canonicalLayout = layoutPathForWorkspace(options.workspace);
-  const stagedLayout = layoutPathForWorkspace(stagedWorkspace);
-  const cleanupStaging = async () => {
-    await rm(staging, { recursive: true, force: true });
-    await rm(layoutStagingRoot, { recursive: true, force: true });
-  };
-  const transaction = await ImportTransaction.create({
-    workspaceRoot: options.workspace.workspaceRoot,
-    writeIsolationTargets: [options.workspace.packageDir, canonicalLayout]
-  });
-  return withPackageFileConsistency(
-    [options.workspace.packageDir, canonicalLayout, staging, stagedLayout],
-    async () => {
-      try {
-        const current = await loadPackage(options.workspace);
-        let conflict = checkPlanPackageGraphMutationVersion(
-          current.manifest,
-          options.application.graphMutation
-        );
-        if (
-          !conflict &&
-          options.application.layoutChanged &&
-          stableStringify(await getDesktopLayoutDirect(options.workspace)) !==
-            stableStringify(options.application.baseLayout)
-        ) {
-          conflict = {
-            ok: false,
-            affectedTasks: [],
-            diagnostics: [
-              {
-                code: "layout_version_conflict",
-                message:
-                  "Desktop layout changed after this mutation was prepared; reload and retry the edit."
-              }
-            ]
-          };
-        }
-        if (conflict) {
-          await transaction.rollback();
-          await cleanupStaging();
-          return conflict;
-        }
-        await rm(staging, { recursive: true, force: true });
-        await cp(options.workspace.packageDir, staging, { recursive: true });
-        const result = await commitPlanPackageGraphMutation({
-          projectRoot: stagedWorkspace,
-          mutation: options.application.graphMutation
+  return withCurrentProjectWorkspace(options.workspace, async () => {
+    const dependencies = {
+      ...canvasCommandCommitDependencies,
+      ...options.dependencies
+    };
+    const staging = await mkdtemp(
+      join(dirname(options.workspace.packageDir), ".planweave-canvas-command-")
+    );
+    const layoutStagingRoot = await mkdtemp(
+      join(dirname(options.workspace.packageDir), ".planweave-canvas-layout-")
+    );
+    const stagedWorkspace: ProjectWorkspace = {
+      ...options.workspace,
+      workspaceRoot: layoutStagingRoot,
+      packageDir: staging,
+      manifestFile: join(staging, "manifest.json")
+    };
+    const canonicalLayout = layoutPathForWorkspace(options.workspace);
+    const stagedLayout = layoutPathForWorkspace(stagedWorkspace);
+    const cleanupStaging = async () => {
+      await rm(staging, { recursive: true, force: true });
+      await rm(layoutStagingRoot, { recursive: true, force: true });
+    };
+    return withPackageFileConsistency(
+      [
+        options.workspace.packageDir,
+        options.workspace.stateFile,
+        options.workspace.resultsDir,
+        canonicalLayout,
+        staging,
+        stagedLayout
+      ],
+      async () => {
+        await assertCurrentCanvasWorkspace(options.workspace);
+        const transaction = await ImportTransaction.create({
+          workspaceRoot: options.workspace.workspaceRoot,
+          writeIsolationTargets: [options.workspace.packageDir, canonicalLayout]
         });
-        if (!result.ok) {
-          await transaction.rollback();
-          await cleanupStaging();
-          return result;
-        }
-        if (options.application.layoutChanged) {
-          await dependencies.saveLayout(stagedWorkspace, options.application.nextLayout, {
-            updatedAt: options.application.nextLayout.updatedAt
-          });
-        }
-        await transaction.replacePath(options.workspace.packageDir, staging);
-        if (options.application.layoutChanged) {
-          await transaction.replacePath(canonicalLayout, stagedLayout);
-        }
-        await dependencies.markTransactionCommitted(transaction);
         try {
-          await dependencies.cleanupCommittedTransaction(transaction);
-          await cleanupStaging();
-        } catch (cleanupError) {
-          dependencies.reportCleanupFailure(cleanupError);
-        }
-        return result;
-      } catch (error) {
-        let rollbackError: unknown;
-        try {
-          await transaction.rollback();
-        } catch (failure) {
-          rollbackError = failure;
-        }
-        let cleanupError: unknown;
-        try {
-          await cleanupStaging();
-        } catch (failure) {
-          cleanupError = failure;
-        }
-        if (rollbackError || cleanupError) {
-          throw new AggregateError(
-            [
-              error,
-              ...(rollbackError ? [rollbackError] : []),
-              ...(cleanupError ? [cleanupError] : [])
-            ],
-            "canvas_command_commit_rollback_failed"
+          const current = await loadPackage(options.workspace);
+          let conflict = checkPlanPackageGraphMutationVersion(
+            current.manifest,
+            options.application.graphMutation
           );
+          if (
+            !conflict &&
+            options.application.layoutChanged &&
+            stableStringify(await getDesktopLayoutDirect(options.workspace)) !==
+              stableStringify(options.application.baseLayout)
+          ) {
+            conflict = {
+              ok: false,
+              affectedTasks: [],
+              diagnostics: [
+                {
+                  code: "layout_version_conflict",
+                  message:
+                    "Desktop layout changed after this mutation was prepared; reload and retry the edit."
+                }
+              ]
+            };
+          }
+          if (conflict) {
+            await transaction.rollback();
+            await cleanupStaging();
+            return conflict;
+          }
+          await rm(staging, { recursive: true, force: true });
+          await cp(options.workspace.packageDir, staging, { recursive: true });
+          const result = await commitStagedPlanPackageGraphMutation({
+            projectRoot: stagedWorkspace,
+            mutation: options.application.graphMutation
+          });
+          if (!result.ok) {
+            await transaction.rollback();
+            await cleanupStaging();
+            return result;
+          }
+          if (options.application.layoutChanged) {
+            await dependencies.saveLayout(stagedWorkspace, options.application.nextLayout, {
+              updatedAt: options.application.nextLayout.updatedAt
+            });
+          }
+          await transaction.replacePath(options.workspace.packageDir, staging);
+          if (options.application.layoutChanged) {
+            await transaction.replacePath(canonicalLayout, stagedLayout);
+          }
+          await dependencies.markTransactionCommitted(transaction);
+          try {
+            await dependencies.cleanupCommittedTransaction(transaction);
+            await cleanupStaging();
+          } catch (cleanupError) {
+            dependencies.reportCleanupFailure(cleanupError);
+          }
+          return result;
+        } catch (error) {
+          let rollbackError: unknown;
+          try {
+            await transaction.rollback();
+          } catch (failure) {
+            rollbackError = failure;
+          }
+          let cleanupError: unknown;
+          try {
+            await cleanupStaging();
+          } catch (failure) {
+            cleanupError = failure;
+          }
+          if (rollbackError || cleanupError) {
+            throw new AggregateError(
+              [
+                error,
+                ...(rollbackError ? [rollbackError] : []),
+                ...(cleanupError ? [cleanupError] : [])
+              ],
+              "canvas_command_commit_rollback_failed"
+            );
+          }
+          throw error;
         }
-        throw error;
       }
-    }
-  );
+    );
+  });
 }
 
 /** Apply one authorized intent against a Server-resolved package location. */

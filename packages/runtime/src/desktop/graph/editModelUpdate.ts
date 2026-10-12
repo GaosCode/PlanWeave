@@ -206,7 +206,7 @@ export async function bulkUpdateTasks(
   if (updates.length === 0) {
     throw new Error("bulk_update_tasks requires at least one task update.");
   }
-  const { manifest } = await loadPackage(projectRoot);
+  const { workspace, manifest } = await loadPackage(projectRoot);
   let nextManifest = manifest;
   const affectedTasks: string[] = [];
   const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
@@ -223,7 +223,7 @@ export async function bulkUpdateTasks(
     sideEffects.push(...mutation.sideEffects);
   }
   const result = await commitPlanPackageGraphMutation({
-    projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
       affectedTasks,
       sideEffects

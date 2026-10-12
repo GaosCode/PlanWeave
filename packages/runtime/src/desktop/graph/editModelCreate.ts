@@ -290,7 +290,7 @@ export async function bulkCreateTasks(
   if (tasks.length === 0) {
     throw new Error("bulk_create_tasks requires at least one task.");
   }
-  const { manifest } = await loadPackage(projectRoot);
+  const { workspace, manifest } = await loadPackage(projectRoot);
   let nextManifest = manifest;
   const affectedTasks: string[] = [];
   const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
@@ -310,7 +310,7 @@ export async function bulkCreateTasks(
     sideEffects.push(...mutation.sideEffects);
   }
   const result = await commitPlanPackageGraphMutation({
-    projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
       affectedTasks,
       sideEffects
@@ -327,7 +327,7 @@ export async function bulkCreateBlocks(
   if (blocks.length === 0) {
     throw new Error("bulk_create_blocks requires at least one block.");
   }
-  const { manifest } = await loadPackage(projectRoot);
+  const { workspace, manifest } = await loadPackage(projectRoot);
   let nextManifest = manifest;
   const affectedTasks: string[] = [];
   const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
@@ -361,7 +361,7 @@ export async function bulkCreateBlocks(
     sideEffects.push(...mutation.sideEffects);
   }
   const result = await commitPlanPackageGraphMutation({
-    projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
       affectedTasks,
       sideEffects

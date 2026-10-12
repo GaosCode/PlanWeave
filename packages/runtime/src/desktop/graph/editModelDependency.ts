@@ -138,10 +138,10 @@ export async function bulkRemoveGraphItems(
   ) {
     throw new Error("bulk_remove_graph_items requires at least one item to remove.");
   }
-  const { manifest } = await loadPackage(projectRoot);
+  const { workspace, manifest } = await loadPackage(projectRoot);
   const blockedDiagnostics: ValidationIssue[] = [];
   for (const taskId of taskIds) {
-    const blocked = await crossTaskEdgeDeleteDiagnostic(projectRoot, taskId);
+    const blocked = await crossTaskEdgeDeleteDiagnostic(workspace, taskId);
     if (blocked) {
       blockedDiagnostics.push(...blocked.diagnostics);
     }
@@ -183,7 +183,7 @@ export async function bulkRemoveGraphItems(
     sideEffects.push(...mutation.sideEffects);
   }
   const result = await commitPlanPackageGraphMutation({
-    projectRoot,
+    projectRoot: workspace,
     mutation: buildPlanPackageManifestChangeMutation(manifest, nextManifest, {
       affectedTasks,
       sideEffects

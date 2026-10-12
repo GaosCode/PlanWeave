@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import * as json from "../json.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
+import * as packages from "../package/loadPackage.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { buildPlanPackageTaskFieldEditMutation } from "../graph/fieldEditMutation.js";
@@ -38,6 +40,10 @@ vi.mock("../package/packageFileConsistency.js", async (original) => {
   const actual = await original<typeof import("../package/packageFileConsistency.js")>();
   return { ...actual, withPackageFileConsistency: vi.fn(actual.withPackageFileConsistency) };
 });
+vi.mock("../fs/withProjectMutationLock.js", async (original) => {
+  const actual = await original<typeof import("../fs/withProjectMutationLock.js")>();
+  return { ...actual, withProjectMutationLock: vi.fn(actual.withProjectMutationLock) };
+});
 afterEach(() => vi.restoreAllMocks());
 function deferred() {
   let resolve!: () => void;
@@ -64,17 +70,28 @@ async function exhausted() {
   });
   return fixture;
 }
-async function watchRequest(packageDir: string) {
+async function watchRequest(workspace: Awaited<ReturnType<typeof exhausted>>["init"]["workspace"]) {
   const actual = await vi.importActual<typeof import("../package/packageFileConsistency.js")>(
     "../package/packageFileConsistency.js"
   );
+  const projectLocks = await vi.importActual<typeof import("../fs/withProjectMutationLock.js")>(
+    "../fs/withProjectMutationLock.js"
+  );
   const requested = deferred();
+  const packageDir = workspace.packageDir;
+  const projectRoot = dirname(workspace.projectFile);
+  vi.mocked(withProjectMutationLock).mockImplementation(async (roots, action, options) => {
+    const all = typeof roots === "string" ? [roots] : roots;
+    if (all.includes(projectRoot)) requested.resolve();
+    return projectLocks.withProjectMutationLock(roots, action, options);
+  });
   vi.mocked(withPackageFileConsistency).mockImplementation(async (roots, action) => {
     if (roots.includes(packageDir)) requested.resolve();
     return actual.withPackageFileConsistency(roots, action);
   });
   return { promise: requested.promise };
 }
+
 async function assertRetry(workspace: Awaited<ReturnType<typeof exhausted>>["init"]["workspace"]) {
   const { manifest } = await loadPackage(workspace);
   const task = manifest.nodes.find((node) => node.type === "task" && node.id === "T-001");
@@ -158,7 +175,7 @@ it.each([
     join(workspace.resultsDir, "T-001", "index.json")
   ];
   const editedBytes = await Promise.all(protectedPaths.map((path) => fs.readFile(path, "utf8")));
-  const { promise: requested } = await watchRequest(workspace.packageDir);
+  const { promise: requested } = await watchRequest(workspace);
   const retry = retryReview({
     projectRoot: workspace,
     ref: "T-001#R-001",
@@ -257,7 +274,7 @@ it("keeps rollback protected until a queued graph writer can commit on the resto
     maxFeedbackCycles: 3
   }).catch((error) => error);
   await restoring.promise;
-  const { promise: requested } = await watchRequest(workspace.packageDir);
+  const { promise: requested } = await watchRequest(workspace);
   const writer = commitPlanPackageGraphMutation({ projectRoot: workspace, mutation });
   try {
     await requested;
@@ -357,19 +374,18 @@ it("holds package and canvas through retry while a real child edit contends and 
 it("rejects a stale execution-policy producer without changing retry files", async () => {
   const { init } = await exhausted();
   const workspace = init.workspace;
-  const actual = await vi.importActual<typeof import("../package/packageFileConsistency.js")>(
-    "../package/packageFileConsistency.js"
-  );
+  const actual = packages.loadPackage;
   const queued = deferred(),
     release = deferred();
   let intercept = true;
-  vi.mocked(withPackageFileConsistency).mockImplementation(async (roots, action) => {
-    if (intercept && roots.includes(workspace.packageDir)) {
+  vi.spyOn(packages, "loadPackage").mockImplementation(async (projectRoot) => {
+    const loaded = await actual(projectRoot);
+    if (intercept && loaded.workspace.packageDir === workspace.packageDir) {
       intercept = false;
       queued.resolve();
       await release.promise;
     }
-    return actual.withPackageFileConsistency(roots, action);
+    return loaded;
   });
   const policy = updateCanvasExecutionPolicy(workspace, { parallelEnabled: true });
   await queued.promise;
@@ -407,7 +423,7 @@ it("preserves a successful policy edit when retry waits behind its package lock"
     }
   );
   await Promise.race([edited.promise, writer]);
-  const requested = await watchRequest(workspace.packageDir);
+  const requested = await watchRequest(workspace);
   const retry = retryReview({ projectRoot: workspace, ref: "T-001#R-001", maxFeedbackCycles: 3 });
   try {
     await requested.promise;
@@ -475,7 +491,7 @@ it("holds the manifest lock throughout same-ID project rename before retry succe
       throw new Error("Rename finished without reaching the protected manifest read");
     })
   ]);
-  const requested = await watchRequest(workspace.packageDir);
+  const requested = await watchRequest(workspace);
   const retry = retryReview({ projectRoot: workspace, ref: "T-001#R-001", maxFeedbackCycles: 3 });
   try {
     await requested.promise;

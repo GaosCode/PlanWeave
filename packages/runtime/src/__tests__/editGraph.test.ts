@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { basename, dirname } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import {
   addEdge,
@@ -12,10 +14,85 @@ import {
 } from "../graph/fieldEditMutation.js";
 import { buildPlanPackageGraphMutation } from "../graph/mutation.js";
 import { readJsonFile } from "../json.js";
+import { initWorkspace, initialManifest } from "../initWorkspace.js";
+import { loadPackage } from "../package/loadPackage.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
+import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { updateCanvasExecutionPolicy } from "../desktop/graph/editModelUpdate.js";
 import type { PlanPackageManifest } from "../types.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
 describe("editGraph", () => {
+  it.each([
+    "commit",
+    "policy"
+  ])("rejects a queued retired %s even when reset restores identical manifest bytes", async (entry) => {
+    const { root } = await createTestWorkspace(initialManifest("unused"));
+    await initWorkspace({ projectRoot: root, resetPackage: true });
+    const { workspace, manifest } = await loadPackage(root);
+    expect(manifest).toEqual(initialManifest(basename(root)));
+    const original = await readFile(workspace.manifestFile, "utf8");
+    let admit!: () => void;
+    let release!: () => void;
+    const acquired = new Promise<void>((resolve) => {
+      admit = resolve;
+    });
+    const proceed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = withProjectMutationLock(dirname(workspace.projectFile), () =>
+      withPackageFileConsistency(
+        [workspace.packageDir, workspace.stateFile, workspace.resultsDir],
+        async () => {
+          admit();
+          await proceed;
+          await initWorkspace({ projectRoot: root, resetPackage: true });
+          expect(await readFile(workspace.manifestFile, "utf8")).toBe(original);
+        }
+      )
+    );
+    await acquired;
+    let completed = false;
+    const writer = (
+      entry === "commit"
+        ? commitPlanPackageGraphMutation({
+            projectRoot: workspace,
+            mutation: {
+              baseManifest: manifest,
+              nextManifest: {
+                ...manifest,
+                execution: { parallel: { enabled: true, maxConcurrent: 7 } }
+              },
+              affectedTasks: [],
+              sideEffects: []
+            }
+          })
+        : updateCanvasExecutionPolicy(workspace, { parallelEnabled: true, maxConcurrent: 7 })
+    )
+      .then(
+        (result) => ({ result }),
+        (error: unknown) => ({ error })
+      )
+      .finally(() => {
+        completed = true;
+      });
+    try {
+      await delay(40);
+      expect(completed).toBe(false);
+      release();
+      await holder;
+      expect(await writer).toMatchObject({
+        error: expect.objectContaining({
+          message: expect.stringContaining("workspace identity changed")
+        })
+      });
+      expect(await readFile(workspace.manifestFile, "utf8")).toBe(original);
+    } finally {
+      release();
+      await holder;
+      await writer;
+    }
+  });
   it("builds graph mutation previews with commit-only prompt side effects", async () => {
     const { init } = await createTestWorkspace();
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
