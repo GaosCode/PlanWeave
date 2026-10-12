@@ -22,10 +22,10 @@ import { createTestWorkspace } from "./promptTestHelpers.js";
 import {
   AuthoritativeCanvasWorkspaceConflictError,
   recoverPendingAuthoritativeCanvasMaterialization,
-  withAuthoritativeCanvasWorkspaceLock,
   resolveStagedContentVersionLayoutPath
 } from "../desktop/contentVersionMaterializer.js";
 import { ImportTransaction } from "../package/importTransaction.js";
+import * as importRecovery from "../package/importRecovery.js";
 
 const directories: string[] = [];
 const originalHome = process.env.PLANWEAVE_HOME;
@@ -311,7 +311,7 @@ describe("authoritative content materializer", () => {
     const local = await createTestWorkspace();
     const authority = await createTestWorkspace();
     directories.push(local.home, local.root, authority.home, authority.root);
-    const localCanvas = await resolveTaskCanvasWorkspace(local.root, "default");
+    const localCanvas = local.init.workspace;
     const authorityCanvas = await resolveTaskCanvasWorkspace(authority.root, "default");
     await writeFile(
       join(authorityCanvas.packageDir, "nodes", "T-001", "prompt.md"),
@@ -392,7 +392,7 @@ describe("authoritative content materializer", () => {
     ).toEqual([]);
   });
 
-  it("rejects newly introduced recovery targets without rolling them back under the canvas lock", async () => {
+  it("rejects recovery targets introduced after the snapshot before lock acquisition", async () => {
     const fixture = await createTestWorkspace();
     directories.push(fixture.home, fixture.root);
     const workspace = fixture.init.workspace;
@@ -402,28 +402,26 @@ describe("authoritative content materializer", () => {
     await writeFile(staged, "concurrent replacement");
     const before = await readFile(workspace.manifestFile, "utf8");
     const transaction = await ImportTransaction.create({ workspaceRoot: workspace.workspaceRoot });
-    let mutate!: () => void;
-    const mutationBarrier = new Promise<void>((resolve) => {
-      mutate = resolve;
-    });
-    // This writer begins outside the authority lock context, as an independent caller.
-    const writer = (async () => {
-      await mutationBarrier;
-      await transaction.replacePath(target, staged);
-    })();
+    const readTargets = importRecovery.listImportTransactionRecoveryTargets;
+    let introduced = false;
+    vi.spyOn(importRecovery, "listImportTransactionRecoveryTargets").mockImplementation(
+      async (input) => {
+        const captured = await readTargets(input);
+        if (!introduced) {
+          introduced = true;
+          await transaction.replacePath(target, staged);
+        }
+        return captured;
+      }
+    );
     try {
       await expect(
-        withAuthoritativeCanvasWorkspaceLock(workspace, async () => {
-          mutate();
-          await writer;
-          await recoverPendingAuthoritativeCanvasMaterialization(workspace);
-        })
+        recoverPendingAuthoritativeCanvasMaterialization(workspace)
       ).rejects.toBeInstanceOf(AuthoritativeCanvasWorkspaceConflictError);
       expect(await readFile(target, "utf8")).toBe("concurrent replacement");
       expect(await readFile(workspace.manifestFile, "utf8")).toBe(before);
     } finally {
-      mutate();
-      await writer;
+      vi.restoreAllMocks();
       await transaction.rollback();
     }
     expect(await readFile(target, "utf8")).toBe("original");

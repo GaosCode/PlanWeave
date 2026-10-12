@@ -144,10 +144,10 @@ function projectWorkspacePathsForRename(
 }
 
 async function readRegisteredProject(
-  projectId: string
+  projectId: string,
+  planweaveHome: string = resolvePlanweaveHome()
 ): Promise<{ project: ProjectMetadata; workspaceRoot: string; projectFile: string } | null> {
   const registeredProjectId = desktopRegisteredProjectIdSchema.parse(projectId);
-  const planweaveHome = resolvePlanweaveHome();
   const projectsRoot = resolve(planweaveHome, "projects");
   const workspaceRoot = resolve(projectsRoot, registeredProjectId);
   const workspaceProjectId = await directRegisteredWorkspaceId(planweaveHome, workspaceRoot);
@@ -211,14 +211,22 @@ export async function listProjects(): Promise<DesktopProjectSummary[]> {
 }
 
 export async function removeProject(projectId: string): Promise<void> {
-  const projectsRoot = resolve(resolvePlanweaveHome(), "projects");
+  const planweaveHome = resolvePlanweaveHome();
+  const projectsRoot = resolve(planweaveHome, "projects");
   const workspaceRoot = resolve(projectsRoot, projectId);
   assertDirectProjectWorkspace(projectsRoot, workspaceRoot, projectId, "removed");
-  const entry = await readRegisteredProject(projectId);
-  await rm(workspaceRoot, { recursive: true, force: true });
-  if (entry) {
-    invalidateDesktopProjectProjection(entry.project.rootPath);
-  }
+  const entry = await readRegisteredProject(projectId, planweaveHome);
+  await withProjectMutationLock(workspaceRoot, async () => {
+    const current = await readRegisteredProject(projectId, planweaveHome);
+    if (
+      current?.project.createdAt !== entry?.project.createdAt ||
+      current?.project.rootPath !== entry?.project.rootPath
+    ) {
+      throw new Error(`PlanWeave project workspace identity changed at '${workspaceRoot}'.`);
+    }
+    await rm(workspaceRoot, { recursive: true, force: true });
+    if (entry) invalidateDesktopProjectProjection(entry.project.rootPath);
+  });
 }
 
 async function rewriteJsonProjectId(path: string, projectId: string): Promise<void> {

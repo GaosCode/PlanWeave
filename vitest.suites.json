@@ -634,6 +634,7 @@
         "cliRunner.test.ts",
         "compileTaskGraph.test.ts",
         "contentVersionMaterializer.test.ts",
+        "authoritativeMaterializationLifecycle.test.ts",
         "authoritativeSnapshotStateLock.test.ts",
         "createCanvasWorkspace.test.ts",
         "dependencyEdit.test.ts",

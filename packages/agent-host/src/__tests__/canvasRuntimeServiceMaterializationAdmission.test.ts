@@ -2,11 +2,16 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   captureAuthorizedCanvasContent,
+  initWorkspace,
   readAuthorizedCanvasRuntimeStatus
 } from "@planweave-ai/runtime";
 import { describe, expect, it } from "vitest";
 import { scope } from "./support/canvasRuntimeServiceFixture.js";
-import { createTimingFixture, deferred } from "./support/canvasRuntimeTimingFixture.js";
+import {
+  createTimingFixture,
+  deferred,
+  waitUntilResolved
+} from "./support/canvasRuntimeTimingFixture.js";
 
 async function startReplacement() {
   const fixture = await createTimingFixture();
@@ -55,6 +60,50 @@ async function startReplacement() {
 }
 
 describe("Canvas Runtime materialization admission", () => {
+  it.each([
+    "resetPackage",
+    "resetResults"
+  ] as const)("rejects the original resolver owner after a command waits in the scope lane across %s", async (reset) => {
+    const fixture = await createTimingFixture();
+    const started = deferred();
+    const finish = deferred();
+    fixture.artifactTransfer.download.mockImplementation(async () => {
+      started.resolve();
+      await finish.promise;
+      return fixture.bytes;
+    });
+    const blocking = fixture.complete(fixture.firstIdentity, "request-lane-blocker");
+    const queued = fixture.command(
+      { operation: "availability", contentTarget: fixture.target },
+      "request-retired-owner"
+    );
+    fixture.receive(blocking);
+    const first = fixture.service.handle(blocking);
+    try {
+      await started.promise;
+      fixture.receive(queued);
+      const second = fixture.service.handle(queued);
+      await waitUntilResolved(fixture, 2);
+      const fresh = (await initWorkspace({ projectRoot: fixture.canvas.rootPath, [reset]: true }))
+        .workspace;
+      const manifestBefore = await readFile(fresh.manifestFile, "utf8");
+      const stateBefore = await readFile(fresh.stateFile, "utf8");
+      const receipt = join(fresh.workspaceRoot, "authority-content-target.json");
+      const receiptBefore = await readFile(receipt, "utf8");
+      await fixture.invalidate("cancel", blocking.requestId);
+      fixture.state.canvasRuntime.releaseLease(fixture.lease.runtimeLeaseId);
+      finish.resolve();
+      await Promise.all([first, second]);
+      expect(fixture.response(queued.requestId)).toMatchObject({ response: { outcome: "error" } });
+      expect(fixture.contentTransfer.fetch).not.toHaveBeenCalled();
+      expect(await readFile(fresh.manifestFile, "utf8")).toBe(manifestBefore);
+      expect(await readFile(fresh.stateFile, "utf8")).toBe(stateBefore);
+      expect(await readFile(receipt, "utf8")).toBe(receiptBefore);
+    } finally {
+      finish.resolve();
+      await first;
+    }
+  });
   it.each([
     "deadline",
     "cancel",

@@ -101,7 +101,10 @@ try {
   };
   fs.realpath = async (...args) => {
     const path = await Reflect.apply(oldReal, fs, args);
-    if (stateStarted && [w.packageDir, w.stateFile, w.resultsDir].includes(String(args[0])))
+    if (
+      stateStarted &&
+      [w.workspaceRoot, w.packageDir, w.stateFile, w.resultsDir].includes(String(args[0]))
+    )
       request();
     return path;
   };

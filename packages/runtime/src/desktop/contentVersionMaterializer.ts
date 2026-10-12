@@ -6,11 +6,11 @@ import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import { getProjectOverview, listProjects, removeProject } from "./projectApi.js";
 import { layoutPathForWorkspace, parseDesktopLayoutForPackage } from "./layoutStore.js";
 import { validateAuthoritativeCanvasContent } from "./contentVersionValidation.js";
+import { ImportTransaction } from "../package/importTransaction.js";
 import {
-  ImportTransaction,
-  readImportTransactionRecoveryTargets
-} from "../package/importTransaction.js";
-import { listPendingImportTransactions } from "../package/importRecovery.js";
+  listPendingImportTransactions,
+  listImportTransactionRecoveryTargets
+} from "../package/importRecovery.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { authoritativeImportReservationFile, initManagedWorkspace } from "../initWorkspace.js";
@@ -19,6 +19,11 @@ import { createManagedProjectId } from "../projectId.js";
 import type { ProjectWorkspace } from "../types.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
+import { withCurrentProjectWorkspace, assertCurrentProjectWorkspace } from "../project.js";
+import { assertCurrentCanvasWorkspaceIdentity } from "../package/assertCurrentCanvasWorkspace.js";
+import { assertResultsStorageIdentity } from "../package/packageStorageIdentity.js";
+import { withImportTransactionMutationAdmission } from "../package/importTransactionLock.js";
 import type { DesktopProjectSummary } from "./types.js";
 import {
   managedContentImportModeSchema,
@@ -140,16 +145,7 @@ const authorityBoundary = new AsyncLocalStorage<{
 }>();
 
 async function pendingRecoveryTargets(workspace: ProjectWorkspace): Promise<string[]> {
-  const pending = await listPendingImportTransactions(workspace.workspaceRoot);
-  const targets = await Promise.all(
-    pending.map((entry) =>
-      readImportTransactionRecoveryTargets({
-        workspaceRoot: workspace.workspaceRoot,
-        transactionId: entry.transactionId
-      })
-    )
-  );
-  return targets.flat();
+  return listImportTransactionRecoveryTargets(workspace.workspaceRoot);
 }
 
 async function assertRecoveryTargetsHeld(workspace: ProjectWorkspace): Promise<void> {
@@ -163,6 +159,12 @@ async function assertRecoveryTargetsHeld(workspace: ProjectWorkspace): Promise<v
   }
 }
 
+async function assertAuthorityOwner(workspace: ProjectWorkspace): Promise<void> {
+  await assertCurrentProjectWorkspace(workspace);
+  await assertCurrentCanvasWorkspaceIdentity(workspace);
+  await assertResultsStorageIdentity(workspace);
+}
+
 /** Acquires replacement and recovery roots before the Runtime canvas mutation lock. */
 export async function withAuthoritativeCanvasWorkspaceLock<T>(
   workspace: ProjectWorkspace,
@@ -170,27 +172,34 @@ export async function withAuthoritativeCanvasWorkspaceLock<T>(
 ): Promise<T> {
   const held = authorityBoundary.getStore();
   if (held?.stateFile === workspace.stateFile) {
+    await assertAuthorityOwner(workspace);
     await assertRecoveryTargetsHeld(workspace);
     return operation();
   }
-  const targets = new Set([
-    nodePath.resolve(workspace.packageDir),
-    nodePath.resolve(workspace.stateFile),
-    nodePath.resolve(workspace.resultsDir),
-    nodePath.resolve(layoutPathForWorkspace(workspace)),
-    ...(await pendingRecoveryTargets(workspace))
-  ]);
-  return withPackageFileConsistency([...targets], () =>
-    withCanvasLock(
-      nodePath.dirname(workspace.stateFile),
-      () =>
-        authorityBoundary.run({ stateFile: workspace.stateFile, targets }, async () => {
-          await assertRecoveryTargetsHeld(workspace);
-          return operation();
-        }),
-      { operation: "workspace-authority-materialization" }
-    )
-  );
+  return withCurrentProjectWorkspace(workspace, async () => {
+    await assertAuthorityOwner(workspace);
+    const targets = new Set([
+      nodePath.resolve(workspace.packageDir),
+      nodePath.resolve(workspace.stateFile),
+      nodePath.resolve(workspace.resultsDir),
+      nodePath.resolve(layoutPathForWorkspace(workspace)),
+      ...(await pendingRecoveryTargets(workspace))
+    ]);
+    return withPackageFileConsistency([...targets], () =>
+      withImportTransactionMutationAdmission([workspace.workspaceRoot], [...targets], () =>
+        withCanvasLock(
+          nodePath.dirname(workspace.stateFile),
+          () =>
+            authorityBoundary.run({ stateFile: workspace.stateFile, targets }, async () => {
+              await assertAuthorityOwner(workspace);
+              await assertRecoveryTargetsHeld(workspace);
+              return operation();
+            }),
+          { operation: "workspace-authority-materialization" }
+        )
+      )
+    );
+  });
 }
 
 /** Restores the last committed package/layout pair before any authority fast-path check. */
@@ -311,55 +320,57 @@ export async function createManagedProjectFromAuthoritativeContent(input: {
   if (input.resumeReservedProject && !input.reservationToken) {
     throw fail("content_local_project_reservation_required");
   }
-  let reservedProjectRoot: string | null = null;
-  let initialized: Awaited<ReturnType<typeof initManagedWorkspace>> | null = null;
-  try {
-    if (input.reservationToken) {
-      reservedProjectRoot = await claimReservedManagedProject({
-        projectId,
-        reservationToken: input.reservationToken
-      });
-    }
-    initialized = await initManagedWorkspace({
-      name: projectName,
-      projectGraph: true,
-      ...(input.reservationToken ? { contentReplicaReservationToken: input.reservationToken } : {})
-    });
-    if (!initialized.created && !input.resumeReservedProject) {
-      throw fail("content_local_project_name_conflict");
-    }
-    const workspace = await resolveTaskCanvasWorkspace(initialized.project.rootPath, "default");
-    await materializeAuthoritativeCanvasContent({
-      projectRoot: initialized.project.rootPath,
-      canvasId: "default",
-      expectedPackageDir: workspace.packageDir,
-      authorityProjectId: input.authorityProjectId,
-      content: validated.content
-    });
-    if (lineage) {
-      await writeFile(
-        workspaceForkLineagePath(initialized.project.rootPath, join),
-        `${JSON.stringify(lineage, null, 2)}\n`,
-        "utf8"
-      );
-    }
-    return {
-      project: await getProjectOverview(initialized.project.rootPath),
-      canvasId: "default",
-      lineage
-    };
-  } catch (error) {
+  return withProjectMutationLock(join(resolvePlanweaveHome(), "projects", projectId), async () => {
+    let reservedProjectRoot: string | null = null;
+    let initialized: Awaited<ReturnType<typeof initManagedWorkspace>> | null = null;
     try {
-      if (reservedProjectRoot) {
-        await rm(reservedProjectRoot, { recursive: true, force: true });
-      } else if (initialized?.created) {
-        await removeProject(initialized.project.id);
+      if (input.reservationToken) {
+        reservedProjectRoot = await claimReservedManagedProject({
+          projectId,
+          reservationToken: input.reservationToken
+        });
       }
-    } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], "content_local_project_rollback_failed");
+      initialized = await initManagedWorkspace({
+        name: projectName,
+        projectGraph: true,
+        ...(input.reservationToken
+          ? { contentReplicaReservationToken: input.reservationToken }
+          : {})
+      });
+      if (!initialized.created && !input.resumeReservedProject) {
+        throw fail("content_local_project_name_conflict");
+      }
+      const workspace = initialized.workspace;
+      await materializeAuthoritativeCanvasWorkspace({
+        workspace,
+        authorityProjectId: input.authorityProjectId,
+        content: validated.content
+      });
+      if (lineage) {
+        await writeFile(
+          workspaceForkLineagePath(initialized.project.rootPath, join),
+          `${JSON.stringify(lineage, null, 2)}\n`,
+          "utf8"
+        );
+      }
+      return {
+        project: await getProjectOverview(initialized.project.rootPath),
+        canvasId: "default" as const,
+        lineage
+      };
+    } catch (error) {
+      try {
+        if (reservedProjectRoot) {
+          await rm(reservedProjectRoot, { recursive: true, force: true });
+        } else if (initialized?.created) {
+          await removeProject(initialized.project.id);
+        }
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "content_local_project_rollback_failed");
+      }
+      throw error;
     }
-    throw error;
-  }
+  });
 }
 
 export async function planManagedProjectFromAuthoritativeContent(input: {

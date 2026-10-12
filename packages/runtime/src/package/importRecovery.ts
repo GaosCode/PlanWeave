@@ -1,7 +1,11 @@
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { optionalStat } from "../fs/optionalFile.js";
-import { ImportTransaction, readImportTransactionRecoverySummary } from "./importTransaction.js";
+import {
+  ImportTransaction,
+  readImportTransactionRecoverySummary,
+  readImportTransactionRecoveryTargets
+} from "./importTransaction.js";
 import {
   withImportTransactionLock,
   withImportTransactionReadAdmission
@@ -32,6 +36,26 @@ async function listRecoveryTransactionIds(recoveryRoot: string): Promise<string[
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort((left, right) => left.localeCompare(right));
+}
+
+/** Snapshot all active and committed targets without recovering or cleaning any journal. */
+export async function listImportTransactionRecoveryTargets(
+  workspaceRoot: string
+): Promise<string[]> {
+  const root = resolve(workspaceRoot);
+  return withImportTransactionReadAdmission([root], [], async () => {
+    const ids = await listRecoveryTransactionIds(packageImportRecoveryRoot(root));
+    const targets = await Promise.all(
+      ids.map((transactionId) =>
+        withImportTransactionLock(root, transactionId, async () => {
+          if ((await optionalStat(join(packageImportRecoveryRoot(root), transactionId))) === null)
+            return [];
+          return readImportTransactionRecoveryTargets({ workspaceRoot: root, transactionId });
+        })
+      )
+    );
+    return targets.flat();
+  });
 }
 
 export async function listPendingImportTransactions(
