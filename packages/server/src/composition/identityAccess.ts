@@ -266,6 +266,11 @@ export function createIdentityServices(input: {
     clock: input.clock
   });
   const humanIdentity = new HumanIdentityRepository(input.database, input.clock, {
+    onOwnerDeviceCreatedInTransaction: (projectId) => {
+      const workspaceId = input.workspaceIdentity.workspaceForLegacyProject(projectId);
+      if (!workspaceId) throw new Error("workspace_not_found");
+      input.workspaceIdentity.invalidateMembers(workspaceId);
+    },
     onMembershipTransitionInTransaction: ({ type, membership, principal }) => {
       const workspaceId = input.workspaceIdentity.workspaceForLegacyProject(membership.projectId);
       if (!workspaceId) throw new Error("workspace_not_found");

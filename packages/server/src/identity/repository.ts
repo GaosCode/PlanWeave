@@ -76,6 +76,7 @@ export type InvitationTransition = {
 
 export type HumanIdentityRepositoryOptions = {
   onMembershipTransitionInTransaction?: (transition: MembershipTransition) => void;
+  onOwnerDeviceCreatedInTransaction?: (projectId: string) => void;
   onInvitationTransitionInTransaction?: (transition: InvitationTransition) => void;
   onDisplayNameChangeAfterCommit?: (humanPrincipalId: string) => void;
   onAuthorizationChangeAfterCommit?: (change: AuthorizationChangeScope) => void;
@@ -207,6 +208,9 @@ export class HumanIdentityRepository {
           membership: result.membership,
           principal: result.principal
         });
+      }
+      if (result.deviceToken !== undefined) {
+        this.options.onOwnerDeviceCreatedInTransaction?.(proof.projectId);
       }
       return result;
     });

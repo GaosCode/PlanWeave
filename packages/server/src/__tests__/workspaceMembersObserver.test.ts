@@ -214,6 +214,56 @@ it("refreshes real Desktop member devices when an existing identity adds a devic
   expect(after.items[0]?.devices).toHaveLength(3);
   expect((await f.connection.getSelf()).deviceSessionId).toBe(f.redeemed.deviceSessionId);
 });
+it("invalidates the Desktop device directory after owner recovery without another membership transition", async () => {
+  const f = await fixture();
+  await f.json(
+    `/api/v1/projects/${f.projectId}/human/devices/${f.legacy.device.deviceCredentialId}/revoke`,
+    {},
+    f.legacy.deviceToken
+  );
+  await vi.waitFor(() => expect(f.invalidations()).toHaveLength(2));
+  const before = await f.connection.listMembers(0, 100);
+  expect(before.items).toHaveLength(1);
+  expect(before.items[0]?.devices).toHaveLength(1);
+  const database = await openServerDatabase(f.config.databasePath, 5_000);
+  try {
+    database.exec(`CREATE TRIGGER fail_recovery_projection BEFORE INSERT ON workspace_device_sessions
+      BEGIN SELECT RAISE(ABORT, 'recovery_projection_failed'); END`);
+    await expect(
+      f.json(`/api/v1/projects/${f.projectId}/human/bootstrap`, {
+        humanPrincipalId: f.legacy.principal.humanPrincipalId,
+        displayName: "Owner"
+      })
+    ).rejects.toThrow();
+    expect(await f.connection.listMembers(0, 100)).toEqual(before);
+    expect(f.invalidations()).toHaveLength(2);
+  } finally {
+    database.exec("DROP TRIGGER IF EXISTS fail_recovery_projection");
+    database.close();
+  }
+  const recovered = humanBootstrapResponseSchema.parse(
+    await f.json(`/api/v1/projects/${f.projectId}/human/bootstrap`, {
+      humanPrincipalId: f.legacy.principal.humanPrincipalId,
+      displayName: "Owner"
+    })
+  );
+  expect(recovered.created).toBe(false);
+  expect(recovered.deviceToken).toBeDefined();
+  await vi.waitFor(() => expect(f.invalidations()).toHaveLength(3));
+  const after = await f.connection.listMembers(0, 100);
+  expect(after.items).toHaveLength(1);
+  expect(after.items[0]?.devices).toHaveLength(2);
+  expect((await f.connection.getSelf()).deviceSessionId).toBe(f.redeemed.deviceSessionId);
+  const idempotent = humanBootstrapResponseSchema.parse(
+    await f.json(`/api/v1/projects/${f.projectId}/human/bootstrap`, {
+      humanPrincipalId: f.legacy.principal.humanPrincipalId,
+      displayName: "Owner"
+    })
+  );
+  expect(idempotent.deviceToken).toBeUndefined();
+  expect(await f.connection.listMembers(0, 100)).toEqual(after);
+  expect(f.invalidations()).toHaveLength(3);
+});
 it("refreshes real Desktop roster and device ownership after identity merge", async () => {
   const f = await fixture();
   const source = await f.issueDevice("Source");
