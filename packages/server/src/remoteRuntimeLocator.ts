@@ -1,4 +1,8 @@
-import type { RemoteBlockArtifactSource, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
+import type {
+  ProjectWorkspace,
+  RemoteBlockArtifactSource,
+  RemoteBlockRuntimePort
+} from "@planweave-ai/runtime";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { canonicalRemoteRuntimePort } from "./canonicalRemoteRuntimePort.js";
 import type {
@@ -14,6 +18,8 @@ function locatorKey(locator: RemoteRuntimeLocator): string {
 }
 
 export type ScopedRemoteRuntimeBinding = {
+  /** Local filesystem bindings retain this owner for the entire lease. */
+  workspace?: ProjectWorkspace;
   runtime: RemoteBlockRuntimePort;
   artifacts: RemoteBlockArtifactSource;
   readInitializationEvidence?(): Promise<CanvasRuntimeInitializationEvidence>;
@@ -28,6 +34,7 @@ export class RemoteRuntimePortRegistry implements CanvasExecutionRuntimeLeasePor
   private readonly ports = new Map<
     string,
     {
+      workspace?: ProjectWorkspace;
       runtime: RemoteBlockRuntimePort;
       artifacts?: RemoteBlockArtifactSource;
       readInitializationEvidence?: () => Promise<CanvasRuntimeInitializationEvidence>;
@@ -43,11 +50,13 @@ export class RemoteRuntimePortRegistry implements CanvasExecutionRuntimeLeasePor
     locator: RemoteRuntimeLocator,
     runtime: RemoteBlockRuntimePort,
     artifacts?: RemoteBlockArtifactSource,
-    readInitializationEvidence?: () => Promise<CanvasRuntimeInitializationEvidence>
+    readInitializationEvidence?: () => Promise<CanvasRuntimeInitializationEvidence>,
+    workspace?: ProjectWorkspace
   ): () => void {
     const key = locatorKey(locator);
     if (this.ports.has(key)) throw new Error("remote_runtime_locator_already_bound");
     const binding = {
+      workspace,
       runtime: canonicalRemoteRuntimePort(runtime, locator.workspaceId),
       artifacts,
       readInitializationEvidence
@@ -74,14 +83,16 @@ export class RemoteRuntimePortRegistry implements CanvasExecutionRuntimeLeasePor
         binding.runtime,
         binding.artifacts,
         binding.release,
-        binding.readInitializationEvidence
+        binding.readInitializationEvidence,
+        binding.workspace
       );
     }
     return runtimeHandle(
       this.resolve(locator),
       this.resolveArtifactSource(locator),
       () => undefined,
-      this.bindingFor(locator)?.readInitializationEvidence
+      this.bindingFor(locator)?.readInitializationEvidence,
+      this.bindingFor(locator)?.workspace
     );
   }
 
@@ -100,6 +111,7 @@ export class RemoteRuntimePortRegistry implements CanvasExecutionRuntimeLeasePor
 
   private bindingFor(locator: RemoteRuntimeLocator):
     | {
+        workspace?: ProjectWorkspace;
         runtime: RemoteBlockRuntimePort;
         artifacts?: RemoteBlockArtifactSource;
         readInitializationEvidence?: () => Promise<CanvasRuntimeInitializationEvidence>;
@@ -124,12 +136,14 @@ function runtimeHandle(
   runtime: RemoteBlockRuntimePort,
   artifacts: RemoteBlockArtifactSource,
   releaseBinding: () => void | Promise<void>,
-  readInitializationEvidence?: () => Promise<CanvasRuntimeInitializationEvidence>
+  readInitializationEvidence?: () => Promise<CanvasRuntimeInitializationEvidence>,
+  workspace?: ProjectWorkspace
 ): ScopedRemoteRuntimeBinding {
   return {
     runtime,
     artifacts,
     ...(readInitializationEvidence === undefined ? {} : { readInitializationEvidence }),
+    ...(workspace === undefined ? {} : { workspace }),
     release: once(releaseBinding)
   };
 }

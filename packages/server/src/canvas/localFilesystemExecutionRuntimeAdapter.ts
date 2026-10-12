@@ -54,10 +54,10 @@ export class LocalFilesystemExecutionRuntimeAdapter
           expectedGraphFingerprint: string;
           reason?: string;
         }) => {
-          if (!location) throw new CanvasRuntimeUnavailableError();
+          const workspace = lease.workspace;
+          if (!location || !workspace) throw new CanvasRuntimeUnavailableError();
           const before = await capturePackageSnapshot({
-            projectRoot: location.projectRoot,
-            canvasId: scope.canvasId
+            projectRoot: workspace
           });
           if (
             before.snapshot.sourceRevision !== command.expectedSourceRevision ||
@@ -67,7 +67,7 @@ export class LocalFilesystemExecutionRuntimeAdapter
             throw new CanvasRuntimeResetConflictError("source_drift");
           }
           const statusBeforeReset = await readAuthorizedCanvasRuntimeStatus({
-            projectRoot: location.projectRoot,
+            projectRoot: workspace,
             canvasId: scope.canvasId,
             expectedPackageDir: location.packageDir,
             scope: canvasScopeRefSchema.parse(scope)
@@ -75,10 +75,6 @@ export class LocalFilesystemExecutionRuntimeAdapter
           if (statusBeforeReset.packageFingerprint !== command.expectedGraphFingerprint) {
             throw new CanvasRuntimeResetConflictError("source_drift");
           }
-          const workspace = await resolveProjectCanvasWorkspace(
-            location.projectRoot,
-            scope.canvasId
-          );
           try {
             await resetRuntimeState({
               projectRoot: workspace,
@@ -97,14 +93,13 @@ export class LocalFilesystemExecutionRuntimeAdapter
             throw error;
           }
           const status = await readAuthorizedCanvasRuntimeStatus({
-            projectRoot: location.projectRoot,
+            projectRoot: workspace,
             canvasId: scope.canvasId,
             expectedPackageDir: location.packageDir,
             scope: canvasScopeRefSchema.parse(scope)
           });
           const after = await capturePackageSnapshot({
-            projectRoot: location.projectRoot,
-            canvasId: scope.canvasId
+            projectRoot: workspace
           });
           if (
             status.packageFingerprint !== command.expectedGraphFingerprint ||
@@ -268,6 +263,7 @@ export class LocalFilesystemExecutionRuntimeAdapter
           throw new Error("remote_runtime_registry_path_mismatch");
         }
         return {
+          workspace,
           runtime: canonicalRemoteRuntimePort(
             createRemoteBlockRuntimePort({ projectRoot: workspace }),
             scope.workspaceId
@@ -277,10 +273,14 @@ export class LocalFilesystemExecutionRuntimeAdapter
         };
       }
       const workspace = await resolveProjectCanvasWorkspace(project.projectRoot, scope.canvasId);
-      if (resolve(workspace.packageDir) !== resolve(canvas.packageDir)) {
+      if (
+        workspace.id !== scope.projectId ||
+        resolve(workspace.packageDir) !== resolve(canvas.packageDir)
+      ) {
         throw new Error("remote_runtime_registry_path_mismatch");
       }
       return {
+        workspace,
         runtime: canonicalRemoteRuntimePort(
           createRemoteBlockRuntimePort({ projectRoot: workspace }),
           scope.workspaceId

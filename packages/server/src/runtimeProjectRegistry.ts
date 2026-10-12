@@ -162,7 +162,9 @@ export async function createTrustedRuntimeRegistry(
           registry.bind(
             locator,
             createRemoteBlockRuntimePort({ projectRoot: workspace }),
-            createRemoteBlockArtifactSource({ projectRoot: workspace })
+            createRemoteBlockArtifactSource({ projectRoot: workspace }),
+            undefined,
+            workspace
           )
         );
         locators.push(locator);

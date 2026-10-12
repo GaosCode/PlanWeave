@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -91,7 +91,20 @@ describe("createTrustedRuntimeRegistry", () => {
       projectId: scope.projectId,
       canvasId: scope.canvasId
     });
+    const originalPackage = await capturePackageSnapshot({
+      projectRoot: workspace.root,
+      canvasId: scope.canvasId
+    });
     await initWorkspace({ projectRoot: workspace.root, resetResults: true });
+    const retiredStateBytes = await readFile(workspace.init.workspace.stateFile, "utf8");
+    await expect(
+      lease.reset({
+        operationId: "retired-pathless-reset",
+        expectedSourceRevision: originalPackage.snapshot.sourceRevision,
+        expectedGraphFingerprint: candidate.graphFingerprint
+      })
+    ).rejects.toThrow("identity changed");
+    expect(await readFile(workspace.init.workspace.stateFile, "utf8")).toBe(retiredStateBytes);
     await expect(
       lease.runtime.claim({
         ref: "T-001#B-001",
@@ -104,6 +117,13 @@ describe("createTrustedRuntimeRegistry", () => {
     await lease.release();
     lease = await execution.acquire(scope);
     candidate = await lease.runtime.inspect({ ref: "T-001#B-001" });
+    await expect(
+      lease.reset({
+        operationId: "fresh-pathless-reset",
+        expectedSourceRevision: originalPackage.snapshot.sourceRevision,
+        expectedGraphFingerprint: candidate.graphFingerprint
+      })
+    ).resolves.toMatchObject({ operationId: "fresh-pathless-reset" });
     await lease.runtime.claim({
       ref: "T-001#B-001",
       operationId: "operation-pathless-reset",
