@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -244,6 +244,8 @@ describe("desktop auto run control events", () => {
   it("keeps stopped final after a non-tmux terminal executor completes later", async () => {
     const markerDir = await mkdtemp(join(tmpdir(), "planweave-late-executor-"));
     const markerPath = join(markerDir, "complete.txt");
+    const startedPath = join(markerDir, "started.txt");
+    const releasePath = join(markerDir, "release.txt");
     const manifest = basicManifest();
     manifest.executors = {
       "slow-codex": {
@@ -251,8 +253,10 @@ describe("desktop auto run control events", () => {
         command: process.execPath,
         args: [
           "-e",
-          "const fs = require('node:fs'); const marker = process.argv[1]; process.on('exit', () => fs.writeFileSync(marker, 'done')); let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { setTimeout(() => { console.log('late terminal auto run ' + input.split('\\n')[0]); }, 220); });",
-          markerPath
+          "const fs = require('node:fs'); const [marker, started, release] = process.argv.slice(1); process.on('exit', () => fs.writeFileSync(marker, 'done')); let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { fs.writeFileSync(started, 'started'); const timer = setInterval(() => { if (fs.existsSync(release)) { clearInterval(timer); console.log('late terminal auto run ' + input.split('\\n')[0]); } }, 20); });",
+          markerPath,
+          startedPath,
+          releasePath
         ]
       }
     };
@@ -261,12 +265,16 @@ describe("desktop auto run control events", () => {
 
     const started = await startAutoRun(workspace.root, null, { kind: "project" }, 5, noTmux);
     startedRunIds.add(started.runId);
-    await waitForEvent(started.eventLogPath, (event) => event.type === "step_start");
-
-    await expect(stopAutoRun(started.runId)).resolves.toMatchObject({
-      runId: started.runId,
-      phase: "stopped"
-    });
+    try {
+      await waitForEvent(started.eventLogPath, (event) => event.type === "step_start");
+      await waitForPath(startedPath);
+      await expect(stopAutoRun(started.runId)).resolves.toMatchObject({
+        runId: started.runId,
+        phase: "stopped"
+      });
+    } finally {
+      await writeFile(releasePath, "release");
+    }
     await waitForPath(markerPath);
     await waitForPath(
       join(
