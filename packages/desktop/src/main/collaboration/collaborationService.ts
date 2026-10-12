@@ -79,12 +79,8 @@ import {
   collaborationProfileStorePaths
 } from "./collaborationProfileStore.js";
 import { CollaborationWorkspaceConnection } from "./collaborationWorkspaceConnection.js";
+import { CollaborationWorkspaceConnectionCommands } from "./CollaborationWorkspaceConnectionCommands.js";
 import { CollaborationWorkspaceConnectionFacade } from "./collaborationWorkspaceConnectionFacade.js";
-import {
-  buildLiveCollaborationProfile,
-  listLiveRegistryProjects,
-  pickLiveProjectId
-} from "./liveServerBinding.js";
 import { buildCollaborationStatus } from "./collaborationStatusView.js";
 import {
   WorkspaceConnectionProfileStore,
@@ -138,6 +134,7 @@ export class CollaborationService {
   private readonly remoteOperations: CollaborationRemoteOperationsFacade;
   private readonly readMutations: CollaborationReadMutationsFacade;
   private readonly workspaceConnection: CollaborationWorkspaceConnection;
+  private readonly workspaceCommands: CollaborationWorkspaceConnectionCommands;
   private readonly workspaceConnectionFacade: CollaborationWorkspaceConnectionFacade;
   private readonly profileLifecycle: CollaborationProfileLifecycle;
   private readonly identityOperations: CollaborationIdentityOperations;
@@ -145,7 +142,6 @@ export class CollaborationService {
   private readonly currentCanvasAccess: CurrentCanvasAccessFacade;
   private readonly canvasOperations: CollaborationCanvasOperationsFacade;
   private readonly canvasRealtime: CollaborationCanvasRealtimeFacade;
-  private readonly bindLiveOperatorToOrigin?: (serverBaseUrl: string) => Promise<void>;
   private workspaceHydrated = false;
 
   private client: CollaborationClient | null = null;
@@ -191,7 +187,6 @@ export class CollaborationService {
     this.onStatusChange = options.onStatusChange;
     this.onObserverSignal = options.onObserverSignal;
     this.onPresenceSignal = options.onPresenceSignal;
-    this.bindLiveOperatorToOrigin = options.bindLiveOperatorToOrigin;
     this.registryService = new CollaborationRegistryService(
       () => this.client,
       (run) => this.workspaceConnection.readDirectory(run)
@@ -219,7 +214,10 @@ export class CollaborationService {
       getClientProfileId: () => this.clientProfileId,
       publishPresenceSignal: (signal) => this.publishPresenceSignal(signal),
       setSessionError: (detail, error) => this.setSession("error", detail, error),
-      clearDeviceCredential: (profileId) => this.vault.clear(profileId),
+      clearDeviceCredential: (profileId) => {
+        this.workspaceConnection.retireReads();
+        return this.vault.clear(profileId);
+      },
       publishStatus: () => this.publishStatus()
     });
     this.canvasRealtime = new CollaborationCanvasRealtimeFacade({
@@ -287,7 +285,11 @@ export class CollaborationService {
       profiles: this.profiles,
       vault: this.vault,
       invitationVault: this.invitationVault,
-      enqueue: (operation) => this.enqueue(operation),
+      enqueue: (operation) =>
+        this.enqueue(async () => {
+          this.workspaceConnection.retireReads();
+          return operation();
+        }),
       assertOpen: () => this.assertOpen(),
       getClientProfileId: () => this.clientProfileId,
       getSessionPhase: () => this.sessionPhase,
@@ -308,83 +310,27 @@ export class CollaborationService {
       },
       withActiveClient: (operation) => this.withActiveClient(operation)
     });
+    this.workspaceCommands = new CollaborationWorkspaceConnectionCommands({
+      enqueue: (operation) => this.enqueue(operation),
+      assertOpen: () => this.assertOpen(),
+      ensureWorkspaceHydrated: () => this.ensureWorkspaceHydrated(),
+      connection: this.workspaceConnection,
+      facade: this.workspaceConnectionFacade,
+      profiles: this.profiles,
+      vault: this.vault,
+      sessionLifecycle: this.sessionLifecycle,
+      request: this.request,
+      bindLiveOperatorToOrigin: options.bindLiveOperatorToOrigin,
+      setSession: (phase, detail, error) => this.setSession(phase, detail, error),
+      disconnectSession: () => this.sessionLifecycle.disconnectWithinQueue(),
+      publishStatus: () => this.publishStatus()
+    });
   }
 
   private async ensureWorkspaceHydrated(): Promise<void> {
     if (this.workspaceHydrated) return;
     await this.workspaceConnection.hydrate();
     this.workspaceHydrated = true;
-  }
-
-  /**
-   * After the Workspace origin is live, members and operator must use that same Server.
-   * Origin connect already succeeded; session bind failures stay on the session, not the origin.
-   */
-  private async activateLiveServerSurfacesWithinQueue(): Promise<void> {
-    const view = await this.workspaceConnection.buildView();
-    if (view.status !== "connected" || !view.profile || !view.workspaceId) return;
-    const live = {
-      profileId: view.profile.profileId,
-      displayName: view.profile.displayName,
-      serverBaseUrl: view.profile.serverBaseUrl,
-      workspaceId: view.workspaceId,
-      allowInsecureTransport: view.profile.allowInsecureTransport
-    };
-    await this.sessionLifecycle.dispose("workspace_project_rebind");
-    await this.profiles.setActiveProfileId(null);
-    try {
-      if (this.bindLiveOperatorToOrigin) {
-        await this.bindLiveOperatorToOrigin(live.serverBaseUrl);
-      }
-      await this.activateLiveCollaborationSessionWithinQueue(live);
-    } catch (error) {
-      const mapped = collaborationErrorFromUnknown(error);
-      this.setSession("error", "live_session_bind_failed", {
-        code: mapped.code,
-        message: mapped.message
-      });
-    }
-  }
-
-  private async activateLiveCollaborationSessionWithinQueue(live: {
-    profileId: string;
-    displayName: string;
-    serverBaseUrl: string;
-    workspaceId: string;
-    allowInsecureTransport: boolean;
-  }): Promise<void> {
-    const origin = new URL(live.serverBaseUrl).origin;
-    const existing = (await this.profiles.list()).find((profile) => {
-      try {
-        return new URL(profile.serverBaseUrl).origin === origin;
-      } catch {
-        return false;
-      }
-    });
-    const registryProjects = await listLiveRegistryProjects({
-      serverBaseUrl: live.serverBaseUrl,
-      getDeviceToken: () => this.vault.getDeviceToken(live.profileId),
-      request: this.request
-    });
-    const projectId = pickLiveProjectId({
-      workspaceId: live.workspaceId,
-      registryProjects,
-      preferredProjectId: existing?.projectId ?? null
-    });
-    if (!projectId) {
-      this.setSession("idle", "workspace_no_shared_projects", null);
-      return;
-    }
-    await this.profiles.upsert(
-      buildLiveCollaborationProfile({
-        profileId: live.profileId,
-        displayName: live.displayName,
-        serverBaseUrl: live.serverBaseUrl,
-        allowInsecureTransport: live.allowInsecureTransport,
-        projectId
-      })
-    );
-    await this.sessionLifecycle.connectWithinQueue(live.profileId);
   }
 
   private async activateWorkspaceAuthorityInternal(input: {
@@ -623,174 +569,108 @@ export class CollaborationService {
     return this.sessionLifecycle.disconnect();
   }
   async redeemSetupCode(input: unknown): Promise<CollaborationStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      await this.workspaceConnectionFacade.redeemSetupCode(input);
-      await this.activateLiveServerSurfacesWithinQueue();
-      return this.publishStatus();
-    });
+    return this.workspaceCommands.redeemSetupCode(input);
   }
 
   async recoverHistoricalIdentities(input: unknown): Promise<CollaborationStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.recoverHistoricalIdentities(input);
-    });
+    return this.workspaceCommands.recoverHistoricalIdentities(input);
   }
 
   async confirmIdentityMerge(input: unknown): Promise<CollaborationStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.confirmIdentityMerge(input);
-    });
+    return this.workspaceCommands.confirmIdentityMerge(input);
   }
 
   async connectExistingServerByOrigin(input: unknown): Promise<CollaborationStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      await this.workspaceConnectionFacade.connectExistingServerByOrigin(input);
-      await this.activateLiveServerSurfacesWithinQueue();
-      return this.publishStatus();
-    });
+    return this.workspaceCommands.connectExistingServerByOrigin(input);
   }
 
   async getActiveWorkspaceConnection(): Promise<ActiveWorkspaceConnectionView> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.getActiveWorkspaceConnection();
-    });
+    return this.workspaceCommands.getActiveWorkspaceConnection();
   }
 
   async peekPersistedRemoteProfileId(): Promise<string | null> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.workspaceConnection.peekPersistedRemoteProfileId();
-    });
+    return this.workspaceCommands.peekPersistedRemoteProfileId();
   }
 
   async snapshotExportedServerDataIdentity(): Promise<ServerDataIdentitySnapshotResult> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.workspaceConnection.snapshotExportedServerDataIdentity();
-    });
+    return this.workspaceCommands.snapshotExportedServerDataIdentity();
   }
 
   async markLastServerConnectionLocal(): Promise<void> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.workspaceConnection.markLastConnectionLocal();
-    });
+    return this.workspaceCommands.markLastServerConnectionLocal();
   }
 
   async restorePersistedRemoteServerConnection(profileId: string): Promise<CollaborationStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      await this.workspaceConnectionFacade.selectWorkspaceConnection({ profileId });
-      await this.activateLiveServerSurfacesWithinQueue();
-      return this.publishStatus();
-    });
+    return this.workspaceCommands.restorePersistedRemoteServerConnection(profileId);
   }
 
   async listRememberedServerConnections(): Promise<RememberedServerConnectionView[]> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.listRememberedServerConnections();
-    });
+    return this.workspaceCommands.listRememberedServerConnections();
   }
 
   async listWorkspacePicker(input: unknown = {}): Promise<WorkspacePickerPage> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.listWorkspacePicker(input);
-    });
+    return this.workspaceCommands.listWorkspacePicker(input);
   }
 
   async getWorkspaceConnectionSelf(): Promise<WorkspaceConnectionSelfView> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.getWorkspaceConnectionSelf();
-    });
+    return this.workspaceCommands.getWorkspaceConnectionSelf();
   }
 
   async updateWorkspaceConnectionSelf(input: unknown): Promise<WorkspaceConnectionSelfView> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.updateWorkspaceConnectionSelf(input);
-    });
+    return this.workspaceCommands.updateWorkspaceConnectionSelf(input);
   }
 
   async listWorkspaceConnectionMembers(
     input: unknown = {}
   ): Promise<WorkspaceConnectionMembersPage> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.listWorkspaceConnectionMembers(input);
-    });
+    return this.workspaceCommands.listWorkspaceConnectionMembers(input);
   }
 
   async selectWorkspaceConnection(input: unknown): Promise<CollaborationStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      await this.workspaceConnectionFacade.selectWorkspaceConnection(input);
-      await this.activateLiveServerSurfacesWithinQueue();
-      return this.publishStatus();
-    });
+    return this.workspaceCommands.selectWorkspaceConnection(input);
   }
 
   async connectWorkspaceConnection(): Promise<CollaborationStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      await this.workspaceConnectionFacade.connectWorkspaceConnection();
-      await this.activateLiveServerSurfacesWithinQueue();
-      return this.publishStatus();
-    });
+    return this.workspaceCommands.connectWorkspaceConnection();
   }
 
   async disconnectWorkspaceConnection(): Promise<CollaborationStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      await this.sessionLifecycle.disconnectWithinQueue();
-      return this.workspaceConnectionFacade.disconnectWorkspaceConnection();
-    });
+    return this.workspaceCommands.disconnectWorkspaceConnection();
   }
 
   async forgetRememberedServerConnection(input: unknown): Promise<CollaborationStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      return this.workspaceConnectionFacade.forgetRememberedServerConnection(input);
-    });
+    return this.workspaceCommands.forgetRememberedServerConnection(input);
   }
 
   async retryWorkspaceConnection(): Promise<CollaborationStatus> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      await this.ensureWorkspaceHydrated();
-      await this.workspaceConnectionFacade.retryWorkspaceConnection();
-      await this.activateLiveServerSurfacesWithinQueue();
-      return this.publishStatus();
-    });
+    return this.workspaceCommands.retryWorkspaceConnection();
   }
 
   async getCurrentCanvasAccess(input: unknown): Promise<CurrentCanvasAccessView> {
-    return this.enqueue(async () => {
-      this.assertOpen();
-      return this.currentCanvasAccess.get(input);
-    });
+    return this.workspaceCommands.read(() =>
+      this.currentCanvasAccess.prepareGet(input, async (projectId, operation) => {
+        if (projectId) {
+          const session = await this.workspaceConnection.captureReadSession(true);
+          return () => session.withProjectClient(projectId, operation);
+        }
+        const profile = this.requireActiveClient().connectionProfile;
+        const deviceToken = await this.vault.getDeviceToken(profile.profileId);
+        return async () => {
+          const client = this.createClient({
+            profile,
+            credential: { getDeviceToken: async () => deviceToken },
+            request: this.request
+          });
+          try {
+            return await operation(client);
+          } catch (error) {
+            throw collaborationErrorFromUnknown(error);
+          } finally {
+            client.dispose();
+          }
+        };
+      })
+    );
   }
 
   async mutateCurrentCanvasAccess(input: unknown): Promise<AccessMutationResult> {
@@ -1030,9 +910,7 @@ export class CollaborationService {
     return this.readMutations.readCommentAttachment(input);
   }
 
-  private async withActiveClient<T>(
-    operation: (client: CollaborationClient) => Promise<T>
-  ): Promise<T> {
+  private requireActiveClient(): CollaborationClient {
     this.assertOpen();
     const client = this.client;
     if (!client || !this.clientProfileId) {
@@ -1043,6 +921,13 @@ export class CollaborationService {
         retryable: false
       });
     }
+    return client;
+  }
+
+  private async withActiveClient<T>(
+    operation: (client: CollaborationClient) => Promise<T>
+  ): Promise<T> {
+    const client = this.requireActiveClient();
     try {
       return await operation(client);
     } catch (error) {
@@ -1130,6 +1015,7 @@ export class CollaborationService {
   /** Abort live clients and clear process memory on app shutdown. Durable ciphertext is kept. */
   async shutdown(): Promise<void> {
     await this.enqueue(async () => {
+      this.workspaceConnection.retireReads();
       this.workspaceConnection.stopMembersObserver();
       await this.disposeClient("shutdown");
       this.vault.clearSessionMemory();

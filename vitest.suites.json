@@ -438,6 +438,7 @@
         "workspaceCanvasDownload.test.ts",
         "workspaceCanvasPublishReceiptStore.test.ts",
         "workspaceCanvasSession.test.ts",
+        "workspaceConnectionReadLifecycle.test.ts",
         "workspaceConnectionSelection.test.ts",
         "workspaceExecutionCharacterization.test.ts",
         "workspaceExecutionProcessBoundary.test.ts",

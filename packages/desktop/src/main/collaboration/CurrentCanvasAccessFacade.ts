@@ -43,6 +43,23 @@ export class CurrentCanvasAccessFacade {
     return (await this.context(parsed.canvasId, parsed.projectId)).view;
   }
 
+  async prepareGet(
+    input: unknown,
+    prepareClient: <T>(
+      projectId: string | undefined,
+      operation: (client: CanvasAccessClient) => Promise<T>
+    ) => Promise<() => Promise<T>>
+  ): Promise<() => Promise<CurrentCanvasAccessView>> {
+    assertNoSmuggledCollaborationSecrets(input, "getCurrentCanvasAccess");
+    const parsed = collaborationCurrentCanvasAccessInputSchema.parse(input);
+    await this.options.ensureWorkspaceHydrated();
+    const connection = await this.options.buildWorkspaceConnectionView();
+    return prepareClient(
+      parsed.projectId,
+      async (client) => (await this.readContext(connection, client, parsed.canvasId)).view
+    );
+  }
+
   async mutate(input: unknown): Promise<AccessMutationResult> {
     assertNoSmuggledCollaborationSecrets(input, "mutateCurrentCanvasAccess");
     const mutation = collaborationAccessMutationInputSchema.parse(input);
@@ -88,30 +105,39 @@ export class CurrentCanvasAccessFacade {
   }> {
     await this.options.ensureWorkspaceHydrated();
     const connection = await this.options.buildWorkspaceConnectionView();
-    return this.withClient(projectId, async (client) => {
-      if (
-        connection.status === "connected" &&
-        connection.profile?.serverBaseUrl !== client.connectionProfile.serverBaseUrl
-      ) {
-        throw new CollaborationClientError({
-          kind: "forbidden",
-          code: "collaboration_workspace_connection_mismatch",
-          message:
-            "The active Workspace connection does not authorize the active collaboration project."
-        });
-      }
-      const view = await client.getCurrentCanvasAccess(canvasId);
-      const scope = view.scope;
-      if (
-        scope.projectId !== client.projectId ||
-        scope.canvasId !== canvasId ||
-        (connection.status === "connected" && connection.workspaceId !== scope.workspaceId)
-      ) {
-        throw scopeMismatch("The Server returned access data for a different Workspace canvas.");
-      }
-      assertViewScope(view, scope);
-      return { scope, view };
-    });
+    return this.withClient(projectId, (client) => this.readContext(connection, client, canvasId));
+  }
+
+  private async readContext(
+    connection: WorkspaceConnectionView,
+    client: CanvasAccessClient,
+    canvasId: string
+  ): Promise<{
+    scope: Extract<AccessScope, { scopeKind: "canvas" }>;
+    view: CurrentCanvasAccessView;
+  }> {
+    if (
+      connection.status === "connected" &&
+      connection.profile?.serverBaseUrl !== client.connectionProfile.serverBaseUrl
+    ) {
+      throw new CollaborationClientError({
+        kind: "forbidden",
+        code: "collaboration_workspace_connection_mismatch",
+        message:
+          "The active Workspace connection does not authorize the active collaboration project."
+      });
+    }
+    const view = await client.getCurrentCanvasAccess(canvasId);
+    const scope = view.scope;
+    if (
+      scope.projectId !== client.projectId ||
+      scope.canvasId !== canvasId ||
+      (connection.status === "connected" && connection.workspaceId !== scope.workspaceId)
+    ) {
+      throw scopeMismatch("The Server returned access data for a different Workspace canvas.");
+    }
+    assertViewScope(view, scope);
+    return { scope, view };
   }
 }
 

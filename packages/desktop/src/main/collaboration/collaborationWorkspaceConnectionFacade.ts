@@ -190,14 +190,23 @@ export class CollaborationWorkspaceConnectionFacade {
     return this.connection.listRememberedServers();
   }
 
-  listWorkspacePicker(input: unknown = {}): Promise<WorkspacePickerPage> {
+  async preparePickerRead(input: unknown = {}): Promise<() => Promise<WorkspacePickerPage>> {
     assertNoSmuggledCollaborationSecrets(input, "listWorkspacePicker");
     const query = collaborationWorkspacePickerQuerySchema.parse(input ?? {});
-    return this.connection.buildPickerPage(query.cursor, query.limit);
+    return this.connection.preparePickerRead(query.cursor, query.limit);
   }
 
-  getWorkspaceConnectionSelf(): Promise<WorkspaceConnectionSelfView> {
-    return this.connection.getSelf();
+  async listWorkspacePicker(input: unknown = {}): Promise<WorkspacePickerPage> {
+    return (await this.preparePickerRead(input))();
+  }
+
+  async prepareSelfRead(): Promise<() => Promise<WorkspaceConnectionSelfView>> {
+    const session = await this.connection.captureReadSession();
+    return () => session.withWorkspaceClient((client) => client.getSelf());
+  }
+
+  async getWorkspaceConnectionSelf(): Promise<WorkspaceConnectionSelfView> {
+    return (await this.prepareSelfRead())();
   }
 
   updateWorkspaceConnectionSelf(input: unknown): Promise<WorkspaceConnectionSelfView> {
@@ -206,10 +215,19 @@ export class CollaborationWorkspaceConnectionFacade {
     return this.connection.updateSelf(body.displayName);
   }
 
-  listWorkspaceConnectionMembers(input: unknown = {}): Promise<WorkspaceConnectionMembersPage> {
+  async prepareMembersRead(
+    input: unknown = {}
+  ): Promise<() => Promise<WorkspaceConnectionMembersPage>> {
     assertNoSmuggledCollaborationSecrets(input, "listWorkspaceConnectionMembers");
     const query = collaborationWorkspacePickerQuerySchema.parse(input ?? {});
-    return this.connection.listMembers(query.cursor, query.limit);
+    const session = await this.connection.captureReadSession();
+    return () => session.withWorkspaceClient((client) => client.listMembers(query));
+  }
+
+  async listWorkspaceConnectionMembers(
+    input: unknown = {}
+  ): Promise<WorkspaceConnectionMembersPage> {
+    return (await this.prepareMembersRead(input))();
   }
 
   async selectWorkspaceConnection(input: unknown): Promise<CollaborationStatus> {
