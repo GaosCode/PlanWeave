@@ -131,35 +131,27 @@ it.each([
 });
 it("does not lose independent successful layout intents prepared concurrently", async () => {
   const workspace = await fixture();
-  const both = deferred();
-  const create = ImportTransaction.create;
-  let count = 0;
-  vi.spyOn(ImportTransaction, "create").mockImplementation(async (options) => {
-    const transaction = await create(options);
-    count += 1;
-    if (count === 2) both.resolve();
-    await both.promise;
-    return transaction;
-  });
+  const manifest = (await loadPackage(workspace)).manifest;
+  const layout = await getDesktopLayoutDirect(workspace);
+  const applications = ["T-001", "T-002"].map((nodeId) =>
+    buildCanvasCommandApplication(manifest, layout, {
+      kind: "update_layout",
+      nodes: [{ nodeId, x: 5, y: 6 }],
+      updatedAt: "2030-01-01T00:00:00.000Z"
+    })
+  );
   const results = await Promise.all(
-    ["T-001", "T-002"].map((nodeId) =>
-      track(
-        applyAuthorizedCanvasCommand({
-          projectRoot: workspace,
-          canvasId: "default",
-          intent: {
-            kind: "update_layout",
-            nodes: [{ nodeId, x: 5, y: 6 }],
-            updatedAt: "2030-01-01T00:00:00.000Z"
-          }
-        })
-      )
+    applications.map((application) =>
+      track(commitCanvasCommandApplication({ workspace, application }))
     )
   );
   const nodes = (await getDesktopLayoutDirect(workspace)).nodes.map((node) => node.nodeId);
   for (const [index, result] of results.entries()) {
     if (result.ok) expect(nodes).toContain(index === 0 ? "T-001" : "T-002");
-    else expect(result.detail).toContain("layout");
+    else
+      expect(result.diagnostics.map((diagnostic) => diagnostic.message).join("\n")).toContain(
+        "layout"
+      );
   }
   expect(results.some((result) => result.ok)).toBe(true);
 });

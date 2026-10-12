@@ -393,8 +393,13 @@ describe("main canvas-selection IPC persistence", () => {
     const f = await fixture();
     const alias = join(temporaryRoot, "source-alias");
     await fs.symlink(f.root, alias, "dir");
-    vi.mocked(fs.rename).mockImplementationOnce(async () => {
-      throw Object.assign(new Error("SELECTION-DISK-FAIL"), { code: "EIO" });
+    let failed = false;
+    vi.mocked(fs.rename).mockImplementation(async (from, to) => {
+      if (!failed && to === f.activePath) {
+        failed = true;
+        throw Object.assign(new Error("SELECTION-DISK-FAIL"), { code: "EIO" });
+      }
+      return actual.rename(from, to);
     });
     await expect(
       runtimeBridgeProjectHandlers.selectTaskCanvas(event, alias, f.bId)

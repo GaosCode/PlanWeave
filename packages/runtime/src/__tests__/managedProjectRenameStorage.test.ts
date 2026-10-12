@@ -178,14 +178,12 @@ it.each([
 it.each([
   false,
   true
-])("keeps a created Canvas journal on its original workspace (later=%s)", async (later) => {
+])("relocates a Canvas only after its admitted command commits (later=%s)", async (later) => {
   const { home, project, workspace } = await fixture();
-  const canvas = later
-    ? await resolveTaskCanvasWorkspace(
-        workspace.rootPath,
-        (await createTaskCanvas(workspace.rootPath, { name: "Pending canvas" })).canvasId
-      )
-    : workspace;
+  const canvasId = later
+    ? (await createTaskCanvas(workspace.rootPath, { name: "Pending canvas" })).canvasId
+    : "default";
+  const canvas = await resolveTaskCanvasWorkspace(workspace.rootPath, canvasId);
   const application = buildCanvasCommandApplication(
     (await loadPackage(canvas)).manifest,
     await getDesktopLayoutDirect(canvas),
@@ -211,12 +209,28 @@ it.each([
     (value) => ({ value, error: null }),
     (error: unknown) => ({ value: null, error })
   );
+  const renameAttempted = barrier();
+  const withProjectLock = projectMutation.withProjectMutationLock;
+  vi.spyOn(projectMutation, "withProjectMutationLock").mockImplementation((root, fn, options) => {
+    if (typeof root !== "string") renameAttempted.release();
+    return withProjectLock(root, fn, options);
+  });
+  let renaming: ReturnType<typeof renameProject> | undefined;
+  let settled = false;
   try {
     await created.promise;
     const before = await importTransactionIdentityDigest(workspace.workspaceRoot);
-    await expect(renameProject(project.id, "Storage destination")).rejects.toThrow(
-      "write conflict"
+    renaming = renameProject(project.id, "Storage destination");
+    void renaming.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
     );
+    await renameAttempted.promise;
+    expect(settled).toBe(false);
     expect(await importTransactionIdentityDigest(workspace.workspaceRoot)).toBe(before);
     await expect(
       access(join(home, "projects", createManagedProjectId("Storage destination")))
@@ -226,14 +240,25 @@ it.each([
     await command;
   }
   expect(await command).toMatchObject({ value: { ok: true }, error: null });
-  expect((await loadPackage(canvas)).manifest.nodes.map((node) => node.id)).toContain("T-001");
-  expect((await getDesktopLayoutDirect(canvas)).nodes).toContainEqual(
+  if (!renaming) throw new Error("Rename was not started");
+  const renamed = await renaming;
+  const moved = await resolveTaskCanvasWorkspace(renamed.rootPath, canvasId);
+  expect((await loadPackage(moved)).manifest.nodes.map((node) => node.id)).toContain("T-001");
+  expect((await getDesktopLayoutDirect(moved)).nodes).toContainEqual(
     expect.objectContaining({ nodeId: "T-001", x: 77, y: 88 })
   );
-  expect(await listPendingImportTransactions(canvas.workspaceRoot)).toEqual([]);
-  expect(await readFile(join(workspace.resultsDir, "history.txt"), "utf8")).toBe(
-    "history-before-rename"
-  );
+  expect(await listPendingImportTransactions(moved.workspaceRoot)).toEqual([]);
+  await expect(access(workspace.workspaceRoot)).rejects.toThrow();
+  expect(
+    await readFile(
+      join(
+        renamed.rootPath,
+        relative(workspace.workspaceRoot, workspace.resultsDir),
+        "history.txt"
+      ),
+      "utf8"
+    )
+  ).toBe("history-before-rename");
 });
 
 it("rejects a transaction queued after rename preflight without recreating the old root", async () => {
