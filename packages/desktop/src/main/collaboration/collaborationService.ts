@@ -1,4 +1,5 @@
 import type { ServerDataIdentitySnapshotResult } from "../../shared/serverDataMigration.js";
+import { resolvePlanweaveHome } from "@planweave-ai/runtime";
 import {
   collaborationConnectionProfileSchema,
   type CollaborationConnectionProfile,
@@ -735,7 +736,8 @@ export class CollaborationService {
   }
 
   async downloadWorkspaceCanvasFork(input: unknown) {
-    return this.canvasOperations.downloadWorkspaceCanvasFork(input);
+    const planweaveHome = resolvePlanweaveHome();
+    return this.canvasOperations.downloadWorkspaceCanvasFork(input, { planweaveHome });
   }
 
   async listMembers(input: unknown = {}): Promise<HumanMemberPage> {

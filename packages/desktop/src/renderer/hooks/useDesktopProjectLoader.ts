@@ -136,8 +136,10 @@ export function useDesktopProjectLoader({
     async (
       project: DesktopProjectSummary,
       requestedCanvasId?: string | null,
-      existingSelection?: DesktopSelectionReceipt & { finishLoading: () => void }
+      existingSelection?: DesktopSelectionReceipt & { finishLoading: () => void },
+      isOperationCurrent?: () => boolean
     ) => {
+      if (isOperationCurrent && !isOperationCurrent()) return;
       const canvasId = resolveProjectCanvasId(project, requestedCanvasId);
       const selection = existingSelection ?? beginProjectSelection(project, canvasId);
       if (!selection.isCurrent()) return;
@@ -147,30 +149,35 @@ export function useDesktopProjectLoader({
       }
       const canvasRef = desktopCanvasReference(project, canvasId);
       const loadRequest = beginProjectRequest(canvasRef, "load");
+      const isCurrent = () =>
+        loadRequest.isCurrent() && (!isOperationCurrent || isOperationCurrent());
       const request = beginSnapshotRequest(canvasRef, { includeLayout: true, includePrompt: true });
       const errors: string[] = [];
       let publishSnapshotDiagnostics: (() => string[]) | null = null;
       try {
         try {
           const snapshot = await bridge.getDesktopProjectSnapshot(canvasRef);
-          if (!loadRequest.isCurrent()) return;
+          if (!isCurrent()) return;
           if (request.isCurrent()) {
             publishSnapshotDiagnostics = applyDesktopProjectSnapshot(snapshot, request.writeScope);
             if (snapshot.graph && request.graph.isCurrent()) {
-              await refreshDesktopGraphDiagnostics(canvasRef, request.graph.isCurrent);
+              await refreshDesktopGraphDiagnostics(
+                canvasRef,
+                () => isCurrent() && request.graph.isCurrent()
+              );
             }
           }
-          if (!loadRequest.isCurrent()) return;
+          if (!isCurrent()) return;
           if (snapshot.graph) {
             await bridge.refreshPackageFileChanges(canvasRef);
-            if (!loadRequest.isCurrent()) return;
+            if (!isCurrent()) return;
             await bridge.watchPackageFiles(canvasRef);
           }
         } catch (caught) {
-          if (!request.isCurrent()) return;
+          if (!isCurrent() || !request.isCurrent()) return;
           errors.push(errorMessage(caught));
         }
-        if (!loadRequest.isCurrent()) return;
+        if (!isCurrent()) return;
         if (publishSnapshotDiagnostics) errors.push(...publishSnapshotDiagnostics());
         if (request.isCurrent() && errors.length > 0) setError(errors.join("\n"));
         updateSettings({ runtimePath: project.workspaceRoot });
@@ -404,21 +411,24 @@ export function useDesktopProjectLoader({
   );
 
   const refreshProjects = useCallback(
-    async (options: { selectProjectId?: string; selectCanvasId?: string } = {}) => {
-      if (!bridge) {
+    async (
+      options: { selectProjectId?: string; selectCanvasId?: string; isCurrent?: () => boolean } = {}
+    ) => {
+      if (!bridge || (options.isCurrent && !options.isCurrent())) {
         return;
       }
       const request = captureProjectSelection("projects");
+      const isCurrent = () => request.isCurrent() && (!options.isCurrent || options.isCurrent());
       setProjectRefreshing(true);
       try {
         const nextProjects = await bridge.listProjects();
-        if (!request.isCurrent()) return;
+        if (!isCurrent()) return;
         setProjects(nextProjects);
         const requestedProject = options.selectProjectId
           ? (nextProjects.find((item) => item.projectId === options.selectProjectId) ?? null)
           : null;
         if (requestedProject) {
-          await loadProject(requestedProject, options.selectCanvasId);
+          await loadProject(requestedProject, options.selectCanvasId, undefined, options.isCurrent);
           return;
         }
         const currentProject =
@@ -443,7 +453,7 @@ export function useDesktopProjectLoader({
         }
         const nextProject = nextProjects[0] ?? null;
         if (nextProject) {
-          await loadProject(nextProject);
+          await loadProject(nextProject, undefined, undefined, options.isCurrent);
           return;
         }
         setSelectedProject(null);
@@ -452,7 +462,7 @@ export function useDesktopProjectLoader({
         clearProjectState();
         setError(null);
       } catch (caught) {
-        if (request.isCurrent()) setError(errorMessage(caught));
+        if (isCurrent()) setError(errorMessage(caught));
       } finally {
         if (request.isCurrent()) setProjectRefreshing(false);
       }

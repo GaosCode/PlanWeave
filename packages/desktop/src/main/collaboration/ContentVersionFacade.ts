@@ -273,10 +273,11 @@ export class ContentVersionFacade {
     });
   }
 
-  async downloadWorkspaceCanvasFork(input: unknown) {
+  async downloadWorkspaceCanvasFork(input: unknown, context: { planweaveHome: string }) {
     return downloadWorkspaceCanvasFork({
       client: this.requireClient(),
-      rawInput: input
+      rawInput: input,
+      planweaveHome: context.planweaveHome
     });
   }
 

@@ -139,10 +139,10 @@ export class CollaborationCanvasOperationsFacade {
     });
   }
 
-  downloadWorkspaceCanvasFork(input: unknown) {
+  downloadWorkspaceCanvasFork(input: unknown, context: { planweaveHome: string }) {
     return this.run(() => {
       assertNoSmuggledCollaborationSecrets(input, "downloadWorkspaceCanvasFork");
-      return this.options.contentVersions.downloadWorkspaceCanvasFork(input);
+      return this.options.contentVersions.downloadWorkspaceCanvasFork(input, context);
     });
   }
 

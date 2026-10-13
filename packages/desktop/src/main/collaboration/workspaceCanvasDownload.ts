@@ -44,8 +44,9 @@ export async function localProjectHasWorkspaceForkLineage(projectRoot: string): 
 export async function downloadWorkspaceCanvasFork(input: {
   client: CollaborationClient;
   rawInput: unknown;
+  planweaveHome?: string;
 }): Promise<WorkspaceCanvasDownloadResult> {
-  const planweaveHome = resolvePlanweaveHome();
+  const planweaveHome = input.planweaveHome ?? resolvePlanweaveHome();
   const requested = workspaceCanvasDownloadInputSchema.parse(input.rawInput);
   const scope = canvasScopeRefSchema.parse({
     workspaceId: requested.workspaceId,

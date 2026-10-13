@@ -69,6 +69,7 @@ import type {
   TaskWorkspaceNavigationTarget
 } from "./taskWorkspaceNavigation";
 import { useProjectWorkspaceAuthority } from "./hooks/useProjectWorkspaceAuthority";
+import { useWorkspaceCanvasDownload } from "./hooks/useWorkspaceCanvasDownload";
 import type { ProjectWorkspaceShellInput } from "./projectWorkspaceShell";
 export type { ProjectWorkspaceShellInput } from "./projectWorkspaceShell";
 
@@ -336,33 +337,19 @@ export function ProjectWorkspaceProvider({
       remoteWorkspace.clear();
     }
   }, [handleOpenProject, remoteWorkspace.clear]);
-  const downloadWorkspaceFork = useCallback(async () => {
-    if (!collaborationBridge || canvasLocator?.kind !== "workspace") return;
-    try {
-      const result = await collaborationBridge.downloadWorkspaceCanvasFork({
-        workspaceId: canvasLocator.workspaceId,
-        projectId: canvasLocator.projectId,
-        canvasId: canvasLocator.canvasId,
-        ...(graph?.projectTitle ? { projectName: graph.projectTitle } : {})
-      });
-      remoteWorkspace.clear();
-      await refreshProjects({
-        selectProjectId: result.localProjectId,
-        selectCanvasId: result.localCanvasId
-      });
-      setSuccessMessage(t("downloadWorkspaceForkSuccess"));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    }
-  }, [
-    canvasLocator,
-    graph?.projectTitle,
+  const downloadWorkspaceFork = useWorkspaceCanvasDownload({
+    api: collaborationBridge,
+    planweaveHome: settings.planweaveHome,
+    locator: canvasLocator,
+    localProjectRoot: selectedProject?.rootPath ?? null,
+    status: collaborationSurface.status,
+    projectTitle: graph?.projectTitle,
+    clearWorkspace: remoteWorkspace.clear,
     refreshProjects,
-    remoteWorkspace.clear,
     setError,
     setSuccessMessage,
     t
-  ]);
+  });
 
   const createLocalProjectFromTaskCanvas = useCallback(
     (project: DesktopProjectSummary, canvasId: string) =>
