@@ -11,6 +11,7 @@ import { workspaceCanvasPublishResultSchema } from "../../shared/workspaceCanvas
 import type { CollaborationCanvasCommandFacade } from "./collaborationCanvasCommands.js";
 import type { CanvasRuntimeAvailabilityCoordinator } from "./CanvasRuntimeAvailabilityCoordinator.js";
 import type { ContentVersionFacade } from "./ContentVersionFacade.js";
+import type { CollaborationClient } from "./CollaborationClient.js";
 import { WorkspaceCanvasSession } from "./WorkspaceCanvasSession.js";
 import type { WorkspaceAuthoritativeSnapshotCache } from "./WorkspaceAuthoritativeSnapshotCache.js";
 import type { WorkspaceRemoteAuthorityKey } from "./WorkspaceRemoteAuthorityIdentity.js";
@@ -139,7 +140,10 @@ export class CollaborationCanvasOperationsFacade {
     });
   }
 
-  downloadWorkspaceCanvasFork(input: unknown, context: { planweaveHome: string }) {
+  downloadWorkspaceCanvasFork(
+    input: unknown,
+    context: { planweaveHome: string; client: CollaborationClient | null }
+  ) {
     return this.run(() => {
       assertNoSmuggledCollaborationSecrets(input, "downloadWorkspaceCanvasFork");
       return this.options.contentVersions.downloadWorkspaceCanvasFork(input, context);

@@ -737,7 +737,10 @@ export class CollaborationService {
 
   async downloadWorkspaceCanvasFork(input: unknown) {
     const planweaveHome = resolvePlanweaveHome();
-    return this.canvasOperations.downloadWorkspaceCanvasFork(input, { planweaveHome });
+    return this.canvasOperations.downloadWorkspaceCanvasFork(input, {
+      planweaveHome,
+      client: this.sessionPhase === "connected" ? this.client : null
+    });
   }
 
   async listMembers(input: unknown = {}): Promise<HumanMemberPage> {

@@ -76,7 +76,143 @@ class DownloadClient extends CollaborationClient {
   }
 }
 
+function createDownloadService(
+  home: string,
+  createClient: (options: CollaborationClientOptions) => CollaborationClient
+): CollaborationService {
+  const service = new CollaborationService({
+    profileStore: new CollaborationProfileStore({ profilesPath: join(home, "profiles.json") }),
+    vault: new CollaborationCredentialVault({
+      paths: { credentialsPath: join(home, "credentials.json") },
+      safeStorage: {
+        isEncryptionAvailable: () => false,
+        encryptString: (value) => Buffer.from(value),
+        decryptString: (value) => value.toString()
+      }
+    }),
+    invitationsPath: join(home, "invitations.json"),
+    workspaceProfileStorePaths: { profilesPath: join(home, "workspace-profiles.json") },
+    exportedIdentityPath: join(home, "identity.json"),
+    createClient
+  });
+  services.push(service);
+  return service;
+}
+
+async function addDownloadProfile(
+  service: CollaborationService,
+  projectId: string,
+  profileId = "profile-download",
+  serverBaseUrl = "https://download.example.test/"
+): Promise<void> {
+  await service.upsertProfile({
+    profileId,
+    displayName: "Download",
+    serverBaseUrl,
+    projectId,
+    allowInsecureTransport: false,
+    endpoint: {
+      topology: "public_https",
+      serverOrigin: serverBaseUrl,
+      allowedClientOrigins: [serverBaseUrl],
+      tlsTrust: "system_ca"
+    }
+  });
+  await service.importDeviceCredential({ profileId, deviceToken: exampleHumanDeviceToken });
+}
+
 describe("CollaborationService queued download Home ownership", () => {
+  it.each([
+    false,
+    true
+  ])("retires a download admitted during profile preflight (failed=%s)", async (failed) => {
+    const source = await createTestWorkspace();
+    directories.push(source.home, source.root);
+    const settings = new DesktopSettingsStore({
+      settingsFile: join(source.home, "desktop-settings.json"),
+      planweaveHomeBaseline: source.home
+    });
+    await settings.mergePatch({ planweaveHome: source.home });
+    const { content } = await captureAuthorizedCanvasContent({
+      projectRoot: source.init.workspace
+    });
+    const scope = {
+      workspaceId: "workspace-download",
+      projectId: source.init.workspace.id,
+      canvasId: "canvas-download"
+    };
+    const completed = {
+      versionId: `version-${content.canonicalDigest}`,
+      canonicalDigest: content.canonicalDigest,
+      verification: "complete" as const
+    };
+    const fetchHead = vi.fn(
+      async (): Promise<AuthoritativeContentHead> => ({
+        schemaVersion: "content-version/v1",
+        scope,
+        revision: 3,
+        content: completed,
+        advancedAt: "2026-08-01T00:00:00.000Z"
+      })
+    );
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    const clients: DownloadClient[] = [];
+    const service = createDownloadService(source.home, (options) => {
+      const client = new DownloadClient(options, fetchHead, {
+        schemaVersion: "content-version/v1",
+        scope,
+        completed,
+        content,
+        createdAt: "2026-08-01T00:00:00.000Z",
+        createdBy: { kind: "human", id: "source-owner" }
+      });
+      vi.spyOn(client, "fetchContentVersion");
+      if (options.profile.profileId === "profile-other") {
+        vi.spyOn(client, "verifyAccess").mockImplementation(async () => {
+          entered.resolve();
+          await release.promise;
+          if (failed) throw new Error("new_profile_preflight_failed");
+        });
+      }
+      clients.push(client);
+      return client;
+    });
+    await addDownloadProfile(service, scope.projectId);
+    await addDownloadProfile(
+      service,
+      scope.projectId,
+      "profile-other",
+      "https://other-download.example.test/"
+    );
+    await service.connectSession({ profileId: "profile-download" });
+    const connection = service.connectSession({ profileId: "profile-other" });
+    const connectionOutcome = Promise.allSettled([connection]);
+    await entered.promise;
+    const projectName = "Preflight Download";
+    const downloading = service.downloadWorkspaceCanvasFork({ ...scope, projectName });
+    const downloadOutcome = Promise.allSettled([downloading]);
+    try {
+      expect(clients.at(-1)?.connectionProfile.profileId).toBe("profile-other");
+      expect(fetchHead).not.toHaveBeenCalled();
+      release.resolve();
+      const [connectionResult] = await connectionOutcome;
+      expect(connectionResult.status).toBe(failed ? "rejected" : "fulfilled");
+      const [downloadResult] = await downloadOutcome;
+      expect(downloadResult.status).toBe("rejected");
+      expect(fetchHead).not.toHaveBeenCalled();
+      for (const client of clients) expect(client.fetchContentVersion).not.toHaveBeenCalled();
+      const projectId = createManagedProjectId(projectName);
+      expect(await readdir(join(source.home, "projects"))).not.toContain(projectId);
+      await expect(
+        readFile(join(source.home, "projects", projectId, "project.json"), "utf8")
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      release.resolve();
+      await Promise.all([connectionOutcome, downloadOutcome]);
+    }
+  });
+
   it.each([
     { firstFails: false, conflictingHomeB: false },
     { firstFails: true, conflictingHomeB: false },
@@ -131,20 +267,9 @@ describe("CollaborationService queued download Home ownership", () => {
         advancedAt: "2026-08-01T00:00:00.000Z"
       };
     };
-    const service = new CollaborationService({
-      profileStore: new CollaborationProfileStore({ profilesPath: join(homeA, "profiles.json") }),
-      vault: new CollaborationCredentialVault({
-        paths: { credentialsPath: join(homeA, "credentials.json") },
-        safeStorage: {
-          isEncryptionAvailable: () => false,
-          encryptString: (value) => Buffer.from(value),
-          decryptString: (value) => value.toString()
-        }
-      }),
-      invitationsPath: join(homeA, "invitations.json"),
-      workspaceProfileStorePaths: { profilesPath: join(homeA, "workspace-profiles.json") },
-      exportedIdentityPath: join(homeA, "identity.json"),
-      createClient: (options) =>
+    const service = createDownloadService(
+      homeA,
+      (options) =>
         new DownloadClient(options, head, {
           schemaVersion: "content-version/v1",
           scope,
@@ -153,25 +278,8 @@ describe("CollaborationService queued download Home ownership", () => {
           createdAt: "2026-08-01T00:00:00.000Z",
           createdBy: { kind: "human", id: "source-owner" }
         })
-    });
-    services.push(service);
-    await service.upsertProfile({
-      profileId: "profile-download",
-      displayName: "Download",
-      serverBaseUrl: "https://download.example.test/",
-      projectId: scope.projectId,
-      allowInsecureTransport: false,
-      endpoint: {
-        topology: "public_https",
-        serverOrigin: "https://download.example.test/",
-        allowedClientOrigins: ["https://download.example.test/"],
-        tlsTrust: "system_ca"
-      }
-    });
-    await service.importDeviceCredential({
-      profileId: "profile-download",
-      deviceToken: exampleHumanDeviceToken
-    });
+    );
+    await addDownloadProfile(service, scope.projectId);
     await service.connectSession({ profileId: "profile-download" });
     const first = service.downloadWorkspaceCanvasFork({ ...scope, projectName: "First Download" });
     const firstOutcome = Promise.allSettled([first]);
@@ -213,6 +321,130 @@ describe("CollaborationService queued download Home ownership", () => {
     } finally {
       release.resolve();
       await Promise.all([firstOutcome, secondOutcome]);
+    }
+  });
+
+  it.each([
+    "switch profile",
+    "disconnect and reconnect",
+    "failed profile switch"
+  ])("keeps queued download admission ownership across %s", async (change) => {
+    const source = await createTestWorkspace();
+    directories.push(source.home, source.root);
+    const settings = new DesktopSettingsStore({
+      settingsFile: join(source.home, "desktop-settings.json"),
+      planweaveHomeBaseline: source.home
+    });
+    await settings.mergePatch({ planweaveHome: source.home });
+    const { content } = await captureAuthorizedCanvasContent({
+      projectRoot: source.init.workspace
+    });
+    const scope = {
+      workspaceId: "workspace-download",
+      projectId: source.init.workspace.id,
+      canvasId: "canvas-download"
+    };
+    const completed = {
+      versionId: `version-${content.canonicalDigest}`,
+      canonicalDigest: content.canonicalDigest,
+      verification: "complete" as const
+    };
+    const head: AuthoritativeContentHead = {
+      schemaVersion: "content-version/v1",
+      scope,
+      revision: 3,
+      content: completed,
+      advancedAt: "2026-08-01T00:00:00.000Z"
+    };
+    const entered = deferred<void>();
+    const release = deferred<void>();
+    let headCount = 0;
+    const fetchHead = vi.fn(async () => {
+      headCount += 1;
+      if (headCount === 1) {
+        entered.resolve();
+        await release.promise;
+        throw new Error("blocking_download_failed");
+      }
+      return head;
+    });
+    const clients: DownloadClient[] = [];
+    const service = createDownloadService(source.home, (options) => {
+      const client = new DownloadClient(options, fetchHead, {
+        schemaVersion: "content-version/v1",
+        scope,
+        completed,
+        content,
+        createdAt: "2026-08-01T00:00:00.000Z",
+        createdBy: { kind: "human", id: "source-owner" }
+      });
+      vi.spyOn(client, "fetchContentHead");
+      vi.spyOn(client, "fetchContentVersion");
+      clients.push(client);
+      return client;
+    });
+    await addDownloadProfile(service, scope.projectId);
+    await addDownloadProfile(
+      service,
+      scope.projectId,
+      "profile-other",
+      "https://other-download.example.test/"
+    );
+    await service.connectSession({ profileId: "profile-download" });
+    const admittedClient = clients.at(-1);
+    if (!admittedClient) throw new Error("Download client was not connected");
+    const blocking = service.downloadWorkspaceCanvasFork({
+      ...scope,
+      projectName: "Blocking Download"
+    });
+    const blockingOutcome = Promise.allSettled([blocking]);
+    await entered.promise;
+    const changes =
+      change === "switch profile"
+        ? [service.connectSession({ profileId: "profile-other" })]
+        : change === "disconnect and reconnect"
+          ? [service.disconnectSession(), service.connectSession({ profileId: "profile-download" })]
+          : [service.setActiveProfile({ profileId: "profile-missing" })];
+    const changesOutcome = Promise.allSettled(changes);
+    const projectName = "Admission Download";
+    const downloading = service.downloadWorkspaceCanvasFork({ ...scope, projectName });
+    const downloadOutcome = Promise.allSettled([downloading]);
+    try {
+      expect(fetchHead).toHaveBeenCalledOnce();
+      release.resolve();
+      const [blockingResult] = await blockingOutcome;
+      expect(blockingResult.status).toBe("rejected");
+      const changeResults = await changesOutcome;
+      const [downloadResult] = await downloadOutcome;
+      const projectRoot = join(source.home, "projects", createManagedProjectId(projectName));
+      if (change === "failed profile switch") {
+        expect(changeResults[0].status).toBe("rejected");
+        expect(downloadResult.status).toBe("fulfilled");
+        expect(admittedClient.fetchContentHead).toHaveBeenCalledTimes(2);
+        expect(admittedClient.fetchContentVersion).toHaveBeenCalledOnce();
+        expect(JSON.parse(await readFile(join(projectRoot, "project.json"), "utf8"))).toMatchObject(
+          {
+            name: projectName
+          }
+        );
+      } else {
+        expect(changeResults.every((result) => result.status === "fulfilled")).toBe(true);
+        expect(downloadResult.status).toBe("rejected");
+        expect(fetchHead).toHaveBeenCalledOnce();
+        for (const client of clients) {
+          expect(client.fetchContentVersion).not.toHaveBeenCalled();
+          if (client !== admittedClient) expect(client.fetchContentHead).not.toHaveBeenCalled();
+        }
+        await expect(readFile(join(projectRoot, "project.json"), "utf8")).rejects.toMatchObject({
+          code: "ENOENT"
+        });
+        expect(await readdir(join(source.home, "projects"))).not.toContain(
+          createManagedProjectId(projectName)
+        );
+      }
+    } finally {
+      release.resolve();
+      await Promise.all([blockingOutcome, changesOutcome, downloadOutcome]);
     }
   });
 });

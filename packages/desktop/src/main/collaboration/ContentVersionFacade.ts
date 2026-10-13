@@ -273,9 +273,14 @@ export class ContentVersionFacade {
     });
   }
 
-  async downloadWorkspaceCanvasFork(input: unknown, context: { planweaveHome: string }) {
+  async downloadWorkspaceCanvasFork(
+    input: unknown,
+    context: { planweaveHome: string; client: CollaborationClient | null }
+  ) {
+    const client = this.requireClient();
+    if (client !== context.client) throw unavailable("workspace_canvas_download_authority_changed");
     return downloadWorkspaceCanvasFork({
-      client: this.requireClient(),
+      client,
       rawInput: input,
       planweaveHome: context.planweaveHome
     });
