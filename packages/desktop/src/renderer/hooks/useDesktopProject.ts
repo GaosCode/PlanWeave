@@ -223,6 +223,8 @@ export function useDesktopProject({
   });
 
   useDesktopRuntimeSubscriptions({
+    planweaveHome,
+    captureProjectSelection,
     graph,
     refreshGraph,
     refreshRuntimeState,

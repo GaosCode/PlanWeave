@@ -5,10 +5,13 @@ import type {
   DesktopRuntimeStateChangeEvent
 } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
+import type { DesktopSelectionReceipt } from "./useDesktopProjectSnapshot";
 
 const externalRuntimeRefreshIntervalMs = 30_000;
 
 type UseDesktopRuntimeSubscriptionsArgs = {
+  planweaveHome: string;
+  captureProjectSelection: () => DesktopSelectionReceipt;
   graph: DesktopGraphViewModel | null;
   refreshGraph: () => Promise<void>;
   refreshRuntimeState: () => Promise<void>;
@@ -34,6 +37,8 @@ function runtimeStateEventMatchesCanvas(
 }
 
 export function useDesktopRuntimeSubscriptions({
+  planweaveHome,
+  captureProjectSelection,
   graph,
   refreshGraph,
   refreshRuntimeState,
@@ -41,21 +46,25 @@ export function useDesktopRuntimeSubscriptions({
   selectedProject,
   setError
 }: UseDesktopRuntimeSubscriptionsArgs) {
-  const externalRefreshInFlightRef = useRef(false);
+  const externalRefreshInFlightRef = useRef<DesktopSelectionReceipt | null>(null);
   const selectedProjectRoot = selectedProject?.rootPath;
   const graphAvailable = graph !== null;
 
   const runExternalRuntimeRefresh = useCallback(() => {
-    if (!documentIsVisible() || externalRefreshInFlightRef.current) {
+    if (!documentIsVisible() || externalRefreshInFlightRef.current?.isCurrent()) {
       return;
     }
-    externalRefreshInFlightRef.current = true;
+    const request = captureProjectSelection();
+    externalRefreshInFlightRef.current = request;
     void refreshRuntimeState()
-      .catch((caught: unknown) => setError(errorMessage(caught)))
+      .catch((caught: unknown) => {
+        if (request.isCurrent()) setError(errorMessage(caught));
+      })
       .finally(() => {
-        externalRefreshInFlightRef.current = false;
+        if (externalRefreshInFlightRef.current === request)
+          externalRefreshInFlightRef.current = null;
       });
-  }, [refreshRuntimeState, setError]);
+  }, [captureProjectSelection, refreshRuntimeState, setError]);
 
   useEffect(() => {
     const projectRoot = selectedProjectRoot;
@@ -76,31 +85,59 @@ export function useDesktopRuntimeSubscriptions({
     return () => window.clearInterval(timer);
   }, [runExternalRuntimeRefresh, selectedProject]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Home changes retire and rebind watchers even when the project path stays the same.
   useEffect(() => {
     if (!bridge || !selectedProjectRoot || !graphAvailable) {
       return undefined;
     }
     const runtimeBridge = bridge;
     const ref = { projectRoot: selectedProjectRoot, canvasId: selectedCanvasId };
-    void runtimeBridge
-      .watchRuntimeState(ref)
-      .catch((caught: unknown) => setError(errorMessage(caught)));
+    const request = captureProjectSelection();
+    let active = true;
+    void runtimeBridge.watchRuntimeState(ref).catch((caught: unknown) => {
+      if (active && request.isCurrent()) setError(errorMessage(caught));
+    });
     return () => {
+      active = false;
       void runtimeBridge.unwatchRuntimeState(ref);
     };
-  }, [graphAvailable, selectedCanvasId, selectedProjectRoot, setError]);
+  }, [
+    captureProjectSelection,
+    graphAvailable,
+    planweaveHome,
+    selectedCanvasId,
+    selectedProjectRoot,
+    setError
+  ]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Home changes retire subscriptions even when the selected project stays the same.
   useEffect(() => {
     if (!bridge || !selectedProject) {
       return undefined;
     }
-    return bridge.onRuntimeStateChanged((event) => {
+    let active = true;
+    const unsubscribe = bridge.onRuntimeStateChanged((event) => {
+      if (!active) return;
       if (!runtimeStateEventMatchesCanvas(event, selectedProject, selectedCanvasId)) {
         return;
       }
-      void refreshGraph().catch((caught: unknown) => setError(errorMessage(caught)));
+      const request = captureProjectSelection();
+      void refreshGraph().catch((caught: unknown) => {
+        if (active && request.isCurrent()) setError(errorMessage(caught));
+      });
     });
-  }, [refreshGraph, selectedCanvasId, selectedProject, setError]);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [
+    captureProjectSelection,
+    planweaveHome,
+    refreshGraph,
+    selectedCanvasId,
+    selectedProject,
+    setError
+  ]);
 
   useEffect(() => {
     if (typeof document === "undefined" || !selectedProject) {

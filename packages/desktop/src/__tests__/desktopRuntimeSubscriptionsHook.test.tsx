@@ -37,6 +37,71 @@ async function settleMockCalls(mock: ReturnType<typeof vi.fn>): Promise<void> {
 
 describe("desktop runtime subscriptions hook", () => {
   it.each([
+    "current",
+    "canvas",
+    "canvas ABA",
+    "home",
+    "home ABA",
+    "unmount"
+  ])("scopes a delayed runtime watcher failure to its selection after %s", async (change) => {
+    const pending = deferred<void>();
+    const watchRuntimeState = vi
+      .fn()
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(undefined);
+    const desktopBridge = createDesktopBridgeMock({
+      listProjects: vi.fn().mockResolvedValue([]),
+      getDesktopProjectSnapshot: vi.fn().mockResolvedValue(projectSnapshot()),
+      watchRuntimeState
+    });
+    vi.stubGlobal("planweave", desktopBridge);
+    vi.resetModules();
+    const { useDesktopProject } = await import("../renderer/hooks/useDesktopProject");
+    const setError = vi.fn();
+    const t = createTranslator("en");
+    const updateSettings = vi.fn();
+    const { result, rerender, unmount } = renderHook(
+      ({ planweaveHome }) => useDesktopProject({ planweaveHome, setError, t, updateSettings }),
+      { initialProps: { planweaveHome: "/home-a" } }
+    );
+    await waitFor(() => expect(result.current.projectLoading).toBe(false));
+    await act(async () => {
+      await result.current.loadProject(project);
+    });
+    await waitFor(() =>
+      expect(watchRuntimeState).toHaveBeenCalledWith({
+        projectRoot: project.rootPath,
+        canvasId: "canvas-main"
+      })
+    );
+
+    if (change === "canvas" || change === "canvas ABA") {
+      await act(async () => {
+        await result.current.loadProject(project, "canvas-next");
+      });
+      if (change === "canvas ABA") {
+        await act(async () => {
+          await result.current.loadProject(project, "canvas-main");
+        });
+      }
+    } else if (change === "home" || change === "home ABA") {
+      rerender({ planweaveHome: "/home-b" });
+      if (change === "home ABA") rerender({ planweaveHome: "/home-a" });
+    } else if (change === "unmount") unmount();
+
+    setError.mockClear();
+    await act(async () => {
+      pending.reject(new Error("delayed_runtime_watch_failure"));
+      await flushAsyncEffects();
+    });
+    if (change === "current") {
+      expect(setError).toHaveBeenCalledWith("delayed_runtime_watch_failure");
+    } else {
+      expect(setError).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
     "resolve",
     "reject"
   ])("ignores a runtime-triggered graph %s after canvas selection changes", async (outcome) => {
@@ -186,12 +251,15 @@ describe("desktop runtime subscriptions hook", () => {
     vi.resetModules();
     const { useDesktopProject } = await import("../renderer/hooks/useDesktopProject");
 
+    const setError = vi.fn();
+    const t = createTranslator("en");
+    const updateSettings = vi.fn();
     const { result } = renderHook(() =>
       useDesktopProject({
         planweaveHome: "",
-        setError: vi.fn(),
-        t: createTranslator("en"),
-        updateSettings: vi.fn()
+        setError,
+        t,
+        updateSettings
       })
     );
 
@@ -216,5 +284,33 @@ describe("desktop runtime subscriptions hook", () => {
     });
     expect(getDesktopProjectSnapshot).not.toHaveBeenCalled();
     expect(result.current.graph?.graphVersion).toBe("pgv-runtime-state-event");
+
+    await act(async () => {
+      await result.current.loadProject(project, "canvas-main");
+    });
+    expect(result.current.graph?.graphVersion).toBe(graph.graphVersion);
+    await settleMockCalls(getDesktopProjectSnapshot);
+    getDesktopProjectSnapshot.mockClear();
+    getGraphViewModel.mockClear();
+    getGraphViewModel.mockResolvedValueOnce({
+      ...graph,
+      graphVersion: "pgv-runtime-state-after-reload"
+    });
+    await act(async () => {
+      runtimeStateChangedCallback?.({
+        projectRoot: project.rootPath,
+        canvasId: "canvas-main",
+        stateFile: "/tmp/demo/canvases/canvas-main/state.json",
+        changedAt: "2026-06-16T00:00:02.000Z"
+      });
+      await flushAsyncEffects();
+    });
+    expect(getGraphViewModel).toHaveBeenCalledOnce();
+    expect(getGraphViewModel).toHaveBeenCalledWith({
+      projectRoot: project.rootPath,
+      canvasId: "canvas-main"
+    });
+    expect(getDesktopProjectSnapshot).not.toHaveBeenCalled();
+    expect(result.current.graph?.graphVersion).toBe("pgv-runtime-state-after-reload");
   });
 });
