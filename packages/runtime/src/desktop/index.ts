@@ -67,6 +67,7 @@ export type {
 } from "./types/canvasMapLayoutSchema.js";
 export {
   desktopCanvasReferenceSchema,
+  desktopWatchRegistrationSchema,
   desktopProjectDoctorRepairConfirmationSchema,
   desktopRegisteredProjectIdSchema,
   desktopProjectReferenceSchema,
@@ -393,3 +394,5 @@ export {
 export type * from "./types.js";
 
 export { normalizeReviewPipelineStepContent } from "./reviewPipelineStepContent.js";
+
+export { resolveDesktopWatchWorkspace } from "./desktopWatchWorkspace.js";

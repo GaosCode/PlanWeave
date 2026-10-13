@@ -7,7 +7,12 @@ import { WatchRuntimeTestDriver } from "./watchRuntimeTestDriver.js";
 
 export type RegisteredHandler = (
   event: { sender: TestWebContents },
-  ref: { projectRoot: string; canvasId?: string | null }
+  ref: {
+    projectRoot: string;
+    canvasId?: string | null;
+    workspaceRoot: string;
+    registrationId: string;
+  }
 ) => unknown;
 
 export type WatchCallback = (eventType: string, filename: string | Buffer | null) => void;
@@ -104,7 +109,7 @@ const runtimeMock = vi.hoisted(() => {
   };
   return {
     state,
-    resolveTaskCanvasWorkspace: vi.fn(async () => {
+    resolveDesktopWatchWorkspace: vi.fn(async () => {
       if (!state.workspace) {
         throw new Error("Test workspace is not configured.");
       }
@@ -247,9 +252,11 @@ vi.mock("node:fs/promises", async () => {
   };
 });
 
-vi.mock("@planweave-ai/runtime", () => ({
-  resolveTaskCanvasWorkspace: runtimeMock.resolveTaskCanvasWorkspace
-}));
+vi.mock("@planweave-ai/runtime", async () => {
+  const actual =
+    await vi.importActual<typeof import("@planweave-ai/runtime")>("@planweave-ai/runtime");
+  return { ...actual, resolveDesktopWatchWorkspace: runtimeMock.resolveDesktopWatchWorkspace };
+});
 
 export async function createWorkspace(): Promise<TestWorkspace> {
   const rootPath = await mkdtemp(join(tmpdir(), "planweave-package-watch-"));
@@ -315,7 +322,12 @@ export async function registerAndWatch(
   expect(handler).toBeDefined();
   await handler?.(
     { sender: webContents },
-    { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
+    {
+      projectRoot: workspace.rootPath,
+      canvasId: "canvas-a",
+      workspaceRoot: workspace.rootPath,
+      registrationId: `test-${webContents.id}`
+    }
   );
   if (
     !activeRegistrations.some(
@@ -335,7 +347,12 @@ export async function unwatch(
   expect(handler).toBeDefined();
   await handler?.(
     { sender: webContents },
-    { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
+    {
+      projectRoot: workspace.rootPath,
+      canvasId: "canvas-a",
+      workspaceRoot: workspace.rootPath,
+      registrationId: `test-${webContents.id}`
+    }
   );
   const registrationIndex = activeRegistrations.findIndex(
     (registration) =>
@@ -394,21 +411,24 @@ export function resetPackageWatchTestState(): void {
   resetFakeWatchImplementation();
   fsPromisesMock.reset();
   runtimeMock.state.workspace = null;
-  runtimeMock.resolveTaskCanvasWorkspace.mockClear();
+  runtimeMock.resolveDesktopWatchWorkspace.mockClear();
 }
 
 export async function cleanupPackageWatchTestResources(): Promise<void> {
   const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.unwatchPackageFiles);
   if (handler) {
     await Promise.all(
-      activeRegistrations
-        .splice(0)
-        .map(({ webContents, workspace }) =>
-          handler(
-            { sender: webContents },
-            { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
-          )
+      activeRegistrations.splice(0).map(({ webContents, workspace }) =>
+        handler(
+          { sender: webContents },
+          {
+            projectRoot: workspace.rootPath,
+            canvasId: "canvas-a",
+            workspaceRoot: workspace.rootPath,
+            registrationId: `test-${webContents.id}`
+          }
         )
+      )
     );
   } else {
     activeRegistrations.length = 0;

@@ -10,7 +10,29 @@ import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { project } from "./helpers/desktopProjectFixtures";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 
-afterEach(cleanupRendererTestEnvironment);
+const watchLeases: Array<{ retire: () => void }> = [];
+
+afterEach(() => {
+  cleanupRendererTestEnvironment();
+  for (const lease of watchLeases.splice(0)) lease.retire();
+});
+
+async function createWatchScopes() {
+  const { beginDesktopWatchRegistration } = await import("../renderer/desktopWatchRegistration");
+  const references = new Map<
+    string,
+    ReturnType<typeof beginDesktopWatchRegistration>["reference"]
+  >();
+  return (rootPath: string, workspaceRoot: string, canvasId: string) => {
+    const scope = JSON.stringify([rootPath, workspaceRoot, canvasId]);
+    const existing = references.get(scope);
+    if (existing) return existing;
+    const lease = beginDesktopWatchRegistration({ rootPath, workspaceRoot }, canvasId);
+    watchLeases.push(lease);
+    references.set(scope, lease.reference);
+    return lease.reference;
+  };
+}
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -160,6 +182,7 @@ describe("desktop renderer hook interfaces", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+    const watchScope = await createWatchScopes();
 
     const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     const setFileSyncResult = vi.fn();
@@ -178,9 +201,8 @@ describe("desktop renderer hook interfaces", () => {
     );
 
     await waitFor(() => expect(packageFileChanged).not.toBeNull());
-    const event = {
-      projectRoot: project.rootPath,
-      canvasId: "canvas-main",
+    const event: DesktopPackageFileChangeEvent = {
+      ...watchScope(project.rootPath, project.workspaceRoot, "canvas-main"),
       paths: ["package/nodes/T-ALPHA/blocks/B-001.prompt.md"],
       changedPathCount: 1,
       backendKind: "native",
@@ -231,6 +253,7 @@ describe("desktop renderer hook interfaces", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+    const watchScope = await createWatchScopes();
 
     const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     const setLastFileChange = vi.fn();
@@ -248,16 +271,14 @@ describe("desktop renderer hook interfaces", () => {
 
     await waitFor(() => expect(packageFileChanged).not.toBeNull());
     const firstEvent: DesktopPackageFileChangeEvent = {
-      projectRoot: project.rootPath,
-      canvasId: "canvas-main",
+      ...watchScope(project.rootPath, project.workspaceRoot, "canvas-main"),
       paths: ["package/nodes/T-ALPHA/blocks/B-002.prompt.md"],
       changedPathCount: 1,
       backendKind: "native",
       triggeredAt: "2026-06-23T00:00:00.000Z"
     };
     const secondEvent: DesktopPackageFileChangeEvent = {
-      projectRoot: project.rootPath,
-      canvasId: "canvas-main",
+      ...watchScope(project.rootPath, project.workspaceRoot, "canvas-main"),
       paths: [
         "package/nodes/T-ALPHA/blocks/B-001.prompt.md",
         "package/nodes/T-ALPHA/blocks/B-002.prompt.md"
@@ -315,6 +336,7 @@ describe("desktop renderer hook interfaces", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+    const watchScope = await createWatchScopes();
 
     const setLastFileChange = vi.fn();
     renderHook(() =>
@@ -332,14 +354,12 @@ describe("desktop renderer hook interfaces", () => {
     await waitFor(() => expect(packageFileChanged).not.toBeNull());
     act(() => {
       packageFileChanged?.({
-        projectRoot: "/other/project",
-        canvasId: "canvas-main",
+        ...watchScope("/other/project", "/other/project", "canvas-main"),
         paths: ["package/manifest.json"],
         triggeredAt: "2026-06-23T00:00:00.000Z"
       });
       packageFileChanged?.({
-        projectRoot: project.rootPath,
-        canvasId: "other-canvas",
+        ...watchScope(project.rootPath, project.workspaceRoot, "other-canvas"),
         paths: ["package/manifest.json"],
         triggeredAt: "2026-06-23T00:00:01.000Z"
       });
@@ -363,6 +383,7 @@ describe("desktop renderer hook interfaces", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+    const watchScope = await createWatchScopes();
 
     const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     const reloadCurrentCanvas = vi.fn().mockResolvedValue(undefined);
@@ -386,8 +407,7 @@ describe("desktop renderer hook interfaces", () => {
     await waitFor(() => expect(packageFileChanged).not.toBeNull());
     act(() => {
       packageFileChanged?.({
-        projectRoot: project.rootPath,
-        canvasId: "canvas-main",
+        ...watchScope(project.rootPath, project.workspaceRoot, "canvas-main"),
         paths: ["package/nodes/T-ALPHA/blocks/B-001.prompt.md"],
         triggeredAt: "2026-06-23T00:00:00.000Z"
       });
@@ -422,6 +442,7 @@ describe("desktop renderer hook interfaces", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+    const watchScope = await createWatchScopes();
 
     const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     const setFileSyncResult = vi.fn();
@@ -443,8 +464,7 @@ describe("desktop renderer hook interfaces", () => {
     await waitFor(() => expect(packageFileChanged).not.toBeNull());
     act(() => {
       packageFileChanged?.({
-        projectRoot: project.rootPath,
-        canvasId: "canvas-main",
+        ...watchScope(project.rootPath, project.workspaceRoot, "canvas-main"),
         paths: ["package/nodes/T-ALPHA/blocks/B-001.prompt.md"],
         backendKind: "native",
         triggeredAt: "2026-06-23T00:00:00.000Z"
@@ -458,8 +478,7 @@ describe("desktop renderer hook interfaces", () => {
 
     act(() => {
       packageFileChanged?.({
-        projectRoot: project.rootPath,
-        canvasId: "canvas-main",
+        ...watchScope(project.rootPath, project.workspaceRoot, "canvas-main"),
         paths: ["package/nodes/T-ALPHA/blocks/B-002.prompt.md"],
         backendKind: "native",
         triggeredAt: "2026-06-23T00:00:01.000Z"
@@ -471,15 +490,14 @@ describe("desktop renderer hook interfaces", () => {
     await waitFor(() => expect(packageFileChanged).not.toBeNull());
     act(() => {
       packageFileChanged?.({
-        projectRoot: project.rootPath,
-        canvasId: "canvas-next",
+        ...watchScope(project.rootPath, project.workspaceRoot, "canvas-next"),
         paths: ["package/nodes/T-BETA/blocks/B-001.prompt.md"],
         changedPathCount: 1,
         backendKind: "polling",
         triggeredAt: "2026-06-23T00:00:02.000Z"
       });
     });
-    expect(bridge.refreshPackageFileChanges).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPackageFileChanges).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       firstRefresh.resolve(createSuccessfulSyncResult());
@@ -523,6 +541,7 @@ describe("desktop renderer hook interfaces", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+    const watchScope = await createWatchScopes();
 
     const setFileSyncResult = vi.fn();
     const { rerender, result } = renderHook(
@@ -543,8 +562,7 @@ describe("desktop renderer hook interfaces", () => {
     await waitFor(() => expect(packageFileChanged).not.toBeNull());
     act(() => {
       packageFileChanged?.({
-        projectRoot: project.rootPath,
-        canvasId: "canvas-main",
+        ...watchScope(project.rootPath, project.workspaceRoot, "canvas-main"),
         paths: ["package/nodes/T-ALPHA/blocks/B-001.prompt.md"],
         backendKind: "native",
         triggeredAt: "2026-06-23T00:00:00.000Z"
@@ -572,7 +590,7 @@ describe("desktop renderer hook interfaces", () => {
     act(() => {
       currentManualRefresh = result.current.refreshPackageFiles();
     });
-    expect(bridge.refreshPackageFileChanges).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPackageFileChanges).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       firstRefresh.resolve(createSuccessfulSyncResult());
@@ -610,6 +628,7 @@ describe("desktop renderer hook interfaces", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+    const watchScope = await createWatchScopes();
 
     const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     const { result } = renderHook(() =>
@@ -627,8 +646,7 @@ describe("desktop renderer hook interfaces", () => {
     await waitFor(() => expect(packageFileChanged).not.toBeNull());
     act(() => {
       packageFileChanged?.({
-        projectRoot: project.rootPath,
-        canvasId: "canvas-main",
+        ...watchScope(project.rootPath, project.workspaceRoot, "canvas-main"),
         paths: ["package/nodes/T-ALPHA/blocks/B-001.prompt.md"],
         triggeredAt: "2026-06-23T00:00:00.000Z"
       });
@@ -683,6 +701,7 @@ describe("desktop renderer hook interfaces", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { usePackageFileSync } = await import("../renderer/hooks/usePackageFileSync");
+    const watchScope = await createWatchScopes();
 
     const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     const reloadCurrentCanvas = vi.fn().mockResolvedValue(undefined);
@@ -699,9 +718,8 @@ describe("desktop renderer hook interfaces", () => {
     );
 
     await waitFor(() => expect(packageFileChanged).not.toBeNull());
-    const event = {
-      projectRoot: project.rootPath,
-      canvasId: "canvas-main",
+    const event: DesktopPackageFileChangeEvent = {
+      ...watchScope(project.rootPath, project.workspaceRoot, "canvas-main"),
       paths: ["policy/project-prompt.md"],
       triggeredAt: "2026-06-23T00:00:00.000Z"
     };

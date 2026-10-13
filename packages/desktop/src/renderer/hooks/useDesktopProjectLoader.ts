@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   type Dispatch,
   type MutableRefObject,
@@ -13,6 +14,7 @@ import type {
   ProjectPromptPolicy
 } from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
+import { beginDesktopWatchRegistration } from "../desktopWatchRegistration";
 import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate } from "../types";
 import type {
@@ -123,6 +125,27 @@ export function useDesktopProjectLoader({
   updateSettings
 }: UseDesktopProjectLoaderArgs) {
   const promptWrites = useRef({ markdown: 0, policy: 0 });
+  const packageWatch = useRef<
+    | (ReturnType<typeof beginDesktopWatchRegistration> & {
+        isCurrent: () => boolean;
+      })
+    | null
+  >(null);
+  const stopPackageWatch = useCallback(() => {
+    const registration = packageWatch.current;
+    if (!registration) return;
+    packageWatch.current = null;
+    registration.retire();
+    void bridge?.unwatchPackageFiles(registration.reference).catch((caught: unknown) => {
+      if (packageWatch.current === null && registration.isCurrent()) setError(errorMessage(caught));
+    });
+  }, [setError]);
+  const stopPackageWatchRef = useRef(stopPackageWatch);
+  stopPackageWatchRef.current = stopPackageWatch;
+  useLayoutEffect(() => {
+    if (packageWatch.current && !packageWatch.current.isCurrent()) stopPackageWatch();
+  });
+  useLayoutEffect(() => () => stopPackageWatchRef.current(), []);
   const initialProjectsLoaded = useRef(false);
   const initialProjectsHome = useRef(planweaveHome);
   const initialProjectPathRef = useRef<string | null>(null);
@@ -171,7 +194,16 @@ export function useDesktopProjectLoader({
           if (snapshot.graph) {
             await bridge.refreshPackageFileChanges(canvasRef);
             if (!isCurrent()) return;
-            await bridge.watchPackageFiles(canvasRef);
+            stopPackageWatch();
+            const registration = { ...beginDesktopWatchRegistration(project, canvasId), isCurrent };
+            packageWatch.current = registration;
+            try {
+              await bridge.watchPackageFiles(registration.reference);
+            } catch (caught) {
+              registration.retire();
+              if (packageWatch.current === registration) packageWatch.current = null;
+              throw caught;
+            }
           }
         } catch (caught) {
           if (!isCurrent() || !request.isCurrent()) return;
@@ -192,6 +224,7 @@ export function useDesktopProjectLoader({
       beginSnapshotRequest,
       refreshDesktopGraphDiagnostics,
       setError,
+      stopPackageWatch,
       updateSettings
     ]
   );

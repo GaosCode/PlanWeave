@@ -31,7 +31,7 @@ describe("runtime state watcher", () => {
     fsMock.watch.mockClear();
     fsPromisesMock.reset();
     runtimeMock.state.workspace = null;
-    runtimeMock.resolveTaskCanvasWorkspace.mockClear();
+    runtimeMock.resolveDesktopWatchWorkspace.mockClear();
   });
 
   afterEach(async () => {

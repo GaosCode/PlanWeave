@@ -7,7 +7,12 @@ import { WatchRuntimeTestDriver } from "./watchRuntimeTestDriver.js";
 
 type RegisteredHandler = (
   event: { sender: TestWebContents },
-  ref: { projectRoot: string; canvasId?: string | null }
+  ref: {
+    projectRoot: string;
+    canvasId?: string | null;
+    workspaceRoot: string;
+    registrationId: string;
+  }
 ) => unknown;
 type WatchCallback = (eventType: string, filename: string | Buffer | null) => void;
 
@@ -95,7 +100,7 @@ const runtimeMock = vi.hoisted(() => {
   };
   return {
     state,
-    resolveTaskCanvasWorkspace: vi.fn(async () => {
+    resolveDesktopWatchWorkspace: vi.fn(async () => {
       if (!state.workspace) {
         throw new Error("Test workspace is not configured.");
       }
@@ -172,9 +177,11 @@ vi.mock("node:fs/promises", async () => {
   };
 });
 
-vi.mock("@planweave-ai/runtime", () => ({
-  resolveTaskCanvasWorkspace: runtimeMock.resolveTaskCanvasWorkspace
-}));
+vi.mock("@planweave-ai/runtime", async () => {
+  const actual =
+    await vi.importActual<typeof import("@planweave-ai/runtime")>("@planweave-ai/runtime");
+  return { ...actual, resolveDesktopWatchWorkspace: runtimeMock.resolveDesktopWatchWorkspace };
+});
 
 const tempRoots: string[] = [];
 const activeWatches: Array<{
@@ -226,7 +233,12 @@ async function registerAndWatch(
   expect(handler).toBeDefined();
   await handler?.(
     { sender: webContents },
-    { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
+    {
+      projectRoot: workspace.rootPath,
+      canvasId: "canvas-a",
+      workspaceRoot: workspace.rootPath,
+      registrationId: `test-${webContents.id}`
+    }
   );
   activeWatches.push({ webContents, workspace });
 }
@@ -236,7 +248,12 @@ async function unwatch(webContents: TestWebContents, workspace: TestWorkspace): 
   expect(handler).toBeDefined();
   await handler?.(
     { sender: webContents },
-    { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
+    {
+      projectRoot: workspace.rootPath,
+      canvasId: "canvas-a",
+      workspaceRoot: workspace.rootPath,
+      registrationId: `test-${webContents.id}`
+    }
   );
   const activeWatchIndex = activeWatches.findIndex(
     (activeWatch) => activeWatch.webContents === webContents && activeWatch.workspace === workspace

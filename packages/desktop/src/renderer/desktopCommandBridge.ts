@@ -1,4 +1,5 @@
 import { DesktopCommandError, desktopCommandErrorSchema } from "../shared/desktopCommandFailure.js";
+import { isActiveDesktopWatchEvent } from "./desktopWatchRegistration.js";
 
 const bridges = new WeakMap<object, object>();
 
@@ -18,6 +19,14 @@ export function desktopCommandBridge<T extends object>(api: T): T {
         const existingMethod = methods.get(property);
         if (existingMethod) return existingMethod;
         const method = (...args: unknown[]) => {
+          if (property === "onPackageFileChanged" || property === "onRuntimeStateChanged") {
+            const callback = args[0];
+            if (typeof callback === "function") {
+              args[0] = (event: unknown) => {
+                if (isActiveDesktopWatchEvent(event)) Reflect.apply(callback, undefined, [event]);
+              };
+            }
+          }
           const result: unknown = Reflect.apply(value, api, args);
           if (!(result instanceof Promise)) return result;
           return result.catch((error: unknown) => {

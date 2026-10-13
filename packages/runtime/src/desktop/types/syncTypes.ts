@@ -29,6 +29,8 @@ export type DesktopPackageFileSnapshotRef = {
 
 export type DesktopPackageFileChangeEvent = {
   projectRoot: string;
+  workspaceRoot: string;
+  registrationId: string;
   canvasId?: string | null;
   paths: string[];
   changedPathCount?: number;

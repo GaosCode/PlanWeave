@@ -13,6 +13,15 @@ export const desktopCanvasReferenceSchema = z
 
 export type DesktopCanvasReferenceInput = z.infer<typeof desktopCanvasReferenceSchema>;
 
+export const desktopWatchRegistrationSchema = desktopCanvasReferenceSchema
+  .extend({
+    workspaceRoot: z.string().min(1),
+    registrationId: z.string().min(1)
+  })
+  .strict();
+
+export type DesktopWatchRegistration = z.infer<typeof desktopWatchRegistrationSchema>;
+
 /**
  * Renderer-to-runtime project identity for project-scoped Desktop operations.
  * The runtime resolves this identity from the registered project store instead

@@ -359,10 +359,14 @@ describe("desktop project loader hook", () => {
     expect(bridge.getGraphViewModel).not.toHaveBeenCalled();
     expect(bridge.getDesktopLayout).not.toHaveBeenCalled();
     expect(bridge.getTodoGroups).not.toHaveBeenCalled();
-    expect(bridge.watchPackageFiles).toHaveBeenCalledWith({
-      projectRoot: project.rootPath,
-      canvasId: "canvas-main"
-    });
+    expect(bridge.watchPackageFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectRoot: project.rootPath,
+        workspaceRoot: project.workspaceRoot,
+        canvasId: "canvas-main",
+        registrationId: expect.any(String)
+      })
+    );
     expect(updateSettings).toHaveBeenCalledWith({ runtimePath: project.workspaceRoot });
   });
 
@@ -880,10 +884,14 @@ describe("desktop project loader hook", () => {
       projectRoot: activeProject.rootPath,
       canvasId: "canvas-active"
     });
-    expect(bridge.watchPackageFiles).toHaveBeenCalledWith({
-      projectRoot: activeProject.rootPath,
-      canvasId: "canvas-active"
-    });
+    expect(bridge.watchPackageFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectRoot: activeProject.rootPath,
+        workspaceRoot: activeProject.workspaceRoot,
+        canvasId: "canvas-active",
+        registrationId: expect.any(String)
+      })
+    );
   });
 
   it("keeps a requested project graph canvas even when it is absent from the project summary", async () => {

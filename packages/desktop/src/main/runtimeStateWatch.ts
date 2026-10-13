@@ -3,9 +3,16 @@ import { ipcMain } from "electron";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename, dirname } from "node:path";
-import { resolveTaskCanvasWorkspace } from "@planweave-ai/runtime";
-import type { DesktopCanvasReference, DesktopRuntimeStateChangeEvent } from "@planweave-ai/runtime";
+import {
+  desktopWatchRegistrationSchema,
+  resolveDesktopWatchWorkspace
+} from "@planweave-ai/runtime";
+import type {
+  DesktopWatchRegistration,
+  DesktopRuntimeStateChangeEvent
+} from "@planweave-ai/runtime";
 import type { WebContents } from "electron";
+import { desktopWatchBackendKey, desktopWatchSubscriberKey } from "./desktopWatchRegistration.js";
 import { desktopBridgeInvokeChannels, runtimeStateChangedChannel } from "../shared/ipcChannels.js";
 import {
   PollingWatchLane,
@@ -33,14 +40,18 @@ type RuntimeStateWatchBackend = {
   generation: number;
 };
 
-type RuntimeStateWatchSubscriber = {
+type RuntimeStateWatchPendingSubscriber = {
+  registration: DesktopWatchRegistration;
   webContents: WebContents;
+};
+
+type RuntimeStateWatchSubscriber = RuntimeStateWatchPendingSubscriber & {
   onDestroyed: () => void;
 };
 
 type RuntimeStateWatch = {
   backend: RuntimeStateWatchBackend;
-  subscribers: Map<number, RuntimeStateWatchSubscriber>;
+  subscribers: Map<string, RuntimeStateWatchSubscriber>;
   stateFile: string;
   timer: WatchTimer | null;
   scheduler: WatchScheduler;
@@ -57,15 +68,14 @@ type RuntimeStateWatchHandlerOptions = {
 
 const runtimeStateWatches = new Map<string, RuntimeStateWatch>();
 const pendingRuntimeStateWatchStarts = new Map<string, Promise<RuntimeStateWatch>>();
-const pendingRuntimeStateWatchSubscribers = new Map<string, Map<number, WebContents>>();
+const pendingRuntimeStateWatchSubscribers = new Map<
+  string,
+  Map<string, RuntimeStateWatchPendingSubscriber>
+>();
 const runtimeStateWatchDebounceMs = 150;
 const runtimeStateWatchPollIntervalMs = 1000;
 const runtimeStateWatchHashSweepIntervalMs = 30_000;
 const runtimeStateWatchFailureBackoffMaxMs = 16_000;
-
-function watchKey(projectRoot: string, canvasId?: string | null): string {
-  return `${projectRoot}::${canvasId ?? "default"}`;
-}
 
 function isMissingPathError(caught: unknown): boolean {
   return caught instanceof Error && "code" in caught && caught.code === "ENOENT";
@@ -248,30 +258,37 @@ async function startRuntimeStateWatchBackend(
   return backend;
 }
 
-function addPendingRuntimeStateWatchSubscriber(key: string, webContents: WebContents): void {
+function addPendingRuntimeStateWatchSubscriber(
+  key: string,
+  subscriberKey: string,
+  registration: DesktopWatchRegistration,
+  webContents: WebContents
+): RuntimeStateWatchPendingSubscriber {
   const subscribers =
-    pendingRuntimeStateWatchSubscribers.get(key) ?? new Map<number, WebContents>();
-  subscribers.set(webContents.id, webContents);
+    pendingRuntimeStateWatchSubscribers.get(key) ??
+    new Map<string, RuntimeStateWatchPendingSubscriber>();
+  const subscriber = subscribers.get(subscriberKey) ?? { registration, webContents };
+  subscribers.set(subscriberKey, subscriber);
   pendingRuntimeStateWatchSubscribers.set(key, subscribers);
+  return subscriber;
 }
 
-function removePendingRuntimeStateWatchSubscriber(key: string, webContentsId: number): void {
+function removePendingRuntimeStateWatchSubscriber(
+  key: string,
+  subscriberKey: string,
+  subscriber?: RuntimeStateWatchPendingSubscriber
+): void {
   const subscribers = pendingRuntimeStateWatchSubscribers.get(key);
-  if (!subscribers) {
-    return;
-  }
-  subscribers.delete(webContentsId);
+  if (!subscribers || (subscriber && subscribers.get(subscriberKey) !== subscriber)) return;
+  subscribers.delete(subscriberKey);
   if (subscribers.size === 0) {
     pendingRuntimeStateWatchSubscribers.delete(key);
+    pendingRuntimeStateWatchStarts.delete(key);
   }
 }
 
 function hasPendingRuntimeStateWatchSubscribers(key: string): boolean {
   return (pendingRuntimeStateWatchSubscribers.get(key)?.size ?? 0) > 0;
-}
-
-function hasPendingRuntimeStateWatchSubscriber(key: string, webContentsId: number): boolean {
-  return pendingRuntimeStateWatchSubscribers.get(key)?.has(webContentsId) ?? false;
 }
 
 function closeRuntimeStateWatch(activeWatch: RuntimeStateWatch): void {
@@ -297,8 +314,7 @@ function closeRuntimeStateWatch(activeWatch: RuntimeStateWatch): void {
 
 function scheduleRuntimeStateFlush(
   activeWatch: RuntimeStateWatch,
-  projectRoot: string,
-  canvasId: string | null | undefined,
+  key: string,
   delayMs: number
 ): void {
   if (activeWatch.closed) {
@@ -319,18 +335,16 @@ function scheduleRuntimeStateFlush(
   const timer: WatchTimer = activeWatch.scheduler.schedule(Math.max(0, scheduledAt - now), () => {
     if (activeWatch.timer !== timer) return;
     activeWatch.timer = null;
-    return flushRuntimeStateChange(projectRoot, canvasId, activeWatch, generation);
+    return flushRuntimeStateChange(key, activeWatch, generation);
   });
   activeWatch.timer = timer;
 }
 
 async function flushRuntimeStateChange(
-  projectRoot: string,
-  canvasId: string | null | undefined,
+  key: string,
   activeWatch: RuntimeStateWatch,
   generation: number
 ): Promise<void> {
-  const key = watchKey(projectRoot, canvasId);
   if (
     runtimeStateWatches.get(key) !== activeWatch ||
     activeWatch.closed ||
@@ -361,14 +375,16 @@ async function flushRuntimeStateChange(
     activeWatch.backend.lastFingerprint = nextFingerprint;
     activeWatch.flushFailureBackoffMs = 0;
     activeWatch.flushRetryNotBeforeMs = 0;
-    const payload: DesktopRuntimeStateChangeEvent = {
-      projectRoot,
-      canvasId: canvasId ?? null,
-      stateFile: activeWatch.stateFile,
-      changedAt: new Date(activeWatch.scheduler.nowMs()).toISOString()
-    };
     for (const subscriber of activeWatch.subscribers.values()) {
       if (!subscriber.webContents.isDestroyed()) {
+        const payload: DesktopRuntimeStateChangeEvent = {
+          projectRoot: subscriber.registration.projectRoot,
+          workspaceRoot: subscriber.registration.workspaceRoot,
+          registrationId: subscriber.registration.registrationId,
+          canvasId: subscriber.registration.canvasId ?? null,
+          stateFile: activeWatch.stateFile,
+          changedAt: new Date(activeWatch.scheduler.nowMs()).toISOString()
+        };
         subscriber.webContents.send(runtimeStateChangedChannel, payload);
       }
     }
@@ -384,7 +400,7 @@ async function flushRuntimeStateChange(
       console.warn(
         `PlanWeave runtime state watch flush failed for '${activeWatch.stateFile}': ${caught instanceof Error ? caught.message : String(caught)}`
       );
-      scheduleRuntimeStateFlush(activeWatch, projectRoot, canvasId, 0);
+      scheduleRuntimeStateFlush(activeWatch, key, 0);
     }
   } finally {
     activeWatch.flushInFlight = false;
@@ -394,27 +410,30 @@ async function flushRuntimeStateChange(
       runtimeStateWatches.get(key) === activeWatch
     ) {
       activeWatch.flushRequested = false;
-      scheduleRuntimeStateFlush(activeWatch, projectRoot, canvasId, runtimeStateWatchDebounceMs);
+      scheduleRuntimeStateFlush(activeWatch, key, runtimeStateWatchDebounceMs);
     }
   }
 }
 
 async function getOrCreateRuntimeStateWatch(
   key: string,
-  projectRoot: string,
-  canvasId: string | null | undefined,
+  registration: DesktopWatchRegistration,
   scheduler: WatchScheduler
 ): Promise<RuntimeStateWatch> {
   const activeWatch = runtimeStateWatches.get(key);
-  if (activeWatch) {
+  if (activeWatch && !activeWatch.closed) {
     return activeWatch;
+  }
+  if (activeWatch) {
+    runtimeStateWatches.delete(key);
   }
   const pendingStart = pendingRuntimeStateWatchStarts.get(key);
   if (pendingStart) {
     return pendingStart;
   }
-  const start = (async () => {
-    const workspace = await resolveTaskCanvasWorkspace(projectRoot, canvasId);
+  let start: Promise<RuntimeStateWatch> | null = null;
+  start = (async () => {
+    const workspace = await resolveDesktopWatchWorkspace(registration);
     let createdWatch: RuntimeStateWatch | null = null;
     const recordChange = (generation: number) => {
       const currentWatch = createdWatch;
@@ -433,7 +452,7 @@ async function getOrCreateRuntimeStateWatch(
       if (currentWatch.flushRetryNotBeforeMs > 0) {
         currentWatch.flushRequested = true;
       }
-      scheduleRuntimeStateFlush(currentWatch, projectRoot, canvasId, runtimeStateWatchDebounceMs);
+      scheduleRuntimeStateFlush(currentWatch, key, runtimeStateWatchDebounceMs);
     };
     const backend = await startRuntimeStateWatchBackend(
       workspace.stateFile,
@@ -449,7 +468,7 @@ async function getOrCreateRuntimeStateWatch(
           return;
         currentWatch.timer.cancel();
         currentWatch.timer = null;
-        scheduleRuntimeStateFlush(currentWatch, projectRoot, canvasId, 0);
+        scheduleRuntimeStateFlush(currentWatch, key, 0);
       }
     );
     createdWatch = {
@@ -464,7 +483,10 @@ async function getOrCreateRuntimeStateWatch(
       flushRetryNotBeforeMs: 0,
       closed: false
     };
-    if (!hasPendingRuntimeStateWatchSubscribers(key)) {
+    if (
+      pendingRuntimeStateWatchStarts.get(key) !== start ||
+      !hasPendingRuntimeStateWatchSubscribers(key)
+    ) {
       closeRuntimeStateWatch(createdWatch);
       return createdWatch;
     }
@@ -475,83 +497,78 @@ async function getOrCreateRuntimeStateWatch(
   try {
     return await start;
   } finally {
-    pendingRuntimeStateWatchStarts.delete(key);
+    if (pendingRuntimeStateWatchStarts.get(key) === start)
+      pendingRuntimeStateWatchStarts.delete(key);
   }
 }
 
 async function startRuntimeStateWatch(
-  projectRoot: string,
-  canvasId: string | null | undefined,
+  registration: DesktopWatchRegistration,
   webContents: WebContents,
   scheduler: WatchScheduler
 ): Promise<void> {
-  const key = watchKey(projectRoot, canvasId);
-  addPendingRuntimeStateWatchSubscriber(key, webContents);
+  const key = desktopWatchBackendKey(registration);
+  const subscriberKey = desktopWatchSubscriberKey(webContents.id, registration.registrationId);
+  const pendingSubscriber = addPendingRuntimeStateWatchSubscriber(
+    key,
+    subscriberKey,
+    registration,
+    webContents
+  );
   let activeWatch: RuntimeStateWatch;
   try {
-    activeWatch = await getOrCreateRuntimeStateWatch(key, projectRoot, canvasId, scheduler);
+    activeWatch = await getOrCreateRuntimeStateWatch(key, registration, scheduler);
   } catch (caught) {
-    removePendingRuntimeStateWatchSubscriber(key, webContents.id);
+    removePendingRuntimeStateWatchSubscriber(key, subscriberKey, pendingSubscriber);
     throw caught;
   }
-  if (!hasPendingRuntimeStateWatchSubscriber(key, webContents.id) || webContents.isDestroyed()) {
-    removePendingRuntimeStateWatchSubscriber(key, webContents.id);
+  if (
+    pendingRuntimeStateWatchSubscribers.get(key)?.get(subscriberKey) !== pendingSubscriber ||
+    webContents.isDestroyed() ||
+    activeWatch.closed
+  ) {
+    removePendingRuntimeStateWatchSubscriber(key, subscriberKey, pendingSubscriber);
     if (activeWatch.subscribers.size === 0 && !hasPendingRuntimeStateWatchSubscribers(key)) {
       closeRuntimeStateWatch(activeWatch);
-      if (runtimeStateWatches.get(key) === activeWatch) {
-        runtimeStateWatches.delete(key);
-      }
+      if (runtimeStateWatches.get(key) === activeWatch) runtimeStateWatches.delete(key);
     }
     return;
   }
-  if (!activeWatch.subscribers.has(webContents.id)) {
-    const onDestroyed = () => stopRuntimeStateWatch(projectRoot, canvasId, webContents);
-    activeWatch.subscribers.set(webContents.id, { webContents, onDestroyed });
+  if (!activeWatch.subscribers.has(subscriberKey)) {
+    const onDestroyed = () => stopRuntimeStateWatch(registration, webContents);
+    activeWatch.subscribers.set(subscriberKey, { ...pendingSubscriber, onDestroyed });
     webContents.once("destroyed", onDestroyed);
   }
-  removePendingRuntimeStateWatchSubscriber(key, webContents.id);
+  removePendingRuntimeStateWatchSubscriber(key, subscriberKey, pendingSubscriber);
 }
 
 function stopRuntimeStateWatch(
-  projectRoot: string,
-  canvasId: string | null | undefined,
+  registration: DesktopWatchRegistration,
   webContents: WebContents
 ): void {
-  const key = watchKey(projectRoot, canvasId);
-  removePendingRuntimeStateWatchSubscriber(key, webContents.id);
+  const key = desktopWatchBackendKey(registration);
+  const subscriberKey = desktopWatchSubscriberKey(webContents.id, registration.registrationId);
+  removePendingRuntimeStateWatchSubscriber(key, subscriberKey);
   const activeWatch = runtimeStateWatches.get(key);
-  if (!activeWatch) {
-    return;
+  if (!activeWatch) return;
+  const subscriber = activeWatch.subscribers.get(subscriberKey);
+  if (subscriber) {
+    activeWatch.subscribers.delete(subscriberKey);
+    subscriber.webContents.removeListener("destroyed", subscriber.onDestroyed);
   }
-  const subscriber = activeWatch.subscribers.get(webContents.id);
-  if (!subscriber) {
-    if (activeWatch.subscribers.size === 0 && !hasPendingRuntimeStateWatchSubscribers(key)) {
-      closeRuntimeStateWatch(activeWatch);
-      runtimeStateWatches.delete(key);
-    }
-    return;
-  }
-  activeWatch.subscribers.delete(webContents.id);
-  subscriber.webContents.removeListener("destroyed", subscriber.onDestroyed);
-  if (activeWatch.subscribers.size > 0 || hasPendingRuntimeStateWatchSubscribers(key)) {
-    return;
-  }
+  if (activeWatch.subscribers.size > 0 || hasPendingRuntimeStateWatchSubscribers(key)) return;
   closeRuntimeStateWatch(activeWatch);
-  runtimeStateWatches.delete(key);
+  if (runtimeStateWatches.get(key) === activeWatch) runtimeStateWatches.delete(key);
 }
 
 export function registerRuntimeStateWatchHandlers(
   options: RuntimeStateWatchHandlerOptions = {}
 ): void {
   const scheduler = options.scheduler ?? systemWatchScheduler;
-  ipcMain.handle(
-    desktopBridgeInvokeChannels.watchRuntimeState,
-    (event, ref: DesktopCanvasReference) =>
-      startRuntimeStateWatch(ref.projectRoot, ref.canvasId, event.sender, scheduler)
+  ipcMain.handle(desktopBridgeInvokeChannels.watchRuntimeState, (event, input: unknown) =>
+    startRuntimeStateWatch(desktopWatchRegistrationSchema.parse(input), event.sender, scheduler)
   );
-  ipcMain.handle(
-    desktopBridgeInvokeChannels.unwatchRuntimeState,
-    (event, ref: DesktopCanvasReference) =>
-      stopRuntimeStateWatch(ref.projectRoot, ref.canvasId, event.sender)
+  ipcMain.handle(desktopBridgeInvokeChannels.unwatchRuntimeState, (event, input: unknown) =>
+    stopRuntimeStateWatch(desktopWatchRegistrationSchema.parse(input), event.sender)
   );
 }

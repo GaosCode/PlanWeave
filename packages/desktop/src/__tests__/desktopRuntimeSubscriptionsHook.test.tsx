@@ -1,7 +1,11 @@
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { DesktopGraphViewModel, ValidationIssue } from "@planweave-ai/runtime";
+import type {
+  DesktopGraphViewModel,
+  DesktopRuntimeStateChangeEvent,
+  ValidationIssue
+} from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { deferred, project, projectSnapshot } from "./helpers/desktopProjectFixtures";
@@ -10,6 +14,12 @@ import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironmen
 import { createTranslator } from "../renderer/i18n";
 
 afterEach(cleanupRendererTestEnvironment);
+
+function runtimeWatchRegistration(bridge: ReturnType<typeof createDesktopBridgeMock>) {
+  const reference = vi.mocked(bridge.watchRuntimeState).mock.calls.at(-1)?.[0];
+  if (!reference) throw new Error("Expected a runtime watcher registration.");
+  return reference;
+}
 
 async function flushAsyncEffects(): Promise<void> {
   for (let index = 0; index < 5; index += 1) {
@@ -69,10 +79,14 @@ describe("desktop runtime subscriptions hook", () => {
       await result.current.loadProject(project);
     });
     await waitFor(() =>
-      expect(watchRuntimeState).toHaveBeenCalledWith({
-        projectRoot: project.rootPath,
-        canvasId: "canvas-main"
-      })
+      expect(watchRuntimeState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectRoot: project.rootPath,
+          workspaceRoot: project.workspaceRoot,
+          canvasId: "canvas-main",
+          registrationId: expect.any(String)
+        })
+      )
     );
 
     if (change === "canvas" || change === "canvas ABA") {
@@ -133,8 +147,7 @@ describe("desktop runtime subscriptions hook", () => {
     });
     act(() => {
       callbacks.at(-1)?.({
-        projectRoot: project.rootPath,
-        canvasId: "canvas-main",
+        ...runtimeWatchRegistration(bridge),
         stateFile: "state.json",
         changedAt: "2026-09-28T00:00:00Z"
       });
@@ -219,14 +232,8 @@ describe("desktop runtime subscriptions hook", () => {
   });
 
   it("refreshes only the graph when the current canvas runtime state changes", async () => {
-    let runtimeStateChangedCallback:
-      | ((event: {
-          projectRoot: string;
-          canvasId: string | null;
-          stateFile: string;
-          changedAt: string;
-        }) => void)
-      | null = null;
+    let runtimeStateChangedCallback: ((event: DesktopRuntimeStateChangeEvent) => void) | null =
+      null;
     const refreshedGraph: DesktopGraphViewModel = {
       ...graph,
       graphVersion: "pgv-runtime-state-event"
@@ -270,8 +277,7 @@ describe("desktop runtime subscriptions hook", () => {
 
     await act(async () => {
       runtimeStateChangedCallback?.({
-        projectRoot: project.rootPath,
-        canvasId: "canvas-main",
+        ...runtimeWatchRegistration(bridge),
         stateFile: "/tmp/demo/canvases/canvas-main/state.json",
         changedAt: "2026-06-16T00:00:01.000Z"
       });
@@ -298,8 +304,7 @@ describe("desktop runtime subscriptions hook", () => {
     });
     await act(async () => {
       runtimeStateChangedCallback?.({
-        projectRoot: project.rootPath,
-        canvasId: "canvas-main",
+        ...runtimeWatchRegistration(bridge),
         stateFile: "/tmp/demo/canvases/canvas-main/state.json",
         changedAt: "2026-06-16T00:00:02.000Z"
       });

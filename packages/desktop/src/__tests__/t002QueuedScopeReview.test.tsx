@@ -13,7 +13,12 @@ import { createTranslator } from "../renderer/i18n";
 import { buildNotificationItems } from "../renderer/notifications";
 import { defaultDesktopSettings } from "../shared/desktopSettings";
 
-afterEach(cleanupRendererTestEnvironment);
+const watchLeases: Array<{ retire: () => void }> = [];
+
+afterEach(() => {
+  cleanupRendererTestEnvironment();
+  for (const lease of watchLeases.splice(0)) lease.retire();
+});
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -75,6 +80,11 @@ for (const queue of ["manual", "watcher"] as const) {
       vi.stubGlobal("planweave", mock);
       vi.resetModules();
       const { useFileSyncController } = await import("../renderer/controllers/AutoRunController");
+      const { beginDesktopWatchRegistration } = await import(
+        "../renderer/desktopWatchRegistration"
+      );
+      const bWatch = beginDesktopWatchRegistration(project, "B");
+      watchLeases.push(bWatch);
       const hook = renderHook(
         ({ canvasId }) => {
           const fileSync = useFileSyncController({
@@ -112,8 +122,7 @@ for (const queue of ["manual", "watcher"] as const) {
         else {
           if (!watcher) throw new Error("Expected active B watcher subscription");
           watcher({
-            projectRoot: project.rootPath,
-            canvasId: "B",
+            ...bWatch.reference,
             paths: ["package/nodes/T-B/prompt.md"],
             triggeredAt: "2026-10-04T00:00:00.000Z"
           });

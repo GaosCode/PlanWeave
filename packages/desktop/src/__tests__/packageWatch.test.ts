@@ -218,7 +218,9 @@ describe("package file watcher: controller lifecycle", () => {
     const webContents = createWebContents();
     const deferredWorkspace = createDeferred<typeof workspace>();
     runtimeMock.state.workspace = workspace;
-    runtimeMock.resolveTaskCanvasWorkspace.mockImplementationOnce(() => deferredWorkspace.promise);
+    runtimeMock.resolveDesktopWatchWorkspace.mockImplementationOnce(
+      () => deferredWorkspace.promise
+    );
     const { registerPackageWatchHandlers } = await import("../main/packageWatch");
     registerPackageWatchHandlers({ scheduler: getWatchRuntimeTestDriver() });
     const handler = electronMock.handlers.get(desktopBridgeInvokeChannels.watchPackageFiles);
@@ -226,14 +228,24 @@ describe("package file watcher: controller lifecycle", () => {
 
     const firstWatch = handler?.(
       { sender: webContents },
-      { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
+      {
+        projectRoot: workspace.rootPath,
+        canvasId: "canvas-a",
+        workspaceRoot: workspace.rootPath,
+        registrationId: `test-${webContents.id}`
+      }
     );
     const secondWatch = handler?.(
       { sender: webContents },
-      { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
+      {
+        projectRoot: workspace.rootPath,
+        canvasId: "canvas-a",
+        workspaceRoot: workspace.rootPath,
+        registrationId: `test-${webContents.id}`
+      }
     );
 
-    expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledTimes(1);
+    expect(runtimeMock.resolveDesktopWatchWorkspace).toHaveBeenCalledTimes(1);
     deferredWorkspace.resolve(workspace);
     await Promise.all([firstWatch, secondWatch]);
 
@@ -260,7 +272,9 @@ describe("package file watcher: controller lifecycle", () => {
     const webContents = createWebContents();
     const deferredWorkspace = createDeferred<typeof workspace>();
     runtimeMock.state.workspace = workspace;
-    runtimeMock.resolveTaskCanvasWorkspace.mockImplementationOnce(() => deferredWorkspace.promise);
+    runtimeMock.resolveDesktopWatchWorkspace.mockImplementationOnce(
+      () => deferredWorkspace.promise
+    );
     const { registerPackageWatchHandlers } = await import("../main/packageWatch");
     registerPackageWatchHandlers({ scheduler: getWatchRuntimeTestDriver() });
     const watchHandler = electronMock.handlers.get(desktopBridgeInvokeChannels.watchPackageFiles);
@@ -268,10 +282,15 @@ describe("package file watcher: controller lifecycle", () => {
 
     const watchResult = watchHandler?.(
       { sender: webContents },
-      { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
+      {
+        projectRoot: workspace.rootPath,
+        canvasId: "canvas-a",
+        workspaceRoot: workspace.rootPath,
+        registrationId: `test-${webContents.id}`
+      }
     );
 
-    expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledTimes(1);
+    expect(runtimeMock.resolveDesktopWatchWorkspace).toHaveBeenCalledTimes(1);
     await unwatch(webContents, workspace);
     expect(webContents.once).not.toHaveBeenCalled();
 
@@ -300,7 +319,9 @@ describe("package file watcher: controller lifecycle", () => {
     const webContents = createWebContents();
     const deferredWorkspace = createDeferred<typeof workspace>();
     runtimeMock.state.workspace = workspace;
-    runtimeMock.resolveTaskCanvasWorkspace.mockImplementationOnce(() => deferredWorkspace.promise);
+    runtimeMock.resolveDesktopWatchWorkspace.mockImplementationOnce(
+      () => deferredWorkspace.promise
+    );
     const { registerPackageWatchHandlers } = await import("../main/packageWatch");
     registerPackageWatchHandlers({ scheduler: getWatchRuntimeTestDriver() });
     const watchHandler = electronMock.handlers.get(desktopBridgeInvokeChannels.watchPackageFiles);
@@ -308,14 +329,19 @@ describe("package file watcher: controller lifecycle", () => {
 
     const failedWatch = watchHandler?.(
       { sender: webContents },
-      { projectRoot: workspace.rootPath, canvasId: "canvas-a" }
+      {
+        projectRoot: workspace.rootPath,
+        canvasId: "canvas-a",
+        workspaceRoot: workspace.rootPath,
+        registrationId: `test-${webContents.id}`
+      }
     );
     deferredWorkspace.reject(new Error("workspace unavailable"));
     await expect(failedWatch).rejects.toThrow("workspace unavailable");
 
     await registerAndWatch(webContents, workspace);
 
-    expect(runtimeMock.resolveTaskCanvasWorkspace).toHaveBeenCalledTimes(2);
+    expect(runtimeMock.resolveDesktopWatchWorkspace).toHaveBeenCalledTimes(2);
     expect(webContents.once).toHaveBeenCalledTimes(1);
     expect(fsMock.watchers.length).toBeGreaterThan(0);
   });

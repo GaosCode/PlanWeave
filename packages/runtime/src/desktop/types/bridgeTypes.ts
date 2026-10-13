@@ -23,7 +23,8 @@ import type { DesktopProjectSummary, DesktopTaskCanvasSummary } from "./projectT
 import type { ProjectDoctorReport } from "../../types.js";
 import type {
   DesktopProjectDoctorRepairConfirmation,
-  DesktopProjectReference
+  DesktopProjectReference,
+  DesktopWatchRegistration
 } from "./desktopBridgeInputSchemas.js";
 import type { ProjectPromptPolicy } from "../../projectPromptPolicy.js";
 import type {
@@ -254,7 +255,8 @@ export type DesktopCanvasReference = {
 
 export type {
   DesktopProjectDoctorRepairConfirmation,
-  DesktopProjectReference
+  DesktopProjectReference,
+  DesktopWatchRegistration
 } from "./desktopBridgeInputSchemas.js";
 
 export type DesktopPromptSaveOptions = {
@@ -485,10 +487,10 @@ export type DesktopBridgeApi = {
     options?: DesktopPackageFileRefreshOptions
   ): Promise<DesktopPackageFileSyncResult>;
   getDirtyPromptRefs(ref: DesktopCanvasReference): Promise<string[]>;
-  watchPackageFiles(ref: DesktopCanvasReference): Promise<void>;
-  unwatchPackageFiles(ref: DesktopCanvasReference): Promise<void>;
-  watchRuntimeState(ref: DesktopCanvasReference): Promise<void>;
-  unwatchRuntimeState(ref: DesktopCanvasReference): Promise<void>;
+  watchPackageFiles(ref: DesktopWatchRegistration): Promise<void>;
+  unwatchPackageFiles(ref: DesktopWatchRegistration): Promise<void>;
+  watchRuntimeState(ref: DesktopWatchRegistration): Promise<void>;
+  unwatchRuntimeState(ref: DesktopWatchRegistration): Promise<void>;
   onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void;
   onRuntimeStateChanged(callback: (event: DesktopRuntimeStateChangeEvent) => void): () => void;
   onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;

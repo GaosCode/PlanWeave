@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type {
   DesktopGraphViewModel,
   DesktopProjectSummary,
   DesktopRuntimeStateChangeEvent
 } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
+import { beginDesktopWatchRegistration } from "../desktopWatchRegistration";
 import type { DesktopSelectionReceipt } from "./useDesktopProjectSnapshot";
 
 const externalRuntimeRefreshIntervalMs = 30_000;
@@ -33,7 +34,11 @@ function runtimeStateEventMatchesCanvas(
   project: DesktopProjectSummary,
   canvasId: string | null
 ): boolean {
-  return event.projectRoot === project.rootPath && event.canvasId === canvasId;
+  return (
+    event.projectRoot === project.rootPath &&
+    event.workspaceRoot === project.workspaceRoot &&
+    event.canvasId === canvasId
+  );
 }
 
 export function useDesktopRuntimeSubscriptions({
@@ -48,6 +53,7 @@ export function useDesktopRuntimeSubscriptions({
 }: UseDesktopRuntimeSubscriptionsArgs) {
   const externalRefreshInFlightRef = useRef<DesktopSelectionReceipt | null>(null);
   const selectedProjectRoot = selectedProject?.rootPath;
+  const selectedWorkspaceRoot = selectedProject?.workspaceRoot;
   const graphAvailable = graph !== null;
 
   const runExternalRuntimeRefresh = useCallback(() => {
@@ -67,17 +73,6 @@ export function useDesktopRuntimeSubscriptions({
   }, [captureProjectSelection, refreshRuntimeState, setError]);
 
   useEffect(() => {
-    const projectRoot = selectedProjectRoot;
-    const canvasId = selectedCanvasId;
-    return () => {
-      if (bridge && projectRoot) {
-        void bridge.unwatchPackageFiles({ projectRoot, canvasId });
-        void bridge.unwatchRuntimeState({ projectRoot, canvasId });
-      }
-    };
-  }, [selectedCanvasId, selectedProjectRoot]);
-
-  useEffect(() => {
     if (!bridge || !selectedProject) {
       return undefined;
     }
@@ -86,20 +81,30 @@ export function useDesktopRuntimeSubscriptions({
   }, [runExternalRuntimeRefresh, selectedProject]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: Home changes retire and rebind watchers even when the project path stays the same.
-  useEffect(() => {
-    if (!bridge || !selectedProjectRoot || !graphAvailable) {
+  useLayoutEffect(() => {
+    if (!bridge || !selectedProjectRoot || !selectedWorkspaceRoot || !graphAvailable) {
       return undefined;
     }
     const runtimeBridge = bridge;
-    const ref = { projectRoot: selectedProjectRoot, canvasId: selectedCanvasId };
+    const registration = beginDesktopWatchRegistration(
+      {
+        rootPath: selectedProjectRoot,
+        workspaceRoot: selectedWorkspaceRoot
+      },
+      selectedCanvasId
+    );
     const request = captureProjectSelection();
     let active = true;
-    void runtimeBridge.watchRuntimeState(ref).catch((caught: unknown) => {
+    void runtimeBridge.watchRuntimeState(registration.reference).catch((caught: unknown) => {
+      registration.retire();
       if (active && request.isCurrent()) setError(errorMessage(caught));
     });
     return () => {
       active = false;
-      void runtimeBridge.unwatchRuntimeState(ref);
+      registration.retire();
+      void runtimeBridge.unwatchRuntimeState(registration.reference).catch((caught: unknown) => {
+        if (request.isCurrent()) setError(errorMessage(caught));
+      });
     };
   }, [
     captureProjectSelection,
@@ -107,6 +112,7 @@ export function useDesktopRuntimeSubscriptions({
     planweaveHome,
     selectedCanvasId,
     selectedProjectRoot,
+    selectedWorkspaceRoot,
     setError
   ]);
 

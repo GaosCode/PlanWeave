@@ -408,6 +408,8 @@ describe("preload bridge invocation", () => {
     expect(channel).toBe(packageFileChangedChannel);
     const event: DesktopPackageFileChangeEvent = {
       projectRoot: "/tmp/project",
+      workspaceRoot: "/tmp/project",
+      registrationId: "preload-package-watch",
       canvasId: "canvas-a",
       paths: ["package/manifest.json"],
       triggeredAt: "2026-06-16T00:00:00.000Z"
@@ -506,6 +508,8 @@ describe("preload bridge invocation", () => {
     expect(channel).toBe(runtimeStateChangedChannel);
     const event: DesktopRuntimeStateChangeEvent = {
       projectRoot: "/tmp/project",
+      workspaceRoot: "/tmp/project",
+      registrationId: "preload-runtime-watch",
       canvasId: "canvas-a",
       stateFile: "/tmp/project/.planweave/canvases/canvas-a/state.json",
       changedAt: "2026-06-16T00:00:01.000Z"

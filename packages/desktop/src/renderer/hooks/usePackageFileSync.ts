@@ -122,7 +122,9 @@ function mergeManualRefresh(
 
 function isEventForTarget(event: DesktopPackageFileChangeEvent, target: RefreshTarget): boolean {
   return (
-    event.projectRoot === target.project.rootPath && (event.canvasId ?? null) === target.canvasId
+    event.projectRoot === target.project.rootPath &&
+    event.workspaceRoot === target.project.workspaceRoot &&
+    (event.canvasId ?? null) === target.canvasId
   );
 }
 
@@ -131,6 +133,7 @@ function isSameRefreshTarget(left: RefreshTarget | null, right: RefreshTarget): 
     left &&
       left.generation === right.generation &&
       left.project.rootPath === right.project.rootPath &&
+      left.project.workspaceRoot === right.project.workspaceRoot &&
       left.canvasId === right.canvasId
   );
 }
@@ -171,11 +174,16 @@ export function usePackageFileSync({
   const targetKeyRef = useRef<string | null>(null);
   const latestTargetRef = useRef<RefreshTarget | null>(null);
   const targetKey = selectedProject
-    ? `${selectedProject.rootPath}\u0000${selectedCanvasId ?? ""}`
+    ? JSON.stringify([selectedProject.rootPath, selectedProject.workspaceRoot, selectedCanvasId])
     : null;
   if (targetKeyRef.current !== targetKey) {
     targetKeyRef.current = targetKey;
     refreshGenerationRef.current += 1;
+    // A retired workspace's unfinished IPC call must not hold the new workspace's queue.
+    drainPromiseRef.current = null;
+    activeRefreshTargetRef.current = null;
+    activeWatcherChangedPathsRef.current = null;
+    refreshInFlightRef.current = false;
   }
   latestTargetRef.current = selectedProject
     ? {
@@ -198,6 +206,7 @@ export function usePackageFileSync({
       latestTarget &&
         latestTarget.generation === target.generation &&
         latestTarget.project.rootPath === target.project.rootPath &&
+        latestTarget.project.workspaceRoot === target.project.workspaceRoot &&
         latestTarget.canvasId === target.canvasId
     );
   }, []);
@@ -296,8 +305,9 @@ export function usePackageFileSync({
     if (drainPromiseRef.current) {
       return drainPromiseRef.current;
     }
+    const generation = refreshGenerationRef.current;
     const drainPromise = (async () => {
-      while (pendingWatcherRefreshRef.current) {
+      while (generation === refreshGenerationRef.current && pendingWatcherRefreshRef.current) {
         const pending = pendingWatcherRefreshRef.current;
         pendingWatcherRefreshRef.current = null;
         refreshInFlightRef.current = true;
@@ -306,22 +316,26 @@ export function usePackageFileSync({
         try {
           await runPackageFileRefresh(pending);
         } finally {
-          activeWatcherChangedPathsRef.current = null;
-          activeRefreshTargetRef.current = null;
-          refreshInFlightRef.current = false;
+          if (activeRefreshTargetRef.current === pending.target) {
+            activeWatcherChangedPathsRef.current = null;
+            activeRefreshTargetRef.current = null;
+            refreshInFlightRef.current = false;
+          }
           for (const resolveWaiter of pending.resolveWaiters) {
             resolveWaiter();
           }
         }
       }
     })();
-    drainPromiseRef.current = drainPromise.finally(() => {
+    const queuedDrain = drainPromise.finally(() => {
+      if (drainPromiseRef.current !== queuedDrain) return;
       drainPromiseRef.current = null;
       if (pendingWatcherRefreshRef.current) {
         void drainRefreshQueue();
       }
     });
-    return drainPromiseRef.current;
+    drainPromiseRef.current = queuedDrain;
+    return queuedDrain;
   }, [runPackageFileRefresh]);
 
   const enqueueWatcherRefresh = useCallback(

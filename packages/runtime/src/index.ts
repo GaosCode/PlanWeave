@@ -871,6 +871,7 @@ export {
 } from "./desktop/index.js";
 export {
   desktopCanvasReferenceSchema,
+  desktopWatchRegistrationSchema,
   desktopPromptSaveOptionsSchema,
   desktopLayoutFileSchema,
   desktopLayoutNodeSchema,
@@ -1132,3 +1133,5 @@ export { withAdvisoryDirectoryLock } from "./fs/advisoryDirectoryLock.js";
 export { capturePackageStorageIdentity } from "./package/packageStorageIdentity.js";
 export { projectMetadataSchema, readProjectMetadataFile } from "./projectMetadata.js";
 export { withProjectMutationLock } from "./fs/withProjectMutationLock.js";
+
+export { resolveDesktopWatchWorkspace } from "./desktop/index.js";

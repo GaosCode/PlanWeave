@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { TaskWorkspaceRun } from "@planweave-ai/runtime";
+import type { DesktopRuntimeStateChangeEvent, TaskWorkspaceRun } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import { controllerApi, useControllerHarness } from "./helpers/taskWorkspaceControllerHarness";
@@ -86,8 +86,10 @@ describe("Task Workspace run pagination and selected record projection", () => {
     expect(api.getTaskWorkspaceRunDetail).toHaveBeenCalledOnce();
     const onRuntimeStateChanged = api.onRuntimeStateChanged.mock.calls[0]?.[0];
     if (!onRuntimeStateChanged) throw new Error("Expected runtime state listener.");
-    const event = {
+    const event: DesktopRuntimeStateChangeEvent = {
       projectRoot: "/projects/demo",
+      workspaceRoot: "/projects/demo",
+      registrationId: "task-controller-runtime-watch",
       canvasId: "canvas-main",
       stateFile: "/projects/demo/state.json",
       changedAt: "2026-07-13T00:00:02.000Z"
@@ -223,8 +225,10 @@ describe("Task Workspace run pagination and selected record projection", () => {
     expect(api.getTaskWorkspaceRunDetail).toHaveBeenCalledOnce();
     const onRuntimeStateChanged = api.onRuntimeStateChanged.mock.calls[0]?.[0];
     if (!onRuntimeStateChanged) throw new Error("Expected runtime state listener.");
-    const event = {
+    const event: DesktopRuntimeStateChangeEvent = {
       projectRoot: "/projects/demo",
+      workspaceRoot: "/projects/demo",
+      registrationId: "task-controller-runtime-watch",
       canvasId: "canvas-main",
       stateFile: "/projects/demo/state.json",
       changedAt: "2026-07-13T00:00:02.000Z"
@@ -340,8 +344,10 @@ describe("Task Workspace run pagination and selected record projection", () => {
 
     const onRuntimeStateChanged = api.onRuntimeStateChanged.mock.calls[0]?.[0];
     if (!onRuntimeStateChanged) throw new Error("Expected runtime state listener.");
-    const event = {
+    const event: DesktopRuntimeStateChangeEvent = {
       projectRoot: "/projects/demo",
+      workspaceRoot: "/projects/demo",
+      registrationId: "task-controller-runtime-watch",
       canvasId: "canvas-main",
       stateFile: "/projects/demo/state.json",
       changedAt: "2026-07-13T00:00:04.000Z"

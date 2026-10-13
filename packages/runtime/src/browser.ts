@@ -53,3 +53,4 @@ export {
 } from "./autoRun/remoteAcpTelemetry.js";
 
 export { normalizeReviewPipelineStepContent } from "./desktop/reviewPipelineStepContent.js";
+export { desktopWatchRegistrationSchema } from "./desktop/types/desktopBridgeInputSchemas.js";

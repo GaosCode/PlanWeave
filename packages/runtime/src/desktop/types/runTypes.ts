@@ -73,6 +73,8 @@ export type DesktopRuntimeRefreshSnapshot = {
 
 export type DesktopRuntimeStateChangeEvent = {
   projectRoot: string;
+  workspaceRoot: string;
+  registrationId: string;
   canvasId: string | null;
   stateFile: string;
   changedAt: string;

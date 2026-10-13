@@ -332,7 +332,8 @@
         "workspacePeopleAuthority.test.tsx",
         "workspaceRemoteScopeScheduler.test.ts",
         "workspaceSwitcher.test.tsx",
-        "workspaceTabsLazyRoutes.test.tsx"
+        "workspaceTabsLazyRoutes.test.tsx",
+        "desktopWatchRendererLifecycle.test.tsx"
       ],
       "integration": [
         "cliInstallation.test.ts",
@@ -449,7 +450,8 @@
         "workspaceExecutionCharacterization.test.ts",
         "workspaceExecutionProcessBoundary.test.ts",
         "workspaceSessionPreflight.test.ts",
-        "workspaceCanvasPublishSnapshot.test.ts"
+        "workspaceCanvasPublishSnapshot.test.ts",
+        "desktopWatchHomeRegistration.test.ts"
       ],
       "platform": ["agentToolsWindows.test.ts", "runtimeStateWatch.test.ts"],
       "performance": []

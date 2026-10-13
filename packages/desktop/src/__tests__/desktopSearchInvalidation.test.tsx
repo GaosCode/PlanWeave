@@ -34,6 +34,8 @@ async function advance(ms = 300) {
     await vi.advanceTimersByTimeAsync(ms);
   });
 }
+const watchLeases: Array<{ retire: () => void }> = [];
+
 async function setup() {
   vi.useFakeTimers();
   let packageChanged!: (event: DesktopPackageFileChangeEvent) => void;
@@ -53,6 +55,14 @@ async function setup() {
   vi.stubGlobal("planweave", bridge);
   vi.resetModules();
   const { useSearchController } = await import("../renderer/controllers/SearchController");
+  const { beginDesktopWatchRegistration } = await import("../renderer/desktopWatchRegistration");
+  const mainWatch = beginDesktopWatchRegistration(project, "main");
+  const otherCanvasWatch = beginDesktopWatchRegistration(project, "other");
+  const otherProjectWatch = beginDesktopWatchRegistration(
+    { rootPath: "/tmp/other", workspaceRoot: "/tmp/other" },
+    "main"
+  );
+  watchLeases.push(mainWatch, otherCanvasWatch, otherProjectWatch);
   const args = {
     enabled: true,
     packageFingerprint: "original",
@@ -69,17 +79,20 @@ async function setup() {
     ...hook,
     args,
     search,
-    packageChange: (canvasId = "main", projectRoot = project.rootPath) =>
+    packageChange: (canvasId = "main", projectRoot = project.rootPath) => {
+      const reference = [mainWatch, otherCanvasWatch, otherProjectWatch]
+        .map((lease) => lease.reference)
+        .find((scope) => scope.projectRoot === projectRoot && scope.canvasId === canvasId);
+      if (!reference) throw new Error("Expected a registered package event scope.");
       packageChanged({
-        projectRoot,
-        canvasId,
+        ...reference,
         paths: ["package/nodes/T-1/blocks/B-1.prompt.md"],
         triggeredAt: "2026-09-28T00:00:00Z"
-      }),
+      });
+    },
     runtimeChange: () =>
       runtimeChanged({
-        projectRoot: project.rootPath,
-        canvasId: "main",
+        ...mainWatch.reference,
         stateFile: "/tmp/search/state.json",
         changedAt: "2026-09-28T00:00:00Z"
       })
@@ -87,6 +100,7 @@ async function setup() {
 }
 afterEach(() => {
   cleanup();
+  for (const lease of watchLeases.splice(0)) lease.retire();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
