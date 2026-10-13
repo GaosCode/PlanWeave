@@ -7,6 +7,7 @@ import {
 } from "../../shared/canvasLocator";
 import { collaborationBridge } from "../bridge";
 import { canvasReplicaProjectionToDesktopGraph } from "../collaboration/canvasReplicaGraphAdapter";
+import { workspaceCanvasAuthorityKey } from "../collaboration/workspaceCanvasAuthority";
 import { collaborationSurfaceCanvasIdForView } from "../collaboration/workspaceCollaborationScope";
 import type { createTranslator } from "../i18n";
 import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "../types";
@@ -119,6 +120,10 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
   });
   const workspaceCanvasCommands = useWorkspaceCanvasCommands({
     api: collaborationBridge,
+    authorityKey: workspaceCanvasAuthorityKey(
+      input.settings.planweaveHome,
+      collaborationSurface.status
+    ),
     locator:
       canvasLocator?.kind === "workspace" &&
       (!collaborationSurface.activeProfileId ||

@@ -175,6 +175,7 @@ describe("Workspace command result retirement", () => {
     function PromptWorkspace({ locator }: { locator: WorkspaceCanvasLocator }) {
       const commands = useWorkspaceCanvasCommands({
         api: port.api,
+        authorityKey: "test-authority",
         locator,
         sessionConnected: true,
         t
@@ -256,6 +257,7 @@ describe("Workspace command result retirement", () => {
       ({ locator }) => {
         const commands = useWorkspaceCanvasCommands({
           api: port.api,
+          authorityKey: "test-authority",
           locator,
           sessionConnected: true,
           t
@@ -311,6 +313,7 @@ describe("Workspace command result retirement", () => {
     const { result } = renderHook(() => {
       const commands = useWorkspaceCanvasCommands({
         api: port.api,
+        authorityKey: "test-authority",
         locator: locatorA,
         sessionConnected: true,
         t
@@ -352,6 +355,7 @@ describe("Workspace command result retirement", () => {
       ({ locator }) => {
         const commands = useWorkspaceCanvasCommands({
           api: port.api,
+          authorityKey: "test-authority",
           locator,
           sessionConnected: true,
           t
@@ -388,7 +392,13 @@ describe("Workspace command result retirement", () => {
     const onError = vi.fn();
     const hook = renderHook(
       ({ locator }) =>
-        useWorkspaceCanvasCommands({ api: port.api, locator, sessionConnected: true, t }),
+        useWorkspaceCanvasCommands({
+          api: port.api,
+          authorityKey: "test-authority",
+          locator,
+          sessionConnected: true,
+          t
+        }),
       { initialProps: { locator: locatorA as WorkspaceCanvasLocator | null } }
     );
     let pending!: ReturnType<typeof runDurablePackageWrite>;
@@ -420,6 +430,7 @@ describe("Workspace command result retirement", () => {
       ({ locator }) => {
         const commands = useWorkspaceCanvasCommands({
           api: port.api,
+          authorityKey: "test-authority",
           locator,
           sessionConnected: true,
           t
@@ -468,6 +479,7 @@ describe("Workspace command result retirement", () => {
       ({ locator }) => {
         const commands = useWorkspaceCanvasCommands({
           api: port.api,
+          authorityKey: "test-authority",
           locator,
           sessionConnected: true,
           t

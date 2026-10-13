@@ -50,6 +50,7 @@ export type WorkspaceCanvasCommandsResult = {
 
 /** Workspace-only durable command gateway. Local Canvas never enters this hook's command path. */
 export function useWorkspaceCanvasCommands(input: {
+  authorityKey: string;
   locator: WorkspaceCanvasLocator | null;
   sessionConnected: boolean;
   t: ReturnType<typeof createTranslator>;
@@ -71,6 +72,7 @@ export function useWorkspaceCanvasCommands(input: {
   );
   const session = useWorkspaceCanvasSession({
     api,
+    authorityKey: input.authorityKey,
     labels,
     locator: input.locator,
     sessionConnected: input.sessionConnected

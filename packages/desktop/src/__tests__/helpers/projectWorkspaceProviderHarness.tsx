@@ -296,6 +296,7 @@ vi.mock("../../renderer/controllers/GraphWorkspaceController", () => ({
     runtimeAvailability: unknown;
     workspaceCanvasOffline: boolean;
     workspaceCanvasRevision: number | null;
+    onRefreshWorkspaceCanvas?: () => Promise<boolean>;
     onDownloadWorkspaceFork?: () => Promise<void>;
   }) => ({
     graph: input.graph,
@@ -303,6 +304,7 @@ vi.mock("../../renderer/controllers/GraphWorkspaceController", () => ({
     runtimeAvailability: input.runtimeAvailability,
     workspaceCanvasOffline: input.workspaceCanvasOffline,
     workspaceCanvasRevision: input.workspaceCanvasRevision,
+    onRefreshWorkspaceCanvas: input.onRefreshWorkspaceCanvas,
     onDownloadWorkspaceFork: input.onDownloadWorkspaceFork
   })
 }));

@@ -81,6 +81,7 @@ function useOfflineWorkspaceProviderPipeline(api: WorkspaceCanvasCommandBridge) 
   });
   const commands = useWorkspaceCanvasCommands({
     api,
+    authorityKey: "test-authority",
     locator: remoteWorkspace.locator,
     sessionConnected: false,
     t: translator
@@ -131,6 +132,7 @@ describe("offline Workspace Provider authority", () => {
         });
         const commands = useWorkspaceCanvasCommands({
           api,
+          authorityKey: "test-authority",
           locator: remoteWorkspace.locator,
           sessionConnected: connected,
           t: translator
@@ -236,7 +238,13 @@ describe("offline Workspace Provider authority", () => {
     const bridge = createBridge(open);
     const { result, rerender } = renderHook(
       ({ sessionConnected }) =>
-        useWorkspaceCanvasCommands({ api: bridge.api, locator, sessionConnected, t: translator }),
+        useWorkspaceCanvasCommands({
+          api: bridge.api,
+          authorityKey: "test-authority",
+          locator,
+          sessionConnected,
+          t: translator
+        }),
       { initialProps: { sessionConnected: false } }
     );
 

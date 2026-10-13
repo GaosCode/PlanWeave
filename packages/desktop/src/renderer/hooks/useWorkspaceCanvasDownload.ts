@@ -3,6 +3,7 @@ import type { CanvasLocator } from "../../shared/canvasLocator";
 import type { CollaborationStatus } from "../../shared/collaboration";
 import type { WorkspaceCanvasSharingApi } from "../../shared/workspaceCanvasSharing";
 import type { createTranslator } from "../i18n";
+import { workspaceCanvasAuthorityKey } from "../collaboration/workspaceCanvasAuthority";
 
 type DownloadOperation = {
   selecting: boolean;
@@ -14,25 +15,6 @@ type DownloadScope = {
   canvas: string | null;
   locator: CanvasLocator | null;
 };
-
-function connectionIdentity(status: CollaborationStatus | null): unknown[] {
-  const profile = status?.profiles.find((profile) => profile.profileId === status.activeProfileId);
-  const connection = status?.workspaceConnection;
-  return [
-    status?.activeProfileId,
-    status?.session.phase,
-    profile?.serverBaseUrl,
-    profile?.projectId,
-    profile?.credentialRevision,
-    profile?.deviceCredentialId,
-    profile?.humanPrincipalId,
-    connection?.status,
-    connection?.profile?.profileId,
-    connection?.workspaceId,
-    connection?.connectedAt,
-    connection?.credentialRevision
-  ];
-}
 
 /** Owns the download and its transition from Workspace selection to the new Local Canvas. */
 export function useWorkspaceCanvasDownload(input: {
@@ -52,7 +34,7 @@ export function useWorkspaceCanvasDownload(input: {
   setSuccessMessage: (message: string) => void;
   t: ReturnType<typeof createTranslator>;
 }) {
-  const context = JSON.stringify([input.planweaveHome, ...connectionIdentity(input.status)]);
+  const context = workspaceCanvasAuthorityKey(input.planweaveHome, input.status);
   const canvas = input.locator
     ? JSON.stringify([
         input.locator,

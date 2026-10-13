@@ -105,6 +105,7 @@ describe("useWorkspaceCanvasCommands", () => {
       ({ selectedLocator }) => {
         const commands = useWorkspaceCanvasCommands({
           api,
+          authorityKey: "test-authority",
           locator: selectedLocator,
           sessionConnected: true,
           t
@@ -140,7 +141,13 @@ describe("useWorkspaceCanvasCommands", () => {
     );
     const { result, rerender } = renderHook(
       ({ selectedLocator }) =>
-        useWorkspaceCanvasCommands({ api, locator: selectedLocator, sessionConnected: true, t }),
+        useWorkspaceCanvasCommands({
+          api,
+          authorityKey: "test-authority",
+          locator: selectedLocator,
+          sessionConnected: true,
+          t
+        }),
       { initialProps: { selectedLocator: locator } }
     );
     await waitFor(() => expect(result.current.projection?.revision).toBe(4));
@@ -171,7 +178,13 @@ describe("useWorkspaceCanvasCommands", () => {
     );
     const { result, rerender } = renderHook(
       ({ selectedLocator }) =>
-        useWorkspaceCanvasCommands({ api, locator: selectedLocator, sessionConnected: true, t }),
+        useWorkspaceCanvasCommands({
+          api,
+          authorityKey: "test-authority",
+          locator: selectedLocator,
+          sessionConnected: true,
+          t
+        }),
       { initialProps: { selectedLocator: locator } }
     );
     await waitFor(() => expect(result.current.snapshot.connectionPhase).toBe("connected"));
@@ -204,6 +217,7 @@ describe("useWorkspaceCanvasCommands", () => {
     const { result } = renderHook(() =>
       useWorkspaceCanvasCommands({
         api,
+        authorityKey: "test-authority",
         locator: null,
         sessionConnected: true,
         t
@@ -220,6 +234,7 @@ describe("useWorkspaceCanvasCommands", () => {
     const { result } = renderHook(() =>
       useWorkspaceCanvasCommands({
         api: port.api,
+        authorityKey: "test-authority",
         locator,
         sessionConnected: true,
         t
@@ -246,6 +261,7 @@ describe("useWorkspaceCanvasCommands", () => {
     const { result } = renderHook(() =>
       useWorkspaceCanvasCommands({
         api: port.api,
+        authorityKey: "test-authority",
         locator,
         sessionConnected: false,
         t
@@ -290,6 +306,7 @@ describe("useWorkspaceCanvasCommands", () => {
       ({ selectedLocator }) =>
         useWorkspaceCanvasCommands({
           api,
+          authorityKey: "test-authority",
           locator: selectedLocator,
           sessionConnected: true,
           t

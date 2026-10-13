@@ -97,6 +97,7 @@ const RETIRED_SUBMIT_RESULT: WorkspaceCanvasSubmitResult = {
  * Durable reconnect/idempotency stay in main; this hook only opens, displays, and submits.
  */
 export function useWorkspaceCanvasSession(input: {
+  authorityKey: string;
   api: WorkspaceCanvasCommandBridge | null;
   labels: WorkspaceCanvasCommandLabels;
   locator: WorkspaceCanvasLocator | null;
@@ -104,10 +105,10 @@ export function useWorkspaceCanvasSession(input: {
 }): WorkspaceCanvasSessionView {
   const generation = useRef(0);
   const locatorKey = JSON.stringify(input.locator);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: bridge and connection changes retire the current session authority.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Home, bridge and connection changes retire the current session authority.
   const authority = useMemo(
     () => ({ locatorKey }),
-    [input.api, locatorKey, input.sessionConnected]
+    [input.api, input.authorityKey, locatorKey, input.sessionConnected]
   );
   const activeAuthority = useRef<typeof authority | null>(null);
   useLayoutEffect(() => {
@@ -160,6 +161,7 @@ export function useWorkspaceCanvasSession(input: {
     const labels = input.labels;
     const openedGeneration = generation.current;
     let active = true;
+    let opened = false;
     const applyProjection = (projection: WorkspaceCanvasProjection) => {
       if (
         !active ||
@@ -172,7 +174,7 @@ export function useWorkspaceCanvasSession(input: {
     };
     const unsubscribe =
       activeApi.onWorkspaceCanvasProjectionSignal((signal) => {
-        applyProjection(signal.projection);
+        if (opened) applyProjection(signal.projection);
       }) ?? null;
     setSnapshot({
       ...IDLE_SNAPSHOT,
@@ -182,6 +184,7 @@ export function useWorkspaceCanvasSession(input: {
     void activeApi
       .openWorkspaceCanvasSession(locator)
       .then((projection) => {
+        opened = true;
         applyProjection(projection);
       })
       .catch((error: unknown) => {
@@ -261,17 +264,16 @@ export function useWorkspaceCanvasSession(input: {
   );
 
   const reconnect = useCallback(async () => {
+    const reconnectedGeneration = generation.current;
+    const isCurrent = () =>
+      activeAuthority.current === authority && generation.current === reconnectedGeneration;
+    if (!isCurrent()) return false;
     if (!input.api || !input.locator) {
       return false;
     }
-    const reconnectedGeneration = generation.current;
     try {
       const projection = await input.api.reconnectWorkspaceCanvasSession(input.locator);
-      if (
-        generation.current !== reconnectedGeneration ||
-        !workspaceLocatorEquals(projection.locator, input.locator)
-      )
-        return false;
+      if (!isCurrent() || !workspaceLocatorEquals(projection.locator, input.locator)) return false;
       setWorkspaceView({ authority, projection });
       setSnapshot(snapshotFromWorkspaceProjection(projection, input.labels, "connected"));
       return projection.status !== "rejected";
