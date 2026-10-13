@@ -542,12 +542,19 @@ export function useWorkspaceAgentEndpointRun(
             }
           }
         };
-        const executeLocalBlock = createLocalAgentEndpointBlockExecutor({
-          startLocal,
-          stopLocal,
-          localAutoRunApi: input.localAutoRunApi,
-          waitForLocalUnit: input.waitForLocalUnit
-        });
+        const executeLocalBlock = async (
+          selection: AgentEndpointBlockSelection,
+          signal?: AbortSignal
+        ) => {
+          if (!selectedProject) throw new Error("content_local_canvas_binding_required");
+          await createLocalAgentEndpointBlockExecutor({
+            workspaceRoot: selectedProject.workspaceRoot,
+            startLocal,
+            stopLocal,
+            localAutoRunApi: input.localAutoRunApi,
+            waitForLocalUnit: input.waitForLocalUnit
+          })(selection, signal);
+        };
 
         const executeSelectionByRef = async (ref: string, signal?: AbortSignal) => {
           const selection = selectionByBlockRef.get(ref);
@@ -652,6 +659,7 @@ export function useWorkspaceAgentEndpointRun(
                 startLocal,
                 stopLocal,
                 api: localApi,
+                workspaceRoot: selectedProject.workspaceRoot,
                 unitLabel: `feedback:${claim.feedbackId}`,
                 signal,
                 waitForUnit: input.waitForLocalUnit

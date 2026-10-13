@@ -549,7 +549,6 @@
         "claimPreview.test.ts",
         "claimReadiness.test.ts",
         "compileProjectGraph.test.ts",
-        "desktopAutoRunEvents.test.ts",
         "desktopAutoRunPhasePolicy.test.ts",
         "desktopGraphDiagnosticsApi.test.ts",
         "desktopGraphSharedResourceViewModel.test.ts",
@@ -792,7 +791,8 @@
         "workspaceStorageReplacement.test.ts",
         "packageSnapshotConsumers.test.ts",
         "preparedManualRunContentIdentity.test.ts",
-        "packageSnapshotProcessConsistency.test.ts"
+        "packageSnapshotProcessConsistency.test.ts",
+        "desktopAutoRunEvents.test.ts"
       ],
       "platform": [
         "agentRunControlServer.test.ts",

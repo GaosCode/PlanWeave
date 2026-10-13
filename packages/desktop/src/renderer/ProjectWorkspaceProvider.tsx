@@ -390,6 +390,7 @@ export function ProjectWorkspaceProvider({
     setError
   });
   const taskWorkspace = useTaskWorkspaceController({
+    selectedWorkspaceRoot: selectedProject?.workspaceRoot ?? null,
     agentEndpointCatalog: canvasAgentEndpoints,
     agentEndpointPreferences: settings.execution.agentEndpointPreferences,
     history: appHistory,

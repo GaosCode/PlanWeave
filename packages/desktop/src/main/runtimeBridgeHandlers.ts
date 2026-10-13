@@ -1,10 +1,13 @@
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
-import { subscribeAutoRunEvents } from "@planweave-ai/runtime";
+import { resolvePlanweaveHome, subscribeAutoRunEvents } from "@planweave-ai/runtime";
 import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels } from "../shared/ipcChannels.js";
 import { runtimeBridgeHandlers } from "./runtimeBridgeHandlerRegistry.js";
 import { registerRunnerRecordBridgeHandlers } from "./runnerRecordBridge.js";
-import { assertDesktopInspectorHomeCurrent } from "./desktopInspectorHome.js";
+import {
+  assertDesktopInspectorHomeCurrent,
+  isDesktopInspectorHomeCurrent
+} from "./desktopInspectorHome.js";
 import type { RuntimeBridgeHandler, RuntimeBridgeHandlerMap } from "./runtimeBridgeHandlerTypes.js";
 
 function registerRuntimeHandler<M extends DesktopBridgeMainInvokeMethod>(method: M): void {
@@ -24,9 +27,10 @@ function registerAutoRunEventBroadcast(): void {
     return;
   }
   unsubscribeAutoRunBroadcast = subscribeAutoRunEvents((event) => {
+    if (event.planweaveHome !== resolvePlanweaveHome()) return;
     for (const window of BrowserWindow.getAllWindows()) {
       const { webContents } = window;
-      if (!webContents.isDestroyed()) {
+      if (!webContents.isDestroyed() && isDesktopInspectorHomeCurrent(webContents)) {
         webContents.send(autoRunChangedChannel, event);
       }
     }

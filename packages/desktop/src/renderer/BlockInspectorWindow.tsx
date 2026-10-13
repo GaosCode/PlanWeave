@@ -11,7 +11,7 @@ import type {
   DesktopTerminalAppDetection,
   DesktopTerminalAppId
 } from "@planweave-ai/runtime";
-import { autoRunEventMatchesCanvas } from "./autoRunEvents";
+import { autoRunEventMatchesInspectorCanvas } from "./autoRunEvents";
 import { bridge, collaborationBridge } from "./bridge";
 import { runDurablePackageWrite } from "./collaboration/packageWriteAdapter";
 import {
@@ -349,7 +349,7 @@ export function BlockInspectorWindow() {
     }
     const runtimeBridge = bridge;
     return runtimeBridge.onAutoRunChanged((event) => {
-      if (!autoRunEventMatchesCanvas(event, projectRoot, canvasId)) {
+      if (!autoRunEventMatchesInspectorCanvas(event, projectRoot, canvasId)) {
         return;
       }
       const selectedRecordId = selectedRunRecord?.recordId ?? null;

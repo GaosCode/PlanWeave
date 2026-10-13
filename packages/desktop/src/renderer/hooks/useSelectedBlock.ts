@@ -7,10 +7,11 @@ import type {
   DesktopReviewAttemptSummary,
   DesktopRunRecord
 } from "@planweave-ai/runtime";
-import { autoRunEventMatchesCanvas } from "../autoRunEvents";
+import { autoRunEventMatchesProjectCanvas } from "../autoRunEvents";
 import { bridge, desktopCanvasReference } from "../bridge";
 import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
 import type { AppView } from "../types";
+import { useAutoRunSelectionGuard } from "./useAutoRunSelectionGuard";
 import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
 type UseSelectedBlockArgs = {
@@ -31,6 +32,12 @@ export function useSelectedBlock({
   setError,
   workspaceCanvas = null
 }: UseSelectedBlockArgs) {
+  const captureSelection = useAutoRunSelectionGuard(
+    selectedProject?.rootPath ?? null,
+    selectedCanvasId,
+    null,
+    selectedProject?.workspaceRoot ?? null
+  );
   const [selectedBlock, setSelectedBlock] = useState<DesktopBlockDetail | null>(null);
   const [blockRunRecords, setBlockRunRecords] = useState<DesktopBlockRunRecordSummary[]>([]);
   const [blockReviewAttempts, setBlockReviewAttempts] = useState<DesktopReviewAttemptSummary[]>([]);
@@ -119,8 +126,17 @@ export function useSelectedBlock({
       return undefined;
     }
     const runtimeBridge = bridge;
+    const request = captureSelection();
     return runtimeBridge.onAutoRunChanged((event) => {
-      if (!autoRunEventMatchesCanvas(event, selectedProject.rootPath, selectedCanvasId)) {
+      if (!request.isCurrent()) return;
+      if (
+        !autoRunEventMatchesProjectCanvas(
+          event,
+          selectedProject.rootPath,
+          selectedCanvasId,
+          selectedProject.workspaceRoot
+        )
+      ) {
         return;
       }
       const selectedRecordId = selectedRunRecord?.recordId ?? null;
@@ -157,6 +173,7 @@ export function useSelectedBlock({
     });
   }, [
     blockRunRecords,
+    captureSelection,
     refreshSelectedBlockRecords,
     selectedBlock,
     selectedCanvasId,

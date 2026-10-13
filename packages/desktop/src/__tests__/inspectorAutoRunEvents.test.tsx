@@ -110,6 +110,8 @@ function deferred<T>() {
 function autoRunEvent(state: DesktopAutoRunState): DesktopAutoRunEvent {
   return {
     projectRoot: state.projectRoot,
+    workspaceRoot: state.projectRoot,
+    planweaveHome: "/tmp/home",
     canvasId: state.canvasId,
     runId: state.runId,
     phase: state.phase,

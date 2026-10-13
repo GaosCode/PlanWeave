@@ -247,8 +247,12 @@ describe("runtime bridge handlers: graph and project", () => {
     expect(electronMock.handlers.has(desktopBridgeInvokeChannels.unwatchRuntimeState)).toBe(true);
   });
 
-  it("broadcasts auto-run runtime events to every active window once", async () => {
+  it.each([
+    "current",
+    "previous"
+  ])("broadcasts only %s Home auto-run events to active windows", async (home) => {
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
+    const { resolvePlanweaveHome } = await import("@planweave-ai/runtime");
     const activeSend = vi.fn();
     const destroyedSend = vi.fn();
     electronMock.windows.push(
@@ -262,6 +266,8 @@ describe("runtime bridge handlers: graph and project", () => {
     expect(runtimeMock.subscribeAutoRunEvents).toHaveBeenCalledTimes(1);
     const event = {
       projectRoot: "/tmp/project",
+      workspaceRoot: "/tmp/project-workspace",
+      planweaveHome: home === "current" ? resolvePlanweaveHome() : "/previous-home",
       canvasId: "canvas-a",
       runId: "RUN-001",
       phase: "running",
@@ -271,7 +277,8 @@ describe("runtime bridge handlers: graph and project", () => {
       listener(event);
     }
 
-    expect(activeSend).toHaveBeenCalledWith(autoRunChangedChannel, event);
+    if (home === "current") expect(activeSend).toHaveBeenCalledWith(autoRunChangedChannel, event);
+    expect(activeSend).toHaveBeenCalledTimes(home === "current" ? 1 : 0);
     expect(destroyedSend).not.toHaveBeenCalled();
   });
 

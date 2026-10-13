@@ -9,6 +9,8 @@ import type {
   TaskWorkspaceRunListItem,
   TaskWorkspaceRunsCursor
 } from "@planweave-ai/runtime";
+import { autoRunEventMatchesProjectCanvas } from "../autoRunEvents";
+import { useAutoRunSelectionGuard } from "../hooks/useAutoRunSelectionGuard";
 import type { DesktopAgentEndpointPreference } from "../../shared/desktopSettings";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import type { PlanWeaveOperatorControlApi } from "../../shared/operatorControl";
@@ -147,6 +149,7 @@ export function useTaskWorkspaceController(options: {
   ownerHumanPrincipalId?: string | null;
   ownerProjectId?: string | null;
   history: AppViewHistoryController;
+  selectedWorkspaceRoot: string | null;
   saveAgentEndpointPreference: (
     key: string,
     endpoint: AvailableAgentEndpoint | null
@@ -164,6 +167,7 @@ export function useTaskWorkspaceController(options: {
     ownerHumanPrincipalId = null,
     ownerProjectId = null,
     history,
+    selectedWorkspaceRoot,
     saveAgentEndpointPreference,
     workspaceCanvas = null
   } = options;
@@ -198,6 +202,13 @@ export function useTaskWorkspaceController(options: {
     navigation && isWorkspaceTaskWorkspaceNavigation(navigation) ? navigation : null;
   const navigationProjectRoot = localNavigation?.projectRoot ?? null;
   const navigationCanvasId = navigation?.canvasId ?? null;
+
+  const captureSelection = useAutoRunSelectionGuard(
+    navigationProjectRoot,
+    navigationCanvasId,
+    null,
+    selectedWorkspaceRoot
+  );
 
   useEffect(() => {
     void key;
@@ -792,14 +803,26 @@ export function useTaskWorkspaceController(options: {
     const removeRuntimeListener = api.onRuntimeStateChanged((event) => {
       if (matchesCanvas(event)) refreshFromEvent();
     });
+    const request = captureSelection();
     const removeAutoRunListener = api.onAutoRunChanged((event) => {
-      if (matchesCanvas(event)) refreshFromEvent();
+      if (
+        request.isCurrent() &&
+        selectedWorkspaceRoot !== null &&
+        autoRunEventMatchesProjectCanvas(
+          event,
+          canvasRef.projectRoot,
+          canvasRef.canvasId,
+          selectedWorkspaceRoot
+        ) &&
+        matchesCanvas(event)
+      )
+        refreshFromEvent();
     });
     return () => {
       removeRuntimeListener();
       removeAutoRunListener();
     };
-  }, [api, canvasRef]);
+  }, [api, canvasRef, captureSelection, selectedWorkspaceRoot]);
 
   const selectRun = useCallback<TaskWorkspaceController["selectRun"]>(
     (selection) => {

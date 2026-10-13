@@ -7,7 +7,10 @@ import type {
   DesktopBlockDetail,
   DesktopProjectSummary
 } from "@planweave-ai/runtime";
-import { autoRunEventMatchesCanvas, shouldRefreshGraphForAutoRunEvent } from "../autoRunEvents";
+import {
+  autoRunEventMatchesProjectCanvas,
+  shouldRefreshGraphForAutoRunEvent
+} from "../autoRunEvents";
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { createTranslator } from "../i18n";
 import {
@@ -194,7 +197,8 @@ export function useAutoRunControl({
   const captureSelection = useAutoRunSelectionGuard(
     selectedProject?.rootPath ?? null,
     selectedCanvasId,
-    canvasLocator
+    canvasLocator,
+    selectedProject?.workspaceRoot ?? null
   );
 
   const autoRunControlRef = useCallback((element: HTMLDivElement | null) => {
@@ -335,7 +339,14 @@ export function useAutoRunControl({
     const request = captureSelection();
     return bridge.onAutoRunChanged((event) => {
       if (!request.isCurrent()) return;
-      if (!autoRunEventMatchesCanvas(event, selectedProject.rootPath, selectedCanvasId)) {
+      if (
+        !autoRunEventMatchesProjectCanvas(
+          event,
+          selectedProject.rootPath,
+          selectedCanvasId,
+          selectedProject.workspaceRoot
+        )
+      ) {
         return;
       }
       if (activeRunId && event.runId !== activeRunId) {

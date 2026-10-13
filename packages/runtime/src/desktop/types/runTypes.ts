@@ -82,6 +82,9 @@ export type DesktopRuntimeStateChangeEvent = {
 
 export type DesktopAutoRunEvent = {
   projectRoot: string;
+  /** Project registration root, independent of the canvas storage directory. */
+  workspaceRoot: string;
+  planweaveHome: string;
   canvasId: string | null;
   runId: string;
   phase: DesktopAutoRunPhase;

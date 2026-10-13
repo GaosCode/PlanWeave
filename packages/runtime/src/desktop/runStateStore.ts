@@ -25,11 +25,14 @@ export function cloneAutoRunState(state: DesktopAutoRunState): DesktopAutoRunSta
 
 export function createAutoRunEvent(
   state: DesktopAutoRunState,
-  eventType: string
+  eventType: string,
+  workspace: ProjectWorkspace
 ): DesktopAutoRunEvent {
   const clonedState = cloneAutoRunState(state);
   return {
     projectRoot: clonedState.projectRoot,
+    workspaceRoot: dirname(workspace.projectFile),
+    planweaveHome: workspace.planweaveHome,
     canvasId: clonedState.canvasId,
     runId: clonedState.runId,
     phase: clonedState.phase,

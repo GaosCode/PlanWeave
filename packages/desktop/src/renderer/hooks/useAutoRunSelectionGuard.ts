@@ -6,7 +6,8 @@ import type { CanvasLocator } from "../../shared/canvasLocator";
 export function useAutoRunSelectionGuard(
   projectRoot: string | null,
   canvasId: string | null,
-  locator?: CanvasLocator | null
+  locator?: CanvasLocator | null,
+  workspaceRoot: string | null = null
 ) {
   const locatorKind = locator?.kind ?? null;
   const locatorProject = locator?.projectId ?? null;
@@ -16,6 +17,7 @@ export function useAutoRunSelectionGuard(
   const selection = useMemo(
     () => ({
       projectRoot,
+      workspaceRoot,
       canvasId,
       locatorKind,
       locatorProject,
@@ -23,7 +25,16 @@ export function useAutoRunSelectionGuard(
       workspace,
       connection
     }),
-    [projectRoot, canvasId, locatorKind, locatorProject, locatorCanvas, workspace, connection]
+    [
+      projectRoot,
+      workspaceRoot,
+      canvasId,
+      locatorKind,
+      locatorProject,
+      locatorCanvas,
+      workspace,
+      connection
+    ]
   );
   const lifecycle = useRef({ generation: 0, operation: 0, mounted: false, selection });
   useLayoutEffect(() => {

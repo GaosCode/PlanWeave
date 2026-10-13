@@ -438,6 +438,8 @@ describe("preload bridge invocation", () => {
     expect(channel).toBe(autoRunChangedChannel);
     const event: DesktopAutoRunEvent = {
       projectRoot: "/tmp/project",
+      workspaceRoot: "/tmp/home/projects/project",
+      planweaveHome: "/tmp/home",
       canvasId: "canvas-a",
       runId: "RUN-001",
       phase: "running",

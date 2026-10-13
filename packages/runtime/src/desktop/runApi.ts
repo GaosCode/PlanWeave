@@ -171,7 +171,7 @@ async function setState(
   });
   runs.set(runId, mutation.state);
   if (mutation.applied && mutation.eventType) {
-    emitAutoRunChanged(mutation.state, mutation.eventType);
+    emitAutoRunChanged(mutation.state, mutation.eventType, workspace);
   }
   releaseRunResources(runId, mutation.state);
   return mutation.state;
@@ -260,9 +260,13 @@ function withExplanation(
   };
 }
 
-function emitAutoRunChanged(state: DesktopAutoRunState, eventType: string): void {
+function emitAutoRunChanged(
+  state: DesktopAutoRunState,
+  eventType: string,
+  workspace: ProjectWorkspace
+): void {
   for (const listener of autoRunEventListeners) {
-    const event = createAutoRunEvent(state, eventType);
+    const event = createAutoRunEvent(state, eventType, workspace);
     try {
       listener(event);
     } catch (error) {
@@ -713,7 +717,7 @@ export async function initializeAutoRunUnderCanvasLock(
       scope,
       resetMaxCycleReviewRefs: reviewReset.refs
     });
-    emitAutoRunChanged(state, "run_started");
+    emitAutoRunChanged(state, "run_started", workspace);
     return cloneAutoRunState(state);
   } catch (error) {
     let initializationError = error;

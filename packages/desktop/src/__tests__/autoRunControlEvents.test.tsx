@@ -2,13 +2,14 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { useState } from "react";
-import type { DesktopAutoRunState } from "@planweave-ai/runtime";
+import type { DesktopAutoRunEvent, DesktopAutoRunState } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   autoRunEvent,
   autoRunState,
   cleanupAutoRunControlTestEnvironment,
   createAutoRunChangedBridge,
+  createAndStubAutoRunControlBridge,
   createTranslator,
   loadAutoRunControl,
   project,
@@ -21,6 +22,71 @@ afterEach(() => {
 });
 
 describe("auto run control hook events", () => {
+  it("ignores another Home and queued retired subscriptions for the same source root and canvas", async () => {
+    const callbacks: ((event: DesktopAutoRunEvent) => void)[] = [];
+    createAndStubAutoRunControlBridge({
+      onAutoRunChanged: vi.fn((callback) => {
+        callbacks.push(callback);
+        return () => undefined;
+      })
+    });
+    const { useAutoRunControl } = await loadAutoRunControl();
+    const projectA = { ...project, workspaceRoot: "/home-a/projects/demo" };
+    const projectB = { ...project, workspaceRoot: "/home-b/projects/demo" };
+    const { result, rerender } = renderHook(
+      ({ selectedProject }) => {
+        const [state, setState] = useState<DesktopAutoRunState | null>(null);
+        return useAutoRunControl({
+          autoRunState: state,
+          openRunWorkspace: vi.fn(),
+          selectedCanvasId: "canvas-main",
+          selectedBlock: null,
+          selectedProject,
+          selectedTaskPanelId: null,
+          setAutoRunState: setState,
+          setError: vi.fn(),
+          t: createTranslator("zh-CN"),
+          tmuxMonitoringEnabled: true
+        });
+      },
+      { initialProps: { selectedProject: projectA } }
+    );
+    const queuedA = callbacks.at(-1)!;
+    rerender({ selectedProject: projectB });
+    const runningA = autoRunState({ phase: "running", stepCount: 7 });
+    const eventA = autoRunEvent(runningA, {
+      workspaceRoot: projectA.workspaceRoot,
+      planweaveHome: "/home-a"
+    });
+    await act(async () => {
+      callbacks.at(-1)!(eventA);
+      queuedA(eventA);
+    });
+    expect(result.current.autoRunState).toBeNull();
+
+    const runningB = autoRunState({ phase: "running", stepCount: 2 });
+    const queuedB = callbacks.at(-1)!;
+    await act(async () => {
+      queuedB(
+        autoRunEvent(runningB, { workspaceRoot: projectB.workspaceRoot, planweaveHome: "/home-b" })
+      );
+    });
+    expect(result.current.autoRunState).toEqual(runningB);
+
+    rerender({ selectedProject: projectA });
+    await act(async () => {
+      queuedA(eventA);
+      queuedB(
+        autoRunEvent(runningB, { workspaceRoot: projectB.workspaceRoot, planweaveHome: "/home-b" })
+      );
+    });
+    expect(result.current.autoRunState).toEqual(runningB);
+    await act(async () => {
+      callbacks.at(-1)!(eventA);
+    });
+    expect(result.current.autoRunState).toEqual(runningA);
+  });
+
   it("updates auto-run state from matching subscription events without polling", async () => {
     const runningState = autoRunState();
     const eventState = autoRunState({

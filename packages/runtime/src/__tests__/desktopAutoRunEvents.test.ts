@@ -1,3 +1,7 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { initWorkspace } from "../initWorkspace.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getAutoRunState,
@@ -46,6 +50,57 @@ async function waitForRunEvent(
 }
 
 describe("desktop auto run events", () => {
+  it("keeps the captured Home and project registration identity while its loop settles after a Home switch", async () => {
+    const { root, home: homeA, init: initA } = await createTestWorkspace(basicManifest());
+    const homeB = await mkdtemp(join(tmpdir(), "planweave-event-home-b-"));
+    const initB = await initWorkspace({ projectRoot: root, planweaveHome: homeB });
+    const events: DesktopAutoRunEvent[] = [];
+    const unsubscribe = subscribeAutoRunEvents((event) => {
+      events.push(event);
+      if (event.eventType === "run_started") process.env.PLANWEAVE_HOME = homeB;
+    });
+    try {
+      const startedA = await startAutoRun(root, "default", { kind: "project" }, 0);
+      startedRunIds.add(startedA.runId);
+      await waitForRun(startedA.runId, (state) => state.phase === "paused");
+      const eventsA = await waitForRunEvent(events, startedA.runId, "step_limit_reached");
+      expect(eventsA.map((event) => event.eventType)).toEqual([
+        "run_started",
+        "step_limit_reached"
+      ]);
+      expect(eventsA).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "step_limit_reached",
+            projectRoot: root,
+            canvasId: "default",
+            workspaceRoot: dirname(initA.workspace.projectFile),
+            planweaveHome: homeA
+          })
+        ])
+      );
+      expect(eventsA.every((event) => event.planweaveHome === homeA)).toBe(true);
+      const startedB = await startAutoRun(root, "default", { kind: "project" }, 0);
+      startedRunIds.add(startedB.runId);
+      const eventsB = await waitForRunEvent(events, startedB.runId, "step_limit_reached");
+      expect(eventsB).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "run_started",
+            projectRoot: root,
+            canvasId: "default",
+            workspaceRoot: dirname(initB.workspace.projectFile),
+            planweaveHome: homeB
+          })
+        ])
+      );
+      expect(initB.workspace.workspaceRoot).not.toBe(initA.workspace.workspaceRoot);
+      await expect(getAutoRunState(startedA.runId)).resolves.toMatchObject({ phase: "paused" });
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("emits cloned events after start and phase changes", async () => {
     const { root } = await createTestWorkspace(basicManifest());
     const events: DesktopAutoRunEvent[] = [];

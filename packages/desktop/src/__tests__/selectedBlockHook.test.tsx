@@ -83,6 +83,8 @@ function runRecord(patch: Partial<DesktopRunRecord> = {}): DesktopRunRecord {
 function autoRunEvent(state: DesktopAutoRunState): DesktopAutoRunEvent {
   return {
     projectRoot: state.projectRoot,
+    workspaceRoot: project.workspaceRoot,
+    planweaveHome: "/tmp/home",
     canvasId: state.canvasId,
     runId: state.runId,
     phase: state.phase,

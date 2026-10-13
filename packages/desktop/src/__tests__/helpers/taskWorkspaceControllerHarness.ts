@@ -221,6 +221,7 @@ function useControllerHarness(
     [currentNavigation, replaceTaskWorkspaceTarget]
   );
   return useTaskWorkspaceController({
+    selectedWorkspaceRoot: null,
     agentEndpointCatalog: endpoints,
     agentEndpointPreferences: {},
     api,
@@ -251,6 +252,7 @@ function useControlledNavigationHarness(
     [currentNavigation]
   );
   return useTaskWorkspaceController({
+    selectedWorkspaceRoot: null,
     agentEndpointCatalog,
     agentEndpointPreferences: {},
     api,

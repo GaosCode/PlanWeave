@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DesktopAutoRunEvent } from "@planweave-ai/runtime";
 import type { DesktopGraphViewModel, DesktopTaskDetail } from "@planweave-ai/runtime";
-import { autoRunEventMatchesCanvas } from "./autoRunEvents";
+import { autoRunEventMatchesInspectorCanvas } from "./autoRunEvents";
 import { bridge, collaborationBridge } from "./bridge";
 import { runDurablePackageWrite } from "./collaboration/packageWriteAdapter";
 import { createTranslator, type Language } from "./i18n";
@@ -127,7 +127,7 @@ export function TaskInspectorWindow() {
     }
     return bridge.onAutoRunChanged((event) => {
       if (
-        !autoRunEventMatchesCanvas(event, projectRoot, canvasId) ||
+        !autoRunEventMatchesInspectorCanvas(event, projectRoot, canvasId) ||
         !eventMatchesTask(event, taskId, graph, selectedTask)
       ) {
         return;

@@ -101,6 +101,8 @@ export function autoRunEvent(
 ): DesktopAutoRunEvent {
   return {
     projectRoot: state.projectRoot,
+    workspaceRoot: project.workspaceRoot,
+    planweaveHome: "/tmp/home",
     canvasId: state.canvasId,
     runId: state.runId,
     phase: state.phase,

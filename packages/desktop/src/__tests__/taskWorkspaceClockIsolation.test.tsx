@@ -421,6 +421,7 @@ function useControllerHarness(api: ReturnType<typeof controllerApi>) {
     [currentNavigation]
   );
   return useTaskWorkspaceController({
+    selectedWorkspaceRoot: null,
     agentEndpointCatalog: [],
     agentEndpointPreferences: {},
     api,

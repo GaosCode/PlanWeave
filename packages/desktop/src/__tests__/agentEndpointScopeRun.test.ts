@@ -52,6 +52,26 @@ function localRunState(
   };
 }
 
+function localRunEvent(
+  state: DesktopAutoRunState,
+  workspaceRoot = "/home-b/projects/project"
+): DesktopAutoRunEvent {
+  return {
+    projectRoot: state.projectRoot,
+    workspaceRoot,
+    planweaveHome: "/home-b",
+    canvasId: state.canvasId,
+    runId: state.runId,
+    phase: state.phase,
+    state,
+    currentRef: state.currentRef,
+    latestRecordId: state.latestRecordId,
+    latestRecordPath: state.latestRecordPath,
+    eventType: "phase_change",
+    triggeredAt: state.updatedAt
+  };
+}
+
 describe("waitForLocalAutoRunTerminal", () => {
   it("resolves immediately when the initial state is already terminal", async () => {
     const api = {
@@ -60,6 +80,7 @@ describe("waitForLocalAutoRunTerminal", () => {
     };
     const terminal = await waitForLocalAutoRunTerminal({
       api,
+      workspaceRoot: "/home-b/projects/project",
       initial: localRunState("completed")
     });
     expect(terminal.phase).toBe("completed");
@@ -81,17 +102,43 @@ describe("waitForLocalAutoRunTerminal", () => {
 
     const pending = waitForLocalAutoRunTerminal({
       api,
+      workspaceRoot: "/home-b/projects/project",
       initial: localRunState("running"),
       fallbackRefreshMs: 60_000
     });
 
     expect(listener).not.toBeNull();
-    listener?.({
-      runId: "DESKTOP-RUN-LOCAL",
-      state: localRunState("completed")
-    });
+    listener?.(localRunEvent(localRunState("completed")));
 
     await expect(pending).resolves.toMatchObject({ phase: "completed" });
+  });
+
+  it("ignores a terminal event from another Home with the same root, canvas and run ID", async () => {
+    let listener: ((event: DesktopAutoRunEvent) => void) | null = null;
+    const api = {
+      getAutoRunState: vi.fn(async () => localRunState("running")),
+      onAutoRunChanged: vi.fn((callback: (event: DesktopAutoRunEvent) => void) => {
+        listener = callback;
+        return () => {
+          listener = null;
+        };
+      })
+    };
+    const pending = waitForLocalAutoRunTerminal({
+      api,
+      workspaceRoot: "/home-b/projects/project",
+      initial: localRunState("running"),
+      fallbackRefreshMs: 60_000
+    });
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    listener?.(localRunEvent(localRunState("completed"), "/home-a/projects/project"));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    listener?.(localRunEvent(localRunState("stopped")));
+    await expect(pending).resolves.toMatchObject({ phase: "stopped" });
   });
 
   it("does not settle on paused (step-limit is not a resource-terminal phase)", async () => {
@@ -108,13 +155,11 @@ describe("waitForLocalAutoRunTerminal", () => {
 
     const pending = waitForLocalAutoRunTerminal({
       api,
+      workspaceRoot: "/home-b/projects/project",
       initial: localRunState("running"),
       fallbackRefreshMs: 60_000
     });
-    listener?.({
-      runId: "DESKTOP-RUN-LOCAL",
-      state: localRunState("paused", { error: CLAIM_BUS_STEP_LIMIT_ERROR })
-    });
+    listener?.(localRunEvent(localRunState("paused", { error: CLAIM_BUS_STEP_LIMIT_ERROR })));
 
     let settled = false;
     void pending.then(() => {
@@ -123,10 +168,7 @@ describe("waitForLocalAutoRunTerminal", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(settled).toBe(false);
 
-    listener?.({
-      runId: "DESKTOP-RUN-LOCAL",
-      state: localRunState("stopped")
-    });
+    listener?.(localRunEvent(localRunState("stopped")));
     await expect(pending).resolves.toMatchObject({ phase: "stopped" });
   });
 
@@ -139,6 +181,7 @@ describe("waitForLocalAutoRunTerminal", () => {
 
     const pending = waitForLocalAutoRunTerminal({
       api,
+      workspaceRoot: "/home-b/projects/project",
       initial: localRunState("running"),
       signal: controller.signal,
       fallbackRefreshMs: 60_000
@@ -175,13 +218,13 @@ describe("claim-bus local Auto Run unit semantics", () => {
 
     const pending = waitForClaimBusLocalAutoRunUnit({
       api,
+      workspaceRoot: "/home-b/projects/project",
       initial: localRunState("running"),
       fallbackRefreshMs: 60_000
     });
-    listener?.({
-      runId: "DESKTOP-RUN-LOCAL",
-      state: localRunState("paused", { error: CLAIM_BUS_STEP_LIMIT_ERROR, stepCount: 1 })
-    });
+    listener?.(
+      localRunEvent(localRunState("paused", { error: CLAIM_BUS_STEP_LIMIT_ERROR, stepCount: 1 }))
+    );
 
     await expect(pending).resolves.toMatchObject({
       phase: "paused",
@@ -205,6 +248,7 @@ describe("claim-bus local Auto Run unit semantics", () => {
       startLocal,
       stopLocal,
       api,
+      workspaceRoot: "/home-b/projects/project",
       unitLabel: "T-001#B-001",
       waitForUnit
     });
@@ -251,6 +295,7 @@ describe("claim-bus local Auto Run unit semantics", () => {
       startLocal,
       stopLocal,
       api,
+      workspaceRoot: "/home-b/projects/project",
       unitLabel: "T-001#B-001",
       waitForUnit
     });
@@ -259,6 +304,7 @@ describe("claim-bus local Auto Run unit semantics", () => {
       startLocal,
       stopLocal,
       api,
+      workspaceRoot: "/home-b/projects/project",
       unitLabel: "T-001#B-002",
       waitForUnit
     });
@@ -283,6 +329,7 @@ describe("claim-bus local Auto Run unit semantics", () => {
         startLocal,
         stopLocal,
         api,
+        workspaceRoot: "/home-b/projects/project",
         unitLabel: "T-001#B-001",
         waitForUnit
       })

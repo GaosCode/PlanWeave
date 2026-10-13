@@ -34,6 +34,7 @@ export type LocalAutoRunObserver = {
 
 function waitForLocalAutoRunPhases(input: {
   api: LocalAutoRunObserver;
+  workspaceRoot: string;
   initial: DesktopAutoRunState;
   settlePhases: ReadonlySet<DesktopAutoRunState["phase"]>;
   signal?: AbortSignal;
@@ -86,7 +87,13 @@ function waitForLocalAutoRunPhases(input: {
     };
     const onAbort = () => fail(new Error("agent_endpoint_scope_run_cancelled"));
     const unsubscribe = input.api.onAutoRunChanged((event) => {
-      if (event.runId !== input.initial.runId) return;
+      if (
+        event.workspaceRoot !== input.workspaceRoot ||
+        event.projectRoot !== input.initial.projectRoot ||
+        event.canvasId !== input.initial.canvasId ||
+        event.runId !== input.initial.runId
+      )
+        return;
       if (input.settlePhases.has(event.state.phase)) {
         finish(event.state);
       }
@@ -104,6 +111,7 @@ function waitForLocalAutoRunPhases(input: {
 /** Wait until Auto Run reaches a resource-terminal phase (completed/blocked/failed/stopped). */
 export function waitForLocalAutoRunTerminal(input: {
   api: LocalAutoRunObserver;
+  workspaceRoot: string;
   initial: DesktopAutoRunState;
   signal?: AbortSignal;
   fallbackRefreshMs?: number;
@@ -119,6 +127,7 @@ export function waitForLocalAutoRunTerminal(input: {
  */
 export function waitForClaimBusLocalAutoRunUnit(input: {
   api: LocalAutoRunObserver;
+  workspaceRoot: string;
   initial: DesktopAutoRunState;
   signal?: AbortSignal;
   fallbackRefreshMs?: number;
@@ -148,6 +157,7 @@ export async function runClaimBusLocalAutoRunUnit(input: {
   ) => Promise<DesktopAutoRunState | null | undefined>;
   stopLocal: (runId: string) => Promise<unknown>;
   api: LocalAutoRunObserver;
+  workspaceRoot: string;
   unitLabel: string;
   signal?: AbortSignal;
   waitForUnit?: typeof waitForClaimBusLocalAutoRunUnit;
@@ -161,6 +171,7 @@ export async function runClaimBusLocalAutoRunUnit(input: {
   try {
     settled = await wait({
       api: input.api,
+      workspaceRoot: input.workspaceRoot,
       initial: started,
       signal: input.signal
     });

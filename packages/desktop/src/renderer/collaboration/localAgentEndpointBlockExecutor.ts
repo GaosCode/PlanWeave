@@ -8,6 +8,7 @@ import {
 } from "./agentEndpointScopeRun";
 
 export function createLocalAgentEndpointBlockExecutor(input: {
+  workspaceRoot: string;
   startLocal: (
     scope: DesktopAutoRunScope,
     options?: { stepLimit?: number }
@@ -27,6 +28,7 @@ export function createLocalAgentEndpointBlockExecutor(input: {
       startLocal: input.startLocal,
       stopLocal: input.stopLocal,
       api: localApi,
+      workspaceRoot: input.workspaceRoot,
       unitLabel: selection.block.ref,
       signal,
       waitForUnit: input.waitForLocalUnit
