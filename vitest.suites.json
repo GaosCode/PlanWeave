@@ -705,6 +705,7 @@
         "managedProjectRenameStorage.test.ts",
         "managedProjectRenameHomeAdmission.test.ts",
         "projectMetadataMutationLifecycle.test.ts",
+        "sourceDefaultProjectMutationLifecycle.test.ts",
         "canvasMapLayoutHomeAdmission.test.ts",
         "importTransactionRecovery.test.ts",
         "importTransactionWriteReservation.test.ts",

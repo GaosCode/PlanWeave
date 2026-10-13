@@ -1,10 +1,16 @@
-import { realpath, stat } from "node:fs/promises";
+import { mkdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { isNodeFileNotFoundError, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { normalizeProjectMetadata } from "../project.js";
 import { readProjectMetadataFile } from "../projectMetadata.js";
+import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
+import {
+  captureProjectRootIdentity,
+  assertProjectRootIdentity
+} from "../fs/projectRootIdentity.js";
 import type { ProjectMetadata } from "../types.js";
 
 const sourceDefaultProjectVersion = "planweave-source-defaults/v1";
@@ -31,6 +37,19 @@ type SourceDefaultProjectFile = {
 
 function sourceDefaultProjectFilePath(planweaveHome: string): string {
   return join(planweaveHome, "source-defaults.json");
+}
+
+/** Project mutations acquire their parent lock before entering this shared index writer. */
+export async function withSourceDefaultProjectMutation<T>(
+  planweaveHome: string,
+  apply: () => Promise<T>
+): Promise<T> {
+  const locksRoot = join(planweaveHome, "locks");
+  await mkdir(locksRoot, { recursive: true });
+  return withAdvisoryDirectoryLock(
+    { lockPath: join(locksRoot, "source-defaults.lock"), operation: "source-default-project" },
+    apply
+  );
 }
 
 async function readSourceDefaultProjectFile(
@@ -132,11 +151,24 @@ export async function setSourceDefaultProject(
   projectId: string
 ): Promise<SourceDefaultProjectEntry> {
   const planweaveHome = resolvePlanweaveHome();
-  const entry = await validateSourceDefaultProject(sourceRoot, projectId, planweaveHome);
-  const file = await readSourceDefaultProjectFile(planweaveHome);
-  file.defaults[entry.sourceRoot] = entry;
-  await writeSourceDefaultProjectFile(file, planweaveHome);
-  return entry;
+  const workspaceRoot = join(planweaveHome, "projects", projectId);
+  const rootIdentity = await captureProjectRootIdentity(workspaceRoot);
+  const captured = await registeredProject(projectId, planweaveHome);
+  if (!captured) throw new Error(`PlanWeave project '${projectId}' does not exist.`);
+  return withProjectMutationLock(workspaceRoot, async () => {
+    await assertProjectRootIdentity(workspaceRoot, rootIdentity);
+    const current = await registeredProject(projectId, planweaveHome);
+    if (!current || current.project.createdAt !== captured.project.createdAt) {
+      throw new Error(`PlanWeave project workspace identity changed at '${workspaceRoot}'.`);
+    }
+    const entry = await validateSourceDefaultProject(sourceRoot, projectId, planweaveHome);
+    return withSourceDefaultProjectMutation(planweaveHome, async () => {
+      const file = await readSourceDefaultProjectFile(planweaveHome);
+      file.defaults[entry.sourceRoot] = entry;
+      await writeSourceDefaultProjectFile(file, planweaveHome);
+      return entry;
+    });
+  });
 }
 
 export async function updateSourceDefaultProjectReference(
@@ -144,23 +176,25 @@ export async function updateSourceDefaultProjectReference(
   next: { projectId: string; projectRoot: string },
   planweaveHome: string = resolvePlanweaveHome()
 ): Promise<void> {
-  const file = await readSourceDefaultProjectFile(planweaveHome);
-  let changed = false;
-  for (const [sourceRoot, entry] of Object.entries(file.defaults)) {
-    if (entry.projectId !== previousProjectId) {
-      continue;
+  return withSourceDefaultProjectMutation(planweaveHome, async () => {
+    const file = await readSourceDefaultProjectFile(planweaveHome);
+    let changed = false;
+    for (const [sourceRoot, entry] of Object.entries(file.defaults)) {
+      if (entry.projectId !== previousProjectId) {
+        continue;
+      }
+      file.defaults[sourceRoot] = {
+        ...entry,
+        projectId: next.projectId,
+        projectRoot: next.projectRoot,
+        updatedAt: new Date().toISOString()
+      };
+      changed = true;
     }
-    file.defaults[sourceRoot] = {
-      ...entry,
-      projectId: next.projectId,
-      projectRoot: next.projectRoot,
-      updatedAt: new Date().toISOString()
-    };
-    changed = true;
-  }
-  if (changed) {
-    await writeSourceDefaultProjectFile(file, planweaveHome);
-  }
+    if (changed) {
+      await writeSourceDefaultProjectFile(file, planweaveHome);
+    }
+  });
 }
 
 export async function clearSourceDefaultProject(
@@ -168,11 +202,13 @@ export async function clearSourceDefaultProject(
   planweaveHome: string = resolvePlanweaveHome()
 ): Promise<SourceDefaultProjectEntry | null> {
   const resolvedSourceRoot = await normalizeSourceRoot(sourceRoot);
-  const file = await readSourceDefaultProjectFile(planweaveHome);
-  const current = file.defaults[resolvedSourceRoot] ?? null;
-  delete file.defaults[resolvedSourceRoot];
-  await writeSourceDefaultProjectFile(file, planweaveHome);
-  return current;
+  return withSourceDefaultProjectMutation(planweaveHome, async () => {
+    const file = await readSourceDefaultProjectFile(planweaveHome);
+    const current = file.defaults[resolvedSourceRoot] ?? null;
+    delete file.defaults[resolvedSourceRoot];
+    await writeSourceDefaultProjectFile(file, planweaveHome);
+    return current;
+  });
 }
 
 export async function getSourceDefaultProject(
