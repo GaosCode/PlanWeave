@@ -1,4 +1,6 @@
-import { readProject, resolveProjectWorkspace } from "../project.js";
+import { resolvePlanweaveHome } from "../paths.js";
+import { readProject, resolveProjectWorkspaceInHome } from "../project.js";
+import { compileProjectGraph, loadProjectGraphForWorkspace } from "../projectGraph/index.js";
 import type { ProjectWorkspace } from "../types.js";
 import { readDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 import { buildCanvasMapProjection } from "../plangraph/projections/index.js";
@@ -15,8 +17,8 @@ import {
 } from "./canvasMapLayout.js";
 import type { DesktopCanvasGraphViewModel, DesktopCanvasMapLayout } from "./types.js";
 
-async function projectTitle(projectRoot: string, fallback: string): Promise<string> {
-  return (await readProject(projectRoot))?.name ?? fallback;
+async function projectTitle(workspace: ProjectWorkspace, fallback: string): Promise<string> {
+  return (await readProject(workspace))?.name ?? fallback;
 }
 
 function projectTodoGraphVersion(
@@ -39,12 +41,11 @@ function projectTodoGraphVersion(
 }
 
 async function canvasIdsForProject(
-  projectRoot: string
-): Promise<{ workspace: ProjectWorkspace; projectId: string; canvasIds: string[] }> {
-  const { todoContext } = await readDesktopProjectProjection(projectRoot);
-  const { loaded, graph } = todoContext.aggregation;
+  workspace: ProjectWorkspace
+): Promise<{ projectId: string; canvasIds: string[] }> {
+  const loaded = await loadProjectGraphForWorkspace(workspace);
+  const graph = await compileProjectGraph(loaded);
   return {
-    workspace: loaded.workspace,
     projectId: loaded.workspace.id,
     canvasIds: graph.canvasIdsInOrder
   };
@@ -59,8 +60,9 @@ async function withProjectCanvasMapLayoutMutation<T>(
   operation: string,
   fn: (workspace: ProjectWorkspace) => Promise<T>
 ): Promise<T> {
+  const planweaveHome = resolvePlanweaveHome();
   return withCanvasMapLayoutMutation(
-    () => resolveProjectWorkspace(projectRoot),
+    () => resolveProjectWorkspaceInHome(projectRoot, planweaveHome),
     async (workspace) => {
       return withCanvasMapLayoutDiskLock(workspace, operation, () => fn(workspace));
     }
@@ -80,7 +82,7 @@ export async function getCanvasGraphViewModel(
     graphVersion: projectTodoGraphVersion(todoContext),
     context: todoContext,
     projectId: loaded.workspace.id,
-    projectTitle: await projectTitle(projectRoot, titleFallback)
+    projectTitle: await projectTitle(loaded.workspace, titleFallback)
   }).viewModel;
 }
 
@@ -89,7 +91,7 @@ export async function getCanvasMapLayout(projectRoot: string): Promise<DesktopCa
     projectRoot,
     "get-canvas-map-layout",
     async (workspace) => {
-      const { projectId, canvasIds } = await canvasIdsForProject(projectRoot);
+      const { projectId, canvasIds } = await canvasIdsForProject(workspace);
       return readCanvasMapLayoutFromDisk(workspace, projectId, canvasIds);
     }
   );
@@ -103,7 +105,7 @@ export async function saveCanvasMapLayout(
     projectRoot,
     "save-canvas-map-layout",
     async (workspace) => {
-      const { projectId, canvasIds } = await canvasIdsForProject(projectRoot);
+      const { projectId, canvasIds } = await canvasIdsForProject(workspace);
       const path = canvasMapLayoutPath(workspace);
       const next = canonicalizeCanvasMapLayoutForSave(layout, projectId, canvasIds, path);
       await writeCanvasMapLayoutToDisk(workspace, next);
@@ -119,7 +121,7 @@ export async function resetCanvasMapLayout(projectRoot: string): Promise<Desktop
     async (workspace) => {
       // Resolve live canvas set before any destructive disk change so failures
       // leave the previous last-known-good layout file intact.
-      const { projectId, canvasIds } = await canvasIdsForProject(projectRoot);
+      const { projectId, canvasIds } = await canvasIdsForProject(workspace);
       await deleteCanvasMapLayoutFile(workspace);
       return defaultCanvasMapLayout(projectId, canvasIds);
     }

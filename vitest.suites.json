@@ -701,6 +701,7 @@
         "importTransactionLifecycle.test.ts",
         "managedProjectRenameStorage.test.ts",
         "managedProjectRenameHomeAdmission.test.ts",
+        "canvasMapLayoutHomeAdmission.test.ts",
         "importTransactionRecovery.test.ts",
         "importTransactionWriteReservation.test.ts",
         "importTransactionAdmissionRelease.test.ts",
