@@ -492,16 +492,12 @@ describe("desktop canvas graph API", () => {
     };
     await writeJsonFile(layoutPath, onDisk);
 
-    const projection = await import("../desktop/graph/projectProjectionModel.js");
-    const spy = vi
-      .spyOn(projection, "readDesktopProjectProjection")
-      .mockRejectedValueOnce(new Error("projection unavailable"));
+    await writeFile(join(init.workspace.workspaceRoot, "project-graph.json"), "{invalid-graph\n");
 
-    await expect(resetCanvasMapLayout(root)).rejects.toThrow("projection unavailable");
+    await expect(resetCanvasMapLayout(root)).rejects.toBeInstanceOf(SyntaxError);
     await expect(readFile(layoutPath, "utf8")).resolves.toBe(
       `${JSON.stringify(onDisk, null, 2)}\n`
     );
-    spy.mockRestore();
   });
 
   it("serializes concurrent saves so the last mutation wins on disk", async () => {

@@ -1,5 +1,10 @@
 import { resolvePlanweaveHome } from "../paths.js";
-import { readProject, resolveProjectWorkspaceInHome } from "../project.js";
+import {
+  assertCurrentProjectWorkspace,
+  readProject,
+  resolveProjectWorkspaceInHome
+} from "../project.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { compileProjectGraph, loadProjectGraphForWorkspace } from "../projectGraph/index.js";
 import type { ProjectWorkspace } from "../types.js";
 import { readDesktopProjectProjection } from "./graph/projectProjectionModel.js";
@@ -53,7 +58,7 @@ async function canvasIdsForProject(
 
 /**
  * Enter the project-key FIFO before any await, resolve workspace inside the queue,
- * then take the cross-process disk lock for the layout file critical section.
+ * then hold the project relocation lock before the layout disk lock.
  */
 async function withProjectCanvasMapLayoutMutation<T>(
   projectRoot: string,
@@ -64,7 +69,15 @@ async function withProjectCanvasMapLayoutMutation<T>(
   return withCanvasMapLayoutMutation(
     () => resolveProjectWorkspaceInHome(projectRoot, planweaveHome),
     async (workspace) => {
-      return withCanvasMapLayoutDiskLock(workspace, operation, () => fn(workspace));
+      return withProjectMutationLock(
+        workspace.workspaceRoot,
+        () =>
+          withCanvasMapLayoutDiskLock(workspace, operation, async () => {
+            await assertCurrentProjectWorkspace(workspace);
+            return fn(workspace);
+          }),
+        { operation }
+      );
     }
   );
 }

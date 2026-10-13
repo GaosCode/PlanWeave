@@ -1,4 +1,6 @@
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getAutoRunState,
@@ -720,50 +722,90 @@ describe("desktop auto run API", () => {
   });
 
   it("keeps stopped session final when an in-flight non-tmux step settles after stop", async () => {
-    const manifest = manifestTestBuilder()
-      .withExecutor("slow-codex", {
-        adapter: "codex-exec",
-        command: process.execPath,
-        args: [
-          "-e",
-          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { setTimeout(() => { console.log('late stop auto run ' + input.split('\\n')[0]); }, 220); });"
-        ]
-      })
-      .withDefaultExecutor("slow-codex")
-      .build();
-    const { root } = await createTestWorkspace(manifest);
+    const barrierDir = await mkdtemp(join(tmpdir(), "planweave-auto-run-stop-"));
+    const readyPath = join(barrierDir, "ready");
+    const releasePath = join(barrierDir, "release");
+    const settledPath = join(barrierDir, "settled");
+    try {
+      const executorScript = [
+        "const fs = require('node:fs');",
+        "let input = '';",
+        "process.stdin.on('data', chunk => input += chunk);",
+        "process.stdin.on('end', () => {",
+        "  fs.writeFileSync(process.argv[1], 'ready');",
+        "  const deadline = Date.now() + 5_000;",
+        "  const poll = setInterval(() => {",
+        "    if (fs.existsSync(process.argv[2])) {",
+        "      clearInterval(poll);",
+        "      console.log('late stop auto run ' + input.split('\\n')[0]);",
+        "      fs.writeFileSync(process.argv[3], 'settled');",
+        "    } else if (Date.now() >= deadline) {",
+        "      clearInterval(poll);",
+        "      process.exitCode = 1;",
+        "      fs.writeFileSync(process.argv[3], 'timed out');",
+        "    }",
+        "  }, 10);",
+        "});"
+      ].join("\n");
+      const manifest = manifestTestBuilder()
+        .withExecutor("slow-codex", {
+          adapter: "codex-exec",
+          command: process.execPath,
+          args: ["-e", executorScript, readyPath, releasePath, settledPath]
+        })
+        .withDefaultExecutor("slow-codex")
+        .build();
+      const { root } = await createTestWorkspace(manifest);
 
-    const started = await startAutoRun(root, null, { kind: "project" }, 2, noTmux);
-    startedRunIds.add(started.runId);
-    await waitForAutoRunEvent(started.eventLogPath, (event) => event.type === "step_start");
+      const started = await startAutoRun(root, null, { kind: "project" }, 2, noTmux);
+      startedRunIds.add(started.runId);
+      await waitForAutoRunEvent(started.eventLogPath, (event) => event.type === "step_start");
+      let executorReady = false;
+      for (let attempt = 0; attempt < 250; attempt += 1) {
+        if ((await readFile(readyPath, "utf8").catch(() => null)) === "ready") {
+          executorReady = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(executorReady).toBe(true);
 
-    const firstStop = stopAutoRun(started.runId);
-    const repeatedStop = stopAutoRun(started.runId);
-    await expect(firstStop).resolves.toMatchObject({ phase: "stopped" });
-    await expect(repeatedStop).resolves.toMatchObject({ phase: "stopped" });
-    await waitForAutoRunEvent(
-      started.eventLogPath,
-      (event) => event.type === "stopped_step_ignored"
-    );
-    const stopped = await getLatestAutoRunSummary(root, null);
-    if (!stopped) {
-      throw new Error("Expected stopped Auto Run summary.");
+      const firstStop = stopAutoRun(started.runId);
+      const repeatedStop = stopAutoRun(started.runId);
+      await expect(firstStop).resolves.toMatchObject({ phase: "stopped" });
+      await expect(repeatedStop).resolves.toMatchObject({ phase: "stopped" });
+      await writeFile(releasePath, "release");
+      await waitForAutoRunEvent(
+        started.eventLogPath,
+        (event) => event.type === "stopped_step_ignored"
+      );
+      const stopped = await getLatestAutoRunSummary(root, null);
+      if (!stopped) {
+        throw new Error("Expected stopped Auto Run summary.");
+      }
+      expect(stopped).toMatchObject({
+        runId: started.runId,
+        phase: "stopped",
+        stepCount: 0
+      });
+      await expectAutoRunSessionConsistency(root, stopped, {
+        phase: "stopped",
+        latestAutoRunEvent: "stopped_step_ignored",
+        sessionPhase: "stopped",
+        stepCount: 0,
+        stopReason: null,
+        finalSessionEvent: "session_stopped"
+      });
+      const events = await readAutoRunEvents(stopped.eventLogPath);
+      expect(events.filter((event) => event.type === "run_stopped")).toHaveLength(1);
+    } finally {
+      await writeFile(releasePath, "release");
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (await readFile(settledPath, "utf8").catch(() => null)) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      await rm(barrierDir, { recursive: true, force: true });
     }
-    expect(stopped).toMatchObject({
-      runId: started.runId,
-      phase: "stopped",
-      stepCount: 0
-    });
-    await expectAutoRunSessionConsistency(root, stopped, {
-      phase: "stopped",
-      latestAutoRunEvent: "stopped_step_ignored",
-      sessionPhase: "stopped",
-      stepCount: 0,
-      stopReason: null,
-      finalSessionEvent: "session_stopped"
-    });
-    const events = await readAutoRunEvents(stopped.eventLogPath);
-    expect(events.filter((event) => event.type === "run_stopped")).toHaveLength(1);
   });
 
   it("finishes the in-flight block before pausing and resumes the same run", async () => {
