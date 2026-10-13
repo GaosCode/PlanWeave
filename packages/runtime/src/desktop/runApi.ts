@@ -610,7 +610,8 @@ function rehydratePersistedRun(
   return rehydrated;
 }
 
-function clearAutoRunInitializationMemory(runId: string): void {
+function clearAutoRunInitializationMemory(runId: string, workspace: ProjectWorkspace): void {
+  if (!memoryForWorkspace(workspace).get(runId)) return;
   activeLoops.delete(runId);
   runs.delete(runId);
   runWorkspaces.delete(runId);
@@ -629,8 +630,8 @@ async function rollbackAutoRunInitialization(options: {
   originalError: unknown;
   admitted: boolean;
 }): Promise<never> {
-  if (options.admitted && memoryForWorkspace(options.workspace).get(options.runId)) {
-    clearAutoRunInitializationMemory(options.runId);
+  if (options.admitted) {
+    clearAutoRunInitializationMemory(options.runId, options.workspace);
   }
   const cleanupOperations: Promise<unknown>[] = [
     rm(autoRunRoot(options.workspace, options.runId), { recursive: true, force: true }),
@@ -1009,7 +1010,7 @@ export async function resetDesktopRuntimeState(
       highestRunId(await listRunDirectories(workspace))
     );
     for (const runId of resetTargetRunIds) {
-      clearAutoRunInitializationMemory(runId);
+      clearAutoRunInitializationMemory(runId, workspace);
     }
     invalidateDesktopProjectProjection(projectRoot);
     const finishedAt = new Date().toISOString();

@@ -15,6 +15,7 @@ import {
 } from "../desktop/index.js";
 import { createRunSession } from "../runSessions/index.js";
 import { mutateAutoRunTransition } from "../desktop/autoRunTransition.js";
+import { clearLatestAutoRunStateSelection } from "../desktop/runStatePointer.js";
 
 vi.mock("../runSessions/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../runSessions/index.js")>();
@@ -23,6 +24,14 @@ vi.mock("../runSessions/index.js", async (importOriginal) => {
 vi.mock("../desktop/autoRunTransition.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../desktop/autoRunTransition.js")>();
   return { ...actual, mutateAutoRunTransition: vi.fn(actual.mutateAutoRunTransition) };
+});
+
+vi.mock("../desktop/runStatePointer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../desktop/runStatePointer.js")>();
+  return {
+    ...actual,
+    clearLatestAutoRunStateSelection: vi.fn(actual.clearLatestAutoRunStateSelection)
+  };
 });
 
 import { writePersistedAutoRunState } from "../desktop/runStateRepository.js";
@@ -81,6 +90,92 @@ async function reached(promise: Promise<void>): Promise<void> {
 }
 
 describe("Auto Run Home memory ownership", () => {
+  it("does not clear a new Home owner after reset waits to clear its previous terminal run", async () => {
+    const { root, homeA, runA, workspaceB } = await homesWithPausedRun();
+    await stopAutoRun(runA.runId);
+    const pausedB = persistedAutoRunState(workspaceB, {
+      runId: runA.runId,
+      projectRoot: root,
+      canvasId: "default",
+      phase: "paused",
+      stepCount: 0,
+      stepLimit: 0,
+      currentRef: null,
+      currentExecutor: null,
+      latestRecordId: null,
+      latestRecordPath: null
+    });
+    await writePersistedAutoRunState(pausedB);
+    await expect(getLatestAutoRunSummary(root, "default")).resolves.toMatchObject({
+      phase: "paused",
+      statePath: pausedB.statePath
+    });
+    const actualTransitions = await vi.importActual<
+      typeof import("../desktop/autoRunTransition.js")
+    >("../desktop/autoRunTransition.js");
+    await vi.mocked(mutateAutoRunTransition).withImplementation(
+      (input) =>
+        actualTransitions.mutateAutoRunTransition({
+          ...input,
+          adapters: {
+            appendAutoRunEvent: async () => {
+              throw new Error("run_stopped projection interrupted");
+            }
+          }
+        }),
+      async () => {
+        await expect(stopAutoRun(runA.runId)).rejects.toThrow("run_stopped projection interrupted");
+      }
+    );
+    await expect(getLatestAutoRunSummary(root, "default")).resolves.toMatchObject({
+      phase: "stopped",
+      statePath: pausedB.statePath
+    });
+    // Recovery retained the terminal in-process owner even though normal stop releases it.
+    await expect(getAutoRunState(runA.runId)).resolves.toMatchObject({
+      phase: "stopped",
+      statePath: pausedB.statePath
+    });
+    const entered = deferred();
+    const release = deferred();
+    const actualPointer = await vi.importActual<typeof import("../desktop/runStatePointer.js")>(
+      "../desktop/runStatePointer.js"
+    );
+    await vi.mocked(clearLatestAutoRunStateSelection).withImplementation(
+      async (workspace, highestRunId) => {
+        entered.resolve();
+        await release.promise;
+        return actualPointer.clearLatestAutoRunStateSelection(workspace, highestRunId);
+      },
+      async () => {
+        const resetting = resetDesktopRuntimeState(root, "default", { force: true });
+        try {
+          await reached(entered.promise);
+          process.env.PLANWEAVE_HOME = homeA;
+          await writePersistedAutoRunState(runA);
+          const restoredA = await getLatestAutoRunSummary(root, "default");
+          expect(restoredA).toMatchObject({ phase: "paused", statePath: runA.statePath });
+          release.resolve();
+          await resetting;
+          await expect(getAutoRunState(runA.runId)).resolves.toEqual(restoredA);
+          await expect(getLatestAutoRunSummary(root, "default")).resolves.toEqual(restoredA);
+          await expect(resumeAutoRun(runA.runId)).resolves.toMatchObject({
+            phase: "running",
+            statePath: runA.statePath
+          });
+          const resumed = await waitForDesktopAutoRun(
+            runA.runId,
+            (state) => state.phase === "paused"
+          );
+          expect(resumed.statePath).toBe(runA.statePath);
+        } finally {
+          release.resolve();
+          await resetting.catch(() => undefined);
+        }
+      }
+    );
+  });
+
   it("rejects a late start without clearing the other Home's run adopted during initialization", async () => {
     const { root, home: homeA } = await createTestWorkspace(basicManifest());
     const homeB = await mkdtemp(join(tmpdir(), "planweave-auto-run-start-home-b-"));
