@@ -97,6 +97,17 @@ async function harness() {
     },
     setHome(home: string) {
       view.rerender(<App home={home} />);
+    },
+    async selectProjectInHome(home: string) {
+      const registeredProject = { ...project, workspaceRoot: `/${home}/workspace` };
+      vi.mocked(bridge.listProjects).mockResolvedValueOnce([registeredProject]);
+      view.rerender(<App home={home} />);
+      await waitFor(() => expect(current.projects).toEqual([registeredProject]));
+      expect(current.selectedProject).toBeNull();
+      expect(current.projectPromptMarkdown).toBeNull();
+      await act(async () => {
+        await current.loadProject(registeredProject);
+      });
     }
   };
 }
@@ -365,8 +376,8 @@ it.each([
       projectPromptPolicy: { includeGlobalPrompt: true }
     })
   );
-  h.setHome("home-b");
-  await waitFor(() => expect(h.current.projectPromptMarkdown).toBe("new-home-project"));
+  await h.selectProjectInHome("home-b");
+  expect(h.current.projectPromptMarkdown).toBe("new-home-project");
   await act(async () => {
     pending.resolve();
     await task;
@@ -387,8 +398,8 @@ it.each([
     task = write(h, kind);
   });
   const observed = task.catch((caught: unknown) => caught);
-  h.setHome("home-b");
-  await waitFor(() => expect(h.bridge.getDesktopProjectSnapshot).toHaveBeenCalledTimes(2));
+  await h.selectProjectInHome("home-b");
+  expect(h.bridge.getDesktopProjectSnapshot).toHaveBeenCalledTimes(2);
   h.setError.mockClear();
   await act(async () => {
     pending.reject();
@@ -444,8 +455,8 @@ it.each([
       projectPromptPolicy: { includeGlobalPrompt: true }
     })
   );
-  h.setHome("home-b");
-  await waitFor(() => expect(textbox("Project")).toHaveValue("home-B-base"));
+  await h.selectProjectInHome("home-b");
+  expect(textbox("Project")).toHaveValue("home-B-base");
   const next = pendingWrite(h, "Project");
   fireEvent.change(textbox("Project"), { target: { value: "home-B-draft" } });
   save("Project");
