@@ -4,7 +4,7 @@ import { optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { resolveProjectWorkspace } from "../project.js";
 import { loadProjectGraphForWorkspace } from "../projectGraph/index.js";
-import type { ProjectWorkspace } from "../types.js";
+import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 import { normalizeRegistry, registryVersion, type TaskCanvasRegistry } from "./canvasRegistry.js";
 
 const activeCanvasVersion = "desktop-active-canvas/v1" as const;
@@ -57,9 +57,10 @@ async function readProjectGraphActiveCanvas(
 }
 
 export async function readActiveTaskCanvasSelection(
-  projectRoot: string
+  projectRoot: PackageWorkspaceRef
 ): Promise<ActiveTaskCanvasSelection> {
-  const projectWorkspace = await resolveProjectWorkspace(projectRoot);
+  const projectWorkspace =
+    typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
   return readActiveTaskCanvasSelectionForWorkspace(projectWorkspace);
 }
 
@@ -87,10 +88,11 @@ export async function readActiveTaskCanvasSelectionForWorkspace(
 }
 
 export async function writeActiveTaskCanvasSelection(
-  projectRoot: string,
+  projectRoot: PackageWorkspaceRef,
   activeCanvasId: string
 ): Promise<ActiveTaskCanvasSelection> {
-  const projectWorkspace = await resolveProjectWorkspace(projectRoot);
+  const projectWorkspace =
+    typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
   return writeActiveTaskCanvasSelectionForWorkspace(projectWorkspace, activeCanvasId);
 }
 

@@ -286,7 +286,7 @@ describe("public live canvas writers and complete package batches", () => {
   )("failed project copy protects target %s read and releases after cleanup", async (intent) => {
     await copyRace(intent, true);
   });
-  it("preserves cleanup failure precedence and releases the failed copy keys", async () => {
+  it("preserves both copy and cleanup failures and releases the failed copy keys", async () => {
     const ctx = await createTestWorkspace();
     cleanupRoots.push(ctx.home, ctx.root);
     const source = await resolveTaskCanvasWorkspace(ctx.root, "default");
@@ -315,7 +315,10 @@ describe("public live canvas writers and complete package batches", () => {
     });
     await expect(
       track(createProjectFromTaskCanvas(ctx.root, "default", { name: "Cleanup failure" }))
-    ).rejects.toBe(cleanupFailure);
+    ).rejects.toMatchObject({
+      message: "content_local_project_rollback_failed",
+      errors: [copyFailure, cleanupFailure]
+    });
     if (!target.workspace || !target.root) throw new Error("actual target was not created");
     await expect(actualFs.access(target.root)).resolves.toBeUndefined();
     await withPackageFileConsistency([source.packageDir, target.workspace.packageDir], async () => {

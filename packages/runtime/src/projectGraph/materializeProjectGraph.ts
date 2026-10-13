@@ -1,9 +1,11 @@
 import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
-import { loadProjectGraph } from "./loadProjectGraph.js";
+import { assertPackageStorageIdentity } from "../package/packageStorageIdentity.js";
+import { loadProjectGraphForWorkspace } from "./loadProjectGraph.js";
 import { projectGraphPath, writeProjectGraph } from "./loadProjectGraph.js";
 import { PlanWeaveWorkspaceNotInitializedError } from "../errors.js";
-import { requireInitializedProjectWorkspace } from "../project.js";
+import { assertCurrentProjectWorkspace, requireInitializedProjectWorkspace } from "../project.js";
 import { detectDefaultCanvasWorkspaceMigration } from "./defaultCanvasWorkspaceMigration.js";
+import type { PackageWorkspaceRef } from "../types.js";
 import type { ProjectGraphSource } from "./types.js";
 
 export type MaterializeProjectGraphResult = {
@@ -13,7 +15,7 @@ export type MaterializeProjectGraphResult = {
   canvasCount: number;
 };
 
-async function requireMaterializeProjectWorkspace(projectRoot: string) {
+async function requireMaterializeProjectWorkspace(projectRoot: PackageWorkspaceRef) {
   try {
     return await requireInitializedProjectWorkspace(projectRoot);
   } catch (error) {
@@ -33,10 +35,12 @@ async function requireMaterializeProjectWorkspace(projectRoot: string) {
  * ownership so this primitive can reenter from create/duplicate.
  */
 export async function materializeProjectGraphUnlocked(
-  projectRoot: string
+  projectRoot: PackageWorkspaceRef
 ): Promise<MaterializeProjectGraphResult> {
   const workspace = await requireMaterializeProjectWorkspace(projectRoot);
-  const loaded = await loadProjectGraph(projectRoot);
+  await assertCurrentProjectWorkspace(workspace);
+  if (workspace.packageStorageIdentity !== null) await assertPackageStorageIdentity(workspace);
+  const loaded = await loadProjectGraphForWorkspace(workspace);
   const path = projectGraphPath(loaded.workspace);
   if (loaded.source === "project_graph") {
     return {
@@ -70,12 +74,12 @@ export async function materializeProjectGraphUnlocked(
  * the advisory lock AsyncLocalStorage without double-locking.
  */
 export async function materializeProjectGraph(
-  projectRoot: string
+  projectRoot: PackageWorkspaceRef
 ): Promise<MaterializeProjectGraphResult> {
   const workspace = await requireMaterializeProjectWorkspace(projectRoot);
   return withProjectMutationLock(
     workspace.workspaceRoot,
-    () => materializeProjectGraphUnlocked(projectRoot),
+    () => materializeProjectGraphUnlocked(workspace),
     { operation: "materialize-project-graph" }
   );
 }

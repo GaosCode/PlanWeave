@@ -2,11 +2,15 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ZodError } from "zod";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
+import { assertCurrentCanvasWorkspaceIdentity } from "../package/assertCurrentCanvasWorkspace.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { initManagedWorkspace } from "../initWorkspace.js";
+import { withManagedProjectCreation } from "./managedProjectCreation.js";
+import { assertCurrentProjectWorkspace, resolveProjectWorkspaceInHome } from "../project.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { createManagedProjectId } from "../projectId.js";
-import type { ProjectWorkspace, ValidationIssue } from "../types.js";
+import type { PackageWorkspaceRef, ProjectWorkspace, ValidationIssue } from "../types.js";
 import { selectTaskCanvas } from "./canvasSelectionApi.js";
 import { readActiveTaskCanvasSelection } from "./canvasSelectionStore.js";
 import {
@@ -65,35 +69,36 @@ function projectGraphDiagnosticCanvas(diagnostics: ValidationIssue[]): DesktopTa
   };
 }
 
-async function managedProjectExists(name: string): Promise<boolean> {
+async function managedProjectExists(name: string, planweaveHome: string): Promise<boolean> {
   const projectId = createManagedProjectId(name);
-  return (await optionalStat(join(resolvePlanweaveHome(), "projects", projectId))) !== null;
+  return (await optionalStat(join(planweaveHome, "projects", projectId))) !== null;
 }
 
 async function nextCopiedProjectName(
   sourceName: string,
-  requestedName?: string | null
+  requestedName: string | null | undefined,
+  planweaveHome: string
 ): Promise<string> {
   const trimmedRequestedName = requestedName?.trim();
   if (trimmedRequestedName) {
-    if (await managedProjectExists(trimmedRequestedName)) {
+    if (await managedProjectExists(trimmedRequestedName, planweaveHome)) {
       throw new Error(`PlanWeave project '${trimmedRequestedName}' already exists.`);
     }
     return trimmedRequestedName;
   }
   const baseName = `${sourceName.trim() || "Task canvas"} copy`;
-  if (!(await managedProjectExists(baseName))) {
+  if (!(await managedProjectExists(baseName, planweaveHome))) {
     return baseName;
   }
   let index = 2;
-  while (await managedProjectExists(`${baseName} ${index}`)) {
+  while (await managedProjectExists(`${baseName} ${index}`, planweaveHome)) {
     index += 1;
   }
   return `${baseName} ${index}`;
 }
 
 async function sourceCanvasForProjectCopy(
-  projectRoot: string,
+  projectRoot: PackageWorkspaceRef,
   canvasId: string
 ): Promise<{ name: string; workspace: ProjectWorkspace }> {
   return (await createProjectCanvasStore(projectRoot)).sourceCanvasWorkspace(canvasId);
@@ -117,7 +122,9 @@ function managedProjectSummary(
   };
 }
 
-export async function listTaskCanvases(projectRoot: string): Promise<DesktopTaskCanvasSummary[]> {
+export async function listTaskCanvases(
+  projectRoot: PackageWorkspaceRef
+): Promise<DesktopTaskCanvasSummary[]> {
   try {
     // Await list() inside try so store open/load rejections are converted to diagnostics.
     return await (await createProjectCanvasStore(projectRoot)).list();
@@ -126,7 +133,9 @@ export async function listTaskCanvases(projectRoot: string): Promise<DesktopTask
   }
 }
 
-export async function getActiveTaskCanvasId(projectRoot: string): Promise<string | null> {
+export async function getActiveTaskCanvasId(
+  projectRoot: PackageWorkspaceRef
+): Promise<string | null> {
   try {
     return (await readActiveTaskCanvasSelection(projectRoot)).activeCanvasId;
   } catch (error) {
@@ -141,14 +150,14 @@ export async function getActiveTaskCanvasId(projectRoot: string): Promise<string
 }
 
 export async function listTaskCanvasWorkspaces(
-  projectRoot: string,
+  projectRoot: PackageWorkspaceRef,
   options: { createRegistry?: boolean } = {}
 ): Promise<DesktopTaskCanvasWorkspace[]> {
   return (await createProjectCanvasStore(projectRoot)).listWorkspaces(options);
 }
 
 export async function resolveTaskCanvasWorkspace(
-  projectRoot: string,
+  projectRoot: PackageWorkspaceRef,
   canvasId?: string | null
 ): Promise<ProjectWorkspace> {
   return (await createProjectCanvasStore(projectRoot)).resolveWorkspace(canvasId);
@@ -174,34 +183,38 @@ export async function createProjectFromTaskCanvas(
   canvasId: string,
   input: { name?: string | null } = {}
 ): Promise<DesktopProjectSummary> {
-  const source = await sourceCanvasForProjectCopy(projectRoot, canvasId);
-  const projectName = await nextCopiedProjectName(source.name, input.name);
-  const init = await initManagedWorkspace({ name: projectName, projectGraph: true });
-  const targetWorkspace = await resolveTaskCanvasWorkspace(init.project.rootPath, defaultCanvasId);
-
-  await withPackageFileConsistency(
-    [
-      source.workspace.packageDir,
-      targetWorkspace.packageDir,
-      join(source.workspace.workspaceRoot, "desktop", "layout.json"),
-      join(targetWorkspace.workspaceRoot, "desktop", "layout.json")
-    ],
-    async () => {
-      try {
-        await rm(targetWorkspace.packageDir, { recursive: true, force: true });
-        await populateDuplicatedCanvasWorkspace(source.workspace, targetWorkspace, projectName);
-        await rm(targetWorkspace.resultsDir, { recursive: true, force: true });
-        await mkdir(targetWorkspace.resultsDir, { recursive: true });
-      } catch (error) {
-        await rm(init.workspace.workspaceRoot, { recursive: true, force: true });
-        throw error;
+  const planweaveHome = resolvePlanweaveHome();
+  const projectWorkspace = await resolveProjectWorkspaceInHome(projectRoot, planweaveHome);
+  const source = await sourceCanvasForProjectCopy(projectWorkspace, canvasId);
+  const projectName = await nextCopiedProjectName(source.name, input.name, planweaveHome);
+  const targetRoot = join(planweaveHome, "projects", createManagedProjectId(projectName));
+  return withProjectMutationLock([projectWorkspace.workspaceRoot, targetRoot], async () => {
+    await assertCurrentProjectWorkspace(source.workspace);
+    return withManagedProjectCreation(
+      { name: projectName, planweaveHome, sourceWorkspaces: [source.workspace] },
+      async (init) => {
+        const targetWorkspace = await resolveTaskCanvasWorkspace(init.workspace, defaultCanvasId);
+        await withPackageFileConsistency(
+          [
+            source.workspace.packageDir,
+            targetWorkspace.packageDir,
+            join(source.workspace.workspaceRoot, "desktop", "layout.json"),
+            join(targetWorkspace.workspaceRoot, "desktop", "layout.json")
+          ],
+          async () => {
+            await assertCurrentCanvasWorkspaceIdentity(source.workspace);
+            await rm(targetWorkspace.packageDir, { recursive: true, force: true });
+            await populateDuplicatedCanvasWorkspace(source.workspace, targetWorkspace, projectName);
+            await rm(targetWorkspace.resultsDir, { recursive: true, force: true });
+            await mkdir(targetWorkspace.resultsDir, { recursive: true });
+          }
+        );
+        const activeCanvasId = await getActiveTaskCanvasId(init.workspace);
+        const taskCanvases = await listTaskCanvases(init.workspace);
+        return managedProjectSummary(init.project, init.workspace, taskCanvases, activeCanvasId);
       }
-    }
-  );
-
-  const activeCanvasId = await getActiveTaskCanvasId(init.project.rootPath);
-  const taskCanvases = await listTaskCanvases(init.project.rootPath);
-  return managedProjectSummary(init.project, init.workspace, taskCanvases, activeCanvasId);
+    );
+  });
 }
 
 export async function renameTaskCanvas(

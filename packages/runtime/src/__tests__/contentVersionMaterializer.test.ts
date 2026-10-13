@@ -395,12 +395,27 @@ describe("authoritative content materializer", () => {
   });
 
   it.each([
-    "active",
-    "committed"
-  ] as const)("recovers %s transactions with reserved targets before taking authority admission", async (state) => {
+    ["active", "workspace"],
+    ["committed", "workspace"],
+    ["active", "reserved-resume"],
+    ["committed", "reserved-resume"]
+  ] as const)("recovers %s transactions with reserved targets through %s admission", async (state, admission) => {
     const fixture = await createTestWorkspace();
     directories.push(fixture.home, fixture.root);
-    const workspace = fixture.init.workspace;
+    const content = await contentFromWorkspace(fixture.root);
+    const reservationToken = "reserved-target-recovery";
+    const created =
+      admission === "reserved-resume"
+        ? await createManagedProjectFromAuthoritativeContent({
+            authorityProjectId: fixture.init.workspace.id,
+            content,
+            projectName: "Reserved target recovery",
+            reservationToken
+          })
+        : null;
+    const workspace = created
+      ? await resolveTaskCanvasWorkspace(created.project.rootPath, "default")
+      : fixture.init.workspace;
     const heldKeys = await Promise.all(
       [
         workspace.packageDir,
@@ -426,9 +441,22 @@ describe("authoritative content materializer", () => {
       writeIsolationTargets: [target]
     });
     if (state === "committed") await transaction.markCommitted();
-    await expect(
-      recoverPendingAuthoritativeCanvasMaterialization(workspace)
-    ).resolves.toBeUndefined();
+    if (created) {
+      await expect(
+        createManagedProjectFromAuthoritativeContent({
+          authorityProjectId: fixture.init.workspace.id,
+          content,
+          projectName: created.project.name,
+          expectedProjectId: created.project.projectId,
+          reservationToken,
+          resumeReservedProject: true
+        })
+      ).resolves.toMatchObject({ project: { projectId: created.project.projectId } });
+    } else {
+      await expect(
+        recoverPendingAuthoritativeCanvasMaterialization(workspace)
+      ).resolves.toBeUndefined();
+    }
     expect(await readFile(target, "utf8")).toBe("reserved unchanged\n");
     expect(await readFile(workspace.manifestFile, "utf8")).toBe(before);
     expect(

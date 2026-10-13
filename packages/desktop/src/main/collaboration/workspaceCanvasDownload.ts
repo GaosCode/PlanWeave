@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   createManagedProjectFromAuthoritativeContent,
+  resolvePlanweaveHome,
   workspaceForkLineagePath,
   workspaceForkLineageSchema
 } from "@planweave-ai/runtime";
@@ -44,6 +45,7 @@ export async function downloadWorkspaceCanvasFork(input: {
   client: CollaborationClient;
   rawInput: unknown;
 }): Promise<WorkspaceCanvasDownloadResult> {
+  const planweaveHome = resolvePlanweaveHome();
   const requested = workspaceCanvasDownloadInputSchema.parse(input.rawInput);
   const scope = canvasScopeRefSchema.parse({
     workspaceId: requested.workspaceId,
@@ -73,6 +75,7 @@ export async function downloadWorkspaceCanvasFork(input: {
     throw unavailable("content_authoritative_head_mismatch", false);
   }
   const created = await createManagedProjectFromAuthoritativeContent({
+    planweaveHome,
     authorityProjectId: fetched.scope.projectId,
     content: fetched.content,
     ...(requested.projectName ? { projectName: requested.projectName } : {}),

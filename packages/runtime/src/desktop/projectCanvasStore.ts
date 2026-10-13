@@ -12,7 +12,6 @@ import { optionalStat } from "../fs/optionalFile.js";
 import { initialManifest } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import {
-  loadProjectGraph,
   loadProjectGraphForWorkspace,
   projectCanvasWorkspace as workspaceForProjectCanvas,
   writeProjectGraph
@@ -321,7 +320,7 @@ class ProjectGraphCanvasStore implements ProjectCanvasStore {
   private loaded: LoadedProjectGraph;
 
   constructor(
-    private readonly projectRoot: string,
+    private readonly projectRoot: ProjectWorkspace,
     loaded: LoadedProjectGraph
   ) {
     this.loaded = loaded;
@@ -427,7 +426,7 @@ class ProjectGraphCanvasStore implements ProjectCanvasStore {
       this.loaded.manifest.canvases.length === 1
     ) {
       await resetCanvasWorkspace(workspace, canvas.title);
-      invalidateDesktopProjectProjection(this.projectRoot);
+      invalidateDesktopProjectProjection(this.projectRoot.rootPath);
       return this.list();
     }
     const quarantineRoot = await quarantineCanvasWorkspace(this.loaded.workspace, {
@@ -461,8 +460,8 @@ class ProjectGraphCanvasStore implements ProjectCanvasStore {
   }
 
   private async reloadFromDisk(): Promise<void> {
-    this.loaded = await loadProjectGraph(this.projectRoot);
-    invalidateDesktopProjectProjection(this.projectRoot);
+    this.loaded = await loadProjectGraphForWorkspace(this.projectRoot);
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
   }
 
   private async writeManifest(manifest: ProjectGraphManifest): Promise<void> {
@@ -471,13 +470,13 @@ class ProjectGraphCanvasStore implements ProjectCanvasStore {
       ...this.loaded,
       manifest: nextManifest
     };
-    invalidateDesktopProjectProjection(this.projectRoot);
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
   }
 }
 
 class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
   constructor(
-    private readonly projectRoot: string,
+    private readonly projectRoot: ProjectWorkspace,
     private readonly loaded: LoadedProjectGraph
   ) {}
 
@@ -545,7 +544,7 @@ class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
       defaultTitle: nextDefaultDesktopCanvasTitle,
       idMode: "random"
     });
-    invalidateDesktopProjectProjection(this.projectRoot);
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
     return summarizeProjectCanvas(result.projectWorkspace, result.canvas);
   }
 
@@ -558,7 +557,7 @@ class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
       sourceCanvasId: canvasId,
       name: input.name
     });
-    invalidateDesktopProjectProjection(this.projectRoot);
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
     return summarizeProjectCanvas(result.projectWorkspace, result.canvas);
   }
 
@@ -588,7 +587,7 @@ class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
       await writeManifestTitle(workspace, previousTitle);
       throw error;
     }
-    invalidateDesktopProjectProjection(this.projectRoot);
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
     return summarizeLegacyCanvas(projectWorkspace, nextRecord);
   }
 
@@ -601,7 +600,7 @@ class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
     assertWorkspaceChild(projectWorkspace, workspace.resultsDir);
     if (record.canvasId === defaultCanvasId) {
       await resetCanvasWorkspace(workspace, record.name);
-      invalidateDesktopProjectProjection(this.projectRoot);
+      invalidateDesktopProjectProjection(this.projectRoot.rootPath);
       return this.list();
     }
     const quarantineRoot = await quarantineCanvasWorkspace(projectWorkspace, {
@@ -624,7 +623,7 @@ class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
       );
       throw error;
     }
-    invalidateDesktopProjectProjection(this.projectRoot);
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
     return this.list();
   }
 }
@@ -635,10 +634,10 @@ class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
  * after materialize, reads and mutations follow project-graph.json.
  */
 class ResolvingProjectCanvasStore implements ProjectCanvasStore {
-  constructor(private readonly projectRoot: string) {}
+  constructor(private readonly projectRoot: ProjectWorkspace) {}
 
   private async open(): Promise<ProjectCanvasStore> {
-    const loaded = await loadProjectGraph(this.projectRoot);
+    const loaded = await loadProjectGraphForWorkspace(this.projectRoot);
     if (loaded.source === "project_graph") {
       return new ProjectGraphCanvasStore(this.projectRoot, loaded);
     }
@@ -679,7 +678,7 @@ class ResolvingProjectCanvasStore implements ProjectCanvasStore {
       defaultTitle: nextDefaultDesktopCanvasTitle,
       idMode: "random"
     });
-    invalidateDesktopProjectProjection(this.projectRoot);
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
     return summarizeProjectCanvas(result.projectWorkspace, result.canvas);
   }
 
@@ -692,7 +691,7 @@ class ResolvingProjectCanvasStore implements ProjectCanvasStore {
       sourceCanvasId: canvasId,
       name: input.name
     });
-    invalidateDesktopProjectProjection(this.projectRoot);
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
     return summarizeProjectCanvas(result.projectWorkspace, result.canvas);
   }
 
@@ -713,8 +712,12 @@ class ResolvingProjectCanvasStore implements ProjectCanvasStore {
   }
 }
 
-export async function createProjectCanvasStore(projectRoot: string): Promise<ProjectCanvasStore> {
-  return new ResolvingProjectCanvasStore(projectRoot);
+export async function createProjectCanvasStore(
+  projectRoot: PackageWorkspaceRef
+): Promise<ProjectCanvasStore> {
+  const workspace =
+    typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
+  return new ResolvingProjectCanvasStore(workspace);
 }
 
 /** Read registered storage in the captured Home without creating a legacy registry. */

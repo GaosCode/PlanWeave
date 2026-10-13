@@ -17,7 +17,7 @@ import { resolvePlanweaveHome } from "./paths.js";
 import {
   assertCurrentProjectWorkspace,
   projectWorkspacePaths,
-  resolveProjectWorkspace
+  resolveProjectWorkspaceInHome
 } from "./project.js";
 import { createManagedProjectId } from "./projectId.js";
 import { createEmptyState } from "./state.js";
@@ -150,14 +150,14 @@ async function initializeWorkspaceLocked(
         }
       }
 
-      await mkdir(join(resolvePlanweaveHome(), "config"), { recursive: true });
+      await mkdir(join(workspace.planweaveHome, "config"), { recursive: true });
       await mkdir(join(workspace.packageDir, "nodes"), { recursive: true });
       await mkdir(dirname(workspace.projectPromptFile), { recursive: true });
       await mkdir(workspace.resultsDir, { recursive: true });
 
-      if (!(await exists(join(resolvePlanweaveHome(), "config", "global-prompt.md")))) {
+      if (!(await exists(join(workspace.planweaveHome, "config", "global-prompt.md")))) {
         await writeFile(
-          join(resolvePlanweaveHome(), "config", "global-prompt.md"),
+          join(workspace.planweaveHome, "config", "global-prompt.md"),
           "# Global Prompt\n",
           "utf8"
         );
@@ -180,19 +180,19 @@ async function initializeWorkspaceLocked(
       resetting ? withCanvasStorageReplacement(workspace, initializeStorage) : initializeStorage()
   );
 
+  const persistedProject = await readProjectMetadataFile(workspace.projectFile);
+  workspace = await capturePackageStorageIdentity({
+    ...workspace,
+    projectCreatedAt: persistedProject.createdAt
+  });
   const shouldMaterializeProjectGraph =
     options.projectGraph || !alreadyExists || options.resetPackage;
   const materializedProjectGraph = shouldMaterializeProjectGraph
-    ? await materializeProjectGraph(workspace.rootPath)
+    ? await materializeProjectGraph(workspace)
     : undefined;
   const projectGraph = options.projectGraph ? materializedProjectGraph : undefined;
-  const persistedProject = await readProjectMetadataFile(workspace.projectFile);
-
   return {
-    workspace: await capturePackageStorageIdentity({
-      ...workspace,
-      projectCreatedAt: persistedProject.createdAt
-    }),
+    workspace,
     project: persistedProject,
     created: !alreadyExists,
     ...(projectGraph ? { projectGraph } : {}),
@@ -202,20 +202,21 @@ async function initializeWorkspaceLocked(
 
 export async function initWorkspace(options: {
   projectRoot: string;
+  planweaveHome?: string;
   force?: boolean;
   resetPackage?: boolean;
   resetResults?: boolean;
   projectGraph?: boolean;
 }): Promise<InitWorkspaceResult> {
+  const planweaveHome = options.planweaveHome ?? resolvePlanweaveHome();
   const rootPath = await realpath(options.projectRoot);
-  const planweaveHome = resolvePlanweaveHome();
   let canonicalPlanweaveHome: string;
   try {
     canonicalPlanweaveHome = await realpath(planweaveHome);
   } catch {
     canonicalPlanweaveHome = planweaveHome;
   }
-  const workspace = await resolveProjectWorkspace(rootPath);
+  const workspace = await resolveProjectWorkspaceInHome(rootPath, planweaveHome);
   const homeRelativePath = relative(canonicalPlanweaveHome, rootPath);
   const isInsidePlanweaveHome =
     homeRelativePath === "" ||
@@ -244,6 +245,7 @@ export async function initWorkspace(options: {
 
 export async function initManagedWorkspace(options: {
   name: string;
+  planweaveHome?: string;
   force?: boolean;
   resetPackage?: boolean;
   resetResults?: boolean;
@@ -254,7 +256,7 @@ export async function initManagedWorkspace(options: {
   if (!projectName) {
     throw new Error("Managed project name must not be empty.");
   }
-  const planweaveHome = resolvePlanweaveHome();
+  const planweaveHome = options.planweaveHome ?? resolvePlanweaveHome();
   const id = createManagedProjectId(projectName);
   const workspaceRoot = join(planweaveHome, "projects", id);
   const reservationFile = join(workspaceRoot, authoritativeImportReservationFile);

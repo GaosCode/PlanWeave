@@ -333,6 +333,7 @@
       ],
       "integration": [
         "cliInstallation.test.ts",
+        "managedContentHomeLifecycle.test.ts",
         "cliInstallationCard.test.tsx",
         "acpDesktopMockE2E.test.tsx",
         "appUpdateHandlers.test.ts",

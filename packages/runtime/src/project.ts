@@ -12,7 +12,12 @@ import { createProjectId } from "./projectId.js";
 import { resolvePlanweaveHome } from "./paths.js";
 import { readProjectMetadataFile } from "./projectMetadata.js";
 import { canonicalCanvasWorkspacePaths } from "./projectGraph/canonicalWorkspace.js";
-import type { ProjectKind, ProjectMetadata, ProjectWorkspace } from "./types.js";
+import type {
+  PackageWorkspaceRef,
+  ProjectKind,
+  ProjectMetadata,
+  ProjectWorkspace
+} from "./types.js";
 
 export function projectWorkspacePaths(input: {
   id: string;
@@ -195,14 +200,15 @@ export async function resolveProjectWorkspaceInHome(
 }
 
 export async function resolveProjectWorkspace(projectRoot: string): Promise<ProjectWorkspace> {
-  const rootPath = await realpath(projectRoot);
-  return capturePackageStorageIdentity(
-    await resolveProjectWorkspaceAtRoot(rootPath, resolvePlanweaveHome())
-  );
+  const planweaveHome = resolvePlanweaveHome();
+  return resolveProjectWorkspaceInHome(projectRoot, planweaveHome);
 }
 
-export async function readProject(projectRoot: string): Promise<ProjectMetadata | null> {
-  const workspace = await resolveProjectWorkspace(projectRoot);
+export async function readProject(
+  projectRoot: PackageWorkspaceRef
+): Promise<ProjectMetadata | null> {
+  const workspace =
+    typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
   if (!(await optionalStat(workspace.projectFile))) {
     return null;
   }
@@ -214,9 +220,10 @@ export async function readProject(projectRoot: string): Promise<ProjectMetadata 
 }
 
 export async function requireInitializedProjectWorkspace(
-  projectRoot: string
+  projectRoot: PackageWorkspaceRef
 ): Promise<ProjectWorkspace> {
-  const workspace = await resolveProjectWorkspace(projectRoot);
+  const workspace =
+    typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
   if (!(await optionalStat(workspace.projectFile))) {
     throw new PlanWeaveWorkspaceNotInitializedError(workspace);
   }

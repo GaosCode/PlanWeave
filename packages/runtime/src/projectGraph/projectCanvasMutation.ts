@@ -5,8 +5,8 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { optionalStat } from "../fs/optionalFile.js";
-import { requireInitializedProjectWorkspace } from "../project.js";
-import type { ProjectWorkspace } from "../types.js";
+import { assertCurrentProjectWorkspace, requireInitializedProjectWorkspace } from "../project.js";
+import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 import {
   commitCanvasWorkspaceWrite,
   quarantineCanvasWorkspace,
@@ -61,7 +61,7 @@ export type ProjectCanvasMutationPorts = {
 };
 
 export type CreateProjectCanvasInput = {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   /**
    * Canvas title. When omitted or blank, `defaultTitle` is used under the lock
    * against the freshly loaded graph (Desktop default-name path).
@@ -86,7 +86,7 @@ export type CreateProjectCanvasInput = {
 };
 
 export type DuplicateProjectCanvasInput = {
-  projectRoot: string;
+  projectRoot: PackageWorkspaceRef;
   sourceCanvasId: string;
   name?: string | null;
   ports?: ProjectCanvasMutationPorts;
@@ -230,11 +230,6 @@ function resolvePorts(
     populateDuplicate: ports.populateDuplicate ?? populateDuplicatedCanvasWorkspace,
     activateCanvas: ports.activateCanvas
   };
-}
-
-async function defaultActivateCanvas(projectRoot: string, canvasId: string): Promise<void> {
-  const { writeActiveTaskCanvasSelection } = await import("../desktop/canvasSelectionStore.js");
-  await writeActiveTaskCanvasSelection(projectRoot, canvasId);
 }
 
 async function cleanupFailedStaging(
@@ -383,8 +378,9 @@ export async function createProjectCanvas(
   return ports.withLock(projectWorkspace.workspaceRoot, lockLabel, async () => {
     // Unlocked primitive: outer withLock already owns the project mutation lane.
     // Public materializeProjectGraph also takes the same lock for external callers.
-    await materializeProjectGraphUnlocked(projectRoot);
-    const lockedWorkspace = await requireInitializedProjectWorkspace(projectRoot);
+    await assertCurrentProjectWorkspace(projectWorkspace);
+    await materializeProjectGraphUnlocked(projectWorkspace);
+    const lockedWorkspace = projectWorkspace;
     const loaded = await ports.loadGraph(lockedWorkspace);
     const title = resolveCreateTitle(
       input,
@@ -430,8 +426,14 @@ export async function createProjectCanvas(
 
     let activated = false;
     if (input.activate === true) {
-      const activate = ports.activateCanvas ?? defaultActivateCanvas;
-      await activate(projectRoot, canvasId);
+      if (ports.activateCanvas) {
+        await ports.activateCanvas(projectWorkspace.rootPath, canvasId);
+      } else {
+        const { writeActiveTaskCanvasSelectionForWorkspace } = await import(
+          "../desktop/canvasSelectionStore.js"
+        );
+        await writeActiveTaskCanvasSelectionForWorkspace(projectWorkspace, canvasId);
+      }
       activated = true;
     }
 
@@ -461,8 +463,9 @@ export async function duplicateProjectCanvas(
   const lockLabel = `duplicate-canvas:${input.sourceCanvasId}`;
 
   return ports.withLock(projectWorkspace.workspaceRoot, lockLabel, async () => {
-    await materializeProjectGraphUnlocked(projectRoot);
-    const lockedWorkspace = await requireInitializedProjectWorkspace(projectRoot);
+    await assertCurrentProjectWorkspace(projectWorkspace);
+    await materializeProjectGraphUnlocked(projectWorkspace);
+    const lockedWorkspace = projectWorkspace;
     const loaded = await ports.loadGraph(lockedWorkspace);
     const sourceCanvas = loaded.manifest.canvases.find(
       (candidate) => candidate.id === input.sourceCanvasId

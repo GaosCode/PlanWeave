@@ -9,6 +9,10 @@ import { assertNoExecutorResultsWriteLease } from "../package/executorResultsWri
 import { realpath, rename, rm, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
+import {
+  captureProjectRootIdentity,
+  assertProjectRootIdentity
+} from "../fs/projectRootIdentity.js";
 import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { initManagedWorkspace, initWorkspace } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -19,7 +23,9 @@ import {
   projectWorkspacePaths,
   readProject,
   directRegisteredWorkspaceId,
-  resolveProjectWorkspace
+  resolveProjectWorkspace,
+  resolveProjectWorkspaceInHome,
+  withCurrentProjectWorkspace
 } from "../project.js";
 import { readProjectMetadataFile } from "../projectMetadata.js";
 import { createManagedProjectId } from "../projectId.js";
@@ -32,7 +38,12 @@ import {
   writeProjectGraph
 } from "../projectGraph/index.js";
 import { manifestSchema } from "../schema/manifest.js";
-import type { PlanPackageManifest, ProjectMetadata, ProjectWorkspace } from "../types.js";
+import type {
+  PackageWorkspaceRef,
+  PlanPackageManifest,
+  ProjectMetadata,
+  ProjectWorkspace
+} from "../types.js";
 import { desktopRegisteredProjectIdSchema } from "./types/desktopBridgeInputSchemas.js";
 import type { DesktopProjectReference, DesktopProjectSummary } from "./types.js";
 import { getActiveTaskCanvasId, listTaskCanvases } from "./canvasApi.js";
@@ -54,11 +65,11 @@ async function exists(path: string): Promise<boolean> {
 
 async function projectSummary(
   project: ProjectMetadata,
-  workspaceRoot: string
+  workspace: ProjectWorkspace
 ): Promise<DesktopProjectSummary> {
   const [activeCanvasId, taskCanvases] = await Promise.all([
-    getActiveTaskCanvasId(project.rootPath),
-    listTaskCanvases(project.rootPath)
+    getActiveTaskCanvasId(workspace),
+    listTaskCanvases(workspace)
   ]);
   const kind = project.kind === "managed" ? "managed" : "external";
   return {
@@ -68,14 +79,15 @@ async function projectSummary(
     rootPath: project.rootPath,
     sourceRoot:
       kind === "managed" ? (project.sourceRoot ?? null) : (project.sourceRoot ?? project.rootPath),
-    workspaceRoot,
+    workspaceRoot: workspace.workspaceRoot,
     activeCanvasId,
     taskCanvases
   };
 }
 
-async function ensureFormalProjectGraph(projectRoot: string): Promise<void> {
-  const workspace = await resolveProjectWorkspace(projectRoot);
+async function ensureFormalProjectGraph(projectRoot: PackageWorkspaceRef): Promise<void> {
+  const workspace =
+    typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
   if (await exists(projectGraphPath(workspace))) {
     return;
   }
@@ -83,22 +95,19 @@ async function ensureFormalProjectGraph(projectRoot: string): Promise<void> {
   if (migrationPlan.action !== "none") {
     return;
   }
-  const legacyActiveCanvasId = await readLegacyActiveCanvasId(projectRoot, workspace);
-  await materializeProjectGraph(projectRoot);
+  const legacyActiveCanvasId = await readLegacyActiveCanvasId(workspace);
+  await materializeProjectGraph(workspace);
   if (legacyActiveCanvasId) {
-    await writeActiveTaskCanvasSelection(projectRoot, legacyActiveCanvasId);
+    await writeActiveTaskCanvasSelection(workspace, legacyActiveCanvasId);
   }
 }
 
-async function readLegacyActiveCanvasId(
-  projectRoot: string,
-  workspace: ProjectWorkspace
-): Promise<string | null> {
+async function readLegacyActiveCanvasId(workspace: ProjectWorkspace): Promise<string | null> {
   const registryFile = join(workspace.workspaceRoot, "desktop", "canvases.json");
   if (!(await exists(registryFile))) {
     return null;
   }
-  return (await readActiveTaskCanvasSelection(projectRoot)).activeCanvasId;
+  return (await readActiveTaskCanvasSelection(workspace)).activeCanvasId;
 }
 
 function isDescendant(root: string, target: string): boolean {
@@ -130,7 +139,8 @@ function assertDirectProjectWorkspace(
 function projectWorkspacePathsForRename(
   project: ProjectMetadata,
   id: string,
-  workspaceRoot: string
+  workspaceRoot: string,
+  planweaveHome: string
 ): ProjectWorkspace {
   return projectWorkspacePaths({
     id,
@@ -138,7 +148,7 @@ function projectWorkspacePathsForRename(
     kind: "managed",
     rootPath: workspaceRoot,
     sourceRoot: project.sourceRoot ?? null,
-    planweaveHome: resolvePlanweaveHome(),
+    planweaveHome,
     workspaceRoot
   });
 }
@@ -146,7 +156,12 @@ function projectWorkspacePathsForRename(
 async function readRegisteredProject(
   projectId: string,
   planweaveHome: string = resolvePlanweaveHome()
-): Promise<{ project: ProjectMetadata; workspaceRoot: string; projectFile: string } | null> {
+): Promise<{
+  project: ProjectMetadata;
+  workspaceRoot: string;
+  projectFile: string;
+  workspace: ProjectWorkspace;
+} | null> {
   const registeredProjectId = desktopRegisteredProjectIdSchema.parse(projectId);
   const projectsRoot = resolve(planweaveHome, "projects");
   const workspaceRoot = resolve(projectsRoot, registeredProjectId);
@@ -167,18 +182,34 @@ async function readRegisteredProject(
       `Registered project metadata id '${project.id}' does not match registry directory '${workspaceProjectId}'.`
     );
   }
-  return { project, workspaceRoot, projectFile };
+  return {
+    project,
+    workspaceRoot,
+    projectFile,
+    workspace: projectWorkspacePaths({
+      id: project.id,
+      projectCreatedAt: project.createdAt,
+      kind: project.kind === "managed" ? "managed" : "external",
+      rootPath: project.rootPath,
+      sourceRoot: project.sourceRoot ?? null,
+      planweaveHome,
+      workspaceRoot
+    })
+  };
 }
 
-async function readProjectById(projectId: string): Promise<DesktopProjectSummary | null> {
-  const entry = await readRegisteredProject(projectId);
+async function readProjectById(
+  projectId: string,
+  planweaveHome: string
+): Promise<DesktopProjectSummary | null> {
+  const entry = await readRegisteredProject(projectId, planweaveHome);
   if (!entry) {
     return null;
   }
   if (!(await optionalStat(entry.project.rootPath))) {
     return null;
   }
-  return projectSummary(entry.project, entry.workspaceRoot);
+  return projectSummary(entry.project, entry.workspace);
 }
 
 export async function resolveDesktopProjectReference(
@@ -194,14 +225,18 @@ export async function resolveDesktopProjectReference(
   };
 }
 
-export async function listProjects(): Promise<DesktopProjectSummary[]> {
-  const projectsRoot = join(resolvePlanweaveHome(), "projects");
+export async function listProjects(
+  planweaveHome: string = resolvePlanweaveHome()
+): Promise<DesktopProjectSummary[]> {
+  const projectsRoot = join(planweaveHome, "projects");
   const entries = await optionalReaddir(projectsRoot, { withFileTypes: true });
   if (!entries) {
     return [];
   }
   const projects = await Promise.all(
-    entries.filter((entry) => entry.isDirectory()).map(async (entry) => readProjectById(entry.name))
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry) => readProjectById(entry.name, planweaveHome))
   );
   return projects
     .filter((project): project is DesktopProjectSummary => project !== null)
@@ -215,15 +250,12 @@ export async function removeProject(projectId: string): Promise<void> {
   const projectsRoot = resolve(planweaveHome, "projects");
   const workspaceRoot = resolve(projectsRoot, projectId);
   assertDirectProjectWorkspace(projectsRoot, workspaceRoot, projectId, "removed");
-  const capturedRoot = await optionalStat(workspaceRoot);
+  const capturedRoot = await captureProjectRootIdentity(workspaceRoot);
   const entry = await readRegisteredProject(projectId, planweaveHome);
   await withProjectMutationLock(workspaceRoot, async () => {
-    const currentRoot = await optionalStat(workspaceRoot);
+    await assertProjectRootIdentity(workspaceRoot, capturedRoot);
     const current = await readRegisteredProject(projectId, planweaveHome);
     if (
-      currentRoot?.dev !== capturedRoot?.dev ||
-      currentRoot?.ino !== capturedRoot?.ino ||
-      currentRoot?.birthtimeMs !== capturedRoot?.birthtimeMs ||
       current?.project.createdAt !== entry?.project.createdAt ||
       current?.project.rootPath !== entry?.project.rootPath
     ) {
@@ -363,13 +395,13 @@ async function rewriteManagedProjectFiles(
 }
 
 async function renameManagedProject(
-  entry: { project: ProjectMetadata; workspaceRoot: string; projectFile: string },
+  entry: NonNullable<Awaited<ReturnType<typeof readRegisteredProject>>>,
   name: string
 ): Promise<DesktopProjectSummary> {
   const previousProject = entry.project;
   const previousProjectId = previousProject.id;
   const nextProjectId = createManagedProjectId(name);
-  const projectsRoot = resolve(resolvePlanweaveHome(), "projects");
+  const projectsRoot = resolve(entry.workspace.planweaveHome, "projects");
   const previousWorkspaceRoot = resolve(entry.workspaceRoot);
   const nextWorkspaceRoot = resolve(projectsRoot, nextProjectId);
   assertDirectProjectWorkspace(projectsRoot, previousWorkspaceRoot, previousProjectId, "changed");
@@ -386,7 +418,8 @@ async function renameManagedProject(
   const nextWorkspace = projectWorkspacePathsForRename(
     nextProject,
     nextProjectId,
-    nextWorkspaceRoot
+    nextWorkspaceRoot,
+    entry.workspace.planweaveHome
   );
 
   if (nextProjectId !== previousProjectId && (await optionalStat(nextWorkspaceRoot))) {
@@ -396,7 +429,8 @@ async function renameManagedProject(
   const previousWorkspace = projectWorkspacePathsForRename(
     previousProject,
     previousProjectId,
-    previousWorkspaceRoot
+    previousWorkspaceRoot,
+    entry.workspace.planweaveHome
   );
   await withProjectMutationLock(
     [previousWorkspaceRoot, nextWorkspaceRoot],
@@ -458,10 +492,11 @@ async function renameManagedProject(
                 await rename(previousWorkspaceRoot, nextWorkspaceRoot);
                 moved = true;
                 await rewriteManagedProjectFiles(nextWorkspace, nextProject);
-                await updateSourceDefaultProjectReference(previousProjectId, {
-                  projectId: nextProjectId,
-                  projectRoot: nextWorkspaceRoot
-                });
+                await updateSourceDefaultProjectReference(
+                  previousProjectId,
+                  { projectId: nextProjectId, projectRoot: nextWorkspaceRoot },
+                  entry.workspace.planweaveHome
+                );
               } catch (error) {
                 if (moved) {
                   try {
@@ -499,7 +534,7 @@ async function renameManagedProject(
     { operation: "rename-project" }
   );
 
-  return projectSummary(nextProject, nextWorkspaceRoot);
+  return projectSummary(nextProject, nextWorkspace);
 }
 
 export async function renameProject(
@@ -516,18 +551,7 @@ export async function renameProject(
       if (!entry) {
         throw new Error(`Project '${projectId}' does not exist.`);
       }
-      return {
-        ...projectWorkspacePaths({
-          id: entry.project.id,
-          projectCreatedAt: entry.project.createdAt,
-          kind: entry.project.kind === "managed" ? "managed" : "external",
-          rootPath: entry.project.rootPath,
-          sourceRoot: entry.project.sourceRoot ?? null,
-          planweaveHome: resolvePlanweaveHome(),
-          workspaceRoot: entry.workspaceRoot
-        }),
-        entry
-      };
+      return { ...entry.workspace, entry };
     },
     async ({ entry }) => {
       if (entry.project.kind === "managed") {
@@ -538,25 +562,23 @@ export async function renameProject(
         name: nextName
       };
       await writeJsonFile(entry.projectFile, nextProject);
-      return projectSummary(nextProject, entry.workspaceRoot);
+      return projectSummary(nextProject, entry.workspace);
     }
   );
 }
 
 export async function initOrOpenProject(rootPath: string): Promise<DesktopProjectSummary> {
-  const existing = await readProject(rootPath);
-  if (existing) {
-    const workspace = await resolveProjectWorkspace(rootPath);
-    await ensureFormalProjectGraph(rootPath);
-    return projectSummary(existing, workspace.workspaceRoot);
-  }
-  const init = await initWorkspace({ projectRoot: rootPath, projectGraph: true });
-  return projectSummary(init.project, init.workspace.workspaceRoot);
+  const planweaveHome = resolvePlanweaveHome();
+  const workspace = await resolveProjectWorkspaceInHome(rootPath, planweaveHome);
+  const existing = await readProject(workspace);
+  if (existing) return getProjectOverview(workspace);
+  const init = await initWorkspace({ projectRoot: rootPath, planweaveHome, projectGraph: true });
+  return projectSummary(init.project, init.workspace);
 }
 
 export async function initManagedProject(name: string): Promise<DesktopProjectSummary> {
   const init = await initManagedWorkspace({ name, projectGraph: true });
-  return projectSummary(init.project, init.workspace.workspaceRoot);
+  return projectSummary(init.project, init.workspace);
 }
 
 export async function linkProjectSourceRoot(
@@ -575,7 +597,7 @@ export async function linkProjectSourceRoot(
   if (!sourceRootStat.isDirectory()) {
     throw new Error("Source root must be a directory.");
   }
-  const planweaveHome = await realpath(resolvePlanweaveHome());
+  const planweaveHome = await realpath(entry.workspace.planweaveHome);
   const workspaceRoot = await realpath(entry.workspaceRoot);
   if (resolvedSourceRoot === workspaceRoot || isDescendant(workspaceRoot, resolvedSourceRoot)) {
     throw new Error("Source root must be outside the PlanWeave project workspace.");
@@ -590,7 +612,7 @@ export async function linkProjectSourceRoot(
     sourceRoot: resolvedSourceRoot
   };
   await writeJsonFile(entry.projectFile, nextProject);
-  return projectSummary(nextProject, entry.workspaceRoot);
+  return projectSummary(nextProject, entry.workspace);
 }
 
 export async function unlinkProjectSourceRoot(projectId: string): Promise<DesktopProjectSummary> {
@@ -608,7 +630,7 @@ export async function unlinkProjectSourceRoot(projectId: string): Promise<Deskto
     sourceRoot: null
   };
   await writeJsonFile(entry.projectFile, nextProject);
-  return projectSummary(nextProject, entry.workspaceRoot);
+  return projectSummary(nextProject, entry.workspace);
 }
 
 export async function openProject(input: {
@@ -623,8 +645,8 @@ export async function openProject(input: {
     if (!(await exists(entry.project.rootPath))) {
       throw new Error(`Project '${input.projectId}' does not exist.`);
     }
-    await ensureFormalProjectGraph(entry.project.rootPath);
-    return projectSummary(entry.project, entry.workspaceRoot);
+    await ensureFormalProjectGraph(entry.workspace);
+    return projectSummary(entry.project, entry.workspace);
   }
   if (input.rootPath) {
     return initOrOpenProject(input.rootPath);
@@ -632,12 +654,16 @@ export async function openProject(input: {
   throw new Error("openProject requires projectId or rootPath.");
 }
 
-export async function getProjectOverview(projectRoot: string): Promise<DesktopProjectSummary> {
-  const project = await readProject(projectRoot);
-  if (!project) {
-    throw new Error(`PlanWeave project '${projectRoot}' has not been initialized.`);
-  }
-  const workspace = await resolveProjectWorkspace(projectRoot);
-  await ensureFormalProjectGraph(projectRoot);
-  return projectSummary(project, workspace.workspaceRoot);
+export async function getProjectOverview(
+  projectRoot: PackageWorkspaceRef
+): Promise<DesktopProjectSummary> {
+  const workspace =
+    typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
+  const project = await readProject(workspace);
+  if (!project)
+    throw new Error(`PlanWeave project '${workspace.rootPath}' has not been initialized.`);
+  return withCurrentProjectWorkspace(workspace, async () => {
+    await ensureFormalProjectGraph(workspace);
+    return projectSummary(project, workspace);
+  });
 }

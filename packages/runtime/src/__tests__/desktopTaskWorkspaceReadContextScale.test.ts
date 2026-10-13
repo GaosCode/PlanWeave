@@ -23,7 +23,6 @@ import * as taskGraphCompiler from "../graph/compileTaskGraph.js";
 import * as graphSession from "../graph/session.js";
 import * as packageLoader from "../package/loadPackage.js";
 import * as planGraphRepository from "../plangraph/packageRepository.js";
-import * as projectGraphLoader from "../projectGraph/loadProjectGraph.js";
 import * as projectGraphAggregation from "../projectGraph/runtimeAggregation.js";
 import * as stateStore from "../state.js";
 import * as executionStatus from "../taskManager/executionStatus.js";
@@ -49,7 +48,8 @@ type ExpensiveCallCounts = {
   taskCompile: number;
   status: number;
   planGraph: number;
-  projectGraphLoad: number;
+  manifestReads: number;
+  projectGraphReads: number;
   projectAggregation: number;
   claimGuard: number;
 };
@@ -108,7 +108,6 @@ async function measureWorkspaceRequest(blockCount: number): Promise<ExpensiveCal
   const compilePackageGraph = vi.spyOn(taskGraphCompiler, "compilePackageGraph");
   const status = vi.spyOn(executionStatus, "buildExecutionStatus");
   const planGraph = vi.spyOn(planGraphRepository, "loadPlanGraphPackage");
-  const projectGraphLoad = vi.spyOn(projectGraphLoader, "loadProjectGraphForWorkspace");
   const projectAggregation = vi.spyOn(
     projectGraphAggregation,
     "loadProjectCanvasRuntimeAggregation"
@@ -144,7 +143,13 @@ async function measureWorkspaceRequest(blockCount: number): Promise<ExpensiveCal
     taskCompile: compileTaskGraph.mock.calls.length,
     status: status.mock.calls.length,
     planGraph: planGraph.mock.calls.length,
-    projectGraphLoad: projectGraphLoad.mock.calls.length,
+    manifestReads: normalizedReads.filter(
+      (path) => path === init.workspace.manifestFile.replaceAll("\\", "/")
+    ).length,
+    projectGraphReads: normalizedReads.filter(
+      (path) =>
+        path === join(init.workspace.workspaceRoot, "project-graph.json").replaceAll("\\", "/")
+    ).length,
     projectAggregation: projectAggregation.mock.calls.length,
     claimGuard: claimGuard.mock.calls.length
   };
@@ -168,7 +173,8 @@ describe("Task Workspace read-context scaling", () => {
       taskCompile: 1,
       status: 1,
       planGraph: 1,
-      projectGraphLoad: 1,
+      manifestReads: 2,
+      projectGraphReads: 2,
       projectAggregation: 1,
       claimGuard: 1
     });

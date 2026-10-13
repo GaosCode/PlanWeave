@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import * as nodePath from "node:path";
 import { type CompleteContentVersion } from "@planweave-ai/collaboration-protocol/content/version";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
-import { getProjectOverview, listProjects, removeProject } from "./projectApi.js";
+import { getProjectOverview, listProjects } from "./projectApi.js";
 import { layoutPathForWorkspace, parseDesktopLayoutForPackage } from "./layoutStore.js";
 import { validateAuthoritativeCanvasContent } from "./contentVersionValidation.js";
 import { ImportTransaction } from "../package/importTransaction.js";
@@ -13,13 +13,12 @@ import {
 } from "../package/importRecovery.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
-import { authoritativeImportReservationFile, initManagedWorkspace } from "../initWorkspace.js";
+import { withManagedProjectCreation } from "./managedProjectCreation.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { createManagedProjectId } from "../projectId.js";
 import type { ProjectWorkspace } from "../types.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { withCanvasLock } from "../fs/withCanvasLock.js";
-import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { withCurrentProjectWorkspace, assertCurrentProjectWorkspace } from "../project.js";
 import { assertCurrentCanvasWorkspaceIdentity } from "../package/assertCurrentCanvasWorkspace.js";
 import { assertResultsStorageIdentity } from "../package/packageStorageIdentity.js";
@@ -45,53 +44,6 @@ const { dirname, join } = nodePath;
 
 function fail(code: string): Error {
   return new Error(code);
-}
-
-function isMissing(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
-}
-
-async function claimReservedManagedProject(input: {
-  projectId: string;
-  reservationToken: string;
-}): Promise<string> {
-  const projectRoot = join(resolvePlanweaveHome(), "projects", input.projectId);
-  const projectFile = join(projectRoot, "project.json");
-  const reservationFile = join(projectRoot, authoritativeImportReservationFile);
-  let existingReservation: string | null = null;
-  try {
-    existingReservation = (await readFile(reservationFile, "utf8")).trim();
-  } catch (error) {
-    if (!isMissing(error)) throw error;
-  }
-  if (existingReservation !== null) {
-    if (existingReservation !== input.reservationToken) {
-      throw fail("content_local_project_reservation_conflict");
-    }
-    return projectRoot;
-  }
-  try {
-    await readFile(projectFile, "utf8");
-    throw fail("content_local_project_reservation_conflict");
-  } catch (error) {
-    if (!isMissing(error)) throw error;
-  }
-  await mkdir(projectRoot, { recursive: true });
-  try {
-    await writeFile(reservationFile, `${input.reservationToken}\n`, {
-      encoding: "utf8",
-      flag: "wx",
-      mode: 0o600
-    });
-  } catch (error) {
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") {
-      throw error;
-    }
-    if ((await readFile(reservationFile, "utf8")).trim() !== input.reservationToken) {
-      throw fail("content_local_project_reservation_conflict");
-    }
-  }
-  return projectRoot;
 }
 
 /**
@@ -230,6 +182,14 @@ async function materializeAuthoritativeCanvasWorkspaceUnlocked(input: {
   const validated = validateAuthoritativeCanvasContent(input.content);
   const content = validated.content;
   const { workspace } = input;
+  const parsedLayout = parseDesktopLayoutForPackage(
+    validated.layout,
+    workspace,
+    validated.manifest,
+    {
+      authorityProjectId: input.authorityProjectId
+    }
+  );
   const packageMembers = content.members.filter((member) => member.kind !== "desktop_layout");
   const staging = await mkdtemp(join(dirname(workspace.packageDir), ".planweave-content-version-"));
   const transaction = await ImportTransaction.create({ workspaceRoot: workspace.workspaceRoot });
@@ -244,10 +204,7 @@ async function materializeAuthoritativeCanvasWorkspaceUnlocked(input: {
       packageDir: staging,
       manifestFile: join(staging, "manifest.json")
     };
-    const { manifest } = await loadPackage(stagedWorkspace);
-    const parsedLayout = parseDesktopLayoutForPackage(validated.layout, stagedWorkspace, manifest, {
-      authorityProjectId: input.authorityProjectId
-    });
+    await loadPackage(stagedWorkspace);
     const stagedLayout = resolveStagedContentVersionLayoutPath(staging);
     await writeFile(stagedLayout, `${JSON.stringify(parsedLayout, null, 2)}\n`, "utf8");
     await transaction.replacePath(workspace.packageDir, staging);
@@ -265,9 +222,9 @@ async function materializeAuthoritativeCanvasWorkspaceUnlocked(input: {
   }
 }
 
-async function availableProjectName(baseName: string): Promise<string> {
+async function availableProjectName(baseName: string, planweaveHome: string): Promise<string> {
   const normalized = baseName.trim() || "Shared Plan";
-  const names = new Set((await listProjects()).map((project) => project.name));
+  const names = new Set((await listProjects(planweaveHome)).map((project) => project.name));
   if (!names.has(normalized)) return normalized;
   let suffix = 2;
   while (names.has(`${normalized} ${suffix}`)) suffix += 1;
@@ -282,6 +239,7 @@ async function availableProjectName(baseName: string): Promise<string> {
 export async function createManagedProjectFromAuthoritativeContent(input: {
   authorityProjectId: string;
   content: CompleteContentVersion;
+  planweaveHome?: string;
   projectName?: string;
   expectedProjectId?: string;
   resumeReservedProject?: boolean;
@@ -293,6 +251,7 @@ export async function createManagedProjectFromAuthoritativeContent(input: {
   canvasId: "default";
   lineage: WorkspaceForkLineage | null;
 }> {
+  const planweaveHome = input.planweaveHome ?? resolvePlanweaveHome();
   const importMode = managedContentImportModeSchema.parse(input.importMode ?? "replica");
   if (importMode === "fork") {
     if (!input.sourceLineage) {
@@ -312,7 +271,8 @@ export async function createManagedProjectFromAuthoritativeContent(input: {
       : null;
   const validated = validateAuthoritativeCanvasContent(input.content);
   const projectName =
-    input.projectName ?? (await availableProjectName(validated.manifest.project.title));
+    input.projectName ??
+    (await availableProjectName(validated.manifest.project.title, planweaveHome));
   const projectId = createManagedProjectId(projectName);
   if (input.expectedProjectId && input.expectedProjectId !== projectId) {
     throw fail("content_local_project_reservation_mismatch");
@@ -320,27 +280,15 @@ export async function createManagedProjectFromAuthoritativeContent(input: {
   if (input.resumeReservedProject && !input.reservationToken) {
     throw fail("content_local_project_reservation_required");
   }
-  return withProjectMutationLock(join(resolvePlanweaveHome(), "projects", projectId), async () => {
-    let reservedProjectRoot: string | null = null;
-    let initialized: Awaited<ReturnType<typeof initManagedWorkspace>> | null = null;
-    try {
-      if (input.reservationToken) {
-        reservedProjectRoot = await claimReservedManagedProject({
-          projectId,
-          reservationToken: input.reservationToken
-        });
-      }
-      initialized = await initManagedWorkspace({
-        name: projectName,
-        projectGraph: true,
-        ...(input.reservationToken
-          ? { contentReplicaReservationToken: input.reservationToken }
-          : {})
-      });
-      if (!initialized.created && !input.resumeReservedProject) {
-        throw fail("content_local_project_name_conflict");
-      }
-      const workspace = initialized.workspace;
+  return withManagedProjectCreation(
+    {
+      name: projectName,
+      planweaveHome,
+      reservationToken: input.reservationToken,
+      resumeReservedProject: input.resumeReservedProject
+    },
+    async (initialized) => {
+      const workspace = await resolveTaskCanvasWorkspace(initialized.workspace, "default");
       await materializeAuthoritativeCanvasWorkspace({
         workspace,
         authorityProjectId: input.authorityProjectId,
@@ -348,36 +296,26 @@ export async function createManagedProjectFromAuthoritativeContent(input: {
       });
       if (lineage) {
         await writeFile(
-          workspaceForkLineagePath(initialized.project.rootPath, join),
+          workspaceForkLineagePath(initialized.workspace.workspaceRoot, join),
           `${JSON.stringify(lineage, null, 2)}\n`,
           "utf8"
         );
       }
       return {
-        project: await getProjectOverview(initialized.project.rootPath),
+        project: await getProjectOverview(initialized.workspace),
         canvasId: "default" as const,
         lineage
       };
-    } catch (error) {
-      try {
-        if (reservedProjectRoot) {
-          await rm(reservedProjectRoot, { recursive: true, force: true });
-        } else if (initialized?.created) {
-          await removeProject(initialized.project.id);
-        }
-      } catch (rollbackError) {
-        throw new AggregateError([error, rollbackError], "content_local_project_rollback_failed");
-      }
-      throw error;
     }
-  });
+  );
 }
 
 export async function planManagedProjectFromAuthoritativeContent(input: {
   content: CompleteContentVersion;
 }): Promise<{ projectName: string; projectId: string; canvasId: "default" }> {
+  const planweaveHome = resolvePlanweaveHome();
   const validated = validateAuthoritativeCanvasContent(input.content);
-  const projectName = await availableProjectName(validated.manifest.project.title);
+  const projectName = await availableProjectName(validated.manifest.project.title, planweaveHome);
   return {
     projectName,
     projectId: createManagedProjectId(projectName),
