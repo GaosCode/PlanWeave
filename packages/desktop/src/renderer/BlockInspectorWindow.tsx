@@ -411,7 +411,7 @@ export function BlockInspectorWindow() {
           }
         }
       });
-      if (mode === "failed") return;
+      if (mode === "failed" || mode === "retired") return;
       await refreshBlock();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -446,7 +446,7 @@ export function BlockInspectorWindow() {
             }
           }
         });
-        if (mode === "failed") return false;
+        if (mode === "failed" || mode === "retired") return false;
         await refreshBlock();
         return true;
       } catch (caught) {
@@ -506,7 +506,7 @@ export function BlockInspectorWindow() {
           }
         }
       });
-      if (mode === "failed") return;
+      if (mode === "failed" || mode === "retired") return;
       await refreshBlock();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));

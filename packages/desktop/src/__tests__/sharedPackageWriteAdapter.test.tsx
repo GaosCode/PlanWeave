@@ -18,6 +18,7 @@ afterEach(cleanupRendererTestEnvironment);
 
 function workspaceCanvasMock(
   submit: WorkspaceCanvasCommandsResult["submit"] = vi.fn().mockResolvedValue({
+    status: "completed",
     ok: true,
     error: null,
     staleConflict: null
@@ -61,7 +62,9 @@ const paletteSettings = {
 
 describe("shared-mode package write gate", () => {
   it("routes prompt/title saves through shared intents and skips bridge writers", async () => {
-    const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
+    const submit = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const bridge = createDesktopBridgeMock({
       updateTaskTitle: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] }),
       updateTaskPrompt: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
@@ -101,7 +104,9 @@ describe("shared-mode package write gate", () => {
   });
 
   it("routes selected-block field writes through shared intents", async () => {
-    const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
+    const submit = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const bridge = createDesktopBridgeMock({
       updateBlockTitle: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] }),
       updateBlockExecutor: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] }),
@@ -179,7 +184,9 @@ describe("shared-mode package write gate", () => {
   });
 
   it("routes task executor changes through shared intents", async () => {
-    const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
+    const submit = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const bridge = createDesktopBridgeMock({
       updateTaskExecutor: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
     });
@@ -211,7 +218,9 @@ describe("shared-mode package write gate", () => {
   });
 
   it("routes pathless Workspace task executor changes through shared intents", async () => {
-    const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
+    const submit = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const bridge = createDesktopBridgeMock({
       updateTaskExecutor: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
     });
@@ -243,7 +252,9 @@ describe("shared-mode package write gate", () => {
   });
 
   it("refuses review-pipeline local writes while shared is enabled", async () => {
-    const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
+    const submit = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const bridge = createDesktopBridgeMock({
       updateReviewPipeline: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] }),
       getReviewPipeline: vi.fn().mockResolvedValue(null)
@@ -275,7 +286,9 @@ describe("shared-mode package write gate", () => {
   });
 
   it("routes resetLayout through update_layout and skips resetDesktopLayout", async () => {
-    const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
+    const submit = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const bridge = createDesktopBridgeMock({
       resetDesktopLayout: vi.fn().mockResolvedValue(layout)
     });
@@ -319,7 +332,9 @@ describe("shared-mode package write gate", () => {
   });
 
   it("routes task-workspace prompt/executor writes through shared intents", async () => {
-    const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
+    const submit = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const updateTaskPrompt = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });
     const updateTaskExecutor = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });
     const updateBlockPrompt = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });

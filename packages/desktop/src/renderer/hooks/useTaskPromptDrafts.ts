@@ -30,6 +30,7 @@ type PromptDraft = {
   title: string;
   draft: string;
   revision: number;
+  retiredRevision?: number;
   base: PromptBase;
   saveState: TaskNodeData["saveState"];
   conflict?: PromptConflictRef;
@@ -292,6 +293,13 @@ export function useTaskPromptDrafts({
             }
           });
           if (!isCurrent()) return;
+          if (mode === "retired") {
+            draft.inFlight = undefined;
+            draft.retiredRevision = draft.revision;
+            draft.saveState = "idle";
+            publish();
+            return;
+          }
           if (mode === "failed") throw new Error("Task prompt write failed");
           if (mode === "local") {
             if (!bridge) throw new Error("Desktop bridge is unavailable");
@@ -445,6 +453,7 @@ export function useTaskPromptDrafts({
         draft.draft !== draft.base.markdown &&
         !draft.conflict &&
         !draft.inFlight &&
+        draft.retiredRevision !== draft.revision &&
         draft.saveState === "idle"
       );
     });

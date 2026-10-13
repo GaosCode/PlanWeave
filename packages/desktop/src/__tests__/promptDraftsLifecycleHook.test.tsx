@@ -433,11 +433,16 @@ describe("desktop renderer hook interfaces", () => {
     "draft",
     "force"
   ])("waits for shared %s authority readback and coalesces without local package I/O", async (mode) => {
-    const submitted = deferred<{ ok: boolean; error: string | null; staleConflict: null }>();
+    const submitted = deferred<{
+      status: "completed";
+      ok: boolean;
+      error: string | null;
+      staleConflict: null;
+    }>();
     const submit = vi
       .fn()
       .mockReturnValueOnce(submitted.promise)
-      .mockResolvedValue({ ok: true, error: null, staleConflict: null });
+      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const workspaceCanvas: WorkspaceCanvasCommandsResult = {
       enabled: true,
       snapshot: {
@@ -470,7 +475,7 @@ describe("desktop renderer hook interfaces", () => {
     });
     act(() => hook.result.current.handlePromptChange("T-ALPHA", "second"));
     await act(async () => {
-      submitted.resolve({ ok: true, error: null, staleConflict: null });
+      submitted.resolve({ status: "completed", ok: true, error: null, staleConflict: null });
       await saving;
     });
     expect(hook.result.current.saveStates["T-ALPHA"]).toBe("saving");

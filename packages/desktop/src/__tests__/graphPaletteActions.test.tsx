@@ -110,7 +110,9 @@ describe("useGraphPaletteActions layout snapshots", () => {
     vi.stubGlobal("planweave", bridge);
     vi.resetModules();
     const { useGraphPaletteActions } = await import("../renderer/hooks/useGraphPaletteActions");
-    const submit = vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null });
+    const submit = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const setLayout = vi.fn();
     const { result } = renderHook(() =>
       useGraphPaletteActions({

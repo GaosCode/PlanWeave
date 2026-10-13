@@ -68,6 +68,7 @@ export function useTaskWorkspaceExecutorActions(options: {
           }
         }
       });
+      if (mode === "retired") return;
       if (mode === "failed") {
         throw new Error(sharedError ?? "Shared canvas command failed.");
       }
@@ -112,6 +113,7 @@ export function useTaskWorkspaceExecutorActions(options: {
           }
         }
       });
+      if (mode === "retired") return;
       if (mode === "failed") {
         throw new Error(sharedError ?? "Shared canvas command failed.");
       }

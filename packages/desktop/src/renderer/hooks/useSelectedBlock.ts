@@ -187,7 +187,7 @@ export function useSelectedBlock({
           );
         }
       });
-      if (mode === "failed") return;
+      if (mode === "failed" || mode === "retired") return;
       await refreshGraph();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -223,7 +223,7 @@ export function useSelectedBlock({
           }
         }
       });
-      if (mode === "failed") return;
+      if (mode === "failed" || mode === "retired") return;
       if (bridge && mode === "local") {
         setSelectedBlock(
           await bridge.getBlockDetail(

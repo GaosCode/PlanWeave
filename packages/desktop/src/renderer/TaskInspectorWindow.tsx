@@ -161,7 +161,7 @@ export function TaskInspectorWindow() {
           }
         }
       });
-      if (mode === "failed") return;
+      if (mode === "failed" || mode === "retired") return;
       await loadTask();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -196,7 +196,7 @@ export function TaskInspectorWindow() {
             }
           }
         });
-        if (mode === "failed") return false;
+        if (mode === "failed" || mode === "retired") return false;
         await loadTask();
         return true;
       } catch (caught) {
@@ -248,7 +248,7 @@ export function TaskInspectorWindow() {
           }
         }
       });
-      if (mode === "failed") return;
+      if (mode === "failed" || mode === "retired") return;
       await loadTask();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));

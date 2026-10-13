@@ -7,8 +7,8 @@ import type {
   DesktopLayout,
   DesktopProjectSummary
 } from "@planweave-ai/runtime";
-import type { CanvasCommandIntent } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import { bridge, desktopCanvasReference } from "../bridge";
+import { submitSharedPackageIntent } from "../collaboration/packageWriteAdapter";
 import {
   dependencyConnectionToManifestEndpoints,
   dependencyDisplayEdgeToManifestEndpoints
@@ -71,18 +71,6 @@ function nextClientBlockId(
   let index = 1;
   while (existing.has(`${prefix}-${String(index).padStart(3, "0")}`)) index += 1;
   return `${prefix}-${String(index).padStart(3, "0")}`;
-}
-
-async function submitSharedIntent(
-  workspaceCanvas: WorkspaceCanvasCommandsResult,
-  intent: CanvasCommandIntent,
-  setError: (message: string | null) => void
-): Promise<boolean> {
-  const result = await workspaceCanvas.submit({ intent });
-  if (!result.ok) {
-    setError(result.error);
-  }
-  return result.ok;
 }
 
 function currentLayoutSnapshot(
@@ -150,7 +138,7 @@ export function useGraphPaletteActions({
       }));
       if (workspaceCanvas?.enabled) {
         const updatedAt = new Date().toISOString();
-        const ok = await submitSharedIntent(
+        const ok = await submitSharedPackageIntent(
           workspaceCanvas,
           { kind: "update_layout", nodes: layoutNodes, updatedAt },
           setError
@@ -218,7 +206,7 @@ export function useGraphPaletteActions({
         return;
       }
       const updatedAt = new Date().toISOString();
-      const ok = await submitSharedIntent(
+      const ok = await submitSharedPackageIntent(
         workspaceCanvas,
         { kind: "update_layout", nodes: layoutNodes, updatedAt },
         setError
@@ -258,7 +246,7 @@ export function useGraphPaletteActions({
       }
       try {
         if (workspaceCanvas?.enabled) {
-          const ok = await submitSharedIntent(
+          const ok = await submitSharedPackageIntent(
             workspaceCanvas,
             {
               kind: "add_task_dependency",
@@ -324,6 +312,7 @@ export function useGraphPaletteActions({
       const layoutSnapshot = currentLayoutSnapshot(graph, layout, getPersistableLayoutNodes());
       let baseVersion = graph?.graphVersion;
       let completed = 0;
+      let retired = false;
       const errors: string[] = [];
       try {
         for (const edge of pendingEdges) {
@@ -336,6 +325,10 @@ export function useGraphPaletteActions({
                 toTaskId: edge.to
               }
             });
+            if (result.status === "retired") {
+              retired = true;
+              break;
+            }
             if (!result.ok) {
               if (result.error) errors.push(result.error);
               else errors.push(t("canvasCommandNotConnected"));
@@ -368,17 +361,19 @@ export function useGraphPaletteActions({
       } catch (caught) {
         errors.push(caught instanceof Error ? caught.message : String(caught));
       } finally {
-        try {
-          await refreshProjectDerivedState({ throwOnErrors: true, isOwnerCurrent: isCurrent });
-        } catch (caught) {
-          errors.push(
-            t("dependencyDeleteRefreshFailed").replace(
-              "{reason}",
-              caught instanceof Error ? caught.message : String(caught)
-            )
-          );
+        if (!retired) {
+          try {
+            await refreshProjectDerivedState({ throwOnErrors: true, isOwnerCurrent: isCurrent });
+          } catch (caught) {
+            errors.push(
+              t("dependencyDeleteRefreshFailed").replace(
+                "{reason}",
+                caught instanceof Error ? caught.message : String(caught)
+              )
+            );
+          }
         }
-        if (isCurrent() && errors.length > 0) {
+        if (!retired && isCurrent() && errors.length > 0) {
           setError(
             [
               t("dependencyDeletePartial")
@@ -413,7 +408,7 @@ export function useGraphPaletteActions({
       }
       try {
         if (workspaceCanvas?.enabled) {
-          const ok = await submitSharedIntent(
+          const ok = await submitSharedPackageIntent(
             workspaceCanvas,
             {
               kind: "reconnect_task_dependency",
@@ -468,7 +463,7 @@ export function useGraphPaletteActions({
         if (workspaceCanvas?.enabled) {
           if (type === "task") {
             const taskId = nextClientTaskId(graph);
-            const ok = await submitSharedIntent(
+            const ok = await submitSharedPackageIntent(
               workspaceCanvas,
               {
                 kind: "add_task",
@@ -499,7 +494,7 @@ export function useGraphPaletteActions({
             return;
           }
           const blockId = nextClientBlockId(graph, targetTaskId, type);
-          const ok = await submitSharedIntent(
+          const ok = await submitSharedPackageIntent(
             workspaceCanvas,
             {
               kind: "add_block",

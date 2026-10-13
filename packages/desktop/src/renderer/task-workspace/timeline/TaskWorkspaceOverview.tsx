@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { TaskWorkspaceExecutorSelect } from "../TaskWorkspaceExecutorSelect";
 import type { AvailableAgentEndpoint } from "../../collaboration/agentEndpointViewModel";
 import { TaskWorkspaceBlockPrompts, TaskWorkspaceTaskPrompt } from "../TaskWorkspacePrompts";
-import type { TaskWorkspaceLabels, TaskWorkspacePromptSaveInput } from "../contracts";
+import type { TaskWorkspaceController, TaskWorkspaceLabels } from "../contracts";
 import type { TaskWorkspaceTimelineLabels } from "./types";
 
 function activeRuns(workspace: TaskWorkspace) {
@@ -49,7 +49,7 @@ function BlockPromptDisclosure({
   block: TaskWorkspace["blocks"][number];
   onSaveExecutor: (endpointId: string | null) => Promise<void>;
   selectedEndpointId: string | null;
-  onSavePrompt: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  onSavePrompt: TaskWorkspaceController["saveTaskPrompt"];
 }) {
   const [open, setOpen] = useState(initiallyOpen);
 
@@ -182,9 +182,9 @@ export function TaskWorkspaceOverviewPanel({
   focusedBlockRef: string | null;
   labels: TaskWorkspaceLabels;
   onSaveBlockAgentEndpoint: (blockRef: string, endpointId: string | null) => Promise<void>;
-  onSaveBlockPrompt: (blockRef: string, input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  onSaveBlockPrompt: TaskWorkspaceController["saveBlockPrompt"];
   onSaveTaskAgentEndpoint: (endpointId: string) => Promise<void>;
-  onSaveTaskPrompt: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  onSaveTaskPrompt: TaskWorkspaceController["saveTaskPrompt"];
   selectedAgentEndpointIdForBlock: (blockRef: string) => string | null;
   selectedAgentEndpointIdForTask: string;
   workspace: TaskWorkspace;

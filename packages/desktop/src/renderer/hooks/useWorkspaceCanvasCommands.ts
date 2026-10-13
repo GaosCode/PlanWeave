@@ -22,11 +22,19 @@ export type WorkspaceCanvasCommandBridge = Pick<
   | "onWorkspaceCanvasProjectionSignal"
 >;
 
-export type WorkspaceCanvasSubmitResult = {
-  ok: boolean;
-  error: string | null;
-  staleConflict: WorkspaceCanvasCommandSnapshot["lastStaleConflict"];
-};
+export type WorkspaceCanvasSubmitResult =
+  | {
+      status: "completed";
+      ok: boolean;
+      error: string | null;
+      staleConflict: WorkspaceCanvasCommandSnapshot["lastStaleConflict"];
+    }
+  | {
+      status: "retired";
+      ok: false;
+      error: null;
+      staleConflict: null;
+    };
 
 export type WorkspaceCanvasCommandsResult = {
   /** Workspace authority always routes durable mutations through the Server command session. */

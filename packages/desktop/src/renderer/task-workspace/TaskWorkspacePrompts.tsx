@@ -4,9 +4,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { TaskWorkspacePromptLabels, TaskWorkspacePromptSaveInput } from "./contracts";
+import type { TaskWorkspaceController, TaskWorkspacePromptLabels } from "./contracts";
 
-type PromptSaveStatus = "idle" | "saving" | "saved" | "error";
+type PromptSaveStatus = "idle" | "saving" | "saved" | "error" | "retired";
 
 const promptAutosaveDelayMs = 700;
 
@@ -92,7 +92,7 @@ function EditablePromptBody({
   markdown: string;
   missing: boolean;
   labels: TaskWorkspacePromptLabels;
-  onSave: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  onSave: TaskWorkspaceController["saveTaskPrompt"];
 }) {
   const [baseline, setBaseline] = useState(markdown);
   const [draft, setDraft] = useState(markdown);
@@ -136,7 +136,11 @@ function EditablePromptBody({
     setError(null);
     setStatus("saving");
     try {
-      await onSave({ baseMarkdown: baseline, markdown: submitted });
+      const result = await onSave({ baseMarkdown: baseline, markdown: submitted });
+      if (result === "retired") {
+        setStatus("retired");
+        return;
+      }
       setBaseline(submitted);
       setStatus("saved");
     } catch (saveError: unknown) {
@@ -250,7 +254,7 @@ export function TaskWorkspaceTaskPrompt({
 }: {
   compact?: boolean;
   labels: TaskWorkspacePromptLabels;
-  onSave?: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  onSave?: TaskWorkspaceController["saveTaskPrompt"];
   task: TaskWorkspace["task"];
 }) {
   if (onSave) {
@@ -284,7 +288,7 @@ export function TaskWorkspaceBlockPrompts({
   block: TaskWorkspaceBlock;
   compact?: boolean;
   labels: TaskWorkspacePromptLabels;
-  onSave?: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  onSave?: TaskWorkspaceController["saveTaskPrompt"];
 }) {
   let blockPrompt = (
     <PromptBody

@@ -46,6 +46,8 @@ export type TaskWorkspacePromptSaveInput = {
   markdown: string;
 };
 
+export type TaskWorkspaceSaveResult = "saved" | "retired";
+
 export type TaskWorkspaceLabels = {
   acceptanceCriteria: string;
   activeRuns: (count: number) => string;
@@ -121,9 +123,12 @@ export type TaskWorkspaceController = {
   returnToCanvas: () => void;
   runnerModel: RunnerRecordReadModel | null;
   saveBlockAgentEndpoint: (blockRef: string, endpointId: string | null) => Promise<void>;
-  saveBlockPrompt: (blockRef: string, input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  saveBlockPrompt: (
+    blockRef: string,
+    input: TaskWorkspacePromptSaveInput
+  ) => Promise<TaskWorkspaceSaveResult>;
   saveTaskAgentEndpoint: (endpointId: string) => Promise<void>;
-  saveTaskPrompt: (input: TaskWorkspacePromptSaveInput) => Promise<void>;
+  saveTaskPrompt: (input: TaskWorkspacePromptSaveInput) => Promise<TaskWorkspaceSaveResult>;
   selectRun: (selection: { blockRef: string; recordId: string } | null) => void;
   selectAnnotation: (selection: { blockRef: string; annotationId: string }) => void;
   selectedAnnotation: TaskWorkspaceSelectedAnnotation | null;

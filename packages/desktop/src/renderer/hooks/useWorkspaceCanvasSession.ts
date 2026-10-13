@@ -85,6 +85,13 @@ const IDLE_SNAPSHOT: WorkspaceCanvasCommandSnapshot = {
   busy: false
 };
 
+const RETIRED_SUBMIT_RESULT: WorkspaceCanvasSubmitResult = {
+  status: "retired",
+  ok: false,
+  error: null,
+  staleConflict: null
+};
+
 /**
  * Renderer adapter for the main-process Workspace Canvas Session.
  * Durable reconnect/idempotency stay in main; this hook only opens, displays, and submits.
@@ -102,10 +109,12 @@ export function useWorkspaceCanvasSession(input: {
     () => ({ locatorKey }),
     [input.api, locatorKey, input.sessionConnected]
   );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: changing the session authority invalidates pending submission publications.
+  const activeAuthority = useRef<typeof authority | null>(null);
   useLayoutEffect(() => {
+    activeAuthority.current = authority;
     generation.current += 1;
     return () => {
+      activeAuthority.current = null;
       generation.current += 1;
     };
   }, [authority]);
@@ -192,40 +201,52 @@ export function useWorkspaceCanvasSession(input: {
 
   const submit = useCallback(
     async (submitInput: { intent: CanvasCommandIntent }): Promise<WorkspaceCanvasSubmitResult> => {
+      const submittedGeneration = generation.current;
+      const isCurrent = () =>
+        activeAuthority.current === authority && generation.current === submittedGeneration;
+      if (!isCurrent()) return RETIRED_SUBMIT_RESULT;
       if (!input.api || !input.locator) {
-        return { ok: false, error: input.labels.notConnected, staleConflict: null };
+        return {
+          status: "completed",
+          ok: false,
+          error: input.labels.notConnected,
+          staleConflict: null
+        };
       }
       if (snapshot.connectionPhase === "disconnected") {
-        return { ok: false, error: null, staleConflict: null };
+        return { status: "completed", ok: false, error: null, staleConflict: null };
       }
       if (activeWorkspaceProjection?.readOnly) {
-        return { ok: false, error: input.labels.notConnected, staleConflict: null };
+        return {
+          status: "completed",
+          ok: false,
+          error: input.labels.notConnected,
+          staleConflict: null
+        };
       }
-      const submittedGeneration = generation.current;
       try {
         const projection = await input.api.submitWorkspaceCanvasCommand({
           locator: input.locator,
           intent: submitInput.intent
         });
+        if (!isCurrent()) return RETIRED_SUBMIT_RESULT;
         const nextSnapshot = snapshotFromWorkspaceProjection(projection, input.labels, "connected");
-        if (generation.current === submittedGeneration) {
-          setWorkspaceView({ authority, projection });
-          setSnapshot(nextSnapshot);
-        }
+        setWorkspaceView({ authority, projection });
+        setSnapshot(nextSnapshot);
         if (projection.status === "accepted") {
-          return { ok: true, error: null, staleConflict: null };
+          return { status: "completed", ok: true, error: null, staleConflict: null };
         }
         return {
+          status: "completed",
           ok: false,
           error: nextSnapshot.lastError,
           staleConflict: nextSnapshot.lastStaleConflict
         };
       } catch (error) {
+        if (!isCurrent()) return RETIRED_SUBMIT_RESULT;
         const message = error instanceof Error ? error.message : String(error);
-        if (generation.current === submittedGeneration) {
-          setSnapshot((current) => ({ ...current, busy: false, lastError: message }));
-        }
-        return { ok: false, error: message, staleConflict: null };
+        setSnapshot((current) => ({ ...current, busy: false, lastError: message }));
+        return { status: "completed", ok: false, error: message, staleConflict: null };
       }
     },
     [

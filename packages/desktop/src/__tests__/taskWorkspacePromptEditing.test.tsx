@@ -11,6 +11,7 @@ import {
 import type { TaskWorkspacePromptLabels } from "../renderer/task-workspace/contracts";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import { taskWorkspaceInspectorFixture } from "./helpers/taskWorkspaceInspectorFixture";
+import { deferred } from "./helpers/desktopProjectFixtures";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -32,9 +33,48 @@ const labels: TaskWorkspacePromptLabels = {
 };
 
 describe("Task Workspace prompt editing", () => {
+  it.each([
+    "task",
+    "block"
+  ] as const)("keeps a %s draft dirty when its save is retired", async (kind) => {
+    vi.useFakeTimers();
+    const fixture = taskWorkspaceInspectorFixture();
+    const task = fixture.workspace.task;
+    const block = fixture.selectedRun.block;
+    const originalMarkdown = kind === "task" ? task.promptMarkdown : block.promptMarkdown;
+    const submitted = deferred<"retired">();
+    const onSave = vi.fn().mockReturnValue(submitted.promise);
+    if (kind === "task") {
+      render(<TaskWorkspaceTaskPrompt labels={labels} onSave={onSave} task={task} />);
+    } else {
+      render(<TaskWorkspaceBlockPrompts block={block} labels={labels} onSave={onSave} />);
+    }
+    const input = screen.getByLabelText(kind === "task" ? "Task prompt" : "Block prompt");
+    fireEvent.change(input, { target: { value: "# Draft awaiting the current Workspace" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Prompt" }));
+    await act(async () => {
+      submitted.resolve("retired");
+      await submitted.promise;
+    });
+
+    expect(screen.queryByText("Saved")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(input).toHaveValue("# Draft awaiting the current Workspace");
+    expect(screen.getByRole("button", { name: "Save Prompt" })).toBeEnabled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_100);
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Save Prompt" }));
+    expect(onSave).toHaveBeenLastCalledWith({
+      baseMarkdown: originalMarkdown,
+      markdown: "# Draft awaiting the current Workspace"
+    });
+  });
+
   it("automatically saves a settled Task prompt draft", async () => {
     vi.useFakeTimers();
-    const onSave = vi.fn(async () => undefined);
+    const onSave = vi.fn(async () => "saved" as const);
     render(
       <TaskWorkspaceTaskPrompt
         labels={labels}
@@ -66,7 +106,7 @@ describe("Task Workspace prompt editing", () => {
   it("flushes a pending Block prompt save when editing loses focus", async () => {
     vi.useFakeTimers();
     const block = taskWorkspaceInspectorFixture().selectedRun.block;
-    const onSave = vi.fn(async () => undefined);
+    const onSave = vi.fn(async () => "saved" as const);
     render(<TaskWorkspaceBlockPrompts block={block} labels={labels} onSave={onSave} />);
     const blockPrompt = screen.getByLabelText("Block prompt");
 
@@ -85,8 +125,8 @@ describe("Task Workspace prompt editing", () => {
     let resolveSave: (() => void) | null = null;
     const onSave = vi.fn(
       () =>
-        new Promise<void>((resolve) => {
-          resolveSave = resolve;
+        new Promise<"saved">((resolve) => {
+          resolveSave = () => resolve("saved");
         })
     );
     render(
@@ -118,7 +158,7 @@ describe("Task Workspace prompt editing", () => {
   });
 
   it("saves an edited Task prompt with its original source as the conflict baseline", async () => {
-    const onSave = vi.fn(async () => undefined);
+    const onSave = vi.fn(async () => "saved" as const);
     render(
       <TaskWorkspaceTaskPrompt
         labels={labels}
@@ -148,7 +188,7 @@ describe("Task Workspace prompt editing", () => {
 
   it("saves a Block source prompt while leaving its Effective Prompt read-only", async () => {
     const block = taskWorkspaceInspectorFixture().selectedRun.block;
-    const onSave = vi.fn(async () => undefined);
+    const onSave = vi.fn(async () => "saved" as const);
     render(<TaskWorkspaceBlockPrompts block={block} labels={labels} onSave={onSave} />);
 
     const blockPrompts = screen.getByTestId(`task-workspace-block-prompts:${block.ref}`);

@@ -48,7 +48,7 @@ export function useTaskExecutorActions({
             }
           }
         });
-        if (mode === "failed") return false;
+        if (mode === "failed" || mode === "retired") return false;
         await refreshGraph();
         return true;
       } catch (caught) {

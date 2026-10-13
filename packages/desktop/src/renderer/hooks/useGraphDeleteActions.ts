@@ -6,6 +6,7 @@ import type {
   DesktopRunRecord
 } from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
+import { submitSharedPackageIntent } from "../collaboration/packageWriteAdapter";
 import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
 type UseGraphDeleteActionsArgs = {
@@ -59,13 +60,14 @@ export function useGraphDeleteActions({
       }
       try {
         if (workspaceCanvas?.enabled) {
-          const result = await workspaceCanvas.submit({
-            intent: { kind: "remove_task", taskId }
-          });
-          if (!result.ok) {
-            setError(result.error);
+          if (
+            !(await submitSharedPackageIntent(
+              workspaceCanvas,
+              { kind: "remove_task", taskId },
+              setError
+            ))
+          )
             return;
-          }
         } else {
           if (!bridge) return;
           const result = await bridge.removeTaskNode(
@@ -109,13 +111,14 @@ export function useGraphDeleteActions({
       }
       try {
         if (workspaceCanvas?.enabled) {
-          const result = await workspaceCanvas.submit({
-            intent: { kind: "remove_block", blockRef: ref }
-          });
-          if (!result.ok) {
-            setError(result.error);
+          if (
+            !(await submitSharedPackageIntent(
+              workspaceCanvas,
+              { kind: "remove_block", blockRef: ref },
+              setError
+            ))
+          )
             return;
-          }
         } else {
           if (!bridge) return;
           const result = await bridge.removeBlock(

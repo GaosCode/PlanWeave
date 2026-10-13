@@ -8,7 +8,7 @@ import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasC
  */
 export type WorkspacePackageWriteGate = WorkspaceCanvasCommandsResult | null | undefined;
 
-export type DurablePackageWriteResult = "shared" | "local" | "failed";
+export type DurablePackageWriteResult = "shared" | "local" | "failed" | "retired";
 
 /**
  * Route one durable mutation: shared command path when connected, else local bridge write.
@@ -22,6 +22,7 @@ export async function runDurablePackageWrite(options: {
 }): Promise<DurablePackageWriteResult> {
   if (options.workspaceCanvas?.enabled) {
     const result = await options.workspaceCanvas.submit({ intent: options.intent });
+    if (result.status === "retired") return "retired";
     if (!result.ok) {
       options.onError?.(result.error);
       return "failed";
@@ -55,7 +56,7 @@ export async function runLocalOnlyWhenOffline(options: {
   }
 }
 
-/** Submit a shared intent only; returns false when shared mode is off or submit fails. */
+/** Submit a shared intent only; returns false when off, failed, or retired. */
 export async function submitSharedPackageIntent(
   workspaceCanvas: WorkspacePackageWriteGate,
   intent: CanvasCommandIntent,
@@ -65,6 +66,7 @@ export async function submitSharedPackageIntent(
     return false;
   }
   const result = await workspaceCanvas.submit({ intent });
+  if (result.status === "retired") return false;
   if (!result.ok) {
     onError?.(result.error);
     return false;

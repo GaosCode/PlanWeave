@@ -320,6 +320,7 @@
         "workspaceAgentEndpointRunCancellation.test.tsx",
         "workspaceCanvasCommands.test.tsx",
         "workspaceCanvasDownloadConsumer.test.tsx",
+        "workspaceCanvasRetiredWrites.test.tsx",
         "workspaceCanvasDirectory.test.tsx",
         "workspaceCanvasPresenceController.test.ts",
         "workspaceCanvasPublishAuthority.test.ts",

@@ -173,7 +173,9 @@ function workspaceCanvasWithProjection(
     projection,
     projectionStatus: null,
     offline: false,
-    submit: vi.fn().mockResolvedValue({ ok: true, error: null, staleConflict: null }),
+    submit: vi
+      .fn()
+      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null }),
     reconnect: vi.fn().mockResolvedValue(true)
   };
 }

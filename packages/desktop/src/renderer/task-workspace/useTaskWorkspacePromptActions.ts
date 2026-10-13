@@ -89,8 +89,10 @@ export function useTaskWorkspacePromptActions(options: {
           if (!result.ok) throw new Error(graphEditError(result));
         }
       });
+      if (mode === "retired") return "retired";
       if (mode === "failed") throw new Error(sharedError ?? "Shared canvas command failed.");
       if (mode === "local") onLocalSaved();
+      return "saved";
     },
     [api, localCanvasRef, navigation, onLocalSaved, workspace, workspaceCanvas]
   );
@@ -142,8 +144,10 @@ export function useTaskWorkspacePromptActions(options: {
           if (!result.ok) throw new Error(graphEditError(result));
         }
       });
+      if (mode === "retired") return "retired";
       if (mode === "failed") throw new Error(sharedError ?? "Shared canvas command failed.");
       if (mode === "local") onLocalSaved();
+      return "saved";
     },
     [api, localCanvasRef, navigation, onLocalSaved, workspace, workspaceCanvas]
   );
