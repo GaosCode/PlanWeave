@@ -94,6 +94,71 @@ function bridge(initial: WorkspaceCanvasProjection) {
 afterEach(cleanupRendererTestEnvironment);
 
 describe("useWorkspaceCanvasCommands", () => {
+  it("does not publish a retired error into the next Canvas render", async () => {
+    const { api } = bridge(projection());
+    vi.mocked(api.openWorkspaceCanvasSession).mockImplementation(async (requested) => {
+      if (requested.canvasId === locator.canvasId) throw new Error("current_canvas_failure");
+      return projectionForLocator(requested);
+    });
+    const renders: Array<{ canvasId: string | null; error: string | null }> = [];
+    const { result, rerender } = renderHook(
+      ({ selectedLocator }) => {
+        const commands = useWorkspaceCanvasCommands({
+          api,
+          locator: selectedLocator,
+          sessionConnected: true,
+          t
+        });
+        renders.push({
+          canvasId: selectedLocator?.canvasId ?? null,
+          error: commands.snapshot.lastError
+        });
+        return commands;
+      },
+      { initialProps: { selectedLocator: locator as typeof locator | null } }
+    );
+    await waitFor(() => expect(result.current.snapshot.lastError).toBe("current_canvas_failure"));
+    const nextLocator = { ...locator, canvasId: "canvas-next" };
+    rerender({ selectedLocator: null });
+    expect(result.current.snapshot.lastError).toBeNull();
+    rerender({ selectedLocator: nextLocator });
+    await waitFor(() => expect(result.current.projection?.canvasId).toBe(nextLocator.canvasId));
+    expect(
+      renders.filter((render) => render.canvasId !== locator.canvasId && render.error)
+    ).toEqual([]);
+  });
+
+  it("ignores a retired reconnect after navigating A to B to A", async () => {
+    const { api } = bridge(projection());
+    api.openWorkspaceCanvasSession = vi.fn(async (requested) => projectionForLocator(requested));
+    let finish!: (value: WorkspaceCanvasProjection) => void;
+    api.reconnectWorkspaceCanvasSession = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    const { result, rerender } = renderHook(
+      ({ selectedLocator }) =>
+        useWorkspaceCanvasCommands({ api, locator: selectedLocator, sessionConnected: true, t }),
+      { initialProps: { selectedLocator: locator } }
+    );
+    await waitFor(() => expect(result.current.projection?.revision).toBe(4));
+    let pending!: Promise<boolean>;
+    act(() => {
+      pending = result.current.reconnect();
+    });
+    rerender({ selectedLocator: { ...locator, canvasId: "canvas-next" } });
+    await waitFor(() => expect(result.current.projection?.canvasId).toBe("canvas-next"));
+    rerender({ selectedLocator: locator });
+    await waitFor(() => expect(result.current.projection?.canvasId).toBe(locator.canvasId));
+    await act(async () => {
+      finish({ ...projection(), replica: { ...projection().replica, revision: 99 } });
+      await expect(pending).resolves.toBe(false);
+    });
+    expect(result.current.projection?.revision).toBe(4);
+  });
+
   it("ignores an old submission completion after navigating A to B to A", async () => {
     const { api, submitWorkspaceCanvasCommand } = bridge(projection());
     api.openWorkspaceCanvasSession = vi.fn(async (value) => projectionForLocator(value));

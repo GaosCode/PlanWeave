@@ -29,7 +29,7 @@ export type ProjectWorkspaceShellInput = {
   refreshRuntimeTools: () => Promise<void>;
   runtimeTools: DesktopRuntimeToolAvailability;
   setActiveView: Dispatch<SetStateAction<AppView>>;
-  setError: (message: string | null) => void;
+  setError: Dispatch<SetStateAction<string | null>>;
   setSuccessMessage: Dispatch<SetStateAction<string | null>>;
   settings: DesktopUiSettings;
   settingsHydrated: boolean;

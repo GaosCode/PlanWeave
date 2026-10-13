@@ -66,9 +66,16 @@ export function useRemoteCanvasWorkspace(
   );
   const [locator, setLocator] = useState<WorkspaceCanvasLocator | null>(null);
   const [explicitOpen, setExplicitOpen] = useState(false);
+  const activeLocator =
+    locator &&
+    !input.localProjectId &&
+    locator.connectionProfileId === connectionProfileId &&
+    locator.projectId === activeProjectId
+      ? locator
+      : null;
   const binding = useMemo<RemoteCollaborationCanvasBindingInput | null>(
-    () => (locator ? workspaceCanvasLocatorToBinding(locator) : null),
-    [locator]
+    () => (activeLocator ? workspaceCanvasLocatorToBinding(activeLocator) : null),
+    [activeLocator]
   );
 
   useEffect(() => {
@@ -204,7 +211,7 @@ export function useRemoteCanvasWorkspace(
     connectionProfileId,
     sessionConnected,
     authorizedCanvases,
-    locator,
+    locator: activeLocator,
     binding,
     clear,
     openLocator,

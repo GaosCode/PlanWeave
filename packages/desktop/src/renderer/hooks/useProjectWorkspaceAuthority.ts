@@ -21,7 +21,7 @@ type UseProjectWorkspaceAuthorityInput = {
   settings: Pick<DesktopUiSettings, "lastOpenedWorkspaceLocator" | "runtimePath" | "planweaveHome">;
   settingsHydrated: boolean;
   setActiveView: Dispatch<SetStateAction<AppView>>;
-  setError: (message: string | null) => void;
+  setError: Dispatch<SetStateAction<string | null>>;
   setSuccessMessage: Dispatch<SetStateAction<string | null>>;
   t: ReturnType<typeof createTranslator>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
@@ -119,15 +119,22 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
   });
   const workspaceCanvasCommands = useWorkspaceCanvasCommands({
     api: collaborationBridge,
-    locator: canvasLocator?.kind === "workspace" ? canvasLocator : null,
+    locator:
+      canvasLocator?.kind === "workspace" &&
+      (!collaborationSurface.activeProfileId ||
+        (collaborationSurface.activeProfileId === canvasLocator.connectionProfileId &&
+          collaborationSurface.activeProjectId === canvasLocator.projectId))
+        ? canvasLocator
+        : null,
     sessionConnected: collaborationSurface.sessionConnected,
     t: input.t
   });
   useEffect(() => {
-    if (canvasLocator?.kind === "workspace" && workspaceCanvasCommands.snapshot.lastError) {
-      input.setError(workspaceCanvasCommands.snapshot.lastError);
-    }
-  }, [canvasLocator?.kind, input.setError, workspaceCanvasCommands.snapshot.lastError]);
+    const message = workspaceCanvasCommands.snapshot.lastError;
+    if (canvasLocator?.kind !== "workspace" || !message) return;
+    input.setError(message);
+    return () => input.setError((current) => (current === message ? null : current));
+  }, [canvasLocator, input.setError, workspaceCanvasCommands.snapshot.lastError]);
   const graph = useMemo(
     () =>
       workspaceCanvasCommands.projection

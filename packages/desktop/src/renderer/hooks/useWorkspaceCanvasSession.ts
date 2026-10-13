@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction
+} from "react";
 import type { CanvasCommandIntent } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type {
@@ -89,19 +97,39 @@ export function useWorkspaceCanvasSession(input: {
 }): WorkspaceCanvasSessionView {
   const generation = useRef(0);
   const locatorKey = JSON.stringify(input.locator);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: bridge and connection changes retire the current session authority.
+  const authority = useMemo(
+    () => ({ locatorKey }),
+    [input.api, locatorKey, input.sessionConnected]
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: changing the session authority invalidates pending submission publications.
   useLayoutEffect(() => {
     generation.current += 1;
     return () => {
       generation.current += 1;
     };
-  }, [input.api, locatorKey, input.sessionConnected]);
+  }, [authority]);
   const [workspaceView, setWorkspaceView] = useState<{
+    authority: typeof authority;
     projection: WorkspaceCanvasProjection;
   } | null>(null);
-  const [snapshot, setSnapshot] = useState<WorkspaceCanvasCommandSnapshot>(IDLE_SNAPSHOT);
+  const [snapshotState, setSnapshotState] = useState({ authority, value: IDLE_SNAPSHOT });
+  const snapshot = snapshotState.authority === authority ? snapshotState.value : IDLE_SNAPSHOT;
+  const setSnapshot = useCallback(
+    (update: SetStateAction<WorkspaceCanvasCommandSnapshot>) => {
+      setSnapshotState((current) => ({
+        authority,
+        value:
+          typeof update === "function"
+            ? update(current.authority === authority ? current.value : IDLE_SNAPSHOT)
+            : update
+      }));
+    },
+    [authority]
+  );
   const activeWorkspaceProjection =
     workspaceView &&
+    workspaceView.authority === authority &&
     input.locator &&
     workspaceLocatorEquals(workspaceView.projection.locator, input.locator)
       ? workspaceView.projection
@@ -121,10 +149,16 @@ export function useWorkspaceCanvasSession(input: {
     const activeApi = input.api;
     const locator = input.locator;
     const labels = input.labels;
+    const openedGeneration = generation.current;
     let active = true;
     const applyProjection = (projection: WorkspaceCanvasProjection) => {
-      if (!active || !workspaceLocatorEquals(projection.locator, locator)) return;
-      setWorkspaceView({ projection });
+      if (
+        !active ||
+        generation.current !== openedGeneration ||
+        !workspaceLocatorEquals(projection.locator, locator)
+      )
+        return;
+      setWorkspaceView({ authority, projection });
       setSnapshot(snapshotFromWorkspaceProjection(projection, labels, "connected"));
     };
     const unsubscribe =
@@ -142,7 +176,7 @@ export function useWorkspaceCanvasSession(input: {
         applyProjection(projection);
       })
       .catch((error: unknown) => {
-        if (!active) return;
+        if (!active || generation.current !== openedGeneration) return;
         setWorkspaceView(null);
         setSnapshot({
           ...IDLE_SNAPSHOT,
@@ -154,7 +188,7 @@ export function useWorkspaceCanvasSession(input: {
       unsubscribe?.();
       void activeApi.closeWorkspaceCanvasSession?.(locator);
     };
-  }, [input.api, input.labels, input.locator, input.sessionConnected]);
+  }, [authority, input.api, input.labels, input.locator, input.sessionConnected, setSnapshot]);
 
   const submit = useCallback(
     async (submitInput: { intent: CanvasCommandIntent }): Promise<WorkspaceCanvasSubmitResult> => {
@@ -175,7 +209,7 @@ export function useWorkspaceCanvasSession(input: {
         });
         const nextSnapshot = snapshotFromWorkspaceProjection(projection, input.labels, "connected");
         if (generation.current === submittedGeneration) {
-          setWorkspaceView({ projection });
+          setWorkspaceView({ authority, projection });
           setSnapshot(nextSnapshot);
         }
         if (projection.status === "accepted") {
@@ -198,6 +232,8 @@ export function useWorkspaceCanvasSession(input: {
       input.api,
       input.labels,
       input.locator,
+      authority,
+      setSnapshot,
       snapshot.connectionPhase,
       activeWorkspaceProjection?.readOnly
     ]
@@ -207,15 +243,21 @@ export function useWorkspaceCanvasSession(input: {
     if (!input.api || !input.locator) {
       return false;
     }
+    const reconnectedGeneration = generation.current;
     try {
       const projection = await input.api.reconnectWorkspaceCanvasSession(input.locator);
-      setWorkspaceView({ projection });
+      if (
+        generation.current !== reconnectedGeneration ||
+        !workspaceLocatorEquals(projection.locator, input.locator)
+      )
+        return false;
+      setWorkspaceView({ authority, projection });
       setSnapshot(snapshotFromWorkspaceProjection(projection, input.labels, "connected"));
       return projection.status !== "rejected";
     } catch {
       return false;
     }
-  }, [input.api, input.labels, input.locator]);
+  }, [authority, input.api, input.labels, input.locator, setSnapshot]);
 
   const replica = activeWorkspaceProjection?.replica ?? null;
   const projection = useMemo(

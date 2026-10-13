@@ -89,6 +89,76 @@ function useOfflineWorkspaceProviderPipeline(api: WorkspaceCanvasCommandBridge) 
 }
 
 describe("offline Workspace Provider authority", () => {
+  it.each([
+    false,
+    true
+  ])("retires the previous profile in the switching render (initially connected: %s)", async (initiallyConnected) => {
+    const nextLocator = {
+      ...locator,
+      connectionProfileId: "profile-next",
+      workspaceId: "workspace-next",
+      projectId: "project-next"
+    };
+    let activeProfile = locator.connectionProfileId;
+    const invalidOpens: WorkspaceCanvasLocator[] = [];
+    const open = vi.fn(async (requested: WorkspaceCanvasLocator) => {
+      if (requested.connectionProfileId !== activeProfile) {
+        invalidOpens.push(requested);
+        throw new Error("workspace_canvas_connection_mismatch");
+      }
+      return {
+        locator: requested,
+        status: "accepted" as const,
+        authorityMode: "server_authoritative" as const,
+        readOnly: false,
+        cachedAt: null,
+        initialRuntimeAvailability: null,
+        conflict: null,
+        rejectCode: null,
+        replica: { ...cachedProjection(), workspaceId: requested.workspaceId }
+      };
+    });
+    const { api } = createBridge(open);
+    const renders: Array<{ profile: string; exposed: string | null; error: string | null }> = [];
+    const { result, rerender } = renderHook(
+      ({ selected, connected }) => {
+        const remoteWorkspace = useRemoteCanvasWorkspace({
+          activeProjectId: selected.projectId,
+          connectionProfileId: selected.connectionProfileId,
+          lastOpenedWorkspaceLocator: selected,
+          sessionConnected: connected,
+          api: null
+        });
+        const commands = useWorkspaceCanvasCommands({
+          api,
+          locator: remoteWorkspace.locator,
+          sessionConnected: connected,
+          t: translator
+        });
+        renders.push({
+          profile: selected.connectionProfileId,
+          exposed: remoteWorkspace.locator?.connectionProfileId ?? null,
+          error: commands.snapshot.lastError
+        });
+        return { remoteWorkspace, commands };
+      },
+      { initialProps: { selected: locator, connected: initiallyConnected } }
+    );
+    act(() => result.current.remoteWorkspace.openLocator(locator));
+    await waitFor(() => expect(result.current.commands.projection).not.toBeNull());
+    activeProfile = nextLocator.connectionProfileId;
+    rerender({ selected: nextLocator, connected: true });
+    act(() => result.current.remoteWorkspace.openLocator(nextLocator));
+    await waitFor(() =>
+      expect(result.current.commands.projection?.workspaceId).toBe(nextLocator.workspaceId)
+    );
+    expect(invalidOpens).toEqual([]);
+    expect(
+      renders.filter((render) => render.exposed !== null && render.exposed !== render.profile)
+    ).toEqual([]);
+    expect(renders.map((render) => render.error).filter(Boolean)).toEqual([]);
+  });
+
   it("does not rebuild the restored graph on unrelated renders while offline", async () => {
     const replica = cachedProjection();
     const open = vi.fn(async () => ({

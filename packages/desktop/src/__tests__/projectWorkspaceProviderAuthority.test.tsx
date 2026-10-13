@@ -448,7 +448,7 @@ function ProviderHarness({
 }: {
   showGraph?: boolean;
   initialSettings: DesktopUiSettings;
-  onError?: (message: string | null) => void;
+  onError?: ProjectWorkspaceShellInput["setError"];
   onSettings: (settings: DesktopUiSettings) => void;
   onValue: (value: ProjectWorkspaceValue) => void;
 }) {
@@ -537,6 +537,47 @@ afterEach(() => {
 });
 
 describe("ProjectWorkspaceProvider startup authority", () => {
+  it.each([
+    null,
+    "unrelated_operation_failure"
+  ])("retires only its own Canvas error and preserves %s", async (unrelatedError) => {
+    bridges.collaboration.target.openWorkspaceCanvasSession = vi.fn(async (requested) => {
+      if (requested.canvasId === locator.canvasId) throw new Error("current_canvas_failure");
+      return {
+        locator: requested,
+        status: "accepted",
+        authorityMode: "offline_cache_readonly",
+        readOnly: true,
+        cachedAt: "2026-08-22T00:00:00.000Z",
+        conflict: null,
+        rejectCode: null,
+        replica: { ...cachedProjection(), canvasId: requested.canvasId }
+      };
+    });
+    let error: string | null = null;
+    const onError: ProjectWorkspaceShellInput["setError"] = (update) => {
+      error = typeof update === "function" ? update(error) : update;
+    };
+    let current: ProjectWorkspaceValue | null = null;
+    render(
+      <ProviderHarness
+        initialSettings={workspaceSettings()}
+        onError={onError}
+        onSettings={vi.fn()}
+        onValue={(value) => {
+          current = value;
+        }}
+      />
+    );
+    await waitFor(() => expect(error).toBe("current_canvas_failure"));
+    if (unrelatedError) error = unrelatedError;
+    act(() => current!.shell.openWorkspaceCanvasLocator({ ...locator, canvasId: "canvas-next" }));
+    await waitFor(() =>
+      expect(current?.graphWorkspace.graph?.projectTitle).toBe("Cached Workspace")
+    );
+    expect(error).toBe(unrelatedError);
+  });
+
   it.each([
     false,
     true
