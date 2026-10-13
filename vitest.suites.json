@@ -333,7 +333,9 @@
         "workspaceRemoteScopeScheduler.test.ts",
         "workspaceSwitcher.test.tsx",
         "workspaceTabsLazyRoutes.test.tsx",
-        "desktopWatchRendererLifecycle.test.tsx"
+        "desktopWatchRendererLifecycle.test.tsx",
+        "desktopHomeTransition.test.tsx",
+        "desktopHomeWatchReplay.test.tsx"
       ],
       "integration": [
         "cliInstallation.test.ts",

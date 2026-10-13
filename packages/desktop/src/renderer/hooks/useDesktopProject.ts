@@ -137,9 +137,15 @@ export function useDesktopProject({
   useLayoutEffect(() => {
     if (previousHome.current === planweaveHome) return;
     previousHome.current = planweaveHome;
-    setProjectLoading(false);
+    selectCanvas(null, null);
+    setProjects([]);
+    setSelectedProjectState(null);
+    setSelectedCanvasIdState(null);
+    setExpandedProjectId(null);
+    clearProjectState();
+    setProjectLoading(Boolean(bridge));
     setProjectRefreshing(false);
-  }, [planweaveHome]);
+  }, [clearProjectState, planweaveHome, selectCanvas]);
 
   const {
     handleOpenProject,
@@ -223,6 +229,7 @@ export function useDesktopProject({
   });
 
   useDesktopRuntimeSubscriptions({
+    currentCanvasRef,
     planweaveHome,
     captureProjectSelection,
     graph,

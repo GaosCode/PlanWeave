@@ -17,7 +17,7 @@ export const bridge: DesktopBridgeApi | null =
 export const settingsBridge: PlanWeaveDesktopSettingsApi | null =
   typeof window !== "undefined" && "planweaveDesktopSettings" in window
     ? window.planweaveDesktopSettings
-      ? desktopCommandBridge(window.planweaveDesktopSettings)
+      ? desktopCommandBridge(window.planweaveDesktopSettings, { homeIndependent: true })
       : null
     : null;
 export const credentialStorageSettingsBridge: PlanWeaveCredentialStorageSettingsApi | null =

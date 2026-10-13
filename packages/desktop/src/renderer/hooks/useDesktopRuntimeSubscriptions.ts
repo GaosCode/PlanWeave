@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type MutableRefObject } from "react";
 import type {
   DesktopGraphViewModel,
   DesktopProjectSummary,
   DesktopRuntimeStateChangeEvent
 } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
+import { isDesktopHomeTransitionPending } from "../desktopHomeTransition";
 import { beginDesktopWatchRegistration } from "../desktopWatchRegistration";
-import type { DesktopSelectionReceipt } from "./useDesktopProjectSnapshot";
+import type { CurrentDesktopCanvasRef, DesktopSelectionReceipt } from "./useDesktopProjectSnapshot";
 
 const externalRuntimeRefreshIntervalMs = 30_000;
 
 type UseDesktopRuntimeSubscriptionsArgs = {
+  currentCanvasRef: MutableRefObject<CurrentDesktopCanvasRef>;
   planweaveHome: string;
   captureProjectSelection: () => DesktopSelectionReceipt;
   graph: DesktopGraphViewModel | null;
@@ -42,6 +44,7 @@ function runtimeStateEventMatchesCanvas(
 }
 
 export function useDesktopRuntimeSubscriptions({
+  currentCanvasRef,
   planweaveHome,
   captureProjectSelection,
   graph,
@@ -57,7 +60,11 @@ export function useDesktopRuntimeSubscriptions({
   const graphAvailable = graph !== null;
 
   const runExternalRuntimeRefresh = useCallback(() => {
-    if (!documentIsVisible() || externalRefreshInFlightRef.current?.isCurrent()) {
+    if (
+      isDesktopHomeTransitionPending() ||
+      !documentIsVisible() ||
+      externalRefreshInFlightRef.current?.isCurrent()
+    ) {
       return;
     }
     const request = captureProjectSelection();
@@ -85,6 +92,11 @@ export function useDesktopRuntimeSubscriptions({
     if (!bridge || !selectedProjectRoot || !selectedWorkspaceRoot || !graphAvailable) {
       return undefined;
     }
+    if (
+      currentCanvasRef.current.projectRoot !== selectedProjectRoot ||
+      currentCanvasRef.current.canvasId !== selectedCanvasId
+    )
+      return undefined;
     const runtimeBridge = bridge;
     const registration = beginDesktopWatchRegistration(
       {
@@ -108,6 +120,7 @@ export function useDesktopRuntimeSubscriptions({
     };
   }, [
     captureProjectSelection,
+    currentCanvasRef,
     graphAvailable,
     planweaveHome,
     selectedCanvasId,

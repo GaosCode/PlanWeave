@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PlanWeaveDesktopSettingsApi } from "../../shared/desktopSettings";
 import {
   defaultDesktopSettings,
@@ -6,6 +6,7 @@ import {
   legacyDesktopSettingsMigrationMarkerKey
 } from "../../shared/desktopSettings";
 import { settingsBridge } from "../bridge";
+import { beginDesktopHomeTransition } from "../desktopHomeTransition";
 import { mergeDesktopSettings } from "../settings";
 import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 
@@ -47,6 +48,7 @@ export function useDesktopSettingsBridge({
 }: UseDesktopSettingsBridgeArgs) {
   const [settings, setSettings] = useState<DesktopUiSettings>(defaultDesktopSettings);
   const [settingsHydrated, setSettingsHydrated] = useState(!settingsApi);
+  const [pendingHomeSaves, setPendingHomeSaves] = useState(0);
   const setErrorRef = useRef(setError);
   setErrorRef.current = setError;
   const latestSettingsRef = useRef<DesktopUiSettings>(defaultDesktopSettings);
@@ -55,10 +57,23 @@ export function useDesktopSettingsBridge({
   const refreshQueueRef = useRef<Promise<void>>(Promise.resolve());
   const localRevisionRef = useRef(0);
   const pendingSavesRef = useRef(0);
+  const pendingHomeSavesRef = useRef(0);
+  const settledHomeTransitions = useRef<Array<() => void>>([]);
   const confirmedVersionRef = useRef(0);
   const effectVersionRef = useRef(0);
   const mountedRef = useRef(false);
   const initializationRef = useRef<Promise<void>>(Promise.resolve());
+  useLayoutEffect(() => {
+    if (pendingHomeSaves === 0) {
+      for (const release of settledHomeTransitions.current.splice(0)) release();
+    }
+  });
+  useLayoutEffect(
+    () => () => {
+      for (const release of settledHomeTransitions.current.splice(0)) release();
+    },
+    []
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -152,6 +167,13 @@ export function useDesktopSettingsBridge({
       const nextRevision = localRevisionRef.current + 1;
       localRevisionRef.current = nextRevision;
       const optimisticSettings = mergeDesktopSettings(latestSettingsRef.current, patch);
+      const changesHome = settingsApi !== null && patch.planweaveHome !== undefined;
+      const releaseHomeTransition = changesHome ? beginDesktopHomeTransition() : null;
+      if (changesHome) {
+        pendingHomeSavesRef.current += 1;
+        setPendingHomeSaves(pendingHomeSavesRef.current);
+        optimisticSettings.planweaveHome = latestSettingsRef.current.planweaveHome;
+      }
       latestSettingsRef.current = optimisticSettings;
       setSettings(optimisticSettings);
 
@@ -161,6 +183,14 @@ export function useDesktopSettingsBridge({
       const effectVersion = effectVersionRef.current;
       const isCurrentEffect = () =>
         mountedRef.current && effectVersionRef.current === effectVersion;
+      const publishSettings = (nextSettings: DesktopUiSettings) => {
+        const visibleSettings =
+          pendingHomeSavesRef.current > 0
+            ? { ...nextSettings, planweaveHome: latestSettingsRef.current.planweaveHome }
+            : nextSettings;
+        latestSettingsRef.current = visibleSettings;
+        setSettings(visibleSettings);
+      };
       pendingSavesRef.current += 1;
       const save = saveQueueRef.current
         .then(() => initializationRef.current)
@@ -173,14 +203,12 @@ export function useDesktopSettingsBridge({
           confirmedVersionRef.current += 1;
           lastConfirmedSettingsRef.current = nextSettings;
           if (localRevisionRef.current === nextRevision) {
-            latestSettingsRef.current = nextSettings;
-            setSettings(nextSettings);
+            publishSettings(nextSettings);
           }
         })
         .catch((caught: unknown) => {
           if (isCurrentEffect() && localRevisionRef.current === nextRevision) {
-            latestSettingsRef.current = lastConfirmedSettingsRef.current;
-            setSettings(lastConfirmedSettingsRef.current);
+            publishSettings(lastConfirmedSettingsRef.current);
           }
           if (isCurrentEffect()) {
             setErrorRef.current(errorMessage(caught));
@@ -189,6 +217,22 @@ export function useDesktopSettingsBridge({
         })
         .finally(() => {
           pendingSavesRef.current -= 1;
+          if (releaseHomeTransition) {
+            pendingHomeSavesRef.current -= 1;
+            if (mountedRef.current) {
+              setPendingHomeSaves(pendingHomeSavesRef.current);
+            }
+            if (isCurrentEffect() && pendingHomeSavesRef.current === 0) {
+              publishSettings({
+                ...latestSettingsRef.current,
+                planweaveHome: lastConfirmedSettingsRef.current.planweaveHome
+              });
+            }
+            if (mountedRef.current && pendingHomeSavesRef.current === 0) {
+              // Keep admission closed until the confirmed Home reaches the renderer commit.
+              settledHomeTransitions.current.push(releaseHomeTransition);
+            } else releaseHomeTransition();
+          }
         });
       saveQueueRef.current = callerSave.then(
         () => undefined,
@@ -215,7 +259,7 @@ export function useDesktopSettingsBridge({
 
   return {
     settings,
-    settingsHydrated,
+    settingsHydrated: settingsHydrated && pendingHomeSaves === 0,
     updateLayoutSettings,
     updateSettings,
     updateSettingsAndWait
