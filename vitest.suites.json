@@ -453,7 +453,8 @@
         "workspaceExecutionProcessBoundary.test.ts",
         "workspaceSessionPreflight.test.ts",
         "workspaceCanvasPublishSnapshot.test.ts",
-        "desktopWatchHomeRegistration.test.ts"
+        "desktopWatchHomeRegistration.test.ts",
+        "desktopInspectorHome.test.ts"
       ],
       "platform": ["agentToolsWindows.test.ts", "runtimeStateWatch.test.ts"],
       "performance": []

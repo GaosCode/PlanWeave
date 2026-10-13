@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { DesktopCanvasReference } from "@planweave-ai/runtime";
 import { createNativeTranslator } from "../shared/nativeI18n.js";
 import { configureExternalLinkHandling, configureNavigationHandling } from "./window.js";
+import { bindDesktopInspectorHome, captureDesktopInspectorHome } from "./desktopInspectorHome.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const blockInspectorWindows = new Map<string, BrowserWindow>();
@@ -51,7 +52,8 @@ async function loadBlockWindow(
 export async function openBlockInspectorWindow(
   input: OpenBlockInspectorWindowInput
 ): Promise<void> {
-  const key = blockWindowKey(input);
+  const home = captureDesktopInspectorHome();
+  const key = `${home.generation}:${blockWindowKey(input)}`;
   const existing = blockInspectorWindows.get(key);
   if (existing && !existing.isDestroyed()) {
     existing.focus();
@@ -75,6 +77,7 @@ export async function openBlockInspectorWindow(
     }
   });
 
+  bindDesktopInspectorHome(window.webContents, home);
   configureExternalLinkHandling(window);
   configureNavigationHandling(window, {
     isDev: Boolean(devServerUrl)

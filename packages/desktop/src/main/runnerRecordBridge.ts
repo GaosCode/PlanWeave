@@ -14,6 +14,7 @@ import {
   runnerRecordSubscribeChannel,
   runnerRecordUnsubscribeChannel
 } from "../shared/ipcChannels.js";
+import { assertDesktopInspectorHomeCurrent } from "./desktopInspectorHome.js";
 
 type OwnedSubscription = {
   sender: WebContents;
@@ -107,6 +108,7 @@ async function subscribe(
   event: IpcMainInvokeEvent,
   rawInput: DesktopRunnerRecordSubscriptionInput
 ) {
+  assertDesktopInspectorHomeCurrent(event.sender);
   const input = desktopRunnerRecordSubscriptionInputSchema.parse(rawInput);
   const sender = event.sender;
   if (sender.isDestroyed()) throw new Error("Cannot subscribe a destroyed renderer window.");

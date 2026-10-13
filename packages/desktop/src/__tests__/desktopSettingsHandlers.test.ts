@@ -13,7 +13,12 @@ const electronMock = vi.hoisted(() => {
     handlers,
     ipcMain: {
       handle: vi.fn((channel: string, handler: IpcHandler) => {
-        handlers.set(channel, handler);
+        handlers.set(channel, (event, ...args) =>
+          handler(
+            event && typeof event === "object" && "sender" in event ? event : { sender: {} },
+            ...args
+          )
+        );
       })
     }
   };

@@ -1,9 +1,21 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { subscribeAutoRunEvents } from "@planweave-ai/runtime";
 import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
 import { autoRunChangedChannel, desktopBridgeInvokeChannels } from "../shared/ipcChannels.js";
 import { runtimeBridgeHandlers } from "./runtimeBridgeHandlerRegistry.js";
 import { registerRunnerRecordBridgeHandlers } from "./runnerRecordBridge.js";
+import { assertDesktopInspectorHomeCurrent } from "./desktopInspectorHome.js";
+import type { RuntimeBridgeHandler, RuntimeBridgeHandlerMap } from "./runtimeBridgeHandlerTypes.js";
+
+function registerRuntimeHandler<M extends DesktopBridgeMainInvokeMethod>(method: M): void {
+  const handlers: RuntimeBridgeHandlerMap = runtimeBridgeHandlers;
+  const handler = handlers[method];
+  const admitted: RuntimeBridgeHandler<M> = (event: IpcMainInvokeEvent, ...args) => {
+    assertDesktopInspectorHomeCurrent(event.sender);
+    return handler(event, ...args);
+  };
+  ipcMain.handle(desktopBridgeInvokeChannels[method], admitted);
+}
 
 let unsubscribeAutoRunBroadcast: (() => void) | null = null;
 
@@ -23,7 +35,7 @@ function registerAutoRunEventBroadcast(): void {
 
 export function registerRuntimeBridgeHandlers(): void {
   for (const method of Object.keys(runtimeBridgeHandlers) as DesktopBridgeMainInvokeMethod[]) {
-    ipcMain.handle(desktopBridgeInvokeChannels[method], runtimeBridgeHandlers[method]);
+    registerRuntimeHandler(method);
   }
   registerAutoRunEventBroadcast();
   registerRunnerRecordBridgeHandlers();

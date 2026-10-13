@@ -83,6 +83,7 @@ function taskWorkspaceFixture(input: GetTaskWorkspaceInput): GetTaskWorkspaceRes
 
 const electronMock = vi.hoisted(() => {
   const handlers = new Map<string, RegisteredHandler>();
+  const primarySender = { id: 0, isDestroyed: () => false, send: vi.fn() };
   const windows: Array<{
     webContents: { isDestroyed: () => boolean; send: ReturnType<typeof vi.fn> };
   }> = [];
@@ -103,7 +104,14 @@ const electronMock = vi.hoisted(() => {
     },
     ipcMain: {
       handle: vi.fn((channel: string, handler: RegisteredHandler) => {
-        handlers.set(channel, handler);
+        handlers.set(channel, (event, ...args) =>
+          handler(
+            event && typeof event === "object" && "sender" in event
+              ? event
+              : { sender: primarySender },
+            ...args
+          )
+        );
       })
     },
     BrowserWindow: {

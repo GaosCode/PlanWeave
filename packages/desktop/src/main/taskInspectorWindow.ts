@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { DesktopCanvasReference } from "@planweave-ai/runtime";
 import { createNativeTranslator } from "../shared/nativeI18n.js";
 import { configureExternalLinkHandling, configureNavigationHandling } from "./window.js";
+import { bindDesktopInspectorHome, captureDesktopInspectorHome } from "./desktopInspectorHome.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const taskInspectorWindows = new Map<string, BrowserWindow>();
@@ -49,7 +50,8 @@ async function loadTaskWindow(
 }
 
 export async function openTaskInspectorWindow(input: OpenTaskInspectorWindowInput): Promise<void> {
-  const key = taskWindowKey(input);
+  const home = captureDesktopInspectorHome();
+  const key = `${home.generation}:${taskWindowKey(input)}`;
   const existing = taskInspectorWindows.get(key);
   if (existing && !existing.isDestroyed()) {
     existing.focus();
@@ -73,6 +75,7 @@ export async function openTaskInspectorWindow(input: OpenTaskInspectorWindowInpu
     }
   });
 
+  bindDesktopInspectorHome(window.webContents, home);
   configureExternalLinkHandling(window);
   configureNavigationHandling(window, {
     isDev: Boolean(devServerUrl)

@@ -1,10 +1,14 @@
 import { access } from "node:fs/promises";
-import { ipcMain } from "electron";
+import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import {
   desktopSettingsInvokeChannels,
   normalizeDesktopSettingsPatch
 } from "../shared/desktopSettings.js";
 import { DesktopSettingsStore } from "./desktopSettingsStore.js";
+import {
+  assertDesktopInspectorHomeCurrent,
+  captureDesktopInspectorHome
+} from "./desktopInspectorHome.js";
 
 function errorCode(caught: unknown): string | null {
   if (!caught || typeof caught !== "object" || !("code" in caught)) {
@@ -38,24 +42,37 @@ export function registerDesktopSettingsHandlers(
     store ?? new DesktopSettingsStore({ planweaveHomeBaseline: options.planweaveHomeBaseline });
   let queue = Promise.resolve();
   const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
-    const next = queue.catch(() => undefined).then(operation);
+    const next = queue
+      .catch(() => undefined)
+      .then(operation)
+      .then((result) => {
+        captureDesktopInspectorHome();
+        return result;
+      });
     queue = next.then(
       () => undefined,
       () => undefined
     );
     return next;
   };
+  const enqueueWrite = <T>(event: IpcMainInvokeEvent, operation: () => Promise<T>): Promise<T> => {
+    assertDesktopInspectorHomeCurrent(event.sender);
+    return enqueue(() => {
+      assertDesktopInspectorHomeCurrent(event.sender);
+      return operation();
+    });
+  };
 
   ipcMain.handle(desktopSettingsInvokeChannels.getDesktopSettings, () =>
     enqueue(() => settingsStore.read())
   );
-  ipcMain.handle(desktopSettingsInvokeChannels.saveDesktopSettings, (_event, patch: unknown) =>
-    enqueue(() => settingsStore.mergePatch(normalizeDesktopSettingsPatch(patch)))
+  ipcMain.handle(desktopSettingsInvokeChannels.saveDesktopSettings, (event, patch: unknown) =>
+    enqueueWrite(event, () => settingsStore.mergePatch(normalizeDesktopSettingsPatch(patch)))
   );
   ipcMain.handle(
     desktopSettingsInvokeChannels.migrateLegacyDesktopSettings,
-    (_event, payload: unknown) =>
-      enqueue(async () => {
+    (event, payload: unknown) =>
+      enqueueWrite(event, async () => {
         if (await settingsFileExists(settingsStore.settingsFile)) {
           return settingsStore.read();
         }

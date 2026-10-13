@@ -13,6 +13,17 @@ import type { CollaborationService } from "./collaboration/collaborationService.
 import { getOperatorControlService } from "./operatorControl/operatorControlHandlers.js";
 import { WorkspaceExecutionDesktopService } from "./workspaceExecutionDesktopService.js";
 import { workspaceExecutionHandlerResult } from "./workspaceExecutionIpcResult.js";
+import { assertDesktopInspectorHomeCurrent } from "./desktopInspectorHome.js";
+
+function handleWorkspaceExecution<T>(
+  channel: string,
+  operation: (input: unknown) => Promise<T>
+): void {
+  ipcMain.handle(channel, (event, rawInput: unknown) => {
+    assertDesktopInspectorHomeCurrent(event.sender);
+    return operation(rawInput);
+  });
+}
 
 export function registerWorkspaceExecutionHandlers(input: {
   collaboration: CollaborationService;
@@ -21,7 +32,7 @@ export function registerWorkspaceExecutionHandlers(input: {
   const service =
     input.service ??
     new WorkspaceExecutionDesktopService(input.collaboration, getOperatorControlService());
-  ipcMain.handle(workspaceExecutionInvokeChannels.conversation, async (_event, rawInput) => {
+  handleWorkspaceExecution(workspaceExecutionInvokeChannels.conversation, async (rawInput) => {
     try {
       return desktopRemoteAcpConversationResultSchema.parse({
         ok: true,
@@ -47,28 +58,28 @@ export function registerWorkspaceExecutionHandlers(input: {
       });
     }
   });
-  ipcMain.handle(workspaceExecutionInvokeChannels.start, async (_event, rawInput) =>
+  handleWorkspaceExecution(workspaceExecutionInvokeChannels.start, async (rawInput) =>
     workspaceExecutionHandlerResult(async () =>
       desktopWorkspaceExecutionResponseSchema.parse(
         await service.start(desktopWorkspaceExecutionStartInputSchema.parse(rawInput))
       )
     )
   );
-  ipcMain.handle(workspaceExecutionInvokeChannels.follow, async (_event, rawInput) =>
+  handleWorkspaceExecution(workspaceExecutionInvokeChannels.follow, async (rawInput) =>
     workspaceExecutionHandlerResult(async () =>
       desktopWorkspaceExecutionResponseSchema.parse(
         await service.follow(desktopWorkspaceExecutionFollowInputSchema.parse(rawInput))
       )
     )
   );
-  ipcMain.handle(workspaceExecutionInvokeChannels.cancel, async (_event, rawInput) =>
+  handleWorkspaceExecution(workspaceExecutionInvokeChannels.cancel, async (rawInput) =>
     workspaceExecutionHandlerResult(async () =>
       desktopWorkspaceExecutionResponseSchema.parse(
         await service.cancel(desktopWorkspaceExecutionCancelInputSchema.parse(rawInput))
       )
     )
   );
-  ipcMain.handle(workspaceExecutionInvokeChannels.respond, async (_event, rawInput) =>
+  handleWorkspaceExecution(workspaceExecutionInvokeChannels.respond, async (rawInput) =>
     workspaceExecutionHandlerResult(async () =>
       desktopWorkspaceExecutionResponseSchema.parse(
         await service.respond(desktopWorkspaceExecutionRespondInputSchema.parse(rawInput))
