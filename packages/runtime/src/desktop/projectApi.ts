@@ -541,13 +541,14 @@ export async function renameProject(
   projectId: string,
   name: string
 ): Promise<DesktopProjectSummary> {
+  const planweaveHome = resolvePlanweaveHome();
   const nextName = name.trim();
   if (!nextName) {
     throw new Error("Project name is required.");
   }
   return withCanvasMapLayoutRelocationMutation(
     async () => {
-      const entry = await readRegisteredProject(projectId);
+      const entry = await readRegisteredProject(projectId, planweaveHome);
       if (!entry) {
         throw new Error(`Project '${projectId}' does not exist.`);
       }

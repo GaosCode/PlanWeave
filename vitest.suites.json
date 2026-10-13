@@ -700,6 +700,7 @@
         "importTransactionApply.test.ts",
         "importTransactionLifecycle.test.ts",
         "managedProjectRenameStorage.test.ts",
+        "managedProjectRenameHomeAdmission.test.ts",
         "importTransactionRecovery.test.ts",
         "importTransactionWriteReservation.test.ts",
         "importTransactionAdmissionRelease.test.ts",
