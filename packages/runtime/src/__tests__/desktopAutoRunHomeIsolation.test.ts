@@ -377,3 +377,88 @@ describe("Auto Run Home memory ownership", () => {
     await expect(getAutoRunState(runA.runId)).resolves.toEqual(runA);
   });
 });
+
+it.each([
+  "pause",
+  "resume",
+  "stop"
+] as const)("rejects stale %s ownership after another Home adopts the same run ID", async (command) => {
+  const { runA, root, workspaceB } = await homesWithPausedRun();
+  await stopAutoRun(runA.runId);
+  const pausedB = persistedAutoRunState(workspaceB, {
+    runId: runA.runId,
+    canvasId: "default",
+    phase: "paused",
+    stepCount: 0,
+    stepLimit: 0,
+    currentRef: null,
+    currentExecutor: null,
+    latestRecordId: null,
+    latestRecordPath: null
+  });
+  await writePersistedAutoRunState(pausedB);
+  await expect(getLatestAutoRunSummary(root, "default")).resolves.toMatchObject({
+    statePath: pausedB.statePath,
+    phase: "paused"
+  });
+  const control =
+    command === "pause" ? pauseAutoRun : command === "resume" ? resumeAutoRun : stopAutoRun;
+  await expect(control(runA.runId, runA.statePath)).rejects.toThrow("auto_run_scope_mismatch");
+  await expect(getAutoRunState(runA.runId)).resolves.toMatchObject({
+    statePath: pausedB.statePath,
+    phase: "paused"
+  });
+  await expect(resumeAutoRun(pausedB.runId, pausedB.statePath)).resolves.toMatchObject({
+    statePath: pausedB.statePath,
+    phase: "running"
+  });
+  await waitForDesktopAutoRun(pausedB.runId, (state) => state.phase === "paused");
+});
+
+it("rejects an old Home's stop before reusing the replacement owner's pending stop", async () => {
+  const { runA, root, workspaceB } = await homesWithPausedRun();
+  await stopAutoRun(runA.runId);
+  const pausedB = persistedAutoRunState(workspaceB, {
+    runId: runA.runId,
+    canvasId: "default",
+    phase: "paused"
+  });
+  await writePersistedAutoRunState(pausedB);
+  await getLatestAutoRunSummary(root, "default");
+  const entered = deferred();
+  const release = deferred();
+  const actual = await vi.importActual<typeof import("../desktop/autoRunTransition.js")>(
+    "../desktop/autoRunTransition.js"
+  );
+  await vi.mocked(mutateAutoRunTransition).withImplementation(
+    async (input) => {
+      if (input.eventType === "run_stopped") {
+        entered.resolve();
+        await release.promise;
+      }
+      return actual.mutateAutoRunTransition(input);
+    },
+    async () => {
+      const stoppingB = stopAutoRun(pausedB.runId, pausedB.statePath);
+      try {
+        await reached(entered.promise);
+        const foreignStop = stopAutoRun(runA.runId, runA.statePath);
+        const rejected = expect(foreignStop).rejects.toThrow("auto_run_scope_mismatch");
+        const matchingStop = stopAutoRun(pausedB.runId, pausedB.statePath);
+        release.resolve();
+        await rejected;
+        await expect(stoppingB).resolves.toMatchObject({
+          statePath: pausedB.statePath,
+          phase: "stopped"
+        });
+        await expect(matchingStop).resolves.toMatchObject({
+          statePath: pausedB.statePath,
+          phase: "stopped"
+        });
+      } finally {
+        release.resolve();
+        await stoppingB.catch(() => undefined);
+      }
+    }
+  );
+});

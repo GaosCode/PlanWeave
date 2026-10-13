@@ -13,7 +13,7 @@ export function createLocalAgentEndpointBlockExecutor(input: {
     scope: DesktopAutoRunScope,
     options?: { stepLimit?: number }
   ) => Promise<DesktopAutoRunState | null | undefined>;
-  stopLocal: (runId: string) => Promise<unknown>;
+  stopLocal: (runId: string, expectedStatePath: string) => Promise<unknown>;
   localAutoRunApi?: LocalAutoRunObserver | null;
   waitForLocalUnit?: typeof waitForClaimBusLocalAutoRunUnit;
 }): (selection: AgentEndpointBlockSelection, signal?: AbortSignal) => Promise<void> {

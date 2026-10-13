@@ -219,23 +219,34 @@ export function useAutoRunControl({
     [captureSelection, onAutoRunDerivedStateRefresh, setAutoRunState]
   );
   const controlExistingAutoRun = useCallback(
-    async (command: "pause" | "resume" | "stop", runId: string) => {
+    async (command: "pause" | "resume" | "stop", owner: DesktopAutoRunState) => {
+      const { runId, statePath, eventLogPath } = owner;
       if (!bridge) return;
       const request = captureSelection();
       try {
         const current = await bridge.getAutoRunState(runId);
         if (!request.isCurrent()) return;
-        if (current.runId !== runId || !request.matchesRun(current)) {
+        if (
+          current.runId !== runId ||
+          current.statePath !== statePath ||
+          current.eventLogPath !== eventLogPath ||
+          !request.matchesRun(current)
+        ) {
           throw new Error("auto_run_scope_mismatch");
         }
         const next =
           command === "pause"
-            ? await bridge.pauseAutoRun(runId)
+            ? await bridge.pauseAutoRun(runId, statePath)
             : command === "resume"
-              ? await bridge.resumeAutoRun(runId)
-              : await bridge.stopAutoRun(runId);
+              ? await bridge.resumeAutoRun(runId, statePath)
+              : await bridge.stopAutoRun(runId, statePath);
         if (!request.isCurrent()) return;
-        if (!request.matchesRun(next) || next.runId !== runId)
+        if (
+          !request.matchesRun(next) ||
+          next.runId !== runId ||
+          next.statePath !== statePath ||
+          next.eventLogPath !== eventLogPath
+        )
           throw new Error("auto_run_scope_mismatch");
         await applyAutoRunState(next);
       } catch (caught) {
@@ -561,11 +572,11 @@ export function useAutoRunControl({
         return;
       }
       if (autoRunState.phase === "running") {
-        await controlExistingAutoRun("pause", autoRunState.runId);
+        await controlExistingAutoRun("pause", autoRunState);
         return;
       }
       if (autoRunState.phase === "paused" || autoRunState.phase === "pausing") {
-        await controlExistingAutoRun("resume", autoRunState.runId);
+        await controlExistingAutoRun("resume", autoRunState);
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -629,7 +640,7 @@ export function useAutoRunControl({
             setError(t("runUnavailable"));
             return;
           }
-          await controlExistingAutoRun("resume", autoRunState.runId);
+          await controlExistingAutoRun("resume", autoRunState);
           return;
         }
         if (action.command === "copy_manual_command") {
@@ -713,7 +724,7 @@ export function useAutoRunControl({
       return;
     }
     try {
-      await controlExistingAutoRun("stop", autoRunState.runId);
+      await controlExistingAutoRun("stop", autoRunState);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }

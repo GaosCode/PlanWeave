@@ -569,9 +569,9 @@ export type DesktopBridgeApi = {
    * Returns ClaimResult so the UI can surface refused dispatch reasons.
    */
   dispatchBlock(ref: DesktopCanvasReference, blockRef: string): Promise<ClaimResult>;
-  pauseAutoRun(runId: string): Promise<DesktopAutoRunState>;
-  resumeAutoRun(runId: string): Promise<DesktopAutoRunState>;
-  stopAutoRun(runId: string): Promise<DesktopAutoRunState>;
+  pauseAutoRun(runId: string, expectedStatePath?: string): Promise<DesktopAutoRunState>;
+  resumeAutoRun(runId: string, expectedStatePath?: string): Promise<DesktopAutoRunState>;
+  stopAutoRun(runId: string, expectedStatePath?: string): Promise<DesktopAutoRunState>;
   getAutoRunState(runId: string): Promise<DesktopAutoRunState>;
   getLatestAutoRunSummary(ref: DesktopCanvasReference): Promise<DesktopAutoRunState | null>;
   getLatestAutoRunSummaryWithDiagnostics(

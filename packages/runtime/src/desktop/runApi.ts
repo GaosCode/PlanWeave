@@ -789,10 +789,25 @@ export function launchInitializedAutoRun(runId: string): void {
   launchRunLoop(runId);
 }
 
-export async function pauseAutoRun(runId: string): Promise<DesktopAutoRunState> {
-  if (!runs.has(runId)) {
+function readOwnedAutoRunState(runId: string, expectedStatePath?: string): DesktopAutoRunState {
+  const current = runs.get(runId);
+  if (!current) {
     throw new Error(`Auto Run '${runId}' does not exist.`);
   }
+  if (
+    expectedStatePath !== undefined &&
+    resolve(current.statePath) !== resolve(expectedStatePath)
+  ) {
+    throw new Error("auto_run_scope_mismatch");
+  }
+  return current;
+}
+
+export async function pauseAutoRun(
+  runId: string,
+  expectedStatePath?: string
+): Promise<DesktopAutoRunState> {
+  readOwnedAutoRunState(runId, expectedStatePath);
   return cloneAutoRunState(
     await setState(
       runId,
@@ -804,11 +819,11 @@ export async function pauseAutoRun(runId: string): Promise<DesktopAutoRunState> 
   );
 }
 
-export async function resumeAutoRun(runId: string): Promise<DesktopAutoRunState> {
-  const current = runs.get(runId);
-  if (!current) {
-    throw new Error(`Auto Run '${runId}' does not exist.`);
-  }
+export async function resumeAutoRun(
+  runId: string,
+  expectedStatePath?: string
+): Promise<DesktopAutoRunState> {
+  readOwnedAutoRunState(runId, expectedStatePath);
   if (!runAbortControllers.has(runId)) {
     runAbortControllers.set(runId, new AbortController());
   }
@@ -826,15 +841,16 @@ export async function resumeAutoRun(runId: string): Promise<DesktopAutoRunState>
   return cloneAutoRunState(state);
 }
 
-export async function stopAutoRun(runId: string): Promise<DesktopAutoRunState> {
+export async function stopAutoRun(
+  runId: string,
+  expectedStatePath?: string
+): Promise<DesktopAutoRunState> {
+  if (expectedStatePath !== undefined) readOwnedAutoRunState(runId, expectedStatePath);
   const pendingStop = stopOperations.get(runId);
   if (pendingStop) {
     return cloneAutoRunState(await pendingStop);
   }
-  const current = runs.get(runId);
-  if (!current) {
-    throw new Error(`Auto Run '${runId}' does not exist.`);
-  }
+  const current = readOwnedAutoRunState(runId, expectedStatePath);
   if (current.phase === "stopped") {
     return cloneAutoRunState(current);
   }

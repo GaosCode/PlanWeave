@@ -308,3 +308,45 @@ describe("auto run control hook events", () => {
     expect(onAutoRunDerivedStateRefresh).toHaveBeenCalledTimes(1);
   });
 });
+
+it.each([
+  "pause",
+  "resume",
+  "stop"
+] as const)("refuses %s when the same run ID lookup belongs to another Home", async (command) => {
+  const owner = autoRunState({ phase: command === "resume" ? "paused" : "running" });
+  const foreign = autoRunState({
+    ...owner,
+    statePath: "/other-home/run/state.json",
+    eventLogPath: "/other-home/run/events.ndjson"
+  });
+  const bridge = createAndStubAutoRunControlBridge({
+    getAutoRunState: vi.fn().mockResolvedValue(foreign),
+    pauseAutoRun: vi.fn().mockResolvedValue(foreign),
+    resumeAutoRun: vi.fn().mockResolvedValue(foreign),
+    stopAutoRun: vi.fn().mockResolvedValue(foreign)
+  });
+  const setError = vi.fn();
+  const { useAutoRunControl } = await loadAutoRunControl();
+  const { result } = renderHook(() =>
+    useAutoRunControl({
+      autoRunState: owner,
+      openRunWorkspace: vi.fn(),
+      selectedCanvasId: "canvas-main",
+      selectedBlock: null,
+      selectedProject: project,
+      selectedTaskPanelId: null,
+      setAutoRunState: vi.fn(),
+      setError,
+      t: createTranslator("en"),
+      tmuxMonitoringEnabled: false
+    })
+  );
+  await act(() =>
+    command === "stop" ? result.current.stopAutoRunClick() : result.current.handleAutoRunClick()
+  );
+  expect(bridge.pauseAutoRun).not.toHaveBeenCalled();
+  expect(bridge.resumeAutoRun).not.toHaveBeenCalled();
+  expect(bridge.stopAutoRun).not.toHaveBeenCalled();
+  expect(setError).toHaveBeenCalledWith("auto_run_scope_mismatch");
+});

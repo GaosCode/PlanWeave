@@ -106,10 +106,13 @@ describe("preload bridge invocation", () => {
       invoke.mockClear();
       const bridgeMethod = api[method as DesktopBridgeInvokeMethod] as InvokeForwarder;
 
-      await bridgeMethod(ref, "arg-1", { nested: true });
+      const args = ["pauseAutoRun", "resumeAutoRun", "stopAutoRun"].includes(method)
+        ? ["DESKTOP-RUN-0001", "/home-a/run/state.json"]
+        : [ref, "arg-1", { nested: true }];
+      await bridgeMethod(...args);
 
       expect(invoke).toHaveBeenCalledTimes(1);
-      expect(invoke).toHaveBeenCalledWith(channel, ref, "arg-1", { nested: true });
+      expect(invoke).toHaveBeenCalledWith(channel, ...args);
     }
   });
 

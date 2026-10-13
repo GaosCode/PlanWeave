@@ -182,7 +182,7 @@ type WorkspaceAgentEndpointRunInput = {
   waitForLocalUnit?: typeof waitForClaimBusLocalAutoRunUnit;
   workspaceExecutionApi?: PlanWeaveWorkspaceExecutionApi | null;
   /** Injectable stop for claim-bus one-unit release (defaults to bridge.stopAutoRun). */
-  stopLocal?: (runId: string) => Promise<unknown>;
+  stopLocal?: (runId: string, expectedStatePath: string) => Promise<unknown>;
   /**
    * Injectable dry-run claim preview (defaults to desktop bridge.previewClaimNext).
    * Used by claim-bus coordinated scopes only.
@@ -237,7 +237,11 @@ export function useWorkspaceAgentEndpointRun(
   const executionScopeIdentity = input.canvasBinding
     ? (input.workspaceRuntimeAuthorityKey ??
       `${input.canvasBinding.workspaceId}:${input.canvasBinding.projectId}:${input.canvasBinding.canvasId}`)
-    : `${input.selectedProject?.rootPath ?? "no-project"}:${input.selectedCanvasId ?? "no-canvas"}`;
+    : JSON.stringify([
+        input.selectedProject?.rootPath ?? null,
+        input.selectedProject?.workspaceRoot ?? null,
+        input.selectedCanvasId
+      ]);
   const previousExecutionScopeIdentity = useRef(executionScopeIdentity);
   const activeExecutionScopeIdentity = useRef(executionScopeIdentity);
   const executionRequestEpoch = useRef(0);
@@ -412,9 +416,9 @@ export function useWorkspaceAgentEndpointRun(
       lifecycle?.onStarted();
       const stopLocal =
         input.stopLocal ??
-        (async (runId: string) => {
+        (async (runId: string, expectedStatePath: string) => {
           if (!bridge) throw new Error("desktop_bridge_unavailable");
-          return bridge.stopAutoRun(runId);
+          return bridge.stopAutoRun(runId, expectedStatePath);
         });
       const previewClaimNext =
         input.previewClaimNext ??

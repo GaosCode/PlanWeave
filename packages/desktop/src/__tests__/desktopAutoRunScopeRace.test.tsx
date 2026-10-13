@@ -419,7 +419,7 @@ describe("Desktop Auto Run selection ownership", () => {
     await act(async () => {
       pending = result.current.handleAutoRunClick();
     });
-    expect(bridge.pauseAutoRun).toHaveBeenCalledWith(state.runId);
+    expect(bridge.pauseAutoRun).toHaveBeenCalledWith(state.runId, state.statePath);
     rerender({ canvas: "canvas-b" });
     await act(async () => {
       if (mode === "resolve") pendingControl.resolve({ ...state, phase: "paused" });

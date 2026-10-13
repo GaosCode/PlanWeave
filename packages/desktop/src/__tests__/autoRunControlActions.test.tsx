@@ -583,7 +583,7 @@ describe("auto run control hook actions", () => {
       await result.current.handleAutoRunNextAction(result.current.autoRunNextAction!);
     });
 
-    expect(bridge.resumeAutoRun).toHaveBeenCalledWith(pausedState.runId);
+    expect(bridge.resumeAutoRun).toHaveBeenCalledWith(pausedState.runId, pausedState.statePath);
     expect(result.current.autoRunState).toEqual(runningState);
   });
 

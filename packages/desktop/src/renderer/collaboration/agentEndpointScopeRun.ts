@@ -47,7 +47,14 @@ function waitForLocalAutoRunPhases(input: {
     let refreshInFlight = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
+    const matchesStartedRun = (state: DesktopAutoRunState) =>
+      state.runId === input.initial.runId &&
+      state.projectRoot === input.initial.projectRoot &&
+      state.canvasId === input.initial.canvasId &&
+      state.statePath === input.initial.statePath &&
+      state.eventLogPath === input.initial.eventLogPath;
     const cleanup = () => {
+      if (settled) return;
       settled = true;
       unsubscribe();
       if (timer) clearTimeout(timer);
@@ -74,13 +81,15 @@ function waitForLocalAutoRunPhases(input: {
       }
       try {
         const state = await input.api.getAutoRunState(input.initial.runId);
+        if (settled || input.signal?.aborted) return;
+        if (!matchesStartedRun(state)) throw new Error("auto_run_scope_mismatch");
         if (input.settlePhases.has(state.phase)) {
           finish(state);
           return;
         }
         scheduleFallback();
       } catch (caught) {
-        fail(caught);
+        if (!settled) fail(caught);
       } finally {
         refreshInFlight = false;
       }
@@ -88,10 +97,13 @@ function waitForLocalAutoRunPhases(input: {
     const onAbort = () => fail(new Error("agent_endpoint_scope_run_cancelled"));
     const unsubscribe = input.api.onAutoRunChanged((event) => {
       if (
+        settled ||
+        input.signal?.aborted ||
         event.workspaceRoot !== input.workspaceRoot ||
         event.projectRoot !== input.initial.projectRoot ||
         event.canvasId !== input.initial.canvasId ||
-        event.runId !== input.initial.runId
+        event.runId !== input.initial.runId ||
+        !matchesStartedRun(event.state)
       )
         return;
       if (input.settlePhases.has(event.state.phase)) {
@@ -155,7 +167,7 @@ export async function runClaimBusLocalAutoRunUnit(input: {
     scope: DesktopAutoRunScope,
     options?: { stepLimit?: number }
   ) => Promise<DesktopAutoRunState | null | undefined>;
-  stopLocal: (runId: string) => Promise<unknown>;
+  stopLocal: (runId: string, expectedStatePath: string) => Promise<unknown>;
   api: LocalAutoRunObserver;
   workspaceRoot: string;
   unitLabel: string;
@@ -177,7 +189,7 @@ export async function runClaimBusLocalAutoRunUnit(input: {
     });
   } catch (caught) {
     try {
-      await input.stopLocal(started.runId);
+      await input.stopLocal(started.runId, started.statePath);
     } catch {
       // Prefer the settle/abort error; stop is best-effort release.
     }
@@ -187,7 +199,7 @@ export async function runClaimBusLocalAutoRunUnit(input: {
   if (!isClaimBusLocalUnitSuccess(settled)) {
     if (!RESOURCE_TERMINAL_LOCAL_PHASES.has(settled.phase)) {
       try {
-        await input.stopLocal(settled.runId);
+        await input.stopLocal(started.runId, started.statePath);
       } catch {
         // still report the unit failure
       }
@@ -197,7 +209,7 @@ export async function runClaimBusLocalAutoRunUnit(input: {
 
   // Successful step-limit runs remain non-terminal (paused) and block the next startAutoRun.
   if (!RESOURCE_TERMINAL_LOCAL_PHASES.has(settled.phase)) {
-    await input.stopLocal(settled.runId);
+    await input.stopLocal(started.runId, started.statePath);
   }
   return settled;
 }

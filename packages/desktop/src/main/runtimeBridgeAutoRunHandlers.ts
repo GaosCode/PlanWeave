@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   claimBlock,
   getAutoRunRetrospective,
@@ -21,6 +22,8 @@ import {
 } from "@planweave-ai/runtime";
 import { resolveDesktopCanvasReference } from "./runtimeBridgeCanvasReference.js";
 import type { RuntimeBridgeHandlerMap } from "./runtimeBridgeHandlerTypes.js";
+
+const expectedAutoRunStatePathSchema = z.string().min(1).optional();
 
 export const runtimeBridgeAutoRunHandlers = {
   startAutoRun: async (_event, ref, scope, stepLimit, options) => {
@@ -71,9 +74,12 @@ export const runtimeBridgeAutoRunHandlers = {
       ref: blockRef,
       dispatch: true
     }),
-  pauseAutoRun: (_event, runId) => pauseAutoRun(runId),
-  resumeAutoRun: (_event, runId) => resumeAutoRun(runId),
-  stopAutoRun: (_event, runId) => stopAutoRun(runId),
+  pauseAutoRun: (_event, runId, expectedStatePath) =>
+    pauseAutoRun(runId, expectedAutoRunStatePathSchema.parse(expectedStatePath)),
+  resumeAutoRun: (_event, runId, expectedStatePath) =>
+    resumeAutoRun(runId, expectedAutoRunStatePathSchema.parse(expectedStatePath)),
+  stopAutoRun: (_event, runId, expectedStatePath) =>
+    stopAutoRun(runId, expectedAutoRunStatePathSchema.parse(expectedStatePath)),
   getAutoRunState: (_event, runId) => getAutoRunState(runId),
   getLatestAutoRunSummary: (_event, ref) => getLatestAutoRunSummary(ref.projectRoot, ref.canvasId),
   getLatestAutoRunSummaryWithDiagnostics: (_event, ref) =>

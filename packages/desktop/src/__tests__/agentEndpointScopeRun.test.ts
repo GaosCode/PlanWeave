@@ -262,7 +262,7 @@ describe("claim-bus local Auto Run unit semantics", () => {
         initial: expect.objectContaining({ phase: "running", runId: "DESKTOP-RUN-LOCAL" })
       })
     );
-    expect(stopLocal).toHaveBeenCalledWith("DESKTOP-RUN-LOCAL");
+    expect(stopLocal).toHaveBeenCalledWith("DESKTOP-RUN-LOCAL", "/workspace/run/state.json");
     expect(settled).toMatchObject({
       phase: "paused",
       error: CLAIM_BUS_STEP_LIMIT_ERROR
@@ -336,5 +336,93 @@ describe("claim-bus local Auto Run unit semantics", () => {
     ).rejects.toThrow("local_agent_unit_failed:T-001#B-001");
     // failed is resource-terminal; stop not required for ownership release
     expect(stopLocal).not.toHaveBeenCalled();
+  });
+});
+
+describe("captured local run ownership", () => {
+  it.each([
+    "statePath",
+    "eventLogPath",
+    "projectRoot",
+    "canvasId",
+    "runId"
+  ] as const)("rejects a poll whose %s no longer belongs to the started run before releasing its ID", async (field) => {
+    const started = localRunState("running");
+    const replacement = localRunState("paused", {
+      error: CLAIM_BUS_STEP_LIMIT_ERROR,
+      [field]: `other-${field}`
+    });
+    const stopLocal = vi.fn(async () => undefined);
+    await expect(
+      runClaimBusLocalAutoRunUnit({
+        scope: started.scope,
+        startLocal: async () => started,
+        stopLocal,
+        workspaceRoot: "/home-b/projects/project",
+        unitLabel: "local-unit",
+        api: {
+          getAutoRunState: async () => replacement,
+          onAutoRunChanged: () => () => undefined
+        }
+      })
+    ).rejects.toThrow("auto_run_scope_mismatch");
+    expect(stopLocal).toHaveBeenCalledWith(started.runId, started.statePath);
+  });
+
+  it.each([
+    "statePath",
+    "eventLogPath"
+  ] as const)("ignores an event with foreign %s", async (field) => {
+    let listener!: (event: DesktopAutoRunEvent) => void;
+    const started = localRunState("running");
+    const pending = waitForClaimBusLocalAutoRunUnit({
+      initial: started,
+      workspaceRoot: "/home-b/projects/project",
+      api: {
+        getAutoRunState: async () => started,
+        onAutoRunChanged: (callback) => {
+          listener = callback;
+          return () => undefined;
+        }
+      },
+      fallbackRefreshMs: 60_000
+    });
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    listener(localRunEvent(localRunState("paused", { [field]: `other-${field}` })));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    listener(localRunEvent(localRunState("paused", { error: CLAIM_BUS_STEP_LIMIT_ERROR })));
+    await expect(pending).resolves.toMatchObject({ statePath: started.statePath });
+  });
+
+  it("ignores a late poll after abort and releases only the captured run once", async () => {
+    let finishPoll!: (state: DesktopAutoRunState) => void;
+    const poll = new Promise<DesktopAutoRunState>((resolve) => {
+      finishPoll = resolve;
+    });
+    const controller = new AbortController();
+    const unsubscribe = vi.fn();
+    const stopLocal = vi.fn(async () => undefined);
+    const started = localRunState("running");
+    const pending = runClaimBusLocalAutoRunUnit({
+      scope: started.scope,
+      startLocal: async () => started,
+      stopLocal,
+      workspaceRoot: "/home-b/projects/project",
+      unitLabel: "local-unit",
+      signal: controller.signal,
+      api: { getAutoRunState: () => poll, onAutoRunChanged: () => unsubscribe }
+    });
+    await Promise.resolve();
+    controller.abort();
+    await expect(pending).rejects.toThrow("agent_endpoint_scope_run_cancelled");
+    finishPoll(localRunState("paused", { statePath: "/home-c/run/state.json" }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(stopLocal).toHaveBeenCalledExactlyOnceWith(started.runId, started.statePath);
   });
 });

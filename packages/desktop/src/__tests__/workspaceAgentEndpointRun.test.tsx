@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { act } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import { describe, expect, it, vi } from "vitest";
 import { agentEndpointPreferenceKey } from "../renderer/collaboration/agentEndpointPreferences";
@@ -570,7 +570,7 @@ describe("workspace Agent Endpoint routing", () => {
       { kind: "block", blockRef: "T-001#B-001" },
       { stepLimit: 1 }
     );
-    expect(stopLocal).toHaveBeenCalledWith("DESKTOP-RUN-LOCAL");
+    expect(stopLocal).toHaveBeenCalledWith("DESKTOP-RUN-LOCAL", "/workspace/run/state.json");
     expect(lifecycle.onCompleted).toHaveBeenCalled();
     expect(setError).not.toHaveBeenCalled();
   });
@@ -611,7 +611,7 @@ describe("workspace Agent Endpoint routing", () => {
 
     expect(startLocal).toHaveBeenCalledWith({ kind: "task", taskId: "T-001" }, { stepLimit: 1 });
     expect(waitForLocalUnit).toHaveBeenCalled();
-    expect(stopLocal).toHaveBeenCalledWith("DESKTOP-RUN-LOCAL");
+    expect(stopLocal).toHaveBeenCalledWith("DESKTOP-RUN-LOCAL", "/workspace/run/state.json");
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ blockRef: "T-001#B-001" }));
     expect(lifecycle.onCompleted).toHaveBeenCalled();
     expect(setError).not.toHaveBeenCalled();
@@ -1070,4 +1070,67 @@ describe("workspace Agent Endpoint routing", () => {
     expect(setError).not.toHaveBeenCalled();
     delay.mockRestore();
   });
+});
+
+it("cancels an owner-canvas endpoint scope when only its registered workspace changes", async () => {
+  const { useWorkspaceAgentEndpointRun } = await import(
+    "../renderer/hooks/useWorkspaceAgentEndpointRun"
+  );
+  const { bridge } = await import("../renderer/bridge");
+  const { selectedBlock } = await import("./helpers/autoRunControlHarness");
+  vi.mocked(bridge!.getBlockDetail).mockResolvedValue(selectedBlock);
+  let finishPreview!: (value: import("@planweave-ai/runtime").ClaimResult) => void;
+  const previewClaimNext = vi.fn(
+    () =>
+      new Promise<import("@planweave-ai/runtime").ClaimResult>((resolve) => {
+        finishPreview = resolve;
+      })
+  );
+  const onCancelled = vi.fn();
+  const onFailed = vi.fn();
+  const { result, rerender } = renderHook(
+    ({ workspaceRoot }) =>
+      useWorkspaceAgentEndpointRun({
+        activeProjectId: "project-server",
+        agentEndpoints: [remoteEndpoint],
+        collaborationController: {},
+        canvasBinding: null,
+        canvasLocator: { kind: "local", projectId: project.projectId, canvasId: "canvas-main" },
+        graph,
+        preferences: {
+          [agentEndpointPreferenceKey({
+            projectRoot: project.rootPath,
+            canvasId: "canvas-main",
+            scope: { kind: "task", taskId: "T-001" }
+          })]: { kind: "remote", remoteEndpointId: "endpoint-windows" }
+        },
+        selectedCanvasId: "canvas-main",
+        selectedProject: { ...project, workspaceRoot },
+        runtimeAvailability: { kind: "available" },
+        setError: vi.fn(),
+        previewClaimNext,
+        workspaceExecutionApi: {
+          startWorkspaceExecution: vi.fn(),
+          followWorkspaceExecution: vi.fn(),
+          respondWorkspaceExecution: vi.fn(),
+          cancelWorkspaceExecution: vi.fn()
+        }
+      }),
+    { initialProps: { workspaceRoot: "/home-a/projects/project" } }
+  );
+  let run!: Promise<void>;
+  act(() => {
+    run = result.current({ kind: "project" }, vi.fn(), {
+      onStarted: vi.fn(),
+      onCompleted: vi.fn(),
+      onCancelled,
+      onFailed
+    });
+  });
+  await vi.waitFor(() => expect(previewClaimNext).toHaveBeenCalledOnce());
+  rerender({ workspaceRoot: "/home-b/projects/project" });
+  finishPreview({ kind: "none", reason: "no_claimable_blocks" });
+  await act(() => run);
+  expect(onCancelled).toHaveBeenCalledOnce();
+  expect(onFailed).not.toHaveBeenCalled();
 });
