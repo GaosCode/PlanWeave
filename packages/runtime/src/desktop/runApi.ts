@@ -100,12 +100,26 @@ import {
   isRecoverableAutoRunPhase
 } from "./autoRunPhasePolicy.js";
 
+import { autoRunMemoryScope } from "./autoRunMemoryScope.js";
+
 const runs = new Map<string, DesktopAutoRunState>();
 const runWorkspaces = new Map<string, ProjectWorkspace>();
 const stopOperations = new Map<string, Promise<DesktopAutoRunState>>();
 const stopIntents = new Set<string>();
 const activeLoops = new Set<string>();
+const stateMutations = new Map<string, Set<symbol>>();
 const runtimeResetStateFiles = new Set<string>();
+
+function memoryForWorkspace(workspace: ProjectWorkspace) {
+  return autoRunMemoryScope(workspace, {
+    runs,
+    workspaces: runWorkspaces,
+    activeLoops,
+    hasPendingOperation: (runId) =>
+      stopOperations.has(runId) || runLoopOperations.has(runId) || stateMutations.has(runId)
+  });
+}
+
 type DesktopRunLoopOperation = {
   result: Promise<void>;
   handled: Promise<void>;
@@ -158,29 +172,44 @@ async function setState(
   if (!current) {
     throw new Error(`Auto Run '${runId}' does not exist.`);
   }
-  const workspace = await workspaceForAutoRunState(current);
-  const mutation = await mutateAutoRunTransition({
-    workspace,
-    runId,
-    memoryState: current,
-    eventType: eventType ?? "phase_change",
-    data,
-    buildSessionSummary: buildAutoRunSessionSummary,
-    mutate: (authority) =>
-      shouldApply(authority) ? withExplanation({ ...authority, ...patch, updatedAt: now() }) : null
-  });
-  runs.set(runId, mutation.state);
-  if (mutation.applied && mutation.eventType) {
-    emitAutoRunChanged(mutation.state, mutation.eventType, workspace);
+  const pendingMutations = stateMutations.get(runId) ?? new Set<symbol>();
+  const reservation = Symbol();
+  pendingMutations.add(reservation);
+  stateMutations.set(runId, pendingMutations);
+  try {
+    const workspace = await workspaceForAutoRunState(current);
+    const mutation = await mutateAutoRunTransition({
+      workspace,
+      runId,
+      memoryState: current,
+      eventType: eventType ?? "phase_change",
+      data,
+      buildSessionSummary: buildAutoRunSessionSummary,
+      mutate: (authority) =>
+        shouldApply(authority)
+          ? withExplanation({ ...authority, ...patch, updatedAt: now() })
+          : null
+    });
+    runs.set(runId, mutation.state);
+    if (mutation.applied && mutation.eventType) {
+      emitAutoRunChanged(mutation.state, mutation.eventType, workspace);
+    }
+    releaseRunResources(runId, mutation.state);
+    return mutation.state;
+  } finally {
+    pendingMutations.delete(reservation);
+    if (pendingMutations.size === 0 && stateMutations.get(runId) === pendingMutations) {
+      stateMutations.delete(runId);
+    }
   }
-  releaseRunResources(runId, mutation.state);
-  return mutation.state;
 }
 
 async function workspaceForAutoRunState(state: DesktopAutoRunState): Promise<ProjectWorkspace> {
-  return (
-    runWorkspaces.get(state.runId) ?? resolveTaskCanvasWorkspace(state.projectRoot, state.canvasId)
-  );
+  const workspace = runWorkspaces.get(state.runId);
+  if (!workspace) {
+    throw new Error(`Auto Run '${state.runId}' has no captured workspace.`);
+  }
+  return workspace;
 }
 
 function runSessionPhaseForAutoRunPhase(phase: DesktopAutoRunPhase): RunSessionPhase {
@@ -310,9 +339,7 @@ async function runLoop(runId: string): Promise<void> {
         return;
       }
       try {
-        const workspace =
-          runWorkspaces.get(runId) ??
-          (await resolveTaskCanvasWorkspace(current.projectRoot, current.canvasId));
+        const workspace = await workspaceForAutoRunState(current);
         const { manifest } = await loadPackage(workspace);
         await appendAutoRunEvent(current, "step_start", { scope: current.scope });
         await appendDesktopRunSessionEvent(current, "step_start", { scope: current.scope });
@@ -501,11 +528,18 @@ function sameAutoRunTarget(
 
 async function stopResetTargetAutoRuns(
   projectRoot: string,
-  canvasId: string | null
+  canvasId: string | null,
+  workspace: ProjectWorkspace
 ): Promise<string[]> {
-  const latest = await getLatestAutoRunSummary(projectRoot, canvasId);
+  const memory = memoryForWorkspace(workspace);
+  const { state: latest } = await getLatestAutoRunSummaryInWorkspace(
+    projectRoot,
+    canvasId,
+    workspace
+  );
   const runIds = new Set(
-    [...runs.values()]
+    memory
+      .values()
       .filter(
         (run) =>
           sameAutoRunTarget(run, projectRoot, canvasId) && isRecoverableAutoRunPhase(run.phase)
@@ -522,7 +556,7 @@ async function stopResetTargetAutoRuns(
 
   const stoppedRunIds: string[] = [];
   for (const runId of runIds) {
-    const current = runs.get(runId);
+    const current = memory.get(runId);
     if (!current || !isRecoverableAutoRunPhase(current.phase)) {
       continue;
     }
@@ -532,13 +566,19 @@ async function stopResetTargetAutoRuns(
   return stoppedRunIds;
 }
 
-function activeResetTargetAutoRunIds(projectRoot: string, canvasId: string | null): string[] {
-  return [...runs.values()]
+function activeResetTargetAutoRunIds(
+  projectRoot: string,
+  canvasId: string | null,
+  workspace: ProjectWorkspace
+): string[] {
+  const memory = memoryForWorkspace(workspace);
+  return memory
+    .values()
     .filter(
       (run) =>
         sameAutoRunTarget(run, projectRoot, canvasId) &&
         // activeLoops is runtime loop evidence only; phase ownership stays in the policy.
-        (isInFlightAutoRunPhase(run.phase) || activeLoops.has(run.runId))
+        (isInFlightAutoRunPhase(run.phase) || memory.hasActiveLoop(run.runId))
     )
     .map((run) => run.runId)
     .sort();
@@ -557,26 +597,12 @@ function releaseRunResources(runId: string, state = runs.get(runId)): void {
   runs.delete(runId);
 }
 
-function assertRunIdMatchesExistingTarget(state: DesktopAutoRunState): void {
-  const existing = runs.get(state.runId);
-  if (
-    !existing ||
-    !isRunIdConflictProtected(existing) ||
-    (existing.projectRoot === state.projectRoot && existing.canvasId === state.canvasId)
-  ) {
-    return;
-  }
-  throw new Error(
-    `Auto Run '${state.runId}' already belongs to project '${existing.projectRoot}' canvas '${existing.canvasId ?? "default"}'.`
-  );
-}
-
 function rehydratePersistedRun(
   state: DesktopAutoRunState,
   workspace: ProjectWorkspace
 ): DesktopAutoRunState {
   const rehydrated = state.phase === "paused" ? withExplanation(state) : state;
-  assertRunIdMatchesExistingTarget(rehydrated);
+  memoryForWorkspace(workspace).assertCanAdopt(rehydrated);
   runs.set(rehydrated.runId, rehydrated);
   runWorkspaces.set(rehydrated.runId, workspace);
   runAbortControllers.set(rehydrated.runId, new AbortController());
@@ -601,8 +627,11 @@ async function rollbackAutoRunInitialization(options: {
   sessionId: string | null;
   previousPointer: Awaited<ReturnType<typeof readLatestAutoRunStatePointer>>;
   originalError: unknown;
+  admitted: boolean;
 }): Promise<never> {
-  clearAutoRunInitializationMemory(options.runId);
+  if (options.admitted && memoryForWorkspace(options.workspace).get(options.runId)) {
+    clearAutoRunInitializationMemory(options.runId);
+  }
   const cleanupOperations: Promise<unknown>[] = [
     rm(autoRunRoot(options.workspace, options.runId), { recursive: true, force: true }),
     options.previousPointer === null
@@ -642,15 +671,11 @@ export async function initializeAutoRunUnderCanvasLock(
   const { manifest } = await loadPackage(workspace);
   const previousPointer = await readLatestAutoRunStatePointer(workspace);
   const runId = await nextPersistedAutoRunId(workspace, {
-    isReserved: (candidateRunId) => {
-      const existing = runs.get(candidateRunId);
-      return (
-        activeLoops.has(candidateRunId) || (existing ? isRunIdConflictProtected(existing) : false)
-      );
-    }
+    isReserved: memoryForWorkspace(workspace).isReserved
   });
   let sessionId: string | null = null;
   let reviewReset: MaxCycleReviewResetTransaction | null = null;
+  let admitted = false;
   try {
     const session = await createRunSession({
       projectRoot: workspace,
@@ -684,7 +709,9 @@ export async function initializeAutoRunUnderCanvasLock(
       startedAt: timestamp,
       updatedAt: timestamp
     });
+    memoryForWorkspace(workspace).assertCanAdopt(state, true);
     runs.set(runId, state);
+    admitted = true;
     runAbortControllers.set(runId, new AbortController());
     runCliAbortControllers.set(runId, new AbortController());
     runWorkspaces.set(runId, workspace);
@@ -736,7 +763,8 @@ export async function initializeAutoRunUnderCanvasLock(
       runId,
       sessionId,
       previousPointer,
-      originalError: initializationError
+      originalError: initializationError,
+      admitted
     });
   }
 }
@@ -957,14 +985,14 @@ export async function resetDesktopRuntimeState(
     }
     runtimeResetStateFiles.add(targetStateFile);
     ownsResetTarget = true;
-    const activeRunIds = activeResetTargetAutoRunIds(projectRoot, normalizedCanvasId);
+    const activeRunIds = activeResetTargetAutoRunIds(projectRoot, normalizedCanvasId, workspace);
     if (activeRunIds.length > 0) {
       throw new Error(
         `Cannot reset runtime state while Auto Run is active (${activeRunIds.join(", ")}). Stop Auto Run and wait for the current step to settle first.`
       );
     }
     if (options.force === true) {
-      stoppedAutoRunIds = await stopResetTargetAutoRuns(projectRoot, normalizedCanvasId);
+      stoppedAutoRunIds = await stopResetTargetAutoRuns(projectRoot, normalizedCanvasId, workspace);
     }
     const reset = await resetRuntimeState({
       projectRoot: workspace,
@@ -972,7 +1000,8 @@ export async function resetDesktopRuntimeState(
       reason: options.reason,
       session
     });
-    const resetTargetRunIds = [...runs.values()]
+    const resetTargetRunIds = memoryForWorkspace(workspace)
+      .values()
       .filter((run) => sameAutoRunTarget(run, projectRoot, normalizedCanvasId))
       .map((run) => run.runId);
     await clearLatestAutoRunStateSelection(
@@ -1044,12 +1073,22 @@ export async function getLatestAutoRunSummaryWithDiagnostics(
 ): Promise<DesktopLatestAutoRunSummary> {
   const normalizedCanvasId = canvasId ?? null;
   const workspace = await resolveTaskCanvasWorkspace(projectRoot, normalizedCanvasId);
-  const latest = [...runs.values()]
+  return getLatestAutoRunSummaryInWorkspace(projectRoot, normalizedCanvasId, workspace);
+}
+
+async function getLatestAutoRunSummaryInWorkspace(
+  projectRoot: string,
+  normalizedCanvasId: string | null,
+  workspace: ProjectWorkspace
+): Promise<DesktopLatestAutoRunSummary> {
+  const memory = memoryForWorkspace(workspace);
+  const latest = memory
+    .values()
     .filter((run) => run.projectRoot === projectRoot && run.canvasId === normalizedCanvasId)
     .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
     .at(-1);
   const { state: persistedLatest, diagnostics } = await readLatestPersistedAutoRunState(workspace, {
-    hasActiveLoop: (runId) => activeLoops.has(runId),
+    hasActiveLoop: memory.hasActiveLoop,
     matches: (run) =>
       (run.projectRoot === projectRoot || run.projectRoot === workspace.rootPath) &&
       run.canvasId === normalizedCanvasId
@@ -1064,10 +1103,10 @@ export async function getLatestAutoRunSummaryWithDiagnostics(
     const remaining = await recoverAllPendingTransitions(
       workspace,
       () => listRunDirectories(workspace),
-      (rid) => runs.get(rid) ?? null,
+      memory.get,
       {
         buildSessionSummary: buildAutoRunSessionSummary,
-        onRecoveredAuthority: (authority) => runs.set(authority.runId, authority)
+        onRecoveredAuthority: memory.updateRecovered
       }
     );
     for (const d of remaining) {
@@ -1082,11 +1121,11 @@ export async function getLatestAutoRunSummaryWithDiagnostics(
   // Targeted recover for known latest (covers race where directory list lagged)
   for (const runId of recoveryTargets) {
     try {
-      const rec = await recoverPendingTransition(workspace, runId, (rid) => runs.get(rid) ?? null, {
+      const rec = await recoverPendingTransition(workspace, runId, memory.get, {
         buildSessionSummary: buildAutoRunSessionSummary
       });
       if (rec.recovered && rec.authorityState) {
-        runs.set(runId, rec.authorityState);
+        memory.updateRecovered(rec.authorityState);
       }
       for (const d of rec.diagnostics) {
         if (!diagnostics.some((x) => x.code === d.code && x.message === d.message)) {
@@ -1101,15 +1140,16 @@ export async function getLatestAutoRunSummaryWithDiagnostics(
     }
   }
 
-  if (latest) {
-    return { state: cloneAutoRunState(runs.get(latest.runId) ?? latest), diagnostics };
+  const currentLatest = latest ? memory.get(latest.runId) : null;
+  if (currentLatest) {
+    return { state: cloneAutoRunState(currentLatest), diagnostics };
   }
   if (!persistedLatest) {
     return { state: null, diagnostics };
   }
   // Re-read after recovery so process-interrupt derivation runs after intent healing.
   const { state: refreshed } = await readLatestPersistedAutoRunState(workspace, {
-    hasActiveLoop: (runId) => activeLoops.has(runId),
+    hasActiveLoop: memory.hasActiveLoop,
     matches: (run) =>
       (run.projectRoot === projectRoot || run.projectRoot === workspace.rootPath) &&
       run.canvasId === normalizedCanvasId
@@ -1142,15 +1182,16 @@ export async function hasNonTerminalAutoRunForTarget(
  * `activeLoops` is additional in-process loop evidence and must not redefine phase meaning.
  */
 async function hasAutoRunInWorkspace(workspace: ProjectWorkspace): Promise<boolean> {
+  const memory = memoryForWorkspace(workspace);
   // Pending transition evidence must be inspected before any other start-gate result so
   // diagnostics retain the transition identity even when authority state is unreadable.
   const remaining = await recoverAllPendingTransitions(
     workspace,
     () => listRunDirectories(workspace),
-    (rid) => runs.get(rid) ?? null,
+    memory.get,
     {
       buildSessionSummary: buildAutoRunSessionSummary,
-      onRecoveredAuthority: (authority) => runs.set(authority.runId, authority)
+      onRecoveredAuthority: memory.updateRecovered
     }
   );
   const blocking = remaining.filter(
@@ -1168,21 +1209,15 @@ async function hasAutoRunInWorkspace(workspace: ProjectWorkspace): Promise<boole
     );
   }
 
-  const targetStateFile = resolve(workspace.stateFile);
   if (
-    [...runs.values()].some((run) => {
-      const runWorkspace = runWorkspaces.get(run.runId);
-      return (
-        runWorkspace !== undefined &&
-        resolve(runWorkspace.stateFile) === targetStateFile &&
-        (isNonTerminalAutoRunPhase(run.phase) || activeLoops.has(run.runId))
-      );
-    })
+    memory
+      .values()
+      .some((run) => isNonTerminalAutoRunPhase(run.phase) || memory.hasActiveLoop(run.runId))
   ) {
     return true;
   }
   const persisted = await listPersistedAutoRunStatesWithDiagnostics(workspace, {
-    hasActiveLoop: (runId) => activeLoops.has(runId)
+    hasActiveLoop: memory.hasActiveLoop
   });
   if (persisted.diagnostics.length > 0) {
     throw new Error(

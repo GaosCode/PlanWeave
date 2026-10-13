@@ -792,6 +792,7 @@
         "packageSnapshotConsumers.test.ts",
         "preparedManualRunContentIdentity.test.ts",
         "packageSnapshotProcessConsistency.test.ts",
+        "desktopAutoRunHomeIsolation.test.ts",
         "desktopAutoRunEvents.test.ts"
       ],
       "platform": [
