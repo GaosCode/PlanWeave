@@ -11,7 +11,9 @@ import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { resolvePlanweaveHome } from "../paths.js";
 import { createManagedProjectId } from "../projectId.js";
 import type { PackageWorkspaceRef, ProjectWorkspace, ValidationIssue } from "../types.js";
-import { selectTaskCanvas } from "./canvasSelectionApi.js";
+import { selectTaskCanvasForWorkspace } from "./canvasSelectionApi.js";
+import { removeProjectCanvas } from "../projectGraph/projectCanvasLifecycleMutation.js";
+import { invalidateDesktopProjectProjection } from "./graph/projectProjectionModel.js";
 import { readActiveTaskCanvasSelection } from "./canvasSelectionStore.js";
 import {
   createProjectCanvasStore,
@@ -247,7 +249,7 @@ export type ArchiveTaskCanvasResult = {
 
 /**
  * Reversibly retire a non-default task canvas by quarantining its workspace and
- * removing it from the project registry. Delegates storage rules to removeTaskCanvas.
+ * removing it from the project registry through the runtime lifecycle mutation owner.
  * Refuses the only canvas, the formal default canvas (which remove would only reset),
  * and the active canvas unless force+reason are provided.
  */
@@ -267,51 +269,19 @@ export async function archiveTaskCanvas(
     throw new Error("Archiving with --force requires a non-empty --reason.");
   }
 
-  const canvases = await listTaskCanvases(projectRoot);
-  const target = canvases.find((canvas) => canvas.canvasId === requestedId);
-  if (!target) {
-    throw new Error(`Task canvas '${requestedId}' does not exist.`);
-  }
-  if (canvases.length <= 1) {
-    throw new Error(
-      `Cannot archive task canvas '${requestedId}' because it is the only canvas in the project.`
-    );
-  }
-  if (requestedId === defaultCanvasId) {
-    throw new Error(
-      `Cannot archive formal default canvas '${defaultCanvasId}'. Archive is reversible retirement for non-default canvases only.`
-    );
-  }
-
-  const activeCanvasId = await getActiveTaskCanvasId(projectRoot);
-  if (activeCanvasId === requestedId && !force) {
-    throw new Error(
-      `Cannot archive active task canvas '${requestedId}' without --force and --reason. Switch with 'planweave canvas use <id>' first, or pass --force --reason.`
-    );
-  }
-
-  if (activeCanvasId === requestedId) {
-    const fallback = canvases.find((canvas) => canvas.canvasId !== requestedId);
-    if (!fallback) {
-      throw new Error(
-        `Cannot archive task canvas '${requestedId}' because no fallback canvas remains.`
-      );
-    }
-    await selectTaskCanvas(projectRoot, fallback.canvasId);
-  }
-
-  const remaining = await removeTaskCanvas(projectRoot, requestedId);
-  if (remaining.some((canvas) => canvas.canvasId === requestedId)) {
-    throw new Error(
-      `Task canvas '${requestedId}' could not be archived because removal only reset it in place instead of retiring it.`
-    );
-  }
+  const result = await removeProjectCanvas({
+    projectRoot,
+    canvasId: requestedId,
+    archive: { ...options, selectCanvas: selectTaskCanvasForWorkspace }
+  });
+  invalidateDesktopProjectProjection(projectRoot);
+  const remaining = await listTaskCanvases(projectRoot);
 
   return {
     archivedCanvasId: requestedId,
     reason,
     forced: force,
-    activeCanvasId: await getActiveTaskCanvasId(projectRoot),
+    activeCanvasId: result.activeCanvasId,
     remaining
   };
 }

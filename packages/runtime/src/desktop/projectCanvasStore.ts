@@ -1,43 +1,24 @@
-import {
-  capturePackageStorageIdentity,
-  writeNewCanvasStorageIdentity
-} from "../package/packageStorageIdentity.js";
-import { mkdir, rm } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import {
-  withCanvasStorageMutation,
-  withCanvasStorageReplacement
-} from "../package/withCanvasStorageMutation.js";
+import { capturePackageStorageIdentity } from "../package/packageStorageIdentity.js";
+import { mkdir } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative } from "node:path";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { optionalStat } from "../fs/optionalFile.js";
-import { initialManifest } from "../initWorkspace.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import {
   loadProjectGraphForWorkspace,
-  projectCanvasWorkspace as workspaceForProjectCanvas,
-  writeProjectGraph
+  projectCanvasWorkspace as workspaceForProjectCanvas
 } from "../projectGraph/index.js";
-import type {
-  LoadedProjectGraph,
-  ProjectCanvasNode,
-  ProjectGraphManifest
-} from "../projectGraph/index.js";
+import type { LoadedProjectGraph, ProjectCanvasNode } from "../projectGraph/index.js";
 import {
-  quarantineCanvasWorkspace,
-  restoreQuarantinedCanvasWorkspace
-} from "../projectGraph/canvasWorkspaceRecovery.js";
-import { writeManifestTitle } from "../projectGraph/canvasWorkspaceContent.js";
+  renameProjectCanvas,
+  removeProjectCanvas
+} from "../projectGraph/projectCanvasLifecycleMutation.js";
 import {
   createProjectCanvas,
   duplicateProjectCanvas,
   nextDefaultDesktopCanvasTitle
 } from "../projectGraph/projectCanvasMutation.js";
-import {
-  assertCurrentProjectWorkspace,
-  requireInitializedProjectWorkspace,
-  resolveProjectWorkspace
-} from "../project.js";
-import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
-import { createEmptyState } from "../state.js";
+import { assertCurrentProjectWorkspace, resolveProjectWorkspace } from "../project.js";
 import type { PackageWorkspaceRef, ProjectWorkspace, ValidationIssue } from "../types.js";
 import {
   normalizeRegistry,
@@ -141,6 +122,25 @@ async function readRegistry(
 }> {
   const projectWorkspace =
     typeof projectRoot === "string" ? await resolveProjectWorkspace(projectRoot) : projectRoot;
+  if (options.createDefault === false) return readRegistryForWorkspace(projectWorkspace, options);
+  return withProjectMutationLock(
+    projectWorkspace.workspaceRoot,
+    async () => {
+      await assertCurrentProjectWorkspace(projectWorkspace);
+      return readRegistryForWorkspace(projectWorkspace, options);
+    },
+    { operation: "initialize-legacy-canvas-registry" }
+  );
+}
+
+async function readRegistryForWorkspace(
+  projectWorkspace: ProjectWorkspace,
+  options: { createDefault?: boolean }
+): Promise<{
+  projectWorkspace: ProjectWorkspace;
+  registry: TaskCanvasRegistry;
+  diagnosticsByCanvasId: Map<string, ValidationIssue[]>;
+}> {
   const path = registryPath(projectWorkspace);
   if (!(await optionalStat(path))) {
     if (options.createDefault === false) {
@@ -169,15 +169,6 @@ async function readRegistry(
     registry: normalizeRegistry(await readJsonFile<unknown>(path)),
     diagnosticsByCanvasId: new Map()
   };
-}
-
-async function writeRegistry(
-  workspace: ProjectWorkspace,
-  registry: TaskCanvasRegistry
-): Promise<void> {
-  const path = registryPath(workspace);
-  await mkdir(dirname(path), { recursive: true });
-  await writeJsonFile(path, registry);
 }
 
 function legacyCanvasWorkspace(
@@ -253,67 +244,12 @@ async function summarizeProjectCanvas(
   });
 }
 
-function assertWorkspaceChild(projectWorkspace: ProjectWorkspace, path: string): void {
-  const workspaceRoot = resolve(projectWorkspace.workspaceRoot);
-  const target = resolve(path);
-  const relativeTarget = relative(workspaceRoot, target);
-  if (!relativeTarget || relativeTarget.startsWith("..") || isAbsolute(relativeTarget)) {
-    throw new Error(`Task canvas path '${path}' is outside the PlanWeave workspace.`);
-  }
-}
-
-function assertProjectCanvasUnreferenced(manifest: ProjectGraphManifest, canvasId: string): void {
-  const canvasEdges = manifest.edges.filter(
-    (edge) => edge.from === canvasId || edge.to === canvasId
-  );
-  const crossTaskEdges = manifest.crossTaskEdges.filter(
-    (edge) => edge.from.canvasId === canvasId || edge.to.canvasId === canvasId
-  );
-  if (canvasEdges.length === 0 && crossTaskEdges.length === 0) {
-    return;
-  }
-  const references = [
-    ...canvasEdges.map((edge) => `canvas edge ${edge.from}->${edge.to}`),
-    ...crossTaskEdges.map(
-      (edge) =>
-        `cross-task edge ${edge.from.canvasId}:${edge.from.taskId}->${edge.to.canvasId}:${edge.to.taskId}`
-    )
-  ];
-  throw new Error(
-    `Cannot remove project canvas '${canvasId}' because it is referenced by project graph dependencies: ${references.join(", ")}. Remove those dependencies first.`
-  );
-}
-
-async function restoreQuarantineAfterFailedRemoval(
-  projectWorkspace: ProjectWorkspace,
-  canvasId: string,
-  workspace: ProjectWorkspace,
-  quarantineRoot: string | null,
-  removalError: unknown
-): Promise<void> {
-  if (!quarantineRoot) {
-    return;
-  }
-  try {
-    await restoreQuarantinedCanvasWorkspace(projectWorkspace, { quarantineRoot, workspace });
-  } catch (rollbackError) {
-    throw new Error(
-      `Task canvas '${canvasId}' removal failed, and its quarantined workspace could not be restored: ${errorMessage(removalError)}; rollback failed: ${errorMessage(rollbackError)}`
-    );
-  }
-}
-
-async function resetCanvasWorkspace(workspace: ProjectWorkspace, title: string): Promise<void> {
-  await withCanvasStorageReplacement(workspace, () =>
-    withCanvasStorageMutation(workspace, async () => {
-      await writeNewCanvasStorageIdentity(workspace);
-      await rm(workspace.packageDir, { recursive: true, force: true });
-      await writeJsonFile(workspace.manifestFile, initialManifest(title));
-      await writeJsonFile(workspace.stateFile, createEmptyState());
-      await rm(workspace.resultsDir, { recursive: true, force: true });
-      await mkdir(workspace.resultsDir, { recursive: true });
-    })
-  );
+async function summarizeRenamedCanvas(
+  result: Awaited<ReturnType<typeof renameProjectCanvas>>
+): Promise<DesktopTaskCanvasSummary> {
+  return result.registryRecord
+    ? summarizeLegacyCanvas(result.projectWorkspace, result.registryRecord)
+    : summarizeProjectCanvas(result.projectWorkspace, result.canvas);
 }
 
 class ProjectGraphCanvasStore implements ProjectCanvasStore {
@@ -390,67 +326,16 @@ class ProjectGraphCanvasStore implements ProjectCanvasStore {
   }
 
   async rename(canvasId: string, name: string): Promise<DesktopTaskCanvasSummary> {
-    const nextName = name.trim();
-    if (!nextName) {
-      throw new Error("Task canvas name is required.");
-    }
-    const canvas = this.requireCanvas(canvasId);
-    const workspace = workspaceForProjectCanvas(this.loaded.workspace, canvas);
-    const previousTitle = await writeManifestTitle(workspace, nextName);
-    const nextCanvas = { ...canvas, title: nextName };
-    try {
-      await this.writeManifest({
-        ...this.loaded.manifest,
-        canvases: this.loaded.manifest.canvases.map((candidate) =>
-          candidate.id === canvasId ? nextCanvas : candidate
-        )
-      });
-    } catch (error) {
-      await writeManifestTitle(workspace, previousTitle);
-      throw error;
-    }
-    return summarizeProjectCanvas(this.loaded.workspace, nextCanvas);
+    const result = await renameProjectCanvas({ projectRoot: this.projectRoot, canvasId, name });
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
+    return summarizeRenamedCanvas(result);
   }
 
   async remove(canvasId: string): Promise<DesktopTaskCanvasSummary[]> {
-    const canvas = this.requireCanvas(canvasId);
-    const workspace = workspaceForProjectCanvas(this.loaded.workspace, canvas);
-    assertWorkspaceChild(this.loaded.workspace, workspace.packageDir);
-    assertWorkspaceChild(this.loaded.workspace, workspace.stateFile);
-    assertWorkspaceChild(this.loaded.workspace, workspace.resultsDir);
-    assertProjectCanvasUnreferenced(this.loaded.manifest, canvasId);
-    if (
-      canvas.id === defaultCanvasId ||
-      workspace.workspaceRoot === this.loaded.workspace.workspaceRoot ||
-      workspace.packageDir === this.loaded.workspace.packageDir ||
-      this.loaded.manifest.canvases.length === 1
-    ) {
-      await resetCanvasWorkspace(workspace, canvas.title);
-      invalidateDesktopProjectProjection(this.projectRoot.rootPath);
-      return this.list();
-    }
-    const quarantineRoot = await quarantineCanvasWorkspace(this.loaded.workspace, {
-      canvasId,
-      workspace
-    });
-    try {
-      await this.writeManifest({
-        ...this.loaded.manifest,
-        canvases: this.loaded.manifest.canvases.filter((candidate) => candidate.id !== canvasId)
-      });
-    } catch (error) {
-      await restoreQuarantineAfterFailedRemoval(
-        this.loaded.workspace,
-        canvasId,
-        workspace,
-        quarantineRoot,
-        error
-      );
-      throw error;
-    }
-    return this.list();
+    await removeProjectCanvas({ projectRoot: this.projectRoot, canvasId });
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
+    return (await createProjectCanvasStore(this.projectRoot)).list();
   }
-
   private requireCanvas(canvasId: string): ProjectCanvasNode {
     const canvas = this.loaded.manifest.canvases.find((candidate) => candidate.id === canvasId);
     if (!canvas) {
@@ -461,15 +346,6 @@ class ProjectGraphCanvasStore implements ProjectCanvasStore {
 
   private async reloadFromDisk(): Promise<void> {
     this.loaded = await loadProjectGraphForWorkspace(this.projectRoot);
-    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
-  }
-
-  private async writeManifest(manifest: ProjectGraphManifest): Promise<void> {
-    const nextManifest = await writeProjectGraph(this.loaded.workspace, manifest);
-    this.loaded = {
-      ...this.loaded,
-      manifest: nextManifest
-    };
     invalidateDesktopProjectProjection(this.projectRoot.rootPath);
   }
 }
@@ -562,69 +438,15 @@ class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
   }
 
   async rename(canvasId: string, name: string): Promise<DesktopTaskCanvasSummary> {
-    const nextName = name.trim();
-    if (!nextName) {
-      throw new Error("Task canvas name is required.");
-    }
-    const { projectWorkspace, registry } = await readRegistry(this.projectRoot);
-    const record = requireCanvasRecord(registry, canvasId);
-    const workspace = legacyCanvasWorkspace(projectWorkspace, record);
-    const previousTitle = await writeManifestTitle(workspace, nextName);
-    const nextRecord = {
-      ...record,
-      name: nextName,
-      updatedAt: new Date().toISOString()
-    };
-    const nextRegistry = {
-      ...registry,
-      canvases: registry.canvases.map((canvas) =>
-        canvas.canvasId === canvasId ? nextRecord : canvas
-      )
-    };
-    try {
-      await writeRegistry(projectWorkspace, nextRegistry);
-    } catch (error) {
-      await writeManifestTitle(workspace, previousTitle);
-      throw error;
-    }
+    const result = await renameProjectCanvas({ projectRoot: this.projectRoot, canvasId, name });
     invalidateDesktopProjectProjection(this.projectRoot.rootPath);
-    return summarizeLegacyCanvas(projectWorkspace, nextRecord);
+    return summarizeRenamedCanvas(result);
   }
 
   async remove(canvasId: string): Promise<DesktopTaskCanvasSummary[]> {
-    const { projectWorkspace, registry } = await readRegistry(this.projectRoot);
-    const record = requireCanvasRecord(registry, canvasId);
-    const workspace = legacyCanvasWorkspace(projectWorkspace, record);
-    assertWorkspaceChild(projectWorkspace, workspace.packageDir);
-    assertWorkspaceChild(projectWorkspace, workspace.stateFile);
-    assertWorkspaceChild(projectWorkspace, workspace.resultsDir);
-    if (record.canvasId === defaultCanvasId) {
-      await resetCanvasWorkspace(workspace, record.name);
-      invalidateDesktopProjectProjection(this.projectRoot.rootPath);
-      return this.list();
-    }
-    const quarantineRoot = await quarantineCanvasWorkspace(projectWorkspace, {
-      canvasId,
-      workspace
-    });
-    const nextRegistry = {
-      ...registry,
-      canvases: registry.canvases.filter((canvas) => canvas.canvasId !== canvasId)
-    };
-    try {
-      await writeRegistry(projectWorkspace, nextRegistry);
-    } catch (error) {
-      await restoreQuarantineAfterFailedRemoval(
-        projectWorkspace,
-        canvasId,
-        workspace,
-        quarantineRoot,
-        error
-      );
-      throw error;
-    }
+    await removeProjectCanvas({ projectRoot: this.projectRoot, canvasId });
     invalidateDesktopProjectProjection(this.projectRoot.rootPath);
-    return this.list();
+    return (await createProjectCanvasStore(this.projectRoot)).list();
   }
 }
 
@@ -696,19 +518,15 @@ class ResolvingProjectCanvasStore implements ProjectCanvasStore {
   }
 
   async rename(canvasId: string, name: string): Promise<DesktopTaskCanvasSummary> {
-    const workspace = await requireInitializedProjectWorkspace(this.projectRoot);
-    return withProjectMutationLock(workspace.workspaceRoot, async () => {
-      await assertCurrentProjectWorkspace(workspace);
-      return (await this.open()).rename(canvasId, name);
-    });
+    const result = await renameProjectCanvas({ projectRoot: this.projectRoot, canvasId, name });
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
+    return summarizeRenamedCanvas(result);
   }
 
   async remove(canvasId: string): Promise<DesktopTaskCanvasSummary[]> {
-    const workspace = await requireInitializedProjectWorkspace(this.projectRoot);
-    return withProjectMutationLock(workspace.workspaceRoot, async () => {
-      await assertCurrentProjectWorkspace(workspace);
-      return (await this.open()).remove(canvasId);
-    });
+    await removeProjectCanvas({ projectRoot: this.projectRoot, canvasId });
+    invalidateDesktopProjectProjection(this.projectRoot.rootPath);
+    return this.list();
   }
 }
 

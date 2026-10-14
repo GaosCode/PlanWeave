@@ -5,6 +5,7 @@ import { resolveProjectWorkspaceInHome } from "../project.js";
 import { executePlanGraphCommand } from "../plangraph/index.js";
 import { readActiveTaskCanvasSelectionForWorkspace } from "./canvasSelectionStore.js";
 import { desktopLayoutCommandStore } from "./layoutStore.js";
+import type { ProjectWorkspace } from "../types.js";
 import { resolveSelectedCanvasWorkspaceForProject } from "./projectCanvasStore.js";
 
 const selectionQueues = new Map<string, Promise<void>>();
@@ -26,19 +27,7 @@ export function selectTaskCanvas(projectRoot: string, canvasId: string): Promise
   const previous = selectionQueues.get(key) ?? Promise.resolve();
   const operation = previous.then(async () => {
     const projectWorkspace = await resolveProjectWorkspaceInHome(root, home);
-    const commandWorkspace = await resolveSelectedCanvasWorkspaceForProject(projectWorkspace);
-    const result = await executePlanGraphCommand({
-      projectRoot: commandWorkspace,
-      indexPath: join(projectWorkspace.workspaceRoot, "cache", "plangraph.sqlite"),
-      command: {
-        type: "updateLayout",
-        layoutScope: "canvas",
-        layout: { activeCanvasId: canvasId }
-      },
-      dependencies: { layoutStore: desktopLayoutCommandStore }
-    });
-    if (!result.ok) throw graphCommandError(result);
-    return (await readActiveTaskCanvasSelectionForWorkspace(projectWorkspace)).activeCanvasId;
+    return selectTaskCanvasForWorkspace(projectWorkspace, canvasId);
   });
   const tail = operation.then(
     () => undefined,
@@ -49,4 +38,24 @@ export function selectTaskCanvas(projectRoot: string, canvasId: string): Promise
     if (selectionQueues.get(key) === tail) selectionQueues.delete(key);
   });
   return operation;
+}
+
+/** Execute selection inside an existing project lane without waiting on outer intent admission. */
+export async function selectTaskCanvasForWorkspace(
+  projectWorkspace: ProjectWorkspace,
+  canvasId: string
+): Promise<string> {
+  const commandWorkspace = await resolveSelectedCanvasWorkspaceForProject(projectWorkspace);
+  const result = await executePlanGraphCommand({
+    projectRoot: commandWorkspace,
+    indexPath: join(projectWorkspace.workspaceRoot, "cache", "plangraph.sqlite"),
+    command: {
+      type: "updateLayout",
+      layoutScope: "canvas",
+      layout: { activeCanvasId: canvasId }
+    },
+    dependencies: { layoutStore: desktopLayoutCommandStore }
+  });
+  if (!result.ok) throw graphCommandError(result);
+  return (await readActiveTaskCanvasSelectionForWorkspace(projectWorkspace)).activeCanvasId;
 }

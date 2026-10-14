@@ -744,6 +744,7 @@
         "plangraphWorkspaceHistory.test.ts",
         "plangraphDependencyHistory.test.ts",
         "plangraphProjection.test.ts",
+        "projectCanvasLifecycleMutation.test.ts",
         "projectCanvasMutation.test.ts",
         "projectDoctor.test.ts",
         "projectGraph.test.ts",

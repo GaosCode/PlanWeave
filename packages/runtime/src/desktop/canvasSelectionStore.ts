@@ -2,7 +2,8 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
-import { resolveProjectWorkspace } from "../project.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
+import { assertCurrentProjectWorkspace, resolveProjectWorkspace } from "../project.js";
 import { loadProjectGraphForWorkspace } from "../projectGraph/index.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 import { normalizeRegistry, registryVersion, type TaskCanvasRegistry } from "./canvasRegistry.js";
@@ -100,23 +101,30 @@ export async function writeActiveTaskCanvasSelectionForWorkspace(
   workspace: ProjectWorkspace,
   activeCanvasId: string
 ): Promise<ActiveTaskCanvasSelection> {
-  const loaded = await loadProjectGraphForWorkspace(workspace);
-  const projectWorkspace = loaded.workspace;
-  if (loaded.source === "project_graph") {
-    if (!loaded.manifest.canvases.some((canvas) => canvas.id === activeCanvasId)) {
-      throw new Error(`Project canvas '${activeCanvasId}' does not exist.`);
-    }
-    const path = activeCanvasPath(projectWorkspace);
-    await mkdir(dirname(path), { recursive: true });
-    await writeJsonFile(path, { version: activeCanvasVersion, activeCanvasId });
-    return { activeCanvasId };
-  }
-  const registry = await readLegacyRegistry(projectWorkspace);
-  if (!registry || !registry.canvases.some((canvas) => canvas.canvasId === activeCanvasId)) {
-    throw new Error(`Task canvas '${activeCanvasId}' does not exist.`);
-  }
-  const path = registryPath(projectWorkspace);
-  await mkdir(dirname(path), { recursive: true });
-  await writeJsonFile(path, { ...registry, version: registryVersion, activeCanvasId });
-  return { activeCanvasId };
+  return withProjectMutationLock(
+    join(workspace.planweaveHome, "projects", workspace.id),
+    async () => {
+      await assertCurrentProjectWorkspace(workspace);
+      const loaded = await loadProjectGraphForWorkspace(workspace);
+      const projectWorkspace = loaded.workspace;
+      if (loaded.source === "project_graph") {
+        if (!loaded.manifest.canvases.some((canvas) => canvas.id === activeCanvasId)) {
+          throw new Error(`Project canvas '${activeCanvasId}' does not exist.`);
+        }
+        const path = activeCanvasPath(projectWorkspace);
+        await mkdir(dirname(path), { recursive: true });
+        await writeJsonFile(path, { version: activeCanvasVersion, activeCanvasId });
+        return { activeCanvasId };
+      }
+      const registry = await readLegacyRegistry(projectWorkspace);
+      if (!registry || !registry.canvases.some((canvas) => canvas.canvasId === activeCanvasId)) {
+        throw new Error(`Task canvas '${activeCanvasId}' does not exist.`);
+      }
+      const path = registryPath(projectWorkspace);
+      await mkdir(dirname(path), { recursive: true });
+      await writeJsonFile(path, { ...registry, version: registryVersion, activeCanvasId });
+      return { activeCanvasId };
+    },
+    { operation: `select-canvas:${activeCanvasId}` }
+  );
 }
