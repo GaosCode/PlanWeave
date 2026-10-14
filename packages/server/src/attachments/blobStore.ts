@@ -10,6 +10,7 @@ import {
 } from "../comments/schemas.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import { COMMENT_ATTACHMENT_MAX_BYTES } from "../comments/limits.js";
+import { CommentAttachmentRepository } from "./repository.js";
 import { withAttachmentCleanup, withAttachmentCleanupFailure } from "./errors.js";
 
 const relativePathSchema = z.string().regex(/^[a-f0-9]{2}\/[a-f0-9]{64}$/);
@@ -223,21 +224,12 @@ export class CommentAttachmentBlobStore {
   }
 
   /**
-   * Delete a blob file and row when no pending/finalized reference remains.
-   * Callers must verify zero references before invoking.
+   * The repository owns reference eligibility, including durable audit bindings across scopes.
+   * Callers must hold the root/digest claim through revocation, recheck and file/row deletion.
    */
-  async deleteIfUnreferenced(digestSha256: string): Promise<boolean> {
+  async deleteIfUnreferenced(digestSha256: string, nowIso: string): Promise<boolean> {
     const digest = commentContentSha256Schema.parse(digestSha256);
-    const referenced = this.database
-      .prepare(
-        `SELECT 1 AS present FROM comment_pending_uploads
-         WHERE digest_sha256=? AND status IN ('uploaded','finalized')
-         UNION ALL
-         SELECT 1 AS present FROM comment_attachment_bindings WHERE digest_sha256=?
-         LIMIT 1`
-      )
-      .get(digest, digest);
-    if (referenced) return false;
+    if (!new CommentAttachmentRepository(this.database).canDeleteBlob(digest, nowIso)) return false;
 
     const path = await this.resolveBlobPath(digest);
     await unlink(path).catch((error: unknown) => {

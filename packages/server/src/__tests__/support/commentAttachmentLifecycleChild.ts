@@ -16,7 +16,7 @@ const input = z
   .object({
     directory: z.string(),
     now: z.string().datetime(),
-    mode: z.enum(["normal", "hold-gc", "hold-publish"])
+    mode: z.enum(["normal", "hold-gc", "hold-gc-entry", "hold-publish"])
   })
   .parse(JSON.parse(process.argv[2] ?? "{}"));
 const database = await openServerDatabase(join(input.directory, "server.sqlite"), 5000);
@@ -27,13 +27,13 @@ const gate = new Promise<void>((resolve) => {
 });
 let paused = false;
 class ProcessBlobStore extends CommentAttachmentBlobStore {
-  override async deleteIfUnreferenced(digest: string): Promise<boolean> {
+  override async deleteIfUnreferenced(digest: string, nowIso: string): Promise<boolean> {
     if (input.mode === "hold-gc" && !paused) {
       paused = true;
       process.send?.({ event: "gc-held", digest });
       await gate;
     }
-    return super.deleteIfUnreferenced(digest);
+    return super.deleteIfUnreferenced(digest, nowIso);
   }
   override async stage(
     body: Parameters<CommentAttachmentBlobStore["stage"]>[0]
@@ -59,10 +59,21 @@ const scopes = ["project-a", "project-b"].map((projectId) => ({
   projectId,
   workspaceId: workspaceIdentity.ensureWorkspaceForLegacyProject(projectId)
 }));
+const repository = new CommentAttachmentRepository(database);
+class ProcessLifecycle extends CommentAttachmentDigestLifecycle {
+  override async withDigest<T>(digest: string, action: () => Promise<T>): Promise<T> {
+    if (input.mode === "hold-gc-entry" && !paused) {
+      paused = true;
+      process.send?.({ event: "gc-entry-held", digest });
+      await gate;
+    }
+    return super.withDigest(digest, action);
+  }
+}
 const service = new CommentAttachmentService({
-  repository: new CommentAttachmentRepository(database),
+  repository,
   blobs: new ProcessBlobStore(database, input.directory),
-  lifecycle: new CommentAttachmentDigestLifecycle(database, input.directory),
+  lifecycle: new ProcessLifecycle(database, input.directory),
   identity,
   canRead({ actor, workspaceId }) {
     return workspaceIdentity.hasActiveMembership(workspaceId, actor.humanPrincipalId);
@@ -102,7 +113,44 @@ const server = createServer((request, response) => {
     });
 });
 process.on("message", (message: unknown) => {
-  const command = z.object({ command: z.enum(["release", "stop"]) }).parse(message);
+  const command = z
+    .discriminatedUnion("command", [
+      z.object({ command: z.enum(["release", "stop"]) }),
+      z.object({ command: z.literal("bind"), pendingUploadId: z.string() })
+    ])
+    .parse(message);
+  if (command.command === "bind") {
+    try {
+      const workspaceId = scopes[0]!.workspaceId;
+      const record = repository.getPendingRequired(
+        workspaceId,
+        "project-a",
+        command.pendingUploadId
+      );
+      repository.bindCommentAttachments({
+        workspaceId,
+        projectId: "project-a",
+        commentId: "process-comment",
+        attachments: [
+          {
+            pendingUploadId: record.pendingUploadId,
+            digestSha256: record.digestSha256!,
+            sizeBytes: record.expectedSizeBytes,
+            mediaType: record.mediaType,
+            createdAt: clock().toISOString()
+          }
+        ],
+        createdAt: clock().toISOString()
+      });
+      process.send?.({ event: "bound" });
+    } catch (error) {
+      process.send?.({
+        event: "bind-denied",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+    return;
+  }
   release();
   if (command.command === "stop") {
     server.close(() => {

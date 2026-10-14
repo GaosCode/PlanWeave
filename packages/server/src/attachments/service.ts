@@ -30,7 +30,11 @@ import {
   type CommentAttachmentBinding,
   type PendingUploadRecord
 } from "./policy.js";
-import { AttachmentRepositoryError, CommentAttachmentRepository } from "./repository.js";
+import {
+  AttachmentRepositoryError,
+  CommentAttachmentRepository,
+  type AttachmentDraftCleanupCursor
+} from "./repository.js";
 import type { HumanIdentityRepository } from "../identity/repository.js";
 
 export class CommentAttachmentServiceError extends Error {
@@ -94,6 +98,16 @@ export type CommentAttachmentServiceOptions = {
     canvasId?: string;
   }): boolean;
   clock?: () => Date;
+};
+
+export type AttachmentMaintenanceCursor = { draft?: AttachmentDraftCleanupCursor; blob?: string };
+export type AttachmentMaintenanceResult = {
+  cursor: AttachmentMaintenanceCursor;
+  candidates: number;
+  blobDeleteAttempts: number;
+  removedPending: number;
+  removedBlobs: number;
+  failures: Array<{ phase: "draft" | "blob"; error: unknown }>;
 };
 
 export class CommentAttachmentService {
@@ -511,6 +525,7 @@ export class CommentAttachmentService {
     });
     return (
       auth.allowed &&
+      Date.parse(record.expiresAt) > this.clock().getTime() &&
       this.sameHumanPrincipal(actor.humanPrincipalId, record.uploaderHumanPrincipalId)
     );
   }
@@ -564,15 +579,21 @@ export class CommentAttachmentService {
     input: CommentAttachmentInput
   ): CommentAttachmentMetadata {
     try {
-      return this.options.repository.resolveFinalizedForCommentInput(workspaceId, projectId, input);
+      return this.options.repository.resolveFinalizedForCommentInput(
+        workspaceId,
+        projectId,
+        input,
+        this.clock().toISOString()
+      );
     } catch (error) {
       mapUnknown(error);
     }
   }
 
   /**
-   * Retention: expire and delete staged uploads past expires_at that are not finalized.
-   * Finalized rows and comment bindings are retained for comment lifecycle (B-003).
+   * Expire unbound drafts under the digest claim before file I/O. The atomic expiry CAS
+   * and comment binding write transaction serialize reference revocation with binding.
+   * Failed deletion leaves unreferenced blob metadata available for retry.
    */
   async cleanupExpiredStaged(
     workspaceId: string,
@@ -591,42 +612,110 @@ export class CommentAttachmentService {
       nowIso,
       limit
     );
-    let removedPending = 0;
-    let removedBlobs = 0;
-    for (const record of expired) {
-      const expire = async () => {
-        if (
-          !this.options.repository.markExpired(
-            workspace,
-            project,
-            record.pendingUploadId,
-            nowIso,
-            record.digestSha256
-          )
-        )
-          return;
-        const removed = this.options.repository.deletePending(
-          workspace,
-          project,
-          record.pendingUploadId
-        );
-        if (removed.removed) removedPending += 1;
-        if (
-          removed.digestSha256 &&
-          (await this.options.blobs.deleteIfUnreferenced(removed.digestSha256))
-        )
-          removedBlobs += 1;
-      };
-      if (record.digestSha256) await this.options.lifecycle.withDigest(record.digestSha256, expire);
-      else await expire();
+    const progress = { removedPending: 0, removedBlobs: 0, blobDeleteAttempts: 0 };
+    for (const record of expired) await this.cleanupPending(record, nowIso, progress);
+    for (const digest of this.options.repository.listUnreferencedBlobDigests(limit, nowIso)) {
+      await this.cleanupBlob(digest, nowIso, progress);
     }
-    // Failed reference commits and interrupted deletions leave retryable unreferenced metadata.
-    for (const digest of this.options.repository.listUnreferencedBlobDigests(limit)) {
-      await this.options.lifecycle.withDigest(digest, async () => {
-        if (await this.options.blobs.deleteIfUnreferenced(digest)) removedBlobs += 1;
-      });
+    return { removedPending: progress.removedPending, removedBlobs: progress.removedBlobs };
+  }
+
+  /** One globally bounded page; advance cursors even when individual candidates fail. */
+  async cleanupMaintenanceBatch(
+    cursor: AttachmentMaintenanceCursor,
+    limit: number,
+    signal?: AbortSignal
+  ): Promise<AttachmentMaintenanceResult> {
+    if (!Number.isSafeInteger(limit) || limit < 2)
+      throw new Error("attachment_maintenance_limit_invalid");
+    const nowIso = this.clock().toISOString();
+    const draftLimit = Math.floor(limit / 2);
+    const blobLimit = limit - draftLimit;
+    const result: AttachmentMaintenanceResult = {
+      cursor: {},
+      candidates: 0,
+      blobDeleteAttempts: 0,
+      removedPending: 0,
+      removedBlobs: 0,
+      failures: []
+    };
+    const drafts = this.options.repository.listExpiredDraftsForMaintenance(
+      nowIso,
+      draftLimit,
+      cursor.draft
+    );
+    for (const record of drafts) {
+      if (signal?.aborted) break;
+      result.candidates += 1;
+      try {
+        await this.cleanupPending(record, nowIso, result);
+      } catch (error) {
+        result.failures.push({ phase: "draft", error });
+      }
     }
-    return { removedPending, removedBlobs };
+    const lastDraft = drafts.at(-1);
+    if (drafts.length === draftLimit && lastDraft)
+      result.cursor.draft = [lastDraft.workspaceId, lastDraft.projectId, lastDraft.pendingUploadId];
+    if (signal?.aborted) return result;
+    const blobs = this.options.repository.listUnreferencedBlobDigests(
+      blobLimit,
+      nowIso,
+      cursor.blob
+    );
+    for (const digest of blobs) {
+      if (signal?.aborted) break;
+      result.candidates += 1;
+      try {
+        await this.cleanupBlob(digest, nowIso, result);
+      } catch (error) {
+        result.failures.push({ phase: "blob", error });
+      }
+    }
+    if (blobs.length === blobLimit) result.cursor.blob = blobs.at(-1);
+    return result;
+  }
+
+  private async cleanupPending(
+    record: PendingUploadRecord,
+    nowIso: string,
+    progress: { removedPending: number; removedBlobs: number; blobDeleteAttempts: number }
+  ): Promise<void> {
+    const expire = async () => {
+      if (
+        !this.options.repository.markExpired(
+          record.workspaceId,
+          record.projectId,
+          record.pendingUploadId,
+          nowIso,
+          record.digestSha256
+        )
+      )
+        return;
+      const removed = this.options.repository.deletePending(
+        record.workspaceId,
+        record.projectId,
+        record.pendingUploadId
+      );
+      if (removed.removed) progress.removedPending += 1;
+      if (removed.digestSha256) {
+        progress.blobDeleteAttempts += 1;
+        if (await this.options.blobs.deleteIfUnreferenced(removed.digestSha256, nowIso))
+          progress.removedBlobs += 1;
+      }
+    };
+    if (record.digestSha256) await this.options.lifecycle.withDigest(record.digestSha256, expire);
+    else await expire();
+  }
+
+  private async cleanupBlob(
+    digest: string,
+    nowIso: string,
+    progress: { removedBlobs: number; blobDeleteAttempts: number }
+  ): Promise<void> {
+    await this.options.lifecycle.withDigest(digest, async () => {
+      progress.blobDeleteAttempts += 1;
+      if (await this.options.blobs.deleteIfUnreferenced(digest, nowIso)) progress.removedBlobs += 1;
+    });
   }
 }
 

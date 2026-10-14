@@ -22,7 +22,7 @@ export class AttachmentProcessHarness {
   constructor(input: {
     directory: string;
     now: string;
-    mode: "normal" | "hold-gc" | "hold-publish";
+    mode: "normal" | "hold-gc" | "hold-gc-entry" | "hold-publish";
   }) {
     const path = fileURLToPath(new URL("./commentAttachmentLifecycleChild.ts", import.meta.url));
     this.child = spawn(process.execPath, ["--import", "tsx", path, JSON.stringify(input)], {
@@ -76,6 +76,9 @@ export class AttachmentProcessHarness {
         this.waiters.add(wake);
       });
     }
+  }
+  bind(pendingUploadId: string): void {
+    this.child.send({ command: "bind", pendingUploadId });
   }
   release(): void {
     this.child.send({ command: "release" });

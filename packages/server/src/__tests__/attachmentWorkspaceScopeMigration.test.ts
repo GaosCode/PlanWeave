@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { attachmentWorkspaceScopeMigration } from "../migrations/attachmentWorkspaceScope.js";
+import { CommentAttachmentRepository } from "../attachments/repository.js";
 import { applyMigrations } from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { applyMigrationsThroughVersion } from "./support/migrationFixture.js";
@@ -85,7 +86,12 @@ function insertLegacyPending(
     );
 }
 
-function insertLegacyBinding(database: SqliteDatabase, projectId: string, commentId: string): void {
+function insertLegacyBinding(
+  database: SqliteDatabase,
+  projectId: string,
+  commentId: string,
+  digest = "a".repeat(64)
+): void {
   database
     .prepare(
       `INSERT INTO comment_attachment_bindings(
@@ -93,7 +99,7 @@ function insertLegacyBinding(database: SqliteDatabase, projectId: string, commen
         comment_tombstoned_at
       ) VALUES(?,?,?,1,'text/plain',NULL,'2026-01-01T00:00:00.000Z',NULL)`
     )
-    .run(projectId, commentId, "a".repeat(64));
+    .run(projectId, commentId, digest);
 }
 
 describe("attachment workspace scope migration", () => {
@@ -115,9 +121,54 @@ describe("attachment workspace scope migration", () => {
     ) VALUES('historical-workspace','historical-project','historical-comment',?,1,
       'text/plain','historical.txt','2026-01-01T00:00:00.000Z')`)
       .run("a".repeat(64));
+    database.exec(`INSERT INTO comment_pending_uploads(
+      pending_upload_id,workspace_id,project_id,uploader_human_principal_id,
+      expected_size_bytes,media_type,status,digest_sha256,created_at,expires_at,finalized_at)
+      SELECT 'historical-unbound',workspace_id,project_id,uploader_human_principal_id,
+      expected_size_bytes,media_type,status,'${"b".repeat(64)}',created_at,expires_at,finalized_at
+      FROM comment_pending_uploads;
+      INSERT INTO comment_pending_uploads(
+      pending_upload_id,workspace_id,project_id,uploader_human_principal_id,
+      expected_size_bytes,media_type,status,digest_sha256,created_at,expires_at,finalized_at)
+      SELECT 'historical-fresh',workspace_id,project_id,uploader_human_principal_id,
+      expected_size_bytes,media_type,status,'${"c".repeat(64)}','2026-01-03T00:00:00.000Z',
+      '2026-01-03T01:00:00.000Z','2026-01-03T00:30:00.000Z'
+      FROM comment_pending_uploads WHERE pending_upload_id='historical-pending';
+      UPDATE comment_attachment_bindings SET comment_tombstoned_at='2026-01-02T12:00:00.000Z';`);
     applyMigrations(database);
     applyMigrations(database);
-    expect(database.prepare("SELECT * FROM comment_pending_uploads").get()).toMatchObject({
+    const attachments = new CommentAttachmentRepository(database);
+    const expired = attachments.listExpiredStagedForCleanup(
+      "historical-workspace",
+      "historical-project",
+      "2026-01-03T00:59:59.999Z"
+    );
+    expect(expired.map((record) => record.pendingUploadId)).toEqual(["historical-unbound"]);
+    expect(
+      attachments.markExpired(
+        "historical-workspace",
+        "historical-project",
+        "historical-pending",
+        "2026-01-03T00:59:59.999Z",
+        "a".repeat(64)
+      )
+    ).toBe(false);
+    expect(
+      attachments.markExpired(
+        "historical-workspace",
+        "historical-project",
+        "historical-unbound",
+        "2026-01-03T00:59:59.999Z",
+        "b".repeat(64)
+      )
+    ).toBe(true);
+    expect(
+      database
+        .prepare(
+          "SELECT * FROM comment_pending_uploads WHERE pending_upload_id='historical-pending'"
+        )
+        .get()
+    ).toMatchObject({
       pending_upload_id: "historical-pending",
       status: "finalized",
       file_name: "historical.txt",
@@ -145,9 +196,23 @@ describe("attachment workspace scope migration", () => {
     insertLegacyPending(database, "pending-unique", "project-unique");
     insertLegacyPending(database, "pending-ambiguous", "project-ambiguous");
     insertLegacyBinding(database, "project-unique", "comment-unique");
-    insertLegacyBinding(database, "project-ambiguous", "comment-ambiguous");
+    insertLegacyBinding(database, "project-ambiguous", "comment-ambiguous", "b".repeat(64));
 
+    database.exec(`UPDATE comment_pending_uploads SET status='finalized',digest_sha256='${"c".repeat(64)}',finalized_at='2026-01-01T00:30:00.000Z' WHERE pending_upload_id='pending-ambiguous';
+      INSERT INTO comment_attachment_blobs(digest_sha256,size_bytes,media_type,relative_path,created_at) VALUES
+      ('${"b".repeat(64)}',1,'text/plain','bb/${"b".repeat(64)}','2026-01-01T00:00:00.000Z'),
+      ('${"c".repeat(64)}',1,'text/plain','cc/${"c".repeat(64)}','2026-01-01T00:00:00.000Z');`);
     attachmentWorkspaceScopeMigration.before?.(database);
+    const attachments = new CommentAttachmentRepository(database);
+    expect(attachments.listUnreferencedBlobDigests(100, "2026-01-01T23:59:59.999Z")).toEqual([]);
+    expect(attachments.listUnreferencedBlobDigests(100, "2026-01-02T00:00:00.000Z")).toEqual([
+      "c".repeat(64)
+    ]);
+    expect(attachments.canDeleteBlob("b".repeat(64), "2026-01-03T00:00:00.000Z")).toBe(false);
+    expect(attachments.canDeleteBlob("c".repeat(64), "2026-01-02T00:00:00.000Z")).toBe(true);
+    database.exec(`UPDATE comment_pending_uploads_unscoped_legacy
+      SET payload_json=json_remove(payload_json,'$.expiresAt') WHERE pending_upload_id='pending-ambiguous'`);
+    expect(() => attachments.canDeleteBlob("c".repeat(64), "2026-01-02T00:00:00.000Z")).toThrow();
 
     expect(
       database

@@ -41,7 +41,30 @@ export type CommentAttachmentRepositoryOptions = {
   }) => void;
 };
 
+// Exact provenance identifies modern bindings; legacy rows conservatively preserve digest bindings.
+const unboundPendingSql = `NOT EXISTS (SELECT 1 FROM comment_attachment_bindings b
+  WHERE b.workspace_id=p.workspace_id AND b.project_id=p.project_id AND b.digest_sha256=p.digest_sha256
+  AND (p.binding_provenance_version=0 OR EXISTS
+    (SELECT 1 FROM json_each(b.pending_upload_ids_json) WHERE value=p.pending_upload_id)))`;
+
+// A draft remains a byte reference until expiry is atomically revoked; audit bindings are durable.
+const unreferencedDigestSql = `NOT EXISTS (SELECT 1 FROM comment_pending_uploads p
+  WHERE p.digest_sha256=blob.digest_sha256 AND p.status IN ('uploaded','finalized'))
+  AND NOT EXISTS (SELECT 1 FROM comment_attachment_bindings b WHERE b.digest_sha256=blob.digest_sha256)
+  AND NOT EXISTS (SELECT 1 FROM comment_attachment_bindings_unscoped_legacy b WHERE b.digest_sha256=blob.digest_sha256)
+  AND NOT EXISTS (SELECT 1 FROM comment_pending_uploads_unscoped_legacy p
+    WHERE json_extract(p.payload_json,'$.digestSha256')=blob.digest_sha256
+    AND json_extract(p.payload_json,'$.status') IN ('uploaded','finalized')
+    AND json_extract(p.payload_json,'$.expiresAt') > ?)`;
+
 const pendingStatusSchema = z.enum(["pending", "uploaded", "finalized", "expired", "aborted"]);
+
+const legacyPendingReferenceSchema = z.object({
+  status: pendingStatusSchema,
+  digestSha256: commentContentSha256Schema,
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime()
+});
 
 type PendingRow = {
   pending_upload_id: string;
@@ -110,6 +133,12 @@ function toBinding(row: BindingRow): CommentAttachmentBinding {
     commentTombstonedAt: row.comment_tombstoned_at ?? undefined
   };
 }
+
+export type AttachmentDraftCleanupCursor = readonly [
+  workspaceId: string,
+  projectId: string,
+  pendingUploadId: string
+];
 
 export class CommentAttachmentRepository {
   constructor(
@@ -321,12 +350,17 @@ export class CommentAttachmentRepository {
       const result = this.database
         .prepare(
           `UPDATE comment_pending_uploads
-           SET status='finalized', finalized_at=?,
+           SET status='finalized', finalized_at=?, expires_at=?,
                file_name=COALESCE(?, file_name)
            WHERE workspace_id=? AND project_id=? AND pending_upload_id=? AND status='uploaded'`
         )
         .run(
           input.finalizedAt,
+          new Date(
+            Date.parse(input.finalizedAt) +
+              Date.parse(current.expiresAt) -
+              Date.parse(current.createdAt)
+          ).toISOString(),
           input.expected.fileName ?? null,
           workspaceIdSchema.parse(input.workspaceId),
           humanProjectIdSchema.parse(input.projectId),
@@ -369,9 +403,10 @@ export class CommentAttachmentRepository {
   ): boolean {
     const result = this.database
       .prepare(
-        `UPDATE comment_pending_uploads SET status='expired'
+        `UPDATE comment_pending_uploads AS p SET status='expired'
          WHERE workspace_id=? AND project_id=? AND pending_upload_id=?
-           AND status IN ('pending','uploaded','expired') AND expires_at <= ? AND digest_sha256 IS ?`
+           AND status IN ('pending','uploaded','finalized','expired') AND expires_at <= ? AND digest_sha256 IS ?
+           AND ${unboundPendingSql}`
       )
       .run(
         workspaceIdSchema.parse(workspaceId),
@@ -416,10 +451,15 @@ export class CommentAttachmentRepository {
     const bindings: CommentAttachmentBinding[] = [];
     for (const attachment of input.attachments) {
       const pendingUploadId = pendingAttachmentUploadIdSchema.parse(attachment.pendingUploadId);
-      this.resolveFinalizedForCommentInput(workspaceId, projectId, {
-        ...attachment,
-        pendingUploadId
-      });
+      this.resolveFinalizedForCommentInput(
+        workspaceId,
+        projectId,
+        {
+          ...attachment,
+          pendingUploadId
+        },
+        input.createdAt
+      );
       const existing = this.database
         .prepare(`SELECT pending_upload_ids_json FROM comment_attachment_bindings
           WHERE workspace_id=? AND project_id=? AND comment_id=? AND digest_sha256=?`)
@@ -589,7 +629,7 @@ export class CommentAttachmentRepository {
   }
 
   /**
-   * Expired staged uploads that are not finalized and not comment-bound.
+   * Expired drafts without an actual comment binding, including finalized drafts.
    * Returns digests that may become unreferenced after row deletion.
    */
   listExpiredStagedForCleanup(
@@ -602,10 +642,10 @@ export class CommentAttachmentRepository {
     const project = humanProjectIdSchema.parse(projectId);
     const rows = this.database
       .prepare(
-        `SELECT * FROM comment_pending_uploads
+        `SELECT p.* FROM comment_pending_uploads AS p
          WHERE workspace_id=? AND project_id=?
-           AND status IN ('pending','uploaded','expired')
-           AND expires_at <= ?
+           AND status IN ('pending','uploaded','finalized','expired')
+           AND expires_at <= ? AND ${unboundPendingSql}
          ORDER BY expires_at ASC
          LIMIT ?`
       )
@@ -613,14 +653,53 @@ export class CommentAttachmentRepository {
     return rows.map(toPendingRecord);
   }
 
-  listUnreferencedBlobDigests(limit: number): string[] {
+  listExpiredDraftsForMaintenance(
+    nowIso: string,
+    limit: number,
+    after?: AttachmentDraftCleanupCursor
+  ): PendingUploadRecord[] {
+    return (
+      this.database
+        .prepare(`SELECT p.* FROM comment_pending_uploads AS p
+      WHERE status IN ('pending','uploaded','finalized','expired') AND expires_at <= ?
+        AND ${unboundPendingSql}
+        AND (? IS NULL OR (workspace_id,project_id,pending_upload_id) > (?,?,?))
+      ORDER BY workspace_id,project_id,pending_upload_id LIMIT ?`)
+        .all(
+          nowIso,
+          after?.[0] ?? null,
+          after?.[0] ?? null,
+          after?.[1] ?? null,
+          after?.[2] ?? null,
+          limit
+        ) as PendingRow[]
+    ).map(toPendingRecord);
+  }
+
+  listUnreferencedBlobDigests(limit: number, nowIso: string, afterDigest?: string): string[] {
     return this.database
       .prepare(`SELECT digest_sha256 FROM comment_attachment_blobs AS blob
-      WHERE NOT EXISTS (SELECT 1 FROM comment_pending_uploads WHERE digest_sha256=blob.digest_sha256 AND status IN ('uploaded','finalized'))
-      AND NOT EXISTS (SELECT 1 FROM comment_attachment_bindings WHERE digest_sha256=blob.digest_sha256)
-      LIMIT ?`)
-      .all(limit)
+      WHERE ${unreferencedDigestSql} AND (? IS NULL OR blob.digest_sha256 > ?)
+      ORDER BY blob.digest_sha256 LIMIT ?`)
+      .all(nowIso, afterDigest ?? null, afterDigest ?? null, limit)
       .map((row) => commentContentSha256Schema.parse(row.digest_sha256));
+  }
+
+  canDeleteBlob(digestSha256: string, nowIso: string): boolean {
+    const digest = commentContentSha256Schema.parse(digestSha256);
+    // Quarantined data never authorizes access; malformed reference data must fail cleanup.
+    for (const row of this.database
+      .prepare(`SELECT payload_json FROM comment_pending_uploads_unscoped_legacy
+      WHERE json_extract(payload_json,'$.digestSha256')=?`)
+      .all(digest)) {
+      legacyPendingReferenceSchema.parse(JSON.parse(z.string().parse(row.payload_json)));
+    }
+    return Boolean(
+      this.database
+        .prepare(`SELECT 1 AS eligible FROM comment_attachment_blobs AS blob
+        WHERE blob.digest_sha256=? AND ${unreferencedDigestSql}`)
+        .get(commentContentSha256Schema.parse(digestSha256), nowIso)
+    );
   }
 
   deletePending(
@@ -652,9 +731,13 @@ export class CommentAttachmentRepository {
   resolveFinalizedForCommentInput(
     workspaceId: string,
     projectId: string,
-    input: CommentAttachmentInput
+    input: CommentAttachmentInput,
+    nowIso: string
   ): CommentAttachmentMetadata {
     const record = this.getPendingRequired(workspaceId, projectId, input.pendingUploadId);
+    if (Date.parse(record.expiresAt) <= Date.parse(nowIso)) {
+      throw new AttachmentRepositoryError("attachment_pending_expired");
+    }
     if (record.status !== "finalized") {
       throw new AttachmentRepositoryError("attachment_status_conflict");
     }

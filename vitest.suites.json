@@ -1038,6 +1038,7 @@
         "commentAttachmentHttp.test.ts",
         "commentAttachmentLifecycle.test.ts",
         "commentAttachmentLifecycleProcess.test.ts",
+        "commentAttachmentMaintenance.test.ts",
         "commentService.test.ts",
         "commentWorkItemResolver.test.ts",
         "config.test.ts",

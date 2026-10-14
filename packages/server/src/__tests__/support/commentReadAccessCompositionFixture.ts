@@ -32,6 +32,7 @@ afterEach(async () => {
 
 export async function setupCommentReadComposition(
   options: {
+    clock?: () => Date;
     prepareLegacy?: (input: {
       database: SqliteDatabase;
       directory: string;
@@ -124,7 +125,11 @@ export async function setupCommentReadComposition(
     applyMigrations(database);
   }
   const server = createServer();
-  const composition = await createDistributedServerComposition({ httpServer: server, config });
+  const composition = await createDistributedServerComposition({
+    httpServer: server,
+    config,
+    clock: options.clock
+  });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("expected HTTP address");
@@ -136,6 +141,9 @@ export async function setupCommentReadComposition(
   });
   const base = `http://127.0.0.1:${address.port}/api/v1/projects/${projectId}`;
   return {
+    directory,
+    config,
+    composition,
     origin: `http://127.0.0.1:${address.port}`,
     base,
     projectId,

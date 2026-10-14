@@ -1,3 +1,4 @@
+import type { CommentAttachmentMaintenance } from "./attachments/maintenance.js";
 import type { Server as HttpServer } from "node:http";
 import { serverConfigSchema, type ServerConfig } from "./config.js";
 import { startRemoteBlockCoordinationServer } from "./distributedCoordination.js";
@@ -132,6 +133,7 @@ export async function createDistributedServerComposition(
   );
   let lifecycle: Awaited<ReturnType<typeof startRemoteBlockCoordinationServer>> | undefined;
   let activity: ActivityJournalComposition | undefined;
+  let attachmentMaintenance: CommentAttachmentMaintenance | undefined;
   let activityRetention:
     | Awaited<ReturnType<typeof createActivityCommentsComposition>>["retention"]
     | undefined;
@@ -318,6 +320,8 @@ export async function createDistributedServerComposition(
     });
     activityRetention = activityComments.retention;
     await activityRetention.start();
+    attachmentMaintenance = activityComments.attachmentMaintenance;
+    attachmentMaintenance.start();
     const remoteExecution = createRemoteExecutionComposition({
       database: server.database,
       config,
@@ -409,6 +413,7 @@ export async function createDistributedServerComposition(
     const attachedTransport = transport;
     let closePromise: Promise<void> | undefined;
     const beginDrain = () => {
+      attachmentMaintenance?.stop();
       if (readiness.readiness().status !== "draining") {
         readiness.transition("draining", schemaVersion);
       }
@@ -446,6 +451,11 @@ export async function createDistributedServerComposition(
             errors.push(error);
           }
           runtimeRpc?.close();
+          try {
+            await attachmentMaintenance?.close();
+          } catch (error) {
+            errors.push(error);
+          }
           try {
             await activityRetention?.close();
           } catch (error) {
@@ -493,6 +503,11 @@ export async function createDistributedServerComposition(
       cleanupErrors.push(cleanupError);
     }
     runtimeRpc?.close();
+    try {
+      await attachmentMaintenance?.close();
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
     try {
       await activityRetention?.close();
     } catch (cleanupError) {

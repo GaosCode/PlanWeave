@@ -83,6 +83,89 @@ async function assertDownload(
 }
 
 describe("comment attachment lifecycle", () => {
+  it("expires finalized unbound drafts at the TTL boundary and retains bound audit bytes", async () => {
+    let now = new Date("2026-07-24T12:00:00.000Z");
+    const stack = await setup({ clock: () => now });
+    const token = await bootstrap(stack.origin);
+    const id = await stage(stack.origin, token);
+    await uploadPending(stack.origin, token, "project-a", id, payload, "text/plain", digest);
+    now = new Date(now.getTime() + 30_000);
+    expect(
+      (await finalizePending(stack.origin, token, "project-a", id, digest)).response.status
+    ).toBe(200);
+    now = new Date(now.getTime() + 59_999);
+    expect(
+      await stack.attachmentService.cleanupExpiredStaged(stack.workspaceA, "project-a")
+    ).toEqual({ removedPending: 0, removedBlobs: 0 });
+    expect(
+      (await finalizePending(stack.origin, token, "project-a", id, digest)).response.status
+    ).toBe(200);
+    now = new Date(now.getTime() + 1);
+    expect(() =>
+      stack.attachmentRepository.bindCommentAttachments({
+        workspaceId: stack.workspaceA,
+        projectId: "project-a",
+        commentId: "expired-comment",
+        attachments: [
+          {
+            pendingUploadId: id,
+            digestSha256: digest,
+            sizeBytes: payload.length,
+            mediaType: "text/plain",
+            createdAt: now.toISOString()
+          }
+        ],
+        createdAt: now.toISOString()
+      })
+    ).toThrow(expect.objectContaining({ code: "attachment_pending_expired" }));
+    expect(
+      await stack.attachmentService.cleanupExpiredStaged(stack.workspaceA, "project-a")
+    ).toEqual({ removedPending: 1, removedBlobs: 1 });
+    await expect(readFile(blobPath(stack.directory))).rejects.toMatchObject({ code: "ENOENT" });
+
+    const bound = await stage(stack.origin, token);
+    await uploadPending(stack.origin, token, "project-a", bound, payload, "text/plain", digest);
+    await finalizePending(stack.origin, token, "project-a", bound, digest);
+    const record = stack.attachmentRepository.getPendingRequired(
+      stack.workspaceA,
+      "project-a",
+      bound
+    );
+    stack.attachmentRepository.bindCommentAttachments({
+      workspaceId: stack.workspaceA,
+      projectId: "project-a",
+      commentId: "comment-audit",
+      attachments: [
+        {
+          pendingUploadId: bound,
+          digestSha256: digest,
+          sizeBytes: payload.length,
+          mediaType: "text/plain",
+          createdAt: record.finalizedAt!
+        }
+      ],
+      createdAt: now.toISOString()
+    });
+    stack.attachmentService.setCommentTombstoned({
+      workspaceId: stack.workspaceA,
+      projectId: "project-a",
+      commentId: "comment-audit"
+    });
+    now = new Date(now.getTime() + 120_000);
+    expect(
+      await stack.attachmentService.cleanupExpiredStaged(stack.workspaceA, "project-a")
+    ).toEqual({ removedPending: 0, removedBlobs: 0 });
+    expect(await readFile(blobPath(stack.directory))).toEqual(payload);
+    expect(
+      stack.attachmentRepository.getBindingRequired(
+        stack.workspaceA,
+        "project-a",
+        "comment-audit",
+        digest
+      ).commentTombstonedAt
+    ).toBeDefined();
+  });
+
   it.each([
     true,
     false
@@ -531,7 +614,7 @@ describe("comment attachment lifecycle", () => {
     }
   });
 
-  it("keeps an HTTP-finalized reference after cleanup already enumerated its candidate", async () => {
+  it("keeps an actual binding after cleanup already enumerated its candidate", async () => {
     const start = new Date("2026-07-24T12:00:00.000Z");
     let gcNow = start;
     const first = await setup({ clock: () => gcNow });
@@ -560,12 +643,35 @@ describe("comment attachment lifecycle", () => {
       expect(
         (await finalizePending(second.origin, token, "project-a", id, digest)).response.status
       ).toBe(200);
+      first.attachmentRepository.bindCommentAttachments({
+        workspaceId: first.workspaceA,
+        projectId: "project-a",
+        commentId: "comment-bound",
+        attachments: [
+          {
+            pendingUploadId: id,
+            digestSha256: digest,
+            sizeBytes: payload.length,
+            mediaType: "text/plain",
+            createdAt: start.toISOString()
+          }
+        ],
+        createdAt: start.toISOString()
+      });
     } finally {
       release.resolve();
       await Promise.allSettled([cleaning]);
     }
     expect(await cleaning).toEqual({ removedPending: 0, removedBlobs: 0 });
-    await assertDownload(second, token, id);
+    expect(await readFile(blobPath(first.directory))).toEqual(payload);
+    expect(
+      first.attachmentRepository.getBindingRequired(
+        first.workspaceA,
+        "project-a",
+        "comment-bound",
+        digest
+      )
+    ).toBeDefined();
   });
 
   it("recovers a failed reference commit without losing deduplicated bytes or a claim", async () => {

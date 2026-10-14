@@ -48,6 +48,111 @@ function signal() {
 }
 
 describe("comment attachment multi-process lifecycle", () => {
+  it.each([
+    "finalize",
+    "bind"
+  ] as const)("linearizes %s against GC in independent processes", async (operation) => {
+    const start = new Date("2026-07-24T12:00:00.000Z");
+    const now = new Date(start.getTime() + 50_000);
+    const stack = await setup({ clock: () => start });
+    const token = await bootstrap(stack.origin);
+    const old = await pending(stack.origin, token);
+    await uploadPending(stack.origin, token, "project-a", old, bytes, "text/plain", digest);
+    if (operation === "bind") await finalizePending(stack.origin, token, "project-a", old, digest);
+    const contender = new AttachmentProcessHarness({
+      directory: stack.directory,
+      now: now.toISOString(),
+      mode: "normal"
+    });
+    const contenderOrigin = await contender.ready();
+    const collector = new AttachmentProcessHarness({
+      directory: stack.directory,
+      now: new Date(start.getTime() + 90_000).toISOString(),
+      mode: "hold-gc-entry"
+    });
+    let cleaning: Promise<Response> | undefined;
+    try {
+      const gcOrigin = await collector.ready();
+      cleaning = fetch(`${gcOrigin}/api/v1/projects/project-a/attachments/cleanup`, {
+        method: "POST",
+        headers: auth(token)
+      });
+      await collector.waitFor("gc-entry-held");
+      if (operation === "finalize") {
+        expect(
+          (await finalizePending(contenderOrigin, token, "project-a", old, digest)).response.status
+        ).toBe(200);
+      } else {
+        contender.bind(old);
+        await contender.waitFor("bound");
+      }
+      collector.release();
+      const response = await cleaning;
+      expect(await response.json()).toEqual({ removedPending: 0, removedBlobs: 0 });
+      expect(await stack.blobs.read(digest)).toEqual(bytes);
+    } finally {
+      await collector.dispose();
+      await contender.dispose();
+      await cleaning;
+    }
+  }, 20000);
+
+  it.each([
+    "finalize",
+    "bind"
+  ] as const)("rejects %s after another process revokes the expired reference", async (operation) => {
+    const start = new Date("2026-07-24T12:00:00.000Z");
+    const stack = await setup({ clock: () => start });
+    const token = await bootstrap(stack.origin);
+    const old = await pending(stack.origin, token);
+    await uploadPending(stack.origin, token, "project-a", old, bytes, "text/plain", digest);
+    await finalizePending(stack.origin, token, "project-a", old, digest);
+    const contender = new AttachmentProcessHarness({
+      directory: stack.directory,
+      now: new Date(start.getTime() + 50_000).toISOString(),
+      mode: "normal"
+    });
+    const contenderOrigin = await contender.ready();
+    const collector = new AttachmentProcessHarness({
+      directory: stack.directory,
+      now: new Date(start.getTime() + 90_000).toISOString(),
+      mode: "hold-gc"
+    });
+    let cleaning: Promise<Response> | undefined;
+    try {
+      const gcOrigin = await collector.ready();
+      cleaning = fetch(`${gcOrigin}/api/v1/projects/project-a/attachments/cleanup`, {
+        method: "POST",
+        headers: auth(token)
+      });
+      await collector.waitFor("gc-held");
+      if (operation === "finalize") {
+        expect(
+          (await finalizePending(contenderOrigin, token, "project-a", old, digest)).response.status
+        ).toBe(404);
+      } else {
+        contender.bind(old);
+        const denied = await contender.waitFor("bind-denied");
+        expect(denied.message).toBe("Pending attachment upload was not found in this project.");
+      }
+      collector.release();
+      expect(await (await cleaning).json()).toEqual({ removedPending: 1, removedBlobs: 1 });
+      expect(
+        stack.attachmentRepository.getBinding(
+          stack.workspaceA,
+          "project-a",
+          "process-comment",
+          digest
+        )
+      ).toBeUndefined();
+      expect(stack.blobs.get(digest)).toBeUndefined();
+    } finally {
+      await collector.dispose();
+      await contender.dispose();
+      await cleaning;
+    }
+  }, 20000);
+
   it("does not steal an active owner when hostname and PID namespace identity differ", async () => {
     let now = new Date("2026-07-24T12:00:00.000Z");
     const stack = await setup({ clock: () => now });
@@ -128,6 +233,52 @@ describe("comment attachment multi-process lifecycle", () => {
       spy.mockRestore();
       await child.dispose();
       await Promise.allSettled([cleaning, uploading].filter((value) => value !== undefined));
+    }
+  }, 20000);
+
+  it("waits for a different process to commit a republished reference before GC rechecks", async () => {
+    let now = new Date("2026-07-24T12:00:00.000Z");
+    const stack = await setup({ clock: () => now });
+    const token = await bootstrap(stack.origin);
+    const old = await pending(stack.origin, token);
+    await uploadPending(stack.origin, token, "project-a", old, bytes, "text/plain", digest);
+    now = new Date(now.getTime() + 120_000);
+    const next = await pending(stack.origin, token);
+    const publisher = new AttachmentProcessHarness({
+      directory: stack.directory,
+      now: now.toISOString(),
+      mode: "hold-publish"
+    });
+    let uploading: ReturnType<typeof uploadPending> | undefined;
+    let cleaning: ReturnType<typeof stack.attachmentService.cleanupExpiredStaged> | undefined;
+    const attempted = signal();
+    const original = stack.lifecycle.withDigest.bind(stack.lifecycle);
+    const spy = vi
+      .spyOn(stack.lifecycle, "withDigest")
+      .mockImplementation(async <T>(sha: string, action: () => Promise<T>) => {
+        attempted.resolve();
+        return original(sha, action);
+      });
+    try {
+      const origin = await publisher.ready();
+      uploading = uploadPending(origin, token, "project-a", next, bytes, "text/plain", digest);
+      await publisher.waitFor("publish-held");
+      cleaning = stack.attachmentService.cleanupExpiredStaged(stack.workspaceA, "project-a");
+      await attempted.promise;
+      expect(
+        stack.attachmentRepository.getPendingRequired(stack.workspaceA, "project-a", old).status
+      ).toBe("uploaded");
+      expect(
+        stack.attachmentRepository.getPendingRequired(stack.workspaceA, "project-a", next).status
+      ).toBe("pending");
+      publisher.release();
+      expect((await uploading).response.status).toBe(201);
+      expect(await cleaning).toEqual({ removedPending: 1, removedBlobs: 0 });
+      await download(origin, token, next, stack.directory);
+    } finally {
+      spy.mockRestore();
+      await publisher.dispose();
+      await Promise.allSettled([uploading, cleaning].filter((value) => value !== undefined));
     }
   }, 20000);
 

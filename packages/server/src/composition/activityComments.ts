@@ -1,3 +1,4 @@
+import { CommentAttachmentMaintenance } from "../attachments/maintenance.js";
 import type { CommentAttachmentServiceOptions } from "../attachments/service.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import { ArtifactStore } from "../artifacts.js";
@@ -237,6 +238,7 @@ export function createActivityCommentsComposition(input: {
   );
   return {
     commentAttachments,
+    attachmentMaintenance: new CommentAttachmentMaintenance(commentAttachments),
     resolveCommentService,
     retention
   };
