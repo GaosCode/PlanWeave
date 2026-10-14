@@ -49,6 +49,7 @@ import {
   removeCrossTaskDependency,
   removeDependencyEdge,
   removeTaskNode,
+  resolveDesktopProjectReference,
   resolveTaskCanvasWorkspace,
   runtimeSchemaDocuments,
   searchProjectWithDiagnostics,
@@ -447,11 +448,8 @@ export const runtimeGateway: RuntimeGateway = {
 };
 
 async function resolveProjectRoot(projectId: string): Promise<string> {
-  const project = (await listProjects()).find((item) => item.projectId === projectId);
-  if (!project) {
-    throw new Error(`Project '${projectId}' is not registered in PlanWeave.`);
-  }
-  return project.rootPath;
+  const project = await resolveDesktopProjectReference({ projectId });
+  return project.projectRoot;
 }
 
 async function resolveSelectedCanvasId(

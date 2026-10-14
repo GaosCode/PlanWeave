@@ -1,7 +1,7 @@
-import { access, mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { redoDesktopPlanGraphCommand, undoDesktopPlanGraphCommand } from "@planweave-ai/runtime";
 import { runtimeGateway } from "../toolRuntime.js";
 
@@ -22,10 +22,162 @@ const packageFiles = [
 ];
 
 afterEach(() => {
-  delete process.env.PLANWEAVE_HOME;
+  vi.unstubAllEnvs();
 });
 
 describe("MCP runtime gateway", () => {
+  it("isolates every exact project consumer from unrelated corrupt registrations and canvases", async () => {
+    const home = await realpath(await mkdtemp(join(tmpdir(), "planweave-mcp-registry-")));
+    vi.stubEnv("PLANWEAVE_HOME", home);
+    const project = await runtimeGateway.initProject("Healthy target");
+    const unrelated = await runtimeGateway.initProject("Unrelated broken canvas");
+    await writeFile(
+      join(unrelated.workspaceRoot, "canvases", "default", "package", "manifest.json"),
+      "{"
+    );
+    const corruptRoot = join(home, "projects", "unrelated-0");
+    await mkdir(corruptRoot);
+    await writeFile(join(corruptRoot, "project.json"), "{");
+
+    await expect(runtimeGateway.openProject(project.projectId)).resolves.toMatchObject({
+      projectId: project.projectId,
+      rootPath: project.workspaceRoot
+    });
+    for (let index = 1; index < 12; index++) {
+      const root = join(home, "projects", `unrelated-${index}`);
+      await mkdir(root);
+      await writeFile(join(root, "project.json"), "{}");
+    }
+    const second = await runtimeGateway.createCanvas(project.projectId, "Second plan");
+    expect(second.canvasId).not.toBe("default");
+    await runtimeGateway.createTask(project.projectId, "default", {
+      title: "First task",
+      promptMarkdown: "# First task\n"
+    });
+    await runtimeGateway.createTask(project.projectId, second.canvasId, {
+      title: "Second task",
+      promptMarkdown: "# Second task\n"
+    });
+    await expect(runtimeGateway.validateProject(project.projectId)).resolves.toMatchObject({
+      ok: true
+    });
+    const search = await runtimeGateway.searchProject(project.projectId, {
+      query: "First task",
+      kinds: ["task"]
+    });
+    expect(search.results).toContainEqual(
+      expect.objectContaining({ canvasId: "default", ref: "T-FIRST-TASK", title: "First task" })
+    );
+    expect(search.results.every((item) => !("path" in item))).toBe(true);
+    await expect(
+      runtimeGateway.listReadyBlocks(project.projectId, "default")
+    ).resolves.toMatchObject({
+      readyBlocks: [expect.objectContaining({ canvasId: "default", ref: "T-FIRST-TASK#B-001" })]
+    });
+    await expect(
+      runtimeGateway.addCanvasDependency(project.projectId, second.canvasId, "default")
+    ).resolves.toMatchObject({
+      ok: true,
+      graph: { edges: [{ from: second.canvasId, to: "default", type: "depends_on" }] }
+    });
+    const from = { canvasId: second.canvasId, taskId: "T-SECOND-TASK" };
+    const to = { canvasId: "default", taskId: "T-FIRST-TASK" };
+    await expect(
+      runtimeGateway.addCrossTaskDependency(project.projectId, from, to)
+    ).resolves.toMatchObject({
+      ok: true,
+      graph: { crossTaskEdges: [{ from, to, type: "depends_on" }] }
+    });
+    await expect(
+      runtimeGateway.removeCrossTaskDependency(project.projectId, from, to)
+    ).resolves.toMatchObject({
+      ok: true,
+      graph: { crossTaskEdges: [] }
+    });
+    await expect(
+      runtimeGateway.removeCanvasDependency(project.projectId, second.canvasId, "default")
+    ).resolves.toMatchObject({ ok: true, graph: { edges: [] } });
+    const markdown = "# Target policy\n";
+    await expect(runtimeGateway.updateProjectPrompt(project.projectId, markdown)).resolves.toBe(
+      markdown
+    );
+    await expect(runtimeGateway.readProjectPrompt(project.projectId)).resolves.toBe(markdown);
+    expect(await readFile(join(project.workspaceRoot, "policy", "project-prompt.md"), "utf8")).toBe(
+      markdown
+    );
+
+    const draftRoot = await mkdtemp(join(tmpdir(), "planweave-mcp-registry-draft-"));
+    await writeFile(join(draftRoot, "manifest.json"), packageFiles[0].content);
+    await writeFile(join(draftRoot, "scope.txt"), "imported into second canvas");
+    const input = { projectId: project.projectId, canvasId: second.canvasId, draftRoot };
+    const target = { projectRoot: project.workspaceRoot, canvasId: second.canvasId };
+    await expect(runtimeGateway.previewPackageDraftImport(input)).resolves.toMatchObject({
+      ok: true,
+      target
+    });
+    await expect(runtimeGateway.importPackageDraft(input)).resolves.toMatchObject({
+      ok: true,
+      applied: true,
+      target
+    });
+    expect(
+      await readFile(
+        join(project.workspaceRoot, "canvases", second.canvasId, "package", "scope.txt"),
+        "utf8"
+      )
+    ).toBe("imported into second canvas");
+    await expect(
+      access(join(project.workspaceRoot, "canvases", "default", "package", "scope.txt"))
+    ).rejects.toThrow();
+    await expect(runtimeGateway.openProject(project.projectId)).resolves.toMatchObject({
+      projectId: project.projectId
+    });
+    await expect(runtimeGateway.listProjects()).rejects.toThrow(/Project metadata|JSON/);
+  });
+
+  it.each([
+    ["malformed", /malformed JSON/],
+    ["schema", /metadata.*invalid/],
+    ["identity", /does not match registry directory/],
+    ["missing", /unavailable|ENOENT/],
+    ["unavailable", /unavailable/],
+    ["traversal", /registered project directory name/],
+    ["absolute", /registered project directory name/]
+  ] as const)("rejects %s exact targets without falling back to another project", async (mode, error) => {
+    const home = await realpath(await mkdtemp(join(tmpdir(), "planweave-mcp-target-")));
+    vi.stubEnv("PLANWEAVE_HOME", home);
+    const healthy = await runtimeGateway.initProject("Healthy survivor");
+    const target = await runtimeGateway.initProject("Bad target");
+    const metadataPath = join(target.workspaceRoot, "project.json");
+    let projectId = target.projectId;
+    if (mode === "malformed" || mode === "schema") {
+      await writeFile(metadataPath, mode === "malformed" ? "{" : "{}");
+    } else if (mode === "identity" || mode === "unavailable") {
+      const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+      await writeFile(
+        metadataPath,
+        JSON.stringify({
+          ...metadata,
+          ...(mode === "identity"
+            ? { id: healthy.projectId }
+            : {
+                kind: "external",
+                rootPath: join(home, "absent-source"),
+                sourceRoot: join(home, "absent-source")
+              })
+        })
+      );
+    } else {
+      projectId =
+        mode === "missing"
+          ? "missing-project"
+          : mode === "traversal"
+            ? `../${healthy.projectId}`
+            : healthy.rootPath;
+    }
+    await expect(runtimeGateway.readProjectPrompt(projectId)).rejects.toThrow(error);
+  });
+
   it("initializes new projects as managed PlanWeave workspaces without mcp-projects roots", async () => {
     const home = await mkdtemp(join(tmpdir(), "planweave-mcp-home-"));
     process.env.PLANWEAVE_HOME = home;
