@@ -10,7 +10,7 @@ const PROJECT_WIDE_OBSERVER_KINDS = new Set<HumanObserverEvent["kind"]>([
 const CANVAS_LIST_PAGE = 100;
 
 export type HumanObserverEventVisibility =
-  | { kind: "project" }
+  | { kind: "project"; canvasIds: ReadonlySet<string> }
   | { kind: "canvases"; canvasIds: ReadonlySet<string> }
   | { kind: "none" };
 
@@ -21,15 +21,18 @@ export function loadHumanObserverEventVisibility(input: {
   humanPrincipalId: string;
 }): HumanObserverEventVisibility {
   const actor = { kind: "human" as const, id: input.humanPrincipalId };
+  let projectReadable = false;
   try {
     const project = input.projectAccess.evaluateEffectiveAccess({
       workspaceId: input.workspaceId,
       projectId: input.projectId,
       actor
     });
-    if (project.capabilities.read) return { kind: "project" };
-  } catch {
-    return { kind: "none" };
+    projectReadable = project.capabilities.read;
+  } catch (error) {
+    if (error instanceof Error && error.message === "access_scope_not_found")
+      return { kind: "none" };
+    throw error;
   }
   const canvasIds = new Set<string>();
   let offset = 0;
@@ -45,6 +48,7 @@ export function loadHumanObserverEventVisibility(input: {
     if (page.length < CANVAS_LIST_PAGE) break;
     offset += page.length;
   }
+  if (projectReadable) return { kind: "project", canvasIds };
   return canvasIds.size > 0 ? { kind: "canvases", canvasIds } : { kind: "none" };
 }
 
@@ -61,9 +65,10 @@ export function humanObserverEventIsVisible(
   event: HumanObserverEvent,
   visibility: HumanObserverEventVisibility
 ): boolean {
-  if (visibility.kind === "project") return true;
   if (visibility.kind === "none") return false;
-  if (PROJECT_WIDE_OBSERVER_KINDS.has(event.kind)) return true;
+  if (PROJECT_WIDE_OBSERVER_KINDS.has(event.kind)) return visibility.kind === "project";
   const canvasId = event.canvasId ?? event.workItem?.canvasId;
-  return typeof canvasId === "string" && visibility.canvasIds.has(canvasId);
+  return typeof canvasId === "string"
+    ? visibility.canvasIds.has(canvasId)
+    : visibility.kind === "project";
 }

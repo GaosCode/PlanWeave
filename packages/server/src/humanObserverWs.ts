@@ -358,6 +358,11 @@ export function attachHumanObserverWebSocketServer(
           const next = pending.shift();
           if (!next) break;
           pendingBytes -= next.bytes;
+          if (
+            isObserverEvent(next.message) &&
+            !humanObserverEventIsVisible(next.message, visibility)
+          )
+            continue;
           const outgoing = isObserverEvent(next.message)
             ? serializeMessage(observerEventForDelivery(next.message, deliveredCursor))
             : serializeMessage(next.message);

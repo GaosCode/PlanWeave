@@ -6,7 +6,7 @@ const digest = "a".repeat(64);
 const visibility = { kind: "canvases" as const, canvasIds: new Set(["visible"]) };
 
 describe("humanObserverEventIsVisible", () => {
-  it("delivers every event to project-scope readers", () => {
+  it("filters private canvas events even for project-scope readers", () => {
     const hidden = humanObserverEventSchema.parse({
       type: "human.observer.event",
       protocolVersion: 1,
@@ -18,10 +18,12 @@ describe("humanObserverEventIsVisible", () => {
       canvasRevision: 1,
       canvasContentDigest: digest
     });
-    expect(humanObserverEventIsVisible(hidden, { kind: "project" })).toBe(true);
+    expect(humanObserverEventIsVisible(hidden, { kind: "project", canvasIds: new Set() })).toBe(
+      false
+    );
   });
 
-  it("keeps membership, invitation, and project events for canvas-only readers", () => {
+  it("hides project events from canvas-only readers", () => {
     for (const kind of ["invitation", "membership", "project"] as const) {
       const event = humanObserverEventSchema.parse({
         type: "human.observer.event",
@@ -31,7 +33,7 @@ describe("humanObserverEventIsVisible", () => {
         occurredAt: "2026-09-04T00:00:00.000Z",
         kind
       });
-      expect(humanObserverEventIsVisible(event, visibility)).toBe(true);
+      expect(humanObserverEventIsVisible(event, visibility)).toBe(false);
     }
   });
 

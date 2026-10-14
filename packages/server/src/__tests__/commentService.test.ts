@@ -129,6 +129,9 @@ async function openStack() {
     lifecycle: new CommentAttachmentDigestLifecycle(database, directory),
     blobs,
     identity,
+    canRead({ actor }) {
+      return identity.getActiveMembership(actor.projectId, actor.humanPrincipalId) !== undefined;
+    },
     clock: () => now
   });
 
@@ -140,6 +143,12 @@ async function openStack() {
     identity,
     attachments: attachmentService,
     attachmentRepository,
+    canRead(actor) {
+      return identity.getActiveMembership(actor.projectId, actor.humanPrincipalId) !== undefined;
+    },
+    canListActivity(actor) {
+      return identity.getActiveMembership(actor.projectId, actor.humanPrincipalId) !== undefined;
+    },
     authorizeMutation() {},
     authorMembershipActive(humanPrincipalId) {
       return identity.getActiveMembership(projectId, humanPrincipalId) !== undefined;
@@ -372,6 +381,16 @@ describe("CommentService", () => {
       activity: stack.activity,
       packagePort: missingPort,
       identity: stack.identity,
+      canRead(actor) {
+        return (
+          stack.identity.getActiveMembership(actor.projectId, actor.humanPrincipalId) !== undefined
+        );
+      },
+      canListActivity(actor) {
+        return (
+          stack.identity.getActiveMembership(actor.projectId, actor.humanPrincipalId) !== undefined
+        );
+      },
       authorizeMutation() {},
       authorMembershipActive(humanPrincipalId) {
         return stack.identity.getActiveMembership(projectId, humanPrincipalId) !== undefined;
@@ -428,6 +447,16 @@ describe("CommentService", () => {
       activity: stack.activity,
       packagePort,
       identity: stack.identity,
+      canRead(actor) {
+        return (
+          stack.identity.getActiveMembership(actor.projectId, actor.humanPrincipalId) !== undefined
+        );
+      },
+      canListActivity(actor) {
+        return (
+          stack.identity.getActiveMembership(actor.projectId, actor.humanPrincipalId) !== undefined
+        );
+      },
       authorizeMutation() {},
       authorMembershipActive(humanPrincipalId) {
         return stack.identity.getActiveMembership("project-b", humanPrincipalId) !== undefined;

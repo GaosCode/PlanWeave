@@ -1,3 +1,4 @@
+import type { CommentAttachmentServiceOptions } from "../attachments/service.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import { ArtifactStore } from "../artifacts.js";
 import {
@@ -105,13 +106,46 @@ export function createActivityCommentsComposition(input: {
   humanIdentity: HumanIdentityRepository;
   activity: ActivityJournalComposition;
 }) {
+  const canRead: CommentAttachmentServiceOptions["canRead"] = ({
+    actor,
+    workspaceId,
+    projectId,
+    canvasId
+  }) => {
+    try {
+      input.projectAccess.policy.assertCapability({
+        workspaceId,
+        projectId,
+        canvasId,
+        actor: { kind: "human", id: actor.humanPrincipalId },
+        capability: "read"
+      });
+      return true;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === "access_scope_not_found" ||
+          error.message.startsWith("access_capability_denied:"))
+      )
+        return false;
+      throw error;
+    }
+  };
   const commentAttachmentRepository = new CommentAttachmentRepository(input.database, {
     onMutationInTransaction: (mutation) => {
       input.activity.humanObserverJournal.appendInCallerTransaction(
         { workspaceId: mutation.workspaceId, projectId: mutation.projectId },
         {
           kind: "attachment",
-          ...(mutation.commentId ? { commentId: mutation.commentId } : {})
+          ...(mutation.commentId
+            ? {
+                commentId: mutation.commentId,
+                workItem: new CommentRepository(input.database, mutation.workspaceId).get(
+                  mutation.projectId,
+                  mutation.commentId
+                )?.workItem
+              }
+            : {})
         },
         mutation.occurredAt
       );
@@ -122,6 +156,7 @@ export function createActivityCommentsComposition(input: {
     lifecycle: new CommentAttachmentDigestLifecycle(input.database, input.config.dataDirectory),
     blobs: new CommentAttachmentBlobStore(input.database, input.config.dataDirectory),
     identity: input.humanIdentity,
+    canRead,
     clock: input.clock
   });
   const contentVersions = new ContentVersionRepository(input.database, input.clock);
@@ -150,6 +185,21 @@ export function createActivityCommentsComposition(input: {
         identity: input.humanIdentity,
         attachments: commentAttachments,
         attachmentRepository: commentAttachmentRepository,
+        canRead(actor, canvasId) {
+          return canRead({ actor, workspaceId, projectId, canvasId });
+        },
+        canListActivity(actor) {
+          const identity = { kind: "human" as const, id: actor.humanPrincipalId };
+          return (
+            canRead({ actor, workspaceId, projectId }) ||
+            input.projectAccess.listAuthorizedCanvases({
+              workspaceId,
+              projectId,
+              actor: identity,
+              limit: 1
+            }).length > 0
+          );
+        },
         authorizeMutation(actor, workItem) {
           try {
             input.projectAccess.policy.assertCapability({

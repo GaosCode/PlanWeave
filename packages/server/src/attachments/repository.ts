@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { z } from "zod";
+import { workItemRefSchema, type WorkItemRef } from "../work/schemas.js";
 import {
   commentAttachmentFileNameSchema,
   commentAttachmentMediaTypeSchema,
@@ -70,6 +71,7 @@ type BindingRow = {
   file_name: string | null;
   created_at: string;
   comment_tombstoned_at: string | null;
+  pending_upload_ids_json: string;
 };
 
 function toPendingRecord(row: PendingRow): PendingUploadRecord {
@@ -145,8 +147,8 @@ export class CommentAttachmentRepository {
         `INSERT INTO comment_pending_uploads(
           pending_upload_id,workspace_id,project_id,uploader_human_principal_id,
           expected_digest_sha256,expected_size_bytes,media_type,file_name,comment_id,
-          status,digest_sha256,created_at,expires_at,uploaded_at,finalized_at
-        ) VALUES (?,?,?,?,?,?,?,?,?, 'pending', NULL,?,?, NULL, NULL)`
+          status,digest_sha256,created_at,expires_at,uploaded_at,finalized_at,binding_provenance_version
+        ) VALUES (?,?,?,?,?,?,?,?,?, 'pending', NULL,?,?, NULL, NULL,1)`
       )
       .run(
         pendingUploadId,
@@ -391,7 +393,7 @@ export class CommentAttachmentRepository {
     workspaceId: string;
     projectId: string;
     commentId: string;
-    attachments: readonly CommentAttachmentMetadata[];
+    attachments: readonly (CommentAttachmentMetadata & { pendingUploadId: string })[];
     createdAt: string;
   }): CommentAttachmentBinding[] {
     return inWriteTransaction(this.database, () => this.bindCommentAttachmentsUnlocked(input));
@@ -405,7 +407,7 @@ export class CommentAttachmentRepository {
     workspaceId: string;
     projectId: string;
     commentId: string;
-    attachments: readonly CommentAttachmentMetadata[];
+    attachments: readonly (CommentAttachmentMetadata & { pendingUploadId: string })[];
     createdAt: string;
   }): CommentAttachmentBinding[] {
     const workspaceId = workspaceIdSchema.parse(input.workspaceId);
@@ -413,29 +415,34 @@ export class CommentAttachmentRepository {
     const commentId = commentIdSchema.parse(input.commentId);
     const bindings: CommentAttachmentBinding[] = [];
     for (const attachment of input.attachments) {
-      // A retained finalized reference protects synchronous comment binding from concurrent GC.
-      const finalized = this.database
-        .prepare(`SELECT 1 AS present FROM comment_pending_uploads
-        WHERE workspace_id=? AND project_id=? AND digest_sha256=? AND status='finalized'
-          AND expected_size_bytes=? AND media_type=? LIMIT 1`)
-        .get(
-          workspaceId,
-          projectId,
-          attachment.digestSha256,
-          attachment.sizeBytes,
-          attachment.mediaType
-        );
-      if (!finalized) throw new AttachmentRepositoryError("attachment_status_conflict");
+      const pendingUploadId = pendingAttachmentUploadIdSchema.parse(attachment.pendingUploadId);
+      this.resolveFinalizedForCommentInput(workspaceId, projectId, {
+        ...attachment,
+        pendingUploadId
+      });
+      const existing = this.database
+        .prepare(`SELECT pending_upload_ids_json FROM comment_attachment_bindings
+          WHERE workspace_id=? AND project_id=? AND comment_id=? AND digest_sha256=?`)
+        .get(workspaceId, projectId, commentId, attachment.digestSha256) as
+        | { pending_upload_ids_json: string }
+        | undefined;
+      const pendingIds = existing
+        ? z
+            .array(pendingAttachmentUploadIdSchema)
+            .parse(JSON.parse(existing.pending_upload_ids_json))
+        : [];
+      const provenance = JSON.stringify([...new Set([...pendingIds, pendingUploadId])]);
       this.database
         .prepare(
           `INSERT INTO comment_attachment_bindings(
             workspace_id,project_id,comment_id,digest_sha256,size_bytes,media_type,file_name,
-            created_at,comment_tombstoned_at
-          ) VALUES (?,?,?,?,?,?,?, ?, NULL)
+            created_at,comment_tombstoned_at,pending_upload_ids_json
+          ) VALUES (?,?,?,?,?,?,?, ?, NULL,?)
           ON CONFLICT(workspace_id, project_id, comment_id, digest_sha256) DO UPDATE SET
             size_bytes=excluded.size_bytes,
             media_type=excluded.media_type,
-            file_name=excluded.file_name`
+            file_name=excluded.file_name,
+            pending_upload_ids_json=excluded.pending_upload_ids_json`
         )
         .run(
           workspaceId,
@@ -445,7 +452,8 @@ export class CommentAttachmentRepository {
           attachment.sizeBytes,
           attachment.mediaType,
           attachment.fileName ?? null,
-          input.createdAt
+          input.createdAt,
+          provenance
         );
       bindings.push(
         this.getBindingRequired(workspaceId, projectId, commentId, attachment.digestSha256)
@@ -508,21 +516,76 @@ export class CommentAttachmentRepository {
     return binding;
   }
 
-  hasProjectReference(workspaceId: string, projectId: string, digestSha256: string): boolean {
-    const workspace = workspaceIdSchema.parse(workspaceId);
-    const project = humanProjectIdSchema.parse(projectId);
-    const digest = commentContentSha256Schema.parse(digestSha256);
+  listDigestReadBindings(
+    workspaceId: string,
+    projectId: string,
+    digestSha256: string,
+    pendingUploadId?: string
+  ): Array<{
+    binding: CommentAttachmentBinding;
+    workItem?: WorkItemRef;
+  }> {
+    const rows = this.database
+      .prepare(`SELECT b.*, c.canvas_id, c.work_item_kind, c.work_item_key
+      FROM comment_attachment_bindings b LEFT JOIN comments c
+        ON c.workspace_id=b.workspace_id AND c.project_id=b.project_id AND c.comment_id=b.comment_id
+      WHERE b.workspace_id=? AND b.project_id=? AND b.digest_sha256=?
+        AND (? IS NULL OR EXISTS (SELECT 1 FROM json_each(b.pending_upload_ids_json) WHERE value=?))`)
+      .all(
+        workspaceIdSchema.parse(workspaceId),
+        humanProjectIdSchema.parse(projectId),
+        commentContentSha256Schema.parse(digestSha256),
+        pendingUploadId === undefined
+          ? null
+          : pendingAttachmentUploadIdSchema.parse(pendingUploadId),
+        pendingUploadId === undefined
+          ? null
+          : pendingAttachmentUploadIdSchema.parse(pendingUploadId)
+      ) as Array<
+      BindingRow & {
+        canvas_id: string | null;
+        work_item_kind: string | null;
+        work_item_key: string | null;
+      }
+    >;
+    return rows.map((row) => ({
+      binding: toBinding(row),
+      workItem:
+        row.canvas_id === null
+          ? undefined
+          : workItemRefSchema.parse(
+              row.work_item_kind === "task"
+                ? { kind: "task", canvasId: row.canvas_id, taskId: row.work_item_key }
+                : { kind: "block", canvasId: row.canvas_id, blockRef: row.work_item_key }
+            )
+    }));
+  }
+
+  hasExactPendingBindingProvenance(record: PendingUploadRecord): boolean {
     const row = this.database
-      .prepare(
-        `SELECT 1 AS present FROM comment_pending_uploads
-         WHERE workspace_id=? AND project_id=? AND digest_sha256=? AND status IN ('uploaded','finalized')
-         UNION ALL
-         SELECT 1 AS present FROM comment_attachment_bindings
-         WHERE workspace_id=? AND project_id=? AND digest_sha256=?
-         LIMIT 1`
-      )
-      .get(workspace, project, digest, workspace, project, digest);
-    return Boolean(row);
+      .prepare(`SELECT binding_provenance_version FROM comment_pending_uploads
+        WHERE workspace_id=? AND project_id=? AND pending_upload_id=?`)
+      .get(record.workspaceId, record.projectId, record.pendingUploadId) as
+      | { binding_provenance_version: number }
+      | undefined;
+    if (!row) throw new AttachmentRepositoryError("attachment_not_found");
+    return z.union([z.literal(0), z.literal(1)]).parse(row.binding_provenance_version) === 1;
+  }
+
+  listDigestPendingUploads(
+    workspaceId: string,
+    projectId: string,
+    digestSha256: string
+  ): PendingUploadRecord[] {
+    const rows = this.database
+      .prepare(`SELECT * FROM comment_pending_uploads
+      WHERE workspace_id=? AND project_id=? AND digest_sha256=? AND status IN ('uploaded','finalized')`)
+      .all(
+        workspaceIdSchema.parse(workspaceId),
+        humanProjectIdSchema.parse(projectId),
+        commentContentSha256Schema.parse(digestSha256)
+      ) as PendingRow[];
+    return rows.map(toPendingRecord);
   }
 
   /**

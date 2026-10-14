@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setupArtifactDownloadHttp } from "./support/artifactDownloadHttpFixture.js";
+import { CommentRepository } from "../comments/repository.js";
 import {
   auth,
   bootstrap,
@@ -127,6 +128,19 @@ async function setupDownload(kind: DownloadKind) {
   expect(
     (await finalizePending(fixture.origin, token, "project-a", pendingId, sha256)).response.status
   ).toBe(200);
+  const at = new Date().toISOString();
+  new CommentRepository(fixture.database, fixture.workspaceA).insertUnlocked({
+    commentId: "download-comment",
+    projectId: "project-a",
+    workItem: { kind: "task", canvasId: "default", taskId: "T-001" },
+    authorHumanPrincipalId: "human-owner-1",
+    body: "download",
+    bodyFormat: "markdown",
+    revision: 1,
+    createdAt: at,
+    updatedAt: at,
+    attachments: []
+  });
   fixture.attachmentService.bindCommentAttachments({
     actor: {
       humanPrincipalId: "human-owner-1",
@@ -141,6 +155,7 @@ async function setupDownload(kind: DownloadKind) {
     commentId: "download-comment",
     attachments: [
       {
+        pendingUploadId: pendingId,
         digestSha256: sha256,
         sizeBytes: bytes.length,
         mediaType: "text/plain",

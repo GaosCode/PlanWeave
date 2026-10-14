@@ -64,6 +64,9 @@ const service = new CommentAttachmentService({
   blobs: new ProcessBlobStore(database, input.directory),
   lifecycle: new CommentAttachmentDigestLifecycle(database, input.directory),
   identity,
+  canRead({ actor, workspaceId }) {
+    return workspaceIdentity.hasActiveMembership(workspaceId, actor.humanPrincipalId);
+  },
   clock
 });
 const server = createServer((request, response) => {

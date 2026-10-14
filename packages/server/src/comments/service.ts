@@ -3,12 +3,7 @@ import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/pri
 import type { CommentAttachmentRepository } from "../attachments/repository.js";
 import type { CommentAttachmentService } from "../attachments/service.js";
 import type { HumanIdentityRepository } from "../identity/repository.js";
-import {
-  humanAuthContextSchema,
-  humanProjectIdSchema,
-  type HumanAuthContext,
-  type ProjectMemberRole
-} from "../identity/schemas.js";
+import type { HumanAuthContext, ProjectMemberRole } from "../identity/schemas.js";
 import { inWriteTransaction } from "../sqlite.js";
 import type { WorkItemPackageFacts, WorkItemRef } from "../work/schemas.js";
 import type { WorkItemPackagePort } from "../work/workItemFacts.js";
@@ -22,7 +17,7 @@ import {
   type MembershipActivityInput,
   type RemoteRunActivityInput
 } from "./activityProjection.js";
-import { nextActivityCursor, nextCommentCursor } from "./cursor.js";
+import { activityCursorFromRecord, nextCommentCursor } from "./cursor.js";
 import { COMMENT_ACTIVITY_ERROR_MESSAGES, type CommentActivityErrorCode } from "./errors.js";
 import {
   ACTIVITY_LIST_PAGE_DEFAULT,
@@ -30,8 +25,6 @@ import {
   COMMENT_LIST_PAGE_DEFAULT
 } from "./limits.js";
 import {
-  authorizeActivityList,
-  authorizeCommentList,
   decideCommentCreate,
   decideCommentEdit,
   decideCommentTombstone,
@@ -39,7 +32,6 @@ import {
 } from "./policy.js";
 import { CommentRepository, CommentRepositoryError } from "./repository.js";
 import {
-  activityListCursorSchema,
   activityListQuerySchema,
   commentCreateCommandSchema,
   commentEditCommandSchema,
@@ -114,6 +106,9 @@ export type CommentServiceOptions = {
   attachments?: CommentAttachmentService;
   /** Unlocked bind/tombstone markers inside comment transactions. */
   attachmentRepository?: CommentAttachmentRepository;
+  /** Live server read capability; never cached on the service instance. */
+  canRead(actor: HumanAuthContext, canvasId?: string): boolean;
+  canListActivity(actor: HumanAuthContext): boolean;
   /** Server-owned ACL check at the exact canvas scope before any durable comment write. */
   authorizeMutation(actor: HumanAuthContext, workItem: WorkItemRef): void;
   /** Exact workspace membership projection for comment author display state. */
@@ -141,6 +136,8 @@ export class CommentService {
   private readonly identity: HumanIdentityRepository;
   private readonly attachments?: CommentAttachmentService;
   private readonly attachmentRepository?: CommentAttachmentRepository;
+  private readonly canRead: CommentServiceOptions["canRead"];
+  private readonly canListActivity: CommentServiceOptions["canListActivity"];
   private readonly authorizeMutation: CommentServiceOptions["authorizeMutation"];
   private readonly authorMembershipActive: CommentServiceOptions["authorMembershipActive"];
   private readonly membershipAssertion?: CommentServiceOptions["assertMembership"];
@@ -154,6 +151,8 @@ export class CommentService {
     this.identity = options.identity;
     this.attachments = options.attachments;
     this.attachmentRepository = options.attachmentRepository;
+    this.canRead = options.canRead;
+    this.canListActivity = options.canListActivity;
     this.authorizeMutation = options.authorizeMutation;
     this.authorMembershipActive = options.authorMembershipActive;
     this.membershipAssertion = options.assertMembership;
@@ -212,7 +211,10 @@ export class CommentService {
             workspaceId: this.workspaceId,
             projectId: inserted.projectId,
             commentId: inserted.commentId,
-            attachments: inserted.attachments,
+            attachments: finalized.map((attachment, index) => ({
+              ...attachment,
+              pendingUploadId: command.attachments[index]!.pendingUploadId
+            })),
             createdAt: inserted.createdAt
           });
         }
@@ -361,13 +363,8 @@ export class CommentService {
         ...((queryInput as object) ?? {})
       });
       this.assertActiveMembership(query.actor, query.projectId);
-      const auth = authorizeCommentList({
-        subject: { kind: "human", context: query.actor },
-        projectId: query.projectId
-      });
-      if (!auth.allowed) {
-        deny(auth.code, auth.message);
-      }
+      if (query.actor.projectId !== query.projectId) deny("comment_auth_project_mismatch");
+      if (!this.canRead(query.actor, query.workItem.canvasId)) deny("comment_auth_forbidden");
 
       const fetchLimit = query.limit + 1;
       const rows = this.comments.listByWorkItem({
@@ -395,25 +392,43 @@ export class CommentService {
         ...((queryInput as object) ?? {})
       });
       this.assertActiveMembership(query.actor, query.projectId);
-      const auth = authorizeActivityList({
-        subject: { kind: "human", context: query.actor },
-        projectId: query.projectId
-      });
-      if (!auth.allowed) {
-        deny(auth.code, auth.message);
+      if (query.actor.projectId !== query.projectId) deny("comment_auth_project_mismatch");
+      if (query.workItem) {
+        if (!this.canRead(query.actor, query.workItem.canvasId)) deny("comment_auth_forbidden");
+      } else if (!this.canListActivity(query.actor)) {
+        deny("comment_auth_forbidden");
       }
 
-      const fetchLimit = query.limit + 1;
-      const rows = this.activity.list({
-        projectId: query.projectId,
-        workItem: query.workItem,
-        limit: fetchLimit,
-        cursor: query.cursor
-      });
-      const pageRows = rows.slice(0, query.limit);
-      const nextCursor =
-        rows.length > query.limit ? nextActivityCursor(pageRows, query.limit) : null;
-      return { items: pageRows, nextCursor };
+      // The cursor tracks scanned rows, including hidden rows, so bounded empty pages progress.
+      const items: ActivityRecord[] = [];
+      let cursor = query.cursor;
+      const scanBudget = 1000;
+      for (let scanned = 0; scanned < scanBudget; ) {
+        const rows = this.activity.list({
+          projectId: query.projectId,
+          workItem: query.workItem,
+          limit: Math.min(100, scanBudget - scanned) + 1,
+          cursor
+        });
+        const batchLimit = Math.min(100, scanBudget - scanned);
+        const batch = rows.slice(0, batchLimit);
+        for (const row of batch) {
+          scanned += 1;
+          cursor = activityCursorFromRecord(row);
+          if (this.canRead(query.actor, row.workItem?.canvasId)) items.push(row);
+          if (items.length === query.limit) {
+            const more = this.activity.list({
+              projectId: query.projectId,
+              workItem: query.workItem,
+              limit: 1,
+              cursor
+            });
+            return { items, nextCursor: more.length ? cursor : null };
+          }
+        }
+        if (rows.length <= batch.length) return { items, nextCursor: null };
+      }
+      return { items, nextCursor: cursor ?? null };
     } catch (error) {
       mapUnknown(error);
     }
@@ -561,36 +576,6 @@ export class ActivityProjectionService {
   reconcileOutbox(limit = 100): { processed: number; inserted: number; duplicates: number } {
     const cutoff = new Date(this.clock().getTime() - ACTIVITY_RETENTION_MAX_AGE_MS).toISOString();
     return this.activity.reconcileOutbox(limit, cutoff);
-  }
-
-  listForActor(
-    actor: HumanAuthContext,
-    projectId: string,
-    options: { workItem?: WorkItemRef; limit?: number; cursor?: unknown } = {}
-  ): ActivityListPage {
-    const context = humanAuthContextSchema.parse(actor);
-    const pid = humanProjectIdSchema.parse(projectId);
-    const auth = authorizeActivityList({
-      subject: { kind: "human", context },
-      projectId: pid
-    });
-    if (!auth.allowed) {
-      throw new CommentServiceError(auth.code, auth.message);
-    }
-    // Callers that need durable membership checks should use CommentService.listActivity.
-    const limit = options.limit ?? ACTIVITY_LIST_PAGE_DEFAULT;
-    const fetchLimit = limit + 1;
-    const cursor =
-      options.cursor === undefined ? undefined : activityListCursorSchema.parse(options.cursor);
-    const rows = this.activity.list({
-      projectId: pid,
-      workItem: options.workItem,
-      limit: fetchLimit,
-      cursor
-    });
-    const pageRows = rows.slice(0, limit);
-    const nextCursor = rows.length > limit ? nextActivityCursor(pageRows, limit) : null;
-    return { items: pageRows, nextCursor };
   }
 }
 

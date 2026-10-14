@@ -21,7 +21,6 @@ import { CommentAttachmentBlobStore } from "./blobStore.js";
 import {
   authorizeAttachmentProjectAccess,
   authorizeCommentAttachmentRead,
-  authorizeDigestScopedRead,
   authorizePendingUploadMutation,
   authorizePendingUploadRead,
   evaluateAttachmentMediaAndSize,
@@ -88,6 +87,12 @@ export type CommentAttachmentServiceOptions = {
   blobs: CommentAttachmentBlobStore;
   lifecycle: CommentAttachmentDigestLifecycle;
   identity: HumanIdentityRepository;
+  canRead(input: {
+    actor: HumanAuthContext;
+    workspaceId: string;
+    projectId: string;
+    canvasId?: string;
+  }): boolean;
   clock?: () => Date;
 };
 
@@ -356,6 +361,7 @@ export class CommentAttachmentService {
       if (!auth.allowed) deny(auth.code, auth.message);
       if (!record.digestSha256) deny("attachment_not_found");
 
+      if (!this.canReadPending(input.actor, record)) deny("attachment_auth_forbidden");
       const { metadata, stream } = await this.options.blobs.openRead(record.digestSha256);
       return {
         record,
@@ -402,6 +408,15 @@ export class CommentAttachmentService {
       });
       if (!auth.allowed) deny(auth.code, auth.message);
 
+      const readable = this.options.repository
+        .listDigestReadBindings(input.workspaceId, input.projectId, binding.digestSha256)
+        .find((reference) => reference.binding.commentId === binding.commentId);
+      if (
+        !readable?.workItem ||
+        !this.options.canRead({ ...input, canvasId: readable.workItem.canvasId })
+      ) {
+        deny("attachment_auth_forbidden");
+      }
       const { stream } = await this.options.blobs.openRead(binding.digestSha256);
       return { binding, stream };
     } catch (error) {
@@ -426,17 +441,26 @@ export class CommentAttachmentService {
         deny("attachment_auth_project_mismatch");
       }
       const digest = commentContentSha256Schema.parse(input.digestSha256);
-      const referenced = this.options.repository.hasProjectReference(
+      const base = authorizeAttachmentProjectAccess({ subject, projectId: input.projectId });
+      if (!base.allowed) deny(base.code, base.message);
+      const bindings = this.options.repository.listDigestReadBindings(
         input.workspaceId,
         input.projectId,
         digest
       );
-      const auth = authorizeDigestScopedRead({
-        subject,
-        projectId: input.projectId,
-        referencedInProject: referenced
-      });
-      if (!auth.allowed) deny(auth.code, auth.message);
+      const pending = this.options.repository.listDigestPendingUploads(
+        input.workspaceId,
+        input.projectId,
+        digest
+      );
+      if (!bindings.length && !pending.length) deny("attachment_not_found");
+      const allowed =
+        bindings.some(
+          (reference) =>
+            reference.workItem &&
+            this.options.canRead({ ...input, canvasId: reference.workItem.canvasId })
+        ) || pending.some((record) => this.canReadPending(input.actor, record));
+      if (!allowed) deny("attachment_auth_forbidden");
 
       const { metadata, stream } = await this.options.blobs.openRead(digest);
       return {
@@ -450,12 +474,53 @@ export class CommentAttachmentService {
     }
   }
 
+  private canReadPending(actor: HumanAuthContext, record: PendingUploadRecord): boolean {
+    if (!record.digestSha256) return false;
+    const exact = this.options.repository.hasExactPendingBindingProvenance(record);
+    if (
+      !exact &&
+      !this.sameHumanPrincipal(actor.humanPrincipalId, record.uploaderHumanPrincipalId)
+    ) {
+      return false;
+    }
+    const bindings = this.options.repository.listDigestReadBindings(
+      record.workspaceId,
+      record.projectId,
+      record.digestSha256,
+      exact ? record.pendingUploadId : undefined
+    );
+    if (bindings.length) {
+      return bindings.some(
+        (reference) =>
+          (exact || !record.commentId || reference.binding.commentId === record.commentId) &&
+          reference.workItem &&
+          this.options.canRead({
+            actor,
+            workspaceId: record.workspaceId,
+            projectId: record.projectId,
+            canvasId: reference.workItem.canvasId
+          })
+      );
+    }
+    if (record.commentId) return false;
+    const auth = authorizePendingUploadRead({
+      subject: humanSubject(actor),
+      projectId: record.projectId,
+      record,
+      now: this.clock()
+    });
+    return (
+      auth.allowed &&
+      this.sameHumanPrincipal(actor.humanPrincipalId, record.uploaderHumanPrincipalId)
+    );
+  }
+
   bindCommentAttachments(input: {
     actor: HumanAuthContext;
     workspaceId: string;
     projectId: string;
     commentId: string;
-    attachments: readonly CommentAttachmentMetadata[];
+    attachments: readonly (CommentAttachmentMetadata & { pendingUploadId: string })[];
   }): CommentAttachmentBinding[] {
     try {
       const subject = humanSubject(input.actor);

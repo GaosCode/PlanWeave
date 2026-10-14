@@ -1,3 +1,9 @@
+import { setupCommentReadComposition } from "./support/commentReadAccessCompositionFixture.js";
+import { hashHumanToken } from "../identity/index.js";
+import { ActivityRepository, buildCommentActivity } from "../comments/index.js";
+import { openServerDatabase } from "../sqlite.js";
+import { ProjectAccessRepository } from "../projectAccessRepository.js";
+import { inviteAndJoin } from "./support/commentAttachmentHttpFixture.js";
 import { createHash } from "node:crypto";
 import { createServer, type Server as HttpServer } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -122,7 +128,8 @@ async function setup(manifest: PlanPackageManifest = basicManifest()) {
     projectB,
     projectACanvas,
     restart,
-    manifest
+    manifest,
+    config
   };
 }
 
@@ -376,6 +383,20 @@ describe("comment and activity production HTTP", () => {
     };
     expect(joined.status).toBe(201);
 
+    const privateWorkItem = encodeURIComponent(
+      JSON.stringify({ kind: "task", canvasId: "default", taskId: "T-001" })
+    );
+    for (const endpoint of [
+      `comments?workItem=${privateWorkItem}`,
+      `activity?workItem=${privateWorkItem}`
+    ]) {
+      const denied = await fetch(`${fixture.origin}/api/v1/projects/${projectId}/${endpoint}`, {
+        headers: jsonHeaders(joinedBody.deviceToken)
+      });
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toMatchObject({ error: "comment_auth_forbidden" });
+    }
+
     const shared = await fetch(
       `${fixture.origin}/api/v1/projects/${projectId}/canvases/default/access`,
       {
@@ -628,5 +649,172 @@ describe("comment and activity production HTTP", () => {
       .map((item) => item.source.sourceId);
     expect(assignmentSources).toHaveLength(workItems.length);
     expect(new Set(assignmentSources).size).toBe(workItems.length);
+  });
+});
+
+describe("authorized Activity pagination", () => {
+  it("advances across a full hidden scan budget without leaking or skipping visible events", async () => {
+    const fixture = await setup();
+    const projectId = fixture.projectA.init.workspace.id;
+    const owner = await bootstrap(fixture.origin, projectId, "pagination-owner");
+    const member = await inviteAndJoin(fixture.origin, owner, projectId, "Activity reader");
+    const database = await openServerDatabase(fixture.config.databasePath, 5000);
+    try {
+      const access = new ProjectAccessRepository(database);
+      access.registerCanvasInternal({
+        workspaceId: projectAWorkspaceId,
+        projectId,
+        canvasId: "hidden",
+        packageDir: join(fixture.projectA.root, "hidden"),
+        ownerHumanPrincipalId: "pagination-owner"
+      });
+      database
+        .prepare(
+          "UPDATE project_registry SET visibility='shared' WHERE workspace_id=? AND project_id=?"
+        )
+        .run(projectAWorkspaceId, projectId);
+      database
+        .prepare(
+          "UPDATE canvas_registry SET visibility='shared' WHERE workspace_id=? AND project_id=? AND canvas_id='default'"
+        )
+        .run(projectAWorkspaceId, projectId);
+      const repository = new ActivityRepository(database, { workspaceId: projectAWorkspaceId });
+      const expected: string[] = [];
+      const baseOccurredAt = Date.now() + 10000;
+      for (let index = 0; index < 1006; index += 1) {
+        const visible = index >= 1001 && index % 2 === 1;
+        const record = buildCommentActivity({
+          activityId: repository.allocateActivityId(),
+          projectId,
+          type: "comment_created",
+          commentId: `page-comment-${index}`,
+          workItem: { kind: "task", canvasId: visible ? "default" : "hidden", taskId: "T-001" },
+          authorHumanPrincipalId: "pagination-owner",
+          authorDisplayName: "Owner",
+          revision: 1,
+          occurredAt: new Date(baseOccurredAt - index).toISOString()
+        });
+        repository.insertIdempotent(record);
+        if (visible) expected.push(record.activityId);
+      }
+      const actual: string[] = [];
+      let cursor: object | null = null;
+      for (let page = 0; page < 10; page += 1) {
+        const url = `${fixture.origin}/api/v1/projects/${projectId}/activity?limit=2${cursor ? `&cursor=${encodeURIComponent(JSON.stringify(cursor))}` : ""}`;
+        const response = await fetch(url, { headers: jsonHeaders(member) });
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as {
+          items: Array<{ activityId: string; workItem?: { canvasId: string } }>;
+          nextCursor: object | null;
+        };
+        expect(JSON.stringify(body.items)).not.toContain('"hidden"');
+        if (page === 0) {
+          expect(body.items).toEqual([]);
+          expect(body.nextCursor).not.toBeNull();
+        }
+        actual.push(...body.items.filter((item) => item.workItem).map((item) => item.activityId));
+        cursor = body.nextCursor;
+        if (!cursor) break;
+      }
+      expect(cursor).toBeNull();
+      expect(actual).toEqual(expected);
+    } finally {
+      database.close();
+    }
+  });
+});
+
+describe("composed live comment read grants", () => {
+  it("revokes cached-client reads and isolates identical project/canvas IDs between workspaces", async () => {
+    const fixture = await setupCommentReadComposition();
+    const owner = fixture.owner;
+    const member = await inviteAndJoin(
+      fixture.origin,
+      owner!.token,
+      fixture.projectId,
+      "Read member"
+    );
+    const otherOwner = fixture.createOtherWorkspace();
+    const memberId = fixture.database
+      .prepare("SELECT human_principal_id FROM workspace_device_sessions WHERE credential_sha256=?")
+      .get(hashHumanToken(member)) as { human_principal_id: string };
+    const comment = await fixture.createComment(owner!.token, "default", "private-comment-secret");
+    const otherComment = await fixture.createComment(
+      otherOwner!.token,
+      "default",
+      "other-workspace-secret"
+    );
+    const query = `workItem=${encodeURIComponent(JSON.stringify({ kind: "task", canvasId: "default", taskId: "T-001" }))}`;
+    const read = (path: string, token = member) =>
+      fetch(`${fixture.base}/${path}`, { headers: jsonHeaders(token) });
+    for (const path of [`comments?${query}`, `activity?${query}`, "activity"]) {
+      const denied = await read(path);
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ error: "comment_auth_forbidden" });
+    }
+    await fixture.mutateAccess(owner!.token, owner!.workspaceId, "default", {
+      operation: "grant",
+      expectedAclRevision: 0,
+      humanPrincipalId: memberId.human_principal_id,
+      role: "viewer"
+    });
+    const allowed = await read(`comments?${query}`);
+    expect(allowed.status).toBe(200);
+    const allowedBody = await allowed.json();
+    expect(allowedBody).toMatchObject({
+      items: [{ commentId: comment.commentId, body: "private-comment-secret" }]
+    });
+    expect(JSON.stringify(allowedBody)).not.toContain(otherComment.commentId);
+    const activity = await read("activity");
+    expect(activity.status).toBe(200);
+    const page = (await activity.json()) as { items: Array<{ type: string; workItem?: object }> };
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      type: "comment_created",
+      workItem: { canvasId: "default" }
+    });
+    // A read-only grant cannot create comments and cannot expose project-only membership events.
+    const write = await fetch(`${fixture.base}/comments`, {
+      method: "POST",
+      headers: jsonHeaders(member),
+      body: JSON.stringify({
+        workItem: { kind: "task", canvasId: "default", taskId: "T-001" },
+        body: "viewer write"
+      })
+    });
+    expect(write.status).toBe(403);
+    const grant = fixture.access.listActiveCanvasPersonGrants({
+      workspaceId: owner!.workspaceId,
+      projectId: fixture.projectId,
+      canvasId: "default",
+      humanPrincipalId: memberId.human_principal_id
+    })[0]!;
+    await fixture.mutateAccess(owner!.token, owner!.workspaceId, "default", {
+      operation: "revoke",
+      expectedAclRevision: 1,
+      grantId: grant.grantId
+    });
+    for (const path of [`comments?${query}`, `activity?${query}`, "activity"]) {
+      const denied = await read(path);
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ error: "comment_auth_forbidden" });
+    }
+    const otherList = await read(`comments?${query}`, otherOwner!.token);
+    expect(otherList.status).toBe(200);
+    expect(await otherList.json()).toMatchObject({
+      items: [{ commentId: otherComment.commentId, body: "other-workspace-secret" }]
+    });
+    await fixture.mutateAccess(owner!.token, owner!.workspaceId, null, {
+      operation: "visibility",
+      expectedAclRevision: 0,
+      visibility: "shared"
+    });
+    const projectFeed = await read("activity");
+    expect(projectFeed.status).toBe(200);
+    const sharedBody = (await projectFeed.json()) as { items: Array<{ type: string }> };
+    expect(sharedBody.items.some((item) => item.type === "member_joined")).toBe(true);
+    expect(JSON.stringify(sharedBody)).not.toContain(comment.commentId);
+    const privateCanvas = await read(`comments?${query}`);
+    expect(privateCanvas.status).toBe(403);
   });
 });

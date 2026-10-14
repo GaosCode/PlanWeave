@@ -49,6 +49,7 @@ import { remoteRunnerEventsMigration } from "./remoteRunnerEvents.js";
 import { ownerCanvasMaterializationMigration } from "./ownerCanvasMaterialization.js";
 import { remoteAgentOwnerCanvasAccessMigration } from "./remoteAgentOwnerCanvasAccess.js";
 import type { Migration, MigrationModule } from "./types.js";
+import { attachmentBindingProvenanceMigration } from "./attachmentBindingProvenance.js";
 
 const identityModule: MigrationModule = { name: "identity", migrations: identityMigrations };
 
@@ -86,6 +87,7 @@ export const migrationModules: readonly MigrationModule[] = [
   { name: "assignment-workspace-scope", migrations: [assignmentWorkspaceScopeMigration] },
   { name: "observer-workspace-scope", migrations: [observerWorkspaceScopeMigration] },
   { name: "attachment-workspace-scope", migrations: [attachmentWorkspaceScopeMigration] },
+  { name: "attachment-binding-provenance", migrations: [attachmentBindingProvenanceMigration] },
   { name: "remote-workspace-scope", migrations: [remoteWorkspaceScopeMigration] },
   { name: "server-exposure", migrations: [exposureLeaseMigration] },
   { name: "endpoint-selection", migrations: [endpointSelectionMigration] },

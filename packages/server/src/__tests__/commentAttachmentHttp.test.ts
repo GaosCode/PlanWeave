@@ -1,3 +1,4 @@
+import { CommentRepository } from "../comments/repository.js";
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -216,11 +217,24 @@ describe("comment attachment HTTP and blob authorization", () => {
       membershipId: "membership-workspace-one"
     };
     const metadata = {
+      pendingUploadId: firstPendingId,
       digestSha256: firstFinalized.payload.digestSha256 as string,
       sizeBytes: firstFinalized.payload.sizeBytes as number,
       mediaType: "text/plain" as const,
       createdAt: new Date().toISOString()
     };
+    new CommentRepository(database, workspaceOne).insertUnlocked({
+      commentId: "comment-shared",
+      projectId: projectId,
+      workItem: { kind: "task", canvasId: "default", taskId: "T-001" },
+      authorHumanPrincipalId: first.principalId,
+      body: "attachment",
+      bodyFormat: "markdown",
+      revision: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      attachments: []
+    });
     attachmentService.bindCommentAttachments({
       actor: firstActor,
       workspaceId: workspaceOne,
@@ -263,6 +277,18 @@ describe("comment attachment HTTP and blob authorization", () => {
       digest
     );
     expect(secondFinalized.response.status).toBe(200);
+    new CommentRepository(database, workspaceTwo).insertUnlocked({
+      commentId: "comment-shared-two",
+      projectId: projectId,
+      workItem: { kind: "task", canvasId: "default", taskId: "T-001" },
+      authorHumanPrincipalId: second.principalId,
+      body: "attachment",
+      bodyFormat: "markdown",
+      revision: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      attachments: []
+    });
     attachmentService.bindCommentAttachments({
       actor: {
         humanPrincipalId: second.principalId,
@@ -274,9 +300,10 @@ describe("comment attachment HTTP and blob authorization", () => {
       },
       workspaceId: workspaceTwo,
       projectId,
-      commentId: "comment-shared",
+      commentId: "comment-shared-two",
       attachments: [
         {
+          pendingUploadId: secondPendingId,
           digestSha256: secondFinalized.payload.digestSha256 as string,
           sizeBytes: secondFinalized.payload.sizeBytes as number,
           mediaType: "text/plain",
@@ -285,7 +312,7 @@ describe("comment attachment HTTP and blob authorization", () => {
       ]
     });
     const secondRead = await fetch(
-      `${origin}/api/v1/projects/${projectId}/attachments/comments/comment-shared/${digest}`,
+      `${origin}/api/v1/projects/${projectId}/attachments/comments/comment-shared-two/${digest}`,
       { headers: auth(second.token) }
     );
     expect(secondRead.status).toBe(200);
@@ -295,7 +322,7 @@ describe("comment attachment HTTP and blob authorization", () => {
       .prepare("UPDATE workspace_device_sessions SET revoked_at=? WHERE device_session_id=?")
       .run(new Date().toISOString(), second.sessionId);
     const revoked = await fetch(
-      `${origin}/api/v1/projects/${projectId}/attachments/comments/comment-shared/${digest}`,
+      `${origin}/api/v1/projects/${projectId}/attachments/comments/comment-shared-two/${digest}`,
       { headers: auth(second.token) }
     );
     expect(revoked.status).toBe(401);
@@ -453,6 +480,7 @@ describe("comment attachment HTTP and blob authorization", () => {
     let now = new Date("2026-07-24T12:00:00.000Z");
     const {
       origin,
+      database,
       attachmentService,
       attachmentRepository,
       blobs,
@@ -478,6 +506,7 @@ describe("comment attachment HTTP and blob authorization", () => {
     await uploadPending(origin, token, "project-a", pendingUploadId, bytes, "text/plain", digest);
     const finalized = await finalizePending(origin, token, "project-a", pendingUploadId, digest);
     const metadata = {
+      pendingUploadId,
       digestSha256: finalized.payload.digestSha256 as string,
       sizeBytes: finalized.payload.sizeBytes as number,
       mediaType: "text/plain" as const,
@@ -493,6 +522,18 @@ describe("comment attachment HTTP and blob authorization", () => {
       role: "owner" as const,
       membershipId: "membership"
     };
+    new CommentRepository(database, workspaceA).insertUnlocked({
+      commentId: "comment-1",
+      projectId: "project-a",
+      workItem: { kind: "task", canvasId: "default", taskId: "T-001" },
+      authorHumanPrincipalId: "human-owner-1",
+      body: "attachment",
+      bodyFormat: "markdown",
+      revision: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      attachments: []
+    });
     attachmentService.bindCommentAttachments({
       actor,
       workspaceId: workspaceA,

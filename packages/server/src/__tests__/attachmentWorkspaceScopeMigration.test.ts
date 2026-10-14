@@ -3,6 +3,7 @@ import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js"
 import { attachmentWorkspaceScopeMigration } from "../migrations/attachmentWorkspaceScope.js";
 import { applyMigrations } from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
+import { applyMigrationsThroughVersion } from "./support/migrationFixture.js";
 
 const databases: SqliteDatabase[] = [];
 
@@ -96,6 +97,42 @@ function insertLegacyBinding(database: SqliteDatabase, projectId: string, commen
 }
 
 describe("attachment workspace scope migration", () => {
+  it("preserves historical uploads and bindings without inventing their pending provenance", async () => {
+    const database = await openServerDatabase(":memory:", 5_000);
+    databases.push(database);
+    applyMigrationsThroughVersion(database, 73);
+    database
+      .prepare(`INSERT INTO comment_pending_uploads(
+      pending_upload_id,workspace_id,project_id,uploader_human_principal_id,
+      expected_size_bytes,media_type,file_name,status,digest_sha256,created_at,expires_at,finalized_at
+    ) VALUES('historical-pending','historical-workspace','historical-project','historical-uploader',
+      1,'text/plain','historical.txt','finalized',?,'2026-01-01T00:00:00.000Z',
+      '2026-01-02T00:00:00.000Z','2026-01-01T00:00:00.000Z')`)
+      .run("a".repeat(64));
+    database
+      .prepare(`INSERT INTO comment_attachment_bindings(
+      workspace_id,project_id,comment_id,digest_sha256,size_bytes,media_type,file_name,created_at
+    ) VALUES('historical-workspace','historical-project','historical-comment',?,1,
+      'text/plain','historical.txt','2026-01-01T00:00:00.000Z')`)
+      .run("a".repeat(64));
+    applyMigrations(database);
+    applyMigrations(database);
+    expect(database.prepare("SELECT * FROM comment_pending_uploads").get()).toMatchObject({
+      pending_upload_id: "historical-pending",
+      status: "finalized",
+      file_name: "historical.txt",
+      comment_id: null,
+      digest_sha256: "a".repeat(64),
+      binding_provenance_version: 0
+    });
+    expect(database.prepare("SELECT * FROM comment_attachment_bindings").get()).toMatchObject({
+      comment_id: "historical-comment",
+      digest_sha256: "a".repeat(64),
+      file_name: "historical.txt",
+      pending_upload_ids_json: "[]"
+    });
+  });
+
   it("migrates uniquely mapped rows and quarantines ambiguous project-only rows", async () => {
     const database = await openDatabase();
     const workspaces = new WorkspaceIdentityRepository(database);

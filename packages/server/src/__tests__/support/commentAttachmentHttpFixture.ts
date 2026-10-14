@@ -1,3 +1,5 @@
+import { ProjectRegistryRepository } from "../../projectRegistryRepository.js";
+import { ProjectAccessPolicy } from "../../projectAccessPolicy.js";
 import { CommentAttachmentDigestLifecycle } from "../../attachments/digestLifecycle.js";
 import { loopbackHttpTransportAdmission } from "./transportAdmission.js";
 import { createServer, type Server as HttpServer } from "node:http";
@@ -74,11 +76,46 @@ export async function setup(options?: { clock?: () => Date; directory?: string }
   const attachmentRepository = new CommentAttachmentRepository(database);
   const blobs = new CommentAttachmentBlobStore(database, directory);
   const lifecycle = new CommentAttachmentDigestLifecycle(database, directory);
+  const registry = new ProjectRegistryRepository(database, options?.clock);
+  const readPolicy = new ProjectAccessPolicy(database, registry);
   const attachmentService = new CommentAttachmentService({
     repository: attachmentRepository,
     lifecycle,
     blobs,
     identity: humanRepository,
+    canRead({ actor, workspaceId, projectId, canvasId }) {
+      if (!registry.projectInternal(workspaceId, projectId)) {
+        const owner = database
+          .prepare(`SELECT human_principal_id FROM workspace_memberships
+          WHERE workspace_id=? AND role='owner' AND revoked_at IS NULL LIMIT 1`)
+          .get(workspaceId) as { human_principal_id: string } | undefined;
+        if (!owner) return false;
+        registry.registerProjectInternal({
+          workspaceId,
+          projectId,
+          projectRoot: directory,
+          visibility: "shared",
+          ownerHumanPrincipalId: owner.human_principal_id
+        });
+      }
+      if (canvasId && !registry.canvasInternal(workspaceId, projectId, canvasId)) {
+        registry.registerCanvasInternal({
+          workspaceId,
+          projectId,
+          canvasId,
+          packageDir: directory,
+          visibility: "shared",
+          ownerHumanPrincipalId: registry.projectInternal(workspaceId, projectId)!
+            .ownerHumanPrincipalId
+        });
+      }
+      return readPolicy.evaluate({
+        workspaceId,
+        projectId,
+        canvasId,
+        actor: { kind: "human", id: actor.humanPrincipalId }
+      }).capabilities.read;
+    },
     clock: options?.clock
   });
 

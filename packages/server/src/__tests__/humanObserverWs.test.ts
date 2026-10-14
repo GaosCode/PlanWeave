@@ -986,12 +986,8 @@ describe("human observer WSS", () => {
       return message;
     };
 
-    const invitation = expectChained({
-      type: "human.observer.event",
-      kind: "invitation"
-    });
+    // Project-only activity remains private to project readers.
     journal.appendInCallerTransaction(scope, { kind: "invitation" });
-    await invitation;
 
     const visibleCanvas = expectChained({
       type: "human.observer.event",
