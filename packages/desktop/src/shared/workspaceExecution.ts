@@ -4,6 +4,8 @@ import type {
 } from "./remoteAcpConversation.js";
 import {
   effectiveWorkspaceExecutorSchema,
+  workspaceExecutionCancellationIntentSchema,
+  remoteWorkspaceExecutionHandleSchema,
   workspaceExecutionCursorSchema,
   workspaceExecutionCoordinatorViewSchema
 } from "@planweave-ai/runtime/browser";
@@ -78,7 +80,8 @@ export const desktopWorkspaceExecutionFollowInputSchema = z.union([
 const cancellationShape = {
   ...sessionIdShape,
   actionId: identifierSchema,
-  reason: z.string().trim().min(1).max(2_048)
+  reason: z.string().trim().min(1).max(2_048),
+  expectedRemoteHandle: remoteWorkspaceExecutionHandleSchema.optional()
 };
 export const desktopWorkspaceExecutionCancelInputSchema = z.union([
   desktopWorkspaceCanvasExecutionStartInputSchema.extend(cancellationShape).strict(),
@@ -90,6 +93,29 @@ export const desktopWorkspaceExecutionRespondInputSchema = z.union([
   desktopWorkspaceCanvasExecutionStartInputSchema.extend(responseShape).strict(),
   desktopOwnerCanvasExecutionStartInputSchema.extend(responseShape).strict()
 ]);
+
+export const desktopWorkspaceExecutionCancellationRecoveryInputSchema = z
+  .object({
+    locator: z.union([workspaceCanvasLocatorSchema, desktopOwnerCanvasExecutionLocatorSchema])
+  })
+  .strict();
+export const desktopWorkspaceExecutionCancellationRecoverySchema = z
+  .object({
+    version: z.literal("planweave.workspace-cancellation-recovery/v1"),
+    sessions: z.array(
+      z
+        .object({
+          sessionId: sessionIdShape.sessionId,
+          blockRef: z.string().trim().min(3).max(512),
+          intent: workspaceExecutionCancellationIntentSchema
+        })
+        .strict()
+    )
+  })
+  .strict();
+export type DesktopWorkspaceExecutionCancellationRecovery = z.infer<
+  typeof desktopWorkspaceExecutionCancellationRecoverySchema
+>;
 
 export const desktopWorkspaceExecutionResponseSchema = workspaceExecutionCoordinatorViewSchema;
 
@@ -113,6 +139,9 @@ export type DesktopWorkspaceExecutionResponse = z.infer<
 >;
 
 export interface PlanWeaveWorkspaceExecutionApi {
+  recoverWorkspaceExecutionCancellations(
+    input: z.infer<typeof desktopWorkspaceExecutionCancellationRecoveryInputSchema>
+  ): Promise<DesktopWorkspaceExecutionCancellationRecovery>;
   remoteAcpConversation(
     input: DesktopRemoteAcpConversationInput
   ): Promise<DesktopRemoteAcpConversationPage>;

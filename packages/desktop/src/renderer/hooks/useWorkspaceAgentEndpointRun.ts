@@ -1,3 +1,12 @@
+import { createWorkspaceScopeCancellation } from "../collaboration/workspaceScopeCancellation";
+import {
+  restoreWorkspaceScopeCancellation,
+  type ActiveEndpointScopeRun,
+  type EndpointScopeCancellationState,
+  type WorkspaceScopeSession,
+  type WorkspaceAgentEndpointScopeLifecycle
+} from "../collaboration/workspaceScopeCancellationRecovery";
+export type { EndpointScopeCancellationState } from "../collaboration/workspaceScopeCancellationRecovery";
 import type {
   ClaimResult,
   DesktopAutoRunScope,
@@ -6,7 +15,7 @@ import type {
   DesktopGraphViewModel,
   DesktopProjectSummary
 } from "@planweave-ai/runtime";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration";
 import type { RemoteCollaborationCanvasBindingInput } from "../../shared/collaboration";
 import type { CollaborationObserverSignal } from "../../shared/collaborationReadModels";
@@ -148,13 +157,6 @@ function waitForWorkspaceExecutionFollow(input: {
   });
 }
 
-type ActiveEndpointScopeRun = {
-  cancellationRequests: Map<string, Promise<void>>;
-  controller: AbortController;
-  pendingWorkspaceStarts: Set<Promise<void>>;
-  workspaceSessions: Map<string, { input: DesktopWorkspaceExecutionStartInput; sessionId: string }>;
-};
-
 type GraphTask = DesktopGraphViewModel["tasks"][number];
 
 type WorkspaceAgentEndpointRunInput = {
@@ -198,13 +200,6 @@ export type LocalAutoRunScopeStarter = (
   options?: { stepLimit?: number }
 ) => Promise<DesktopAutoRunState | null | undefined>;
 
-type WorkspaceAgentEndpointScopeLifecycle = {
-  onStarted: () => void;
-  onCompleted: () => void;
-  onFailed: (message: string) => void;
-  onCancelled?: () => void;
-};
-
 export type WorkspaceAgentEndpointScopeStarter = (
   scope: DesktopAutoRunScope,
   startLocal: LocalAutoRunScopeStarter,
@@ -213,6 +208,7 @@ export type WorkspaceAgentEndpointScopeStarter = (
 
 export type WorkspaceAgentEndpointScopeController = WorkspaceAgentEndpointScopeStarter & {
   stop: () => Promise<void>;
+  cancellation: EndpointScopeCancellationState | null;
 };
 
 function scopeTaskIds(
@@ -234,6 +230,8 @@ export function useWorkspaceAgentEndpointRun(
       : input.workspaceExecutionApi;
   const createId = input.createId ?? createDispatchId;
   const activeEndpointScopeRun = useRef<ActiveEndpointScopeRun | null>(null);
+  const retainedRuns = useRef(new Map<string, ActiveEndpointScopeRun>());
+  const [cancellation, setCancellation] = useState<EndpointScopeCancellationState | null>(null);
   const executionScopeIdentity = input.canvasBinding
     ? (input.workspaceRuntimeAuthorityKey ??
       `${input.canvasBinding.workspaceId}:${input.canvasBinding.projectId}:${input.canvasBinding.canvasId}`)
@@ -247,48 +245,147 @@ export function useWorkspaceAgentEndpointRun(
   const executionRequestEpoch = useRef(0);
   activeExecutionScopeIdentity.current = executionScopeIdentity;
 
-  const cancelWorkspaceSession = useCallback(
-    (
-      activeRun: ActiveEndpointScopeRun,
-      blockRef: string,
-      session: { input: DesktopWorkspaceExecutionStartInput; sessionId: string }
-    ): Promise<void> => {
-      const existing = activeRun.cancellationRequests.get(session.sessionId);
-      if (existing) return existing;
-      const api =
-        input.workspaceExecutionApi === undefined
-          ? workspaceExecutionBridge
-          : input.workspaceExecutionApi;
-      if (!api) return Promise.reject(new Error("workspace_execution_bridge_unavailable"));
-      activeRun.workspaceSessions.delete(blockRef);
-      const cancellation = api
-        .cancelWorkspaceExecution({
-          ...session.input,
-          sessionId: session.sessionId,
-          actionId: createId(),
-          reason: "Desktop Auto Run stop requested."
-        })
-        .then(() => undefined);
-      activeRun.cancellationRequests.set(session.sessionId, cancellation);
-      return cancellation;
-    },
-    [createId, input.workspaceExecutionApi]
+  const publishCancellation = useCallback((run: ActiveEndpointScopeRun) => {
+    if (!run.controller.signal.aborted) return;
+    if (run.settled && run.workspaceSessions.size === 0 && run.pendingWorkspaceStarts.size === 0) {
+      if (retainedRuns.current.get(run.scopeIdentity) !== run) return;
+      retainedRuns.current.delete(run.scopeIdentity);
+      if (activeEndpointScopeRun.current === run) activeEndpointScopeRun.current = null;
+      if (activeExecutionScopeIdentity.current === run.scopeIdentity) setCancellation(null);
+      if (!run.failed) run.lifecycle?.onCancelled?.();
+      return;
+    }
+    const sessions: EndpointScopeCancellationState["sessions"] = [
+      ...run.workspaceSessions.entries()
+    ].map(([blockRef, session]) => ({
+      blockRef,
+      sessionId: session.sessionId,
+      status: run.cancellationRequests.has(session.sessionId)
+        ? "in_flight"
+        : session.error
+          ? "failed"
+          : "pending",
+      error: session.error
+    }));
+    const state: EndpointScopeCancellationState = {
+      scopeIdentity: run.scopeIdentity,
+      phase: sessions.some((session) => session.status === "failed") ? "failed" : "cancelling",
+      sessions
+    };
+    if (activeExecutionScopeIdentity.current === run.scopeIdentity) setCancellation(state);
+    run.lifecycle?.onCancellationChanged?.(state);
+  }, []);
+
+  const { cancelSession: cancelWorkspaceSession, abortRun } = useMemo(
+    () =>
+      createWorkspaceScopeCancellation({
+        api: executionApi,
+        createId,
+        publish: publishCancellation
+      }),
+    [createId, executionApi, publishCancellation]
   );
+  const abortRunRef = useRef(abortRun);
+  abortRunRef.current = abortRun;
 
   useEffect(() => {
     if (previousExecutionScopeIdentity.current !== executionScopeIdentity) {
       previousExecutionScopeIdentity.current = executionScopeIdentity;
       executionRequestEpoch.current += 1;
-      activeEndpointScopeRun.current?.controller.abort();
+      if (activeEndpointScopeRun.current) void abortRunRef.current(activeEndpointScopeRun.current);
+      activeEndpointScopeRun.current = retainedRuns.current.get(executionScopeIdentity) ?? null;
+      setCancellation(null);
+      if (activeEndpointScopeRun.current) publishCancellation(activeEndpointScopeRun.current);
     }
-  }, [executionScopeIdentity]);
+  }, [executionScopeIdentity, publishCancellation]);
 
   useEffect(
     () => () => {
-      activeEndpointScopeRun.current?.controller.abort();
+      if (activeEndpointScopeRun.current) void abortRunRef.current(activeEndpointScopeRun.current);
     },
     []
   );
+
+  const recoveryLocator =
+    input.canvasLocator?.kind === "workspace"
+      ? input.canvasLocator
+      : input.canvasLocator &&
+          input.selectedProject &&
+          input.operatorProfileId &&
+          input.humanPrincipalId &&
+          input.graph
+        ? {
+            kind: "owner_canvas" as const,
+            operatorProfileId: input.operatorProfileId,
+            humanPrincipalId: input.humanPrincipalId,
+            projectRoot: input.selectedProject.rootPath,
+            projectId: input.graph.projectId,
+            canvasId: input.canvasLocator.canvasId
+          }
+        : null;
+  const recoveryPending = useRef(new Map<string, Promise<void>>());
+  const recoveryUnconfirmed = useRef(new Set<string>());
+  const recoveryInput = useRef({ executionApi, recoveryLocator, executionScopeIdentity });
+  recoveryInput.current = { executionApi, recoveryLocator, executionScopeIdentity };
+  const recoverCancellation = useCallback(async () => {
+    const { executionApi: currentApi, recoveryLocator: locator } = recoveryInput.current;
+    if (
+      !currentApi ||
+      !locator ||
+      recoveryInput.current.executionScopeIdentity !== executionScopeIdentity ||
+      retainedRuns.current.has(executionScopeIdentity)
+    )
+      return;
+    const pending = recoveryPending.current.get(executionScopeIdentity);
+    if (pending) return pending;
+    const recovery = Promise.resolve().then(async () => {
+      recoveryUnconfirmed.current.add(executionScopeIdentity);
+      if (activeExecutionScopeIdentity.current === executionScopeIdentity)
+        setCancellation({
+          scopeIdentity: executionScopeIdentity,
+          phase: "recovering",
+          sessions: []
+        });
+      try {
+        const recovered = await currentApi.recoverWorkspaceExecutionCancellations({ locator });
+        recoveryUnconfirmed.current.delete(executionScopeIdentity);
+        if (retainedRuns.current.has(executionScopeIdentity)) return;
+        const run = restoreWorkspaceScopeCancellation({
+          recovered,
+          locator,
+          scopeIdentity: executionScopeIdentity
+        });
+        if (run) {
+          retainedRuns.current.set(executionScopeIdentity, run);
+          if (activeExecutionScopeIdentity.current === executionScopeIdentity)
+            activeEndpointScopeRun.current = run;
+          publishCancellation(run);
+        } else if (activeExecutionScopeIdentity.current === executionScopeIdentity)
+          setCancellation(null);
+      } catch (error) {
+        if (activeExecutionScopeIdentity.current === executionScopeIdentity) {
+          setCancellation({ scopeIdentity: executionScopeIdentity, phase: "failed", sessions: [] });
+          input.setError(error instanceof Error ? error.message : String(error));
+        }
+        throw error;
+      } finally {
+        recoveryPending.current.delete(executionScopeIdentity);
+      }
+    });
+    recoveryPending.current.set(executionScopeIdentity, recovery);
+    return recovery;
+  }, [executionScopeIdentity, input.setError, publishCancellation]);
+  const recoveryCallback = useRef(recoverCancellation);
+  recoveryCallback.current = recoverCancellation;
+  const recoveryLocatorKey = JSON.stringify(recoveryLocator);
+  useEffect(() => {
+    if (
+      activeExecutionScopeIdentity.current !== executionScopeIdentity ||
+      JSON.stringify(recoveryInput.current.recoveryLocator) !== recoveryLocatorKey
+    )
+      return;
+    void recoveryCallback.current().catch(() => undefined);
+  }, [executionScopeIdentity, recoveryLocatorKey]);
 
   const startScope = useCallback(
     async (
@@ -296,6 +393,8 @@ export function useWorkspaceAgentEndpointRun(
       startLocal: LocalAutoRunScopeStarter,
       lifecycle?: WorkspaceAgentEndpointScopeLifecycle
     ) => {
+      await recoveryPending.current.get(executionScopeIdentity);
+      if (activeExecutionScopeIdentity.current !== executionScopeIdentity) return;
       if (!input.graph || !input.selectedCanvasId) return;
       const remoteBinding = input.canvasBinding ?? null;
       const remoteCanvasOnly = !input.selectedProject && remoteBinding !== null;
@@ -366,7 +465,10 @@ export function useWorkspaceAgentEndpointRun(
         input.setError("collaboration_project_unavailable");
         return;
       }
-      if (activeEndpointScopeRun.current) {
+      if (
+        recoveryUnconfirmed.current.has(executionScopeIdentity) ||
+        retainedRuns.current.has(executionScopeIdentity)
+      ) {
         input.setError("agent_endpoint_scope_run_already_active");
         return;
       }
@@ -388,6 +490,10 @@ export function useWorkspaceAgentEndpointRun(
 
       const controller = new AbortController();
       const activeRun: ActiveEndpointScopeRun = {
+        scopeIdentity: executionScopeIdentity,
+        lifecycle,
+        settled: false,
+        failed: false,
         cancellationRequests: new Map(),
         controller,
         pendingWorkspaceStarts: new Set(),
@@ -408,6 +514,7 @@ export function useWorkspaceAgentEndpointRun(
         }
       };
       activeEndpointScopeRun.current = activeRun;
+      retainedRuns.current.set(executionScopeIdentity, activeRun);
       const completeLifecycle = () => {
         if (controller.signal.aborted) throw new Error("workspace_remote_scope_cancelled");
         lifecycle?.onCompleted();
@@ -476,12 +583,19 @@ export function useWorkspaceAgentEndpointRun(
           }
           const startSettlement = executionApi.startWorkspaceExecution(startInput).then(
             async (view) => {
-              const session = { input: startInput, sessionId: view.session.sessionId };
+              const session: WorkspaceScopeSession = {
+                input: startInput,
+                sessionId: view.session.sessionId,
+                handle: view.handle,
+                actionId: null,
+                reason: "Desktop Auto Run stop requested.",
+                error: null
+              };
+              activeRun.workspaceSessions.set(selection.block.ref, session);
               if (!requestIsCurrent()) {
                 await cancelWorkspaceSession(activeRun, selection.block.ref, session);
                 return { kind: "cancelled" as const };
               }
-              activeRun.workspaceSessions.set(selection.block.ref, session);
               return { kind: "started" as const, view };
             },
             (error: unknown) => {
@@ -503,11 +617,15 @@ export function useWorkspaceAgentEndpointRun(
           let view = settlement.view;
           const sessionId = view.session.sessionId;
           const events = [...view.events];
+          let confirmedTerminal = false;
           let noProgressCount = 0;
           try {
             for (;;) {
               if (signal.aborted) throw new Error("workspace_remote_scope_cancelled");
               const timeline = projectWorkspaceExecutionTimeline(events);
+              confirmedTerminal =
+                Boolean(timeline.terminalOutcome) ||
+                ["completed", "failed", "stopped"].includes(view.session.phase);
               if (timeline.terminalOutcome === "completed") return;
               if (timeline.terminalOutcome === "cancelled") {
                 controller.abort();
@@ -537,11 +655,13 @@ export function useWorkspaceAgentEndpointRun(
               });
               view = await executionApi.followWorkspaceExecution({ ...startInput, sessionId });
               assertCurrentRequest();
+              const session = activeRun.workspaceSessions.get(selection.block.ref);
+              if (session && !session.actionId) session.handle = view.handle;
               events.push(...view.events);
               noProgressCount = view.events.length > 0 ? 0 : noProgressCount + 1;
             }
           } finally {
-            if (!signal.aborted) {
+            if (confirmedTerminal) {
               activeRun.workspaceSessions.delete(selection.block.ref);
             }
           }
@@ -727,16 +847,26 @@ export function useWorkspaceAgentEndpointRun(
         completeLifecycle();
       } catch (caught) {
         const cancelled = controller.signal.aborted;
-        if (!cancelled) controller.abort();
         const message = caught instanceof Error ? caught.message : String(caught);
         if (cancelled) {
-          lifecycle?.onCancelled?.();
           return;
         }
-        input.setError(message);
-        lifecycle?.onFailed(message);
+        activeRun.failed = true;
+        if (activeExecutionScopeIdentity.current === activeRun.scopeIdentity) {
+          input.setError(message);
+          lifecycle?.onFailed(message);
+        }
       } finally {
-        if (activeEndpointScopeRun.current === activeRun) activeEndpointScopeRun.current = null;
+        activeRun.settled = true;
+        if (controller.signal.aborted || activeRun.failed) void abortRun(activeRun);
+        if (activeRun.workspaceSessions.size || activeRun.pendingWorkspaceStarts.size) {
+          publishCancellation(activeRun);
+        } else if (controller.signal.aborted) {
+          publishCancellation(activeRun);
+        } else {
+          retainedRuns.current.delete(activeRun.scopeIdentity);
+          if (activeEndpointScopeRun.current === activeRun) activeEndpointScopeRun.current = null;
+        }
       }
     },
     [
@@ -760,21 +890,18 @@ export function useWorkspaceAgentEndpointRun(
       input.stopLocal,
       input.waitForLocalUnit,
       cancelWorkspaceSession,
+      abortRun,
+      publishCancellation,
       executionApi
     ]
   );
 
   const stop = useCallback(async () => {
-    const activeRun = activeEndpointScopeRun.current;
+    if (!retainedRuns.current.has(executionScopeIdentity)) await recoverCancellation();
+    const activeRun = retainedRuns.current.get(executionScopeIdentity);
     if (!activeRun) return;
-    activeRun.controller.abort();
-    const workspaceCancellations = [...activeRun.workspaceSessions.entries()].map(
-      ([blockRef, session]) => cancelWorkspaceSession(activeRun, blockRef, session)
-    );
-    const results = await Promise.allSettled([
-      ...activeRun.pendingWorkspaceStarts,
-      ...workspaceCancellations
-    ]);
+    activeRun.failed = false;
+    const results = await abortRun(activeRun, true);
     const failures = results.filter((result) => result.status === "rejected");
     if (failures.length > 0) {
       throw new AggregateError(
@@ -782,7 +909,11 @@ export function useWorkspaceAgentEndpointRun(
         "workspace_remote_scope_cancel_failed"
       );
     }
-  }, [cancelWorkspaceSession]);
+    publishCancellation(activeRun);
+  }, [abortRun, executionScopeIdentity, publishCancellation, recoverCancellation]);
 
-  return useMemo(() => Object.assign(startScope, { stop }), [startScope, stop]);
+  return useMemo(
+    () => Object.assign(startScope, { stop, cancellation }),
+    [startScope, stop, cancellation]
+  );
 }

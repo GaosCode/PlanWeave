@@ -251,6 +251,13 @@ export const enCatalog = {
   blocked: "blocked",
   diverged: "diverged",
   needsChanges: "needs_changes",
+  autoRunCancelling: "Cancelling; awaiting remote confirmation",
+  autoRunCancelFailed: "Some cancellations remain unconfirmed",
+  autoRunCancelRetry: "Retry cancellation",
+  autoRunCancelUnconfirmed:
+    "Remote cancellation is not confirmed. Retry with the original session.",
+  autoRunCancelIdentityChanged: "Execution identity changed. Open this Block to recover.",
+  autoRunCancelPending: "Waiting for remote cancellation confirmation",
   autoRunStopped: "idle",
   miniPanelEmpty: "No active run record",
   latestOutput: "Latest output",

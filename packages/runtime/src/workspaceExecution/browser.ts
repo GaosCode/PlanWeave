@@ -1,5 +1,6 @@
 export {
   effectiveWorkspaceExecutorSchema,
+  workspaceExecutionCancellationIntentSchema,
   localWorkspaceAuthorityBindingSchema,
   localWorkspaceAuthorityLocatorSchema,
   localWorkspaceExecutionHandleSchema,

@@ -1,3 +1,4 @@
+import type { EndpointScopeCancellationState } from "../hooks/useWorkspaceAgentEndpointRun";
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import type {
   DesktopAutoRunRetrospectiveSummary,
@@ -35,6 +36,8 @@ type AutoRunMiniPanelProps = {
   autoRunRetrospective: DesktopAutoRunRetrospectiveSummary | null;
   autoRunState: DesktopAutoRunState | null;
   endpointScopeRunPhase?: EndpointScopeRunPhase | null;
+  endpointScopeCancellation?: EndpointScopeCancellationState | null;
+  onOpenCancellationBlock?: (ref: string) => void;
   canStop: boolean;
   executorPreflight: ExecutorPreflightView;
   handleAutoRunClick: () => Promise<void>;
@@ -65,6 +68,10 @@ function endpointScopePhaseLabel(
   t: FloatingAutoRunTranslator
 ): string {
   switch (phase) {
+    case "cancelling":
+      return t("autoRunCancelling");
+    case "cancel_failed":
+      return t("autoRunCancelFailed");
     case "preparing":
       return t("remoteRunPreparingEnvironment");
     case "running":
@@ -279,6 +286,8 @@ export function AutoRunMiniPanel({
   autoRunRetrospective,
   autoRunState,
   endpointScopeRunPhase = null,
+  endpointScopeCancellation = null,
+  onOpenCancellationBlock,
   canStop,
   executorPreflight,
   handleAutoRunClick,
@@ -325,7 +334,9 @@ export function AutoRunMiniPanel({
     : (autoRunRetrospective?.runId ?? null);
   const displayedPhase = endpointScopeRunPhase ?? autoRunState?.phase ?? null;
   const endpointScopeRunActive =
-    endpointScopeRunPhase === "preparing" || endpointScopeRunPhase === "running";
+    endpointScopeRunPhase === "preparing" ||
+    endpointScopeRunPhase === "running" ||
+    endpointScopeRunPhase === "cancelling";
   return (
     <Popover open={miniRunPanelOpen} onOpenChange={setMiniRunPanelOpen}>
       <PopoverTrigger asChild>
@@ -337,7 +348,7 @@ export function AutoRunMiniPanel({
           }
           aria-label={t("autoRun")}
           title={t("autoRun")}
-          disabled={!hasProject || !runtimeOperationsAllowed}
+          disabled={!hasProject || (!endpointScopeCancellation && !runtimeOperationsAllowed)}
           onClick={() => void handleAutoRunClick()}
         >
           {autoRunState?.phase === "running" ? (
@@ -374,6 +385,40 @@ export function AutoRunMiniPanel({
                 : (autoRunState?.phase ?? t("miniPanelEmpty"))}
             </Badge>
           </div>
+          {endpointScopeCancellation ? (
+            <div
+              data-testid="auto-run-cancellation-sessions"
+              className="flex flex-col gap-2 text-xs"
+            >
+              {endpointScopeCancellation.sessions.map((session) => (
+                <div
+                  key={session.sessionId}
+                  data-session-id={session.sessionId}
+                  data-cancel-status={session.status}
+                >
+                  <strong>{session.blockRef}</strong> · {session.sessionId}
+                  {onOpenCancellationBlock ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onOpenCancellationBlock(session.blockRef)}
+                    >
+                      {t("openBlock")}
+                    </Button>
+                  ) : null}
+                  <p>
+                    {t(
+                      session.error === "workspace_execution_cancel_identity_mismatch"
+                        ? "autoRunCancelIdentityChanged"
+                        : session.status === "failed"
+                          ? "autoRunCancelUnconfirmed"
+                          : "autoRunCancelPending"
+                    )}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
             <span>
               {t("currentBlock")}: {explanation?.currentRef ?? "-"}
@@ -496,11 +541,14 @@ export function AutoRunMiniPanel({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!runtimeOperationsAllowed}
+                disabled={
+                  endpointScopeRunPhase === "cancelling" ||
+                  (!endpointScopeCancellation && !runtimeOperationsAllowed)
+                }
                 onClick={() => void stopAutoRunClick()}
               >
                 <SquareIcon data-icon="inline-start" />
-                {t("stop")}
+                {t(endpointScopeRunPhase === "cancel_failed" ? "autoRunCancelRetry" : "stop")}
               </Button>
             ) : null}
           </div>

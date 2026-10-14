@@ -1,3 +1,4 @@
+import type { EndpointScopeCancellationState } from "../hooks/useWorkspaceAgentEndpointRun";
 import {
   useEffect,
   useState,
@@ -37,6 +38,7 @@ type FloatingAutoRunControlProps = {
   autoRunScopeMode: AutoRunScopeMode;
   autoRunState: DesktopAutoRunState | null;
   endpointScopeRunPhase?: EndpointScopeRunPhase | null;
+  endpointScopeCancellation?: EndpointScopeCancellationState | null;
   selectedRemoteRunPhase?: RemoteRunLifecyclePhase | null;
   controlRef: Ref<HTMLDivElement>;
   diagnostics: ValidationIssue[];
@@ -104,6 +106,7 @@ export function FloatingAutoRunControl({
   autoRunScopeMode,
   autoRunState,
   endpointScopeRunPhase = null,
+  endpointScopeCancellation = null,
   selectedRemoteRunPhase = null,
   controlRef,
   diagnostics,
@@ -144,6 +147,8 @@ export function FloatingAutoRunControl({
   workspaceCanvasSelected = false
 }: FloatingAutoRunControlProps) {
   const canStop =
+    endpointScopeRunPhase === "cancelling" ||
+    endpointScopeRunPhase === "cancel_failed" ||
     endpointScopeRunPhase === "running" ||
     endpointScopeRunPhase === "preparing" ||
     (autoRunState
@@ -258,6 +263,8 @@ export function FloatingAutoRunControl({
               autoRunRetrospective={autoRunRetrospective}
               autoRunState={autoRunState}
               endpointScopeRunPhase={endpointScopeRunPhase}
+              endpointScopeCancellation={endpointScopeCancellation}
+              onOpenCancellationBlock={onOpenFileSyncRef}
               canStop={canStop}
               executorPreflight={executorPreflight}
               handleAutoRunClick={handleAutoRunClick}
@@ -290,9 +297,12 @@ export function FloatingAutoRunControl({
         <Button
           size="icon-sm"
           variant="outline"
-          aria-label={t("stop")}
-          title={t("stop")}
-          disabled={!runtimeOperationsAllowed}
+          aria-label={t(endpointScopeRunPhase === "cancel_failed" ? "autoRunCancelRetry" : "stop")}
+          title={t(endpointScopeRunPhase === "cancel_failed" ? "autoRunCancelRetry" : "stop")}
+          disabled={
+            endpointScopeRunPhase === "cancelling" ||
+            (!endpointScopeCancellation && !runtimeOperationsAllowed)
+          }
           onClick={() => void stopAutoRunClick()}
         >
           <SquareIcon data-icon="inline-start" />
@@ -334,17 +344,21 @@ export function FloatingAutoRunControl({
         data-testid="auto-run-control-phase"
         data-remote-run-phase={selectedRemoteRunPhase ?? undefined}
       >
-        {selectedRemoteRunPhase
-          ? remoteRunLifecyclePhaseLabel(selectedRemoteRunPhase, t)
-          : endpointScopeRunPhase === "preparing"
-            ? t("remoteRunPreparingEnvironment")
-            : endpointScopeRunPhase === "running"
-              ? t("remoteRunPhaseRunning")
-              : endpointScopeRunPhase === "completed"
-                ? t("remoteRunPhaseSucceeded")
-                : endpointScopeRunPhase === "failed"
-                  ? t("remoteRunPhaseFailed")
-                  : (autoRunState?.phase ?? t("autoRunStopped"))}
+        {endpointScopeRunPhase === "cancelling"
+          ? t("autoRunCancelling")
+          : endpointScopeRunPhase === "cancel_failed"
+            ? t("autoRunCancelFailed")
+            : selectedRemoteRunPhase
+              ? remoteRunLifecyclePhaseLabel(selectedRemoteRunPhase, t)
+              : endpointScopeRunPhase === "preparing"
+                ? t("remoteRunPreparingEnvironment")
+                : endpointScopeRunPhase === "running"
+                  ? t("remoteRunPhaseRunning")
+                  : endpointScopeRunPhase === "completed"
+                    ? t("remoteRunPhaseSucceeded")
+                    : endpointScopeRunPhase === "failed"
+                      ? t("remoteRunPhaseFailed")
+                      : (autoRunState?.phase ?? t("autoRunStopped"))}
       </Badge>
     </div>
   );

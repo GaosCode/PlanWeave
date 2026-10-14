@@ -6,7 +6,12 @@ import {
 import { redactCollaborationText } from "./collaboration/redaction.js";
 
 function safeWorkspaceExecutionErrorCode(error: unknown): WorkspaceExecutionIpcErrorCode {
-  const candidate = error && typeof error === "object" && "code" in error ? error.code : undefined;
+  const candidate =
+    error && typeof error === "object" && "code" in error
+      ? error.code
+      : error instanceof Error
+        ? error.message
+        : undefined;
   const parsed = workspaceExecutionIpcErrorCodeSchema.safeParse(candidate);
   return parsed.success ? parsed.data : "workspace_execution_request_failed";
 }

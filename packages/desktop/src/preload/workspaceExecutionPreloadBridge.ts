@@ -5,6 +5,9 @@ import {
 import type { PlanWeaveWorkspaceExecutionApi } from "../shared/workspaceExecution.js";
 import {
   desktopWorkspaceExecutionCancelInputSchema,
+  desktopWorkspaceExecutionCancellationRecoveryInputSchema,
+  desktopWorkspaceExecutionCancellationRecoverySchema,
+  desktopWorkspaceExecutionResponseSchema,
   desktopWorkspaceExecutionFollowInputSchema,
   desktopWorkspaceExecutionRespondInputSchema,
   desktopWorkspaceExecutionStartInputSchema
@@ -19,11 +22,21 @@ type Invoke = (channel: string, input: unknown) => Promise<unknown>;
 async function invokeWorkspaceExecution(invoke: Invoke, channel: string, input: unknown) {
   const result = workspaceExecutionIpcResultSchema.parse(await invoke(channel, input));
   if (!result.ok) throw new Error(result.error.code);
-  return result.value;
+  return desktopWorkspaceExecutionResponseSchema.parse(result.value);
 }
 
 export function createWorkspaceExecutionPreloadApi(invoke: Invoke): PlanWeaveWorkspaceExecutionApi {
   return {
+    recoverWorkspaceExecutionCancellations: async (input) => {
+      const result = workspaceExecutionIpcResultSchema.parse(
+        await invoke(
+          workspaceExecutionInvokeChannels.recoverCancellation,
+          desktopWorkspaceExecutionCancellationRecoveryInputSchema.parse(input)
+        )
+      );
+      if (!result.ok) throw new Error(result.error.code);
+      return desktopWorkspaceExecutionCancellationRecoverySchema.parse(result.value);
+    },
     remoteAcpConversation: async (input) => {
       const result = desktopRemoteAcpConversationResultSchema.parse(
         await invoke(

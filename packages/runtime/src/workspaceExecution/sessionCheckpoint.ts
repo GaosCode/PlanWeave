@@ -53,6 +53,7 @@ export function remoteSessionState(
     dispatchIntent: intent,
     ...(observedOperationId ? { observedOperationId } : {}),
     handle,
+    ...(previous?.cancellationIntent ? { cancellationIntent: previous.cancellationIntent } : {}),
     interactions: previous?.interactions ?? [],
     evidence: previous?.evidence ?? { status: "pending", diagnostics: [] }
   });

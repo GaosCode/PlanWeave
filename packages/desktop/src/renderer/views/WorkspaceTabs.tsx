@@ -1,3 +1,4 @@
+import type { EndpointScopeCancellationState } from "../hooks/useWorkspaceAgentEndpointRun";
 import {
   lazy,
   Suspense,
@@ -165,6 +166,7 @@ export type WorkspaceTabsAutoRunProps = {
   autoRunScopeMode: AutoRunScopeMode;
   autoRunState: DesktopAutoRunState | null;
   endpointScopeRunPhase: EndpointScopeRunPhase | null;
+  endpointScopeCancellation?: EndpointScopeCancellationState | null;
   selectedRemoteRunPhase?: RemoteRunLifecyclePhase | null;
   handleAutoRunClick: () => Promise<void>;
   handleAutoRunNextAction: (action: AutoRunNextActionDescriptor) => Promise<void>;

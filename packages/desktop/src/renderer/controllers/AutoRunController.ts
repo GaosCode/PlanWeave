@@ -1,3 +1,4 @@
+import type { EndpointScopeCancellationState } from "../hooks/useWorkspaceAgentEndpointRun";
 import { useCallback, useMemo, useState } from "react";
 import type {
   DesktopAutoRunState,
@@ -50,6 +51,7 @@ export function useAutoRunController({
   tmuxMonitoringEnabled,
   startAutoRunScope,
   stopAutoRunScope,
+  endpointScopeCancellation,
   runtimeAvailability,
   canvasLocator,
   resetWorkspaceRuntime
@@ -73,6 +75,7 @@ export function useAutoRunController({
   tmuxMonitoringEnabled: boolean;
   startAutoRunScope?: WorkspaceAgentEndpointScopeStarter;
   stopAutoRunScope?: () => Promise<void>;
+  endpointScopeCancellation?: EndpointScopeCancellationState | null;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   canvasLocator?: CanvasLocator | null;
   resetWorkspaceRuntime?: () => Promise<void>;
@@ -115,6 +118,7 @@ export function useAutoRunController({
     onPositionCommit,
     startAutoRunScope,
     stopAutoRunScope,
+    endpointScopeCancellation,
     runtimeAvailability,
     canvasLocator,
     resetWorkspaceRuntime
@@ -130,6 +134,7 @@ export function useAutoRunController({
         autoRunScopeMode,
         autoRunState: currentAutoRunState,
         endpointScopeRunPhase,
+        endpointScopeCancellation,
         selectedRemoteRunPhase,
         handleAutoRunClick,
         handleAutoRunNextAction,
@@ -153,6 +158,7 @@ export function useAutoRunController({
       autoRunScopeMode,
       currentAutoRunState,
       endpointScopeRunPhase,
+      endpointScopeCancellation,
       selectedRemoteRunPhase,
       handleAutoRunClick,
       handleAutoRunNextAction,

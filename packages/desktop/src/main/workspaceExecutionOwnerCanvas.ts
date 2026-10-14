@@ -193,7 +193,7 @@ export function ownerCanvasMaterializationIntentId(
   return `content:${canonicalDigest}:head:${headDigest}`;
 }
 
-function ownerSessionStorage(
+export function ownerSessionStorage(
   input: OwnerCanvasExecutionInput["locator"]
 ): WorkspaceExecutionSessionStorage {
   const canonical = JSON.stringify([

@@ -268,6 +268,92 @@ describe("Workspace execution process boundary", () => {
     expect(executeRemoteOperationAction).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "running",
+    "terminal"
+  ])("reconciles an accepted cancel with a lost response while follow is %s", async (state) => {
+    const running = coordinatorView("operation-1", "T-001#B-001");
+    const terminal = desktopWorkspaceExecutionResponseSchema.parse({
+      ...running,
+      session: { ...running.session, phase: "stopped", finishedAt: "2026-08-30T00:00:02.000Z" }
+    });
+    const commands: unknown[] = [];
+    let accepted = false;
+    const observeRemoteOperation = vi.fn(async () => ({
+      operationId: "operation-1",
+      dispatchId: "dispatch-1",
+      executionAttemptId: "attempt-1",
+      state: "running" as const,
+      attempt: { stateVersion: accepted ? 2 : 1, leaseId: "lease-1" }
+    }));
+    const executeRemoteOperationAction = vi.fn(async (_operationId: string, command: unknown) => {
+      commands.push(command);
+      if (!accepted) {
+        accepted = true;
+        throw new Error("response lost");
+      }
+      return {};
+    });
+    const follow = vi
+      .fn()
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(state === "running" ? running : terminal)
+      .mockResolvedValueOnce(terminal);
+    const cancel = () =>
+      cancelWorkspaceExecutionSession({
+        follow,
+        actionId: "cancel-pinned",
+        reason: "stop requested",
+        expectedRemoteHandle: running.handle.target === "remote" ? running.handle : undefined,
+        remoteOperations: { observeRemoteOperation, executeRemoteOperationAction }
+      });
+    await expect(cancel()).rejects.toThrow("response lost");
+    await expect(cancel()).resolves.toEqual(terminal);
+    expect(follow).toHaveBeenCalledTimes(state === "running" ? 3 : 2);
+    expect(commands).toHaveLength(state === "running" ? 2 : 1);
+    if (state === "running") expect(commands[1]).toEqual(commands[0]);
+    expect(commands[0]).toMatchObject({
+      actionId: "cancel-pinned",
+      expectedAttemptVersion: 1,
+      leaseId: "lease-1"
+    });
+  });
+
+  it("refuses a pinned scope cancellation after follow advances to another attempt", async () => {
+    const running = coordinatorView("operation-1", "T-001#B-001");
+    const replacement = desktopWorkspaceExecutionResponseSchema.parse({
+      ...running,
+      handle: {
+        ...running.handle,
+        executionAttemptId: "attempt-2",
+        dispatchId: "dispatch-2",
+        leaseId: "lease-2",
+        attemptStateVersion: 2,
+        cursor: { target: "remote", executionAttemptId: "attempt-2", eventCursor: 0 }
+      }
+    });
+    const executeRemoteOperationAction = vi.fn();
+    await expect(
+      cancelWorkspaceExecutionSession({
+        follow: async () => replacement,
+        actionId: "cancel-pinned",
+        reason: "stop requested",
+        expectedRemoteHandle: running.handle.target === "remote" ? running.handle : undefined,
+        remoteOperations: {
+          observeRemoteOperation: vi.fn(async () => ({
+            operationId: "operation-1",
+            dispatchId: "dispatch-2",
+            executionAttemptId: "attempt-2",
+            state: "running" as const,
+            attempt: { stateVersion: 2, leaseId: "lease-2" }
+          })),
+          executeRemoteOperationAction
+        }
+      })
+    ).rejects.toThrow("workspace_execution_cancel_identity_mismatch");
+    expect(executeRemoteOperationAction).not.toHaveBeenCalled();
+  });
+
   it("rejects renderer attempts to send credential or storage authority", () => {
     expect(() =>
       desktopWorkspaceExecutionStartInputSchema.parse({

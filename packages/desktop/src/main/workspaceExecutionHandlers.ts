@@ -3,6 +3,7 @@ import { desktopRemoteAcpConversationResultSchema } from "../shared/remoteAcpCon
 import { ipcMain } from "electron";
 import {
   desktopWorkspaceExecutionCancelInputSchema,
+  desktopWorkspaceExecutionCancellationRecoveryInputSchema,
   desktopWorkspaceExecutionFollowInputSchema,
   desktopWorkspaceExecutionResponseSchema,
   desktopWorkspaceExecutionRespondInputSchema,
@@ -58,6 +59,13 @@ export function registerWorkspaceExecutionHandlers(input: {
       });
     }
   });
+  handleWorkspaceExecution(workspaceExecutionInvokeChannels.recoverCancellation, async (rawInput) =>
+    workspaceExecutionHandlerResult(() =>
+      service.recoverCancellations(
+        desktopWorkspaceExecutionCancellationRecoveryInputSchema.parse(rawInput)
+      )
+    )
+  );
   handleWorkspaceExecution(workspaceExecutionInvokeChannels.start, async (rawInput) =>
     workspaceExecutionHandlerResult(async () =>
       desktopWorkspaceExecutionResponseSchema.parse(

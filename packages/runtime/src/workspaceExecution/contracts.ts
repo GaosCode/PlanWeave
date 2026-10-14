@@ -358,12 +358,22 @@ const workspaceExecutionEvidenceSchema = z
   })
   .strict();
 
+export const workspaceExecutionCancellationIntentSchema = z
+  .object({
+    actionId: identifierSchema,
+    reason: z.string().trim().min(1).max(2_048),
+    expectedRemoteHandle: remoteWorkspaceExecutionHandleSchema,
+    effectiveExecutor: effectiveWorkspaceExecutorSchema
+  })
+  .strict();
+
 const workspaceExecutionSessionStateV1Schema = z
   .object({
     version: z.literal("planweave.workspace-execution-session/v1"),
     binding: workspaceAuthorityBindingSchema,
     dispatchIntent: remoteDispatchIntentStateSchema.nullable(),
     observedOperationId: identifierSchema.optional(),
+    cancellationIntent: workspaceExecutionCancellationIntentSchema.optional(),
     handle: workspaceExecutionHandleSchema.nullable(),
     interactions: z.array(workspaceExecutionInteractionIdentitySchema).max(10_000),
     evidence: workspaceExecutionEvidenceSchema

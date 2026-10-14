@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type * as React from "react";
 import type {
   DesktopAutoRunRetrospectiveSummary,
@@ -19,7 +19,10 @@ import {
 } from "../run/autoRunNextActions";
 import type { AutoRunScopeMode, FloatingControlDrag, FloatingControlPosition } from "../types";
 import { clamp } from "../viewHelpers";
-import type { WorkspaceAgentEndpointScopeStarter } from "./useWorkspaceAgentEndpointRun";
+import type {
+  EndpointScopeCancellationState,
+  WorkspaceAgentEndpointScopeStarter
+} from "./useWorkspaceAgentEndpointRun";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 import type { CanvasLocator } from "../../shared/canvasLocator";
 import { useAutoRunSelectionGuard } from "./useAutoRunSelectionGuard";
@@ -34,7 +37,13 @@ import {
   type RemoteRunLifecyclePhase
 } from "../collaboration/remoteRunViewModels";
 
-export type EndpointScopeRunPhase = "preparing" | "running" | "completed" | "failed";
+export type EndpointScopeRunPhase =
+  | "preparing"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelling"
+  | "cancel_failed";
 
 type UseAutoRunControlArgs = {
   autoRunState: DesktopAutoRunState | null;
@@ -57,6 +66,7 @@ type UseAutoRunControlArgs = {
   onPositionCommit?: (position: FloatingControlPosition) => void;
   startAutoRunScope?: WorkspaceAgentEndpointScopeStarter;
   stopAutoRunScope?: () => Promise<void>;
+  endpointScopeCancellation?: EndpointScopeCancellationState | null;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   canvasLocator?: CanvasLocator | null;
   resetWorkspaceRuntime?: () => Promise<void>;
@@ -173,14 +183,28 @@ export function useAutoRunControl({
   onPositionCommit,
   startAutoRunScope,
   stopAutoRunScope,
+  endpointScopeCancellation = null,
   runtimeAvailability,
   canvasLocator,
   resetWorkspaceRuntime
 }: UseAutoRunControlArgs) {
   const [autoRunScopeMode, setAutoRunScopeMode] = useState<AutoRunScopeMode>("project");
-  const [endpointScopeRunPhase, setEndpointScopeRunPhase] = useState<EndpointScopeRunPhase | null>(
-    null
-  );
+  const [reportedEndpointScopeRunPhase, setEndpointScopeRunPhase] =
+    useState<EndpointScopeRunPhase | null>(null);
+  const stopRequest = useRef<object | null>(null);
+  const endpointScopeRunPhase =
+    stopRequest.current && reportedEndpointScopeRunPhase === "cancelling"
+      ? "cancelling"
+      : endpointScopeCancellation
+        ? endpointScopeCancellation.phase === "failed"
+          ? "cancel_failed"
+          : "cancelling"
+        : reportedEndpointScopeRunPhase;
+  const previousCancellation = useRef(endpointScopeCancellation);
+  useEffect(() => {
+    if (previousCancellation.current && !endpointScopeCancellation) setEndpointScopeRunPhase(null);
+    previousCancellation.current = endpointScopeCancellation;
+  }, [endpointScopeCancellation]);
   const [miniRunPanelOpen, setMiniRunPanelOpen] = useState(false);
   const [autoRunControlPosition, setAutoRunControlPosition] =
     useState<FloatingControlPosition | null>(() => {
@@ -442,6 +466,7 @@ export function useAutoRunControl({
 
   const startLocalAutoRunWithScope = useCallback(
     async (scope: DesktopAutoRunScope, options?: { stepLimit?: number }) => {
+      if (endpointScopeCancellation || stopRequest.current) return;
       if (!runtimeStartAllowed) {
         setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
         return null;
@@ -484,6 +509,7 @@ export function useAutoRunControl({
       autoRunState,
       selectedCanvasId,
       selectedProject,
+      endpointScopeCancellation,
       runtimeStartAllowed,
       runtimeUnavailableCode,
       setError,
@@ -493,6 +519,7 @@ export function useAutoRunControl({
 
   const startAutoRunWithScope = useCallback(
     async (scope: DesktopAutoRunScope) => {
+      if (endpointScopeCancellation || stopRequest.current) return;
       if (!runtimeStartAllowed) {
         setError(runtimeUnavailableCode ?? "collaboration_runtime_unavailable");
         return;
@@ -519,6 +546,12 @@ export function useAutoRunControl({
               lifecycleReported = true;
               setEndpointScopeRunPhase("failed");
             },
+            onCancellationChanged: (state) => {
+              if (!request.isCurrent()) return;
+              lifecycleReported = true;
+              setEndpointScopeRunPhase(state.phase === "failed" ? "cancel_failed" : "cancelling");
+              setMiniRunPanelOpen(true);
+            },
             onCancelled: () => {
               if (!request.isCurrent()) return;
               lifecycleReported = true;
@@ -537,6 +570,7 @@ export function useAutoRunControl({
       await startLocalAutoRunWithScope(scope);
     },
     [
+      endpointScopeCancellation,
       runtimeStartAllowed,
       runtimeUnavailableCode,
       setError,
@@ -554,7 +588,13 @@ export function useAutoRunControl({
     }
     try {
       setMiniRunPanelOpen(true);
-      if (endpointScopeRunPhase === "running" || endpointScopeRunPhase === "preparing") return;
+      if (
+        endpointScopeRunPhase === "running" ||
+        endpointScopeRunPhase === "preparing" ||
+        endpointScopeRunPhase === "cancelling" ||
+        endpointScopeRunPhase === "cancel_failed"
+      )
+        return;
       if (
         !autoRunState ||
         ["completed", "blocked", "failed", "stopped"].includes(autoRunState.phase)
@@ -700,19 +740,33 @@ export function useAutoRunControl({
   );
 
   useEffect(() => {
+    stopRequest.current = null;
     if (captureSelection().isCurrent()) setEndpointScopeRunPhase(null);
   }, [captureSelection]);
 
   const stopAutoRunClick = useCallback(async () => {
     const request = captureSelection();
-    if (endpointScopeRunPhase === "running" || endpointScopeRunPhase === "preparing") {
+    if (
+      endpointScopeRunPhase === "running" ||
+      endpointScopeRunPhase === "preparing" ||
+      endpointScopeRunPhase === "cancelling" ||
+      endpointScopeRunPhase === "cancel_failed"
+    ) {
+      if (stopRequest.current || endpointScopeCancellation?.phase === "recovering") return;
       if (!stopAutoRunScope) return;
+      const owner = {};
+      stopRequest.current = owner;
+      setEndpointScopeRunPhase("cancelling");
+      setMiniRunPanelOpen(true);
       try {
         await stopAutoRunScope();
-        if (request.isCurrent()) setEndpointScopeRunPhase(null);
       } catch (caught) {
-        if (request.isCurrent())
+        if (request.isCurrent()) {
+          setEndpointScopeRunPhase("cancel_failed");
           setError(caught instanceof Error ? caught.message : String(caught));
+        }
+      } finally {
+        if (stopRequest.current === owner) stopRequest.current = null;
       }
       return;
     }
@@ -736,6 +790,7 @@ export function useAutoRunControl({
     runtimeUnavailableCode,
     setError,
     stopAutoRunScope,
+    endpointScopeCancellation,
     captureSelection
   ]);
 
@@ -752,7 +807,9 @@ export function useAutoRunControl({
     if (
       isActiveAutoRunState(autoRunState) ||
       endpointScopeRunPhase === "running" ||
-      endpointScopeRunPhase === "preparing"
+      endpointScopeRunPhase === "preparing" ||
+      endpointScopeRunPhase === "cancelling" ||
+      endpointScopeRunPhase === "cancel_failed"
     ) {
       setError(t("stopAutoRunBeforeReset"));
       return;
@@ -891,6 +948,7 @@ export function useAutoRunControl({
     autoRunScopeMode,
     autoRunState,
     endpointScopeRunPhase,
+    endpointScopeCancellation,
     selectedRemoteRunPhase,
     handleAutoRunClick,
     handleAutoRunNextAction,

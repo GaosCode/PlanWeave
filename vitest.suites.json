@@ -318,6 +318,7 @@
         "workspaceAgentEndpointOwnerFleet.test.tsx",
         "workspaceAgentEndpointRun.test.tsx",
         "workspaceAgentEndpointRunCancellation.test.tsx",
+        "workspaceScopeStopRecovery.test.tsx",
         "workspaceCanvasCommands.test.tsx",
         "workspaceCanvasDownloadConsumer.test.tsx",
         "workspaceCanvasRetiredWrites.test.tsx",

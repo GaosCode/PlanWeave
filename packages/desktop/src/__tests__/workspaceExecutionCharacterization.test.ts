@@ -16,11 +16,16 @@ import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHe
 import type { CollaborationRemoteOperationsPort } from "../main/collaboration/CollaborationRemoteOperationsClient.js";
 import { CollaborationRemoteOperationsFacade } from "../main/collaboration/collaborationRemoteOperations.js";
 import { OperatorControlClient } from "../main/operatorControl/OperatorControlClient.js";
+import { CollaborationService } from "../main/collaboration/collaborationService.js";
 import type { OperatorControlService } from "../main/operatorControl/operatorControlService.js";
-import { cancelWorkspaceExecutionSession } from "../main/workspaceExecutionDesktopService.js";
+import {
+  WorkspaceExecutionDesktopService,
+  cancelWorkspaceExecutionSession
+} from "../main/workspaceExecutionDesktopService.js";
 import { DesktopWorkspaceExecutionSessionRepository } from "../main/workspaceExecutionDesktopSessionRepository.js";
 import {
   ownerCanvasMaterializationIntentId,
+  ownerSessionStorage,
   withOwnerCanvasExistingExecutionCoordinator,
   withOwnerCanvasExecutionCoordinator
 } from "../main/workspaceExecutionOwnerCanvas.js";
@@ -224,7 +229,10 @@ describe("workspace execution authority characterization", () => {
     expect(request.authority).not.toHaveProperty("workspaceId");
   });
 
-  it("keeps owner Canvas start, follow, respond, and cancel on one profile-scoped session", async () => {
+  it.each([
+    "observe",
+    "final follow"
+  ] as const)("keeps owner Canvas session recovery pinned when replacement arrives at %s", async (replacementAt) => {
     const { root } = await createTestWorkspace();
     const loaded = await loadPlanGraphPackage(root);
     const captured = await capturePackageSnapshot({ projectRoot: root });
@@ -248,6 +256,9 @@ describe("workspace execution authority characterization", () => {
         leaseId: "lease-1"
       }
     });
+    let currentObservation = runningObservation;
+    let failObservation = false;
+    const scheduledObservations: (typeof runningObservation)[] = [];
     let interactionSettled = false;
     let materializedHead: {
       revision: number;
@@ -344,7 +355,8 @@ describe("workspace execution authority characterization", () => {
         });
       }
       if (url.pathname === "/api/v1/remote-operations/operation-1") {
-        return Response.json(runningObservation);
+        if (failObservation) throw new Error("response_lost");
+        return Response.json(scheduledObservations.shift() ?? currentObservation);
       }
       return Response.json({ error: "unexpected_operator_route" }, { status: 404 });
     });
@@ -485,6 +497,122 @@ describe("workspace execution authority characterization", () => {
             call.url.pathname === "/api/v1/remote-operations"
         )
     ).toBe(true);
+    const collaboration = new CollaborationService({
+      profileStorePaths: { profilesPath: join(sessionsRoot, "profiles.json") },
+      workspaceProfileStorePaths: { profilesPath: join(sessionsRoot, "workspace-profiles.json") },
+      credentialsPath: join(sessionsRoot, "credentials.json"),
+      invitationsPath: join(sessionsRoot, "invitations.json")
+    });
+    const service = new WorkspaceExecutionDesktopService(
+      collaboration,
+      operatorControl,
+      sessionsRoot
+    );
+    const storage = ownerSessionStorage(requestInput.locator);
+    expect((await sessions.get(storage, sessionId)).session.workspaceExecution).not.toHaveProperty(
+      "cancellationIntent"
+    );
+    if (started.handle.target !== "remote") throw new Error("remote handle required");
+    const cancelInput = {
+      ...requestInput,
+      sessionId,
+      actionId: "cancel-persisted",
+      reason: "Desktop Auto Run stop requested.",
+      expectedRemoteHandle: started.handle
+    };
+    failObservation = true;
+    await expect(service.cancel(cancelInput)).rejects.toThrow();
+    failObservation = false;
+    const restarted = new WorkspaceExecutionDesktopService(
+      collaboration,
+      operatorControl,
+      sessionsRoot
+    );
+    expect(await restarted.recoverCancellations({ locator: requestInput.locator })).toMatchObject({
+      sessions: [
+        {
+          sessionId,
+          blockRef: requestInput.blockRef,
+          intent: { actionId: "cancel-persisted", expectedRemoteHandle: started.handle }
+        }
+      ]
+    });
+    expect(
+      (
+        await restarted.recoverCancellations({
+          locator: { ...requestInput.locator, canvasId: "other-canvas" }
+        })
+      ).sessions
+    ).toEqual([]);
+    const replacementTerminal = remoteOperationObservationSchema.parse({
+      ...currentObservation,
+      state: "cancelled",
+      dispatchId: "dispatch-attempt-2",
+      executionAttemptId: "attempt-2",
+      attempt: {
+        ...currentObservation.attempt,
+        dispatchId: "dispatch-attempt-2",
+        executionAttemptId: "attempt-2",
+        status: "cancelled",
+        leaseId: "lease-2",
+        stateVersion: 3
+      },
+      diagnostics: { ...currentObservation.diagnostics, attemptId: "attempt-2", revision: 3 }
+    });
+    scheduledObservations.push(currentObservation);
+    if (replacementAt === "final follow") scheduledObservations.push(currentObservation);
+    scheduledObservations.push(replacementTerminal);
+    currentObservation = replacementTerminal;
+    await expect(restarted.cancel(cancelInput)).rejects.toThrow(
+      "workspace_execution_cancel_identity_mismatch"
+    );
+    expect(
+      (await sessions.get(storage, sessionId)).session.workspaceExecution?.cancellationIntent
+    ).toMatchObject({ actionId: cancelInput.actionId, expectedRemoteHandle: started.handle });
+    const afterReplacement = new WorkspaceExecutionDesktopService(
+      collaboration,
+      operatorControl,
+      sessionsRoot
+    );
+    expect(
+      (await afterReplacement.recoverCancellations({ locator: requestInput.locator })).sessions
+    ).toMatchObject([
+      {
+        sessionId,
+        intent: { actionId: cancelInput.actionId, expectedRemoteHandle: started.handle }
+      }
+    ]);
+    if (replacementAt === "final follow") return;
+    scheduledObservations.length = 0;
+    currentObservation = runningObservation;
+    await runWithOwner(
+      ({ coordinator, request: value }) => coordinator.follow(value, sessionId),
+      sessionId
+    );
+    currentObservation = remoteOperationObservationSchema.parse({
+      ...runningObservation,
+      attempt: { ...runningObservation.attempt, stateVersion: 2 },
+      diagnostics: { ...runningObservation.diagnostics, revision: 2 }
+    });
+    await restarted.follow({ ...requestInput, sessionId });
+    expect(
+      (await sessions.get(storage, sessionId)).session.workspaceExecution?.cancellationIntent
+        ?.actionId
+    ).toBe("cancel-persisted");
+    currentObservation = remoteOperationObservationSchema.parse({
+      ...currentObservation,
+      state: "cancelled",
+      attempt: { ...currentObservation.attempt, status: "cancelled", stateVersion: 3 },
+      diagnostics: { ...currentObservation.diagnostics, revision: 3 }
+    });
+    expect((await restarted.cancel(cancelInput)).session.phase).toBe("stopped");
+    expect(
+      (await restarted.recoverCancellations({ locator: requestInput.locator })).sessions
+    ).toEqual([]);
+    expect((await sessions.get(storage, sessionId)).session.workspaceExecution).not.toHaveProperty(
+      "cancellationIntent"
+    );
+
     expect(calls.some((call) => call.url.searchParams.has("workspaceId"))).toBe(false);
     expect(calls.some((call) => JSON.stringify(call.body ?? null).includes("workspaceId"))).toBe(
       false

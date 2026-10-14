@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 
+import type { DesktopWorkspaceExecutionCancelInput } from "../shared/workspaceExecution";
 import { renderHook } from "@testing-library/react";
 import type {
   ClaimResult,
@@ -228,6 +229,7 @@ export function renderRun(input?: {
   startWorkspaceExecution?: ReturnType<typeof vi.fn>;
   followWorkspaceExecution?: ReturnType<typeof vi.fn>;
   startGate?: Promise<void>;
+  recoverWorkspaceExecutionCancellations?: ReturnType<typeof vi.fn>;
 }) {
   const dispatch = vi.fn(async () => operation("running"));
   const observe = vi.fn(async () => operation("running"));
@@ -378,7 +380,7 @@ export function renderRun(input?: {
         terminal
       );
     });
-  const cancelWorkspaceExecution = vi.fn(async () => {
+  const cancelWorkspaceExecution = vi.fn(async (_input?: DesktopWorkspaceExecutionCancelInput) => {
     return workspaceView("stopped", operation("cancelled"));
   });
   const hook = renderHook(
@@ -441,6 +443,12 @@ export function renderRun(input?: {
         previewClaimNext,
         resolveLiveRemoteBinding,
         workspaceExecutionApi: {
+          recoverWorkspaceExecutionCancellations:
+            input?.recoverWorkspaceExecutionCancellations ??
+            vi.fn(async () => ({
+              version: "planweave.workspace-cancellation-recovery/v1" as const,
+              sessions: []
+            })),
           startWorkspaceExecution,
           followWorkspaceExecution,
           respondWorkspaceExecution: vi.fn(),
@@ -449,7 +457,7 @@ export function renderRun(input?: {
       });
       return Object.assign(
         (scope: DesktopAutoRunScope) => startWithEndpoint(scope, startLocal, lifecycle),
-        { stop: startWithEndpoint.stop }
+        { stop: startWithEndpoint.stop, cancellation: startWithEndpoint.cancellation }
       );
     },
     { initialProps: { authorityKey: "workspace-authority-1" } }

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { remoteHumanExecutionActionCommandSchema } from "@planweave-ai/collaboration-protocol/remote-run";
 import { dispatchIdSchema, executionAttemptIdSchema } from "@planweave-ai/agent-host-protocol";
 import {
@@ -12,11 +13,13 @@ import {
   type ValidatedWorkspaceAuthorityBinding,
   type WorkspaceCanvasRemoteAuthorityBinding,
   type WorkspaceExecutionCoordinatorView,
+  type WorkspaceExecutionSessionRecord,
   type WorkspaceExecutionRequest,
   type WorkspaceExecutionSessionStorage,
   type RemoteBlockRuntimePort
 } from "@planweave-ai/runtime";
 import type {
+  DesktopWorkspaceExecutionCancellationRecovery,
   DesktopWorkspaceExecutionCancelInput,
   DesktopWorkspaceExecutionFollowInput,
   DesktopWorkspaceExecutionRespondInput,
@@ -29,6 +32,7 @@ import { desktopHomePaths } from "./planweaveHomePaths.js";
 import type { OperatorControlService } from "./operatorControl/operatorControlService.js";
 import { DesktopWorkspaceExecutionSessionRepository } from "./workspaceExecutionDesktopSessionRepository.js";
 import {
+  ownerSessionStorage,
   withOwnerCanvasExistingExecutionCoordinator,
   withOwnerCanvasExecutionCoordinator,
   type OwnerCanvasRemoteOperations
@@ -155,11 +159,32 @@ async function writeBackOwnerCanvasExecution(input: OwnerLocalWritebackContext):
   }
 }
 
+function assertCancellationViewIdentity(
+  view: {
+    handle: WorkspaceExecutionCoordinatorView["handle"];
+    session: Pick<WorkspaceExecutionSessionRecord, "sessionId" | "phase">;
+  },
+  expected: NonNullable<DesktopWorkspaceExecutionCancelInput["expectedRemoteHandle"]>
+): void {
+  if (
+    view.handle.target !== "remote" ||
+    view.session.sessionId !== expected.runSessionId ||
+    view.handle.authorityBindingId !== expected.authorityBindingId ||
+    view.handle.operationId !== expected.operationId ||
+    view.handle.dispatchId !== expected.dispatchId ||
+    view.handle.executionAttemptId !== expected.executionAttemptId ||
+    (!["completed", "failed", "stopped"].includes(view.session.phase) &&
+      view.handle.leaseId !== expected.leaseId)
+  )
+    throw new Error("workspace_execution_cancel_identity_mismatch");
+}
+
 export async function cancelActiveWorkspaceExecution(input: {
   current: WorkspaceExecutionCoordinatorView;
   actionId: string;
   reason: string;
   remoteOperations: RemoteOperationsCancellationPort;
+  expectedRemoteHandle?: DesktopWorkspaceExecutionCancelInput["expectedRemoteHandle"];
 }): Promise<WorkspaceExecutionCancelOutcome> {
   if (["completed", "failed", "stopped"].includes(input.current.session.phase)) {
     return "already_terminal";
@@ -167,32 +192,38 @@ export async function cancelActiveWorkspaceExecution(input: {
   if (input.current.handle.target !== "remote") {
     throw new Error("workspace_execution_remote_handle_required");
   }
-  const observation = await input.remoteOperations.observeRemoteOperation(
-    input.current.handle.operationId
-  );
-  if (["completed", "failed", "cancelled"].includes(observation.state)) {
+  const handle = input.expectedRemoteHandle ?? input.current.handle;
+  const observation = await input.remoteOperations.observeRemoteOperation(handle.operationId);
+  const terminal = ["completed", "failed", "cancelled"].includes(observation.state);
+  if (
+    (input.expectedRemoteHandle || !terminal) &&
+    (observation.operationId !== handle.operationId ||
+      observation.dispatchId !== handle.dispatchId ||
+      observation.executionAttemptId !== handle.executionAttemptId)
+  )
+    throw new Error("workspace_execution_cancel_identity_mismatch");
+  if (terminal) {
     return "remote_terminal";
   }
   if (
-    observation.operationId !== input.current.handle.operationId ||
-    observation.dispatchId !== input.current.handle.dispatchId ||
-    observation.executionAttemptId !== input.current.handle.executionAttemptId ||
-    observation.attempt.stateVersion !== input.current.handle.attemptStateVersion ||
-    observation.attempt.leaseId !== input.current.handle.leaseId ||
-    input.current.handle.leaseId === null
+    // Pinned retries replay the original command; Server owns action deduplication and CAS.
+    (!input.expectedRemoteHandle &&
+      observation.attempt.stateVersion !== handle.attemptStateVersion) ||
+    observation.attempt.leaseId !== handle.leaseId ||
+    handle.leaseId === null
   ) {
     throw new Error("workspace_execution_cancel_identity_mismatch");
   }
   await input.remoteOperations.executeRemoteOperationAction(
-    input.current.handle.operationId,
+    handle.operationId,
     remoteHumanExecutionActionCommandSchema.parse({
       kind: "cancel",
       actionId: input.actionId,
-      operationId: input.current.handle.operationId,
-      dispatchId: input.current.handle.dispatchId,
-      executionAttemptId: input.current.handle.executionAttemptId,
-      expectedAttemptVersion: input.current.handle.attemptStateVersion,
-      leaseId: input.current.handle.leaseId,
+      operationId: handle.operationId,
+      dispatchId: handle.dispatchId,
+      executionAttemptId: handle.executionAttemptId,
+      expectedAttemptVersion: handle.attemptStateVersion,
+      leaseId: handle.leaseId,
       reason: input.reason
     })
   );
@@ -204,15 +235,21 @@ export async function cancelWorkspaceExecutionSession(input: {
   actionId: string;
   reason: string;
   remoteOperations: RemoteOperationsCancellationPort;
+  expectedRemoteHandle?: DesktopWorkspaceExecutionCancelInput["expectedRemoteHandle"];
 }): Promise<WorkspaceExecutionCoordinatorView> {
   const current = await input.follow();
+  const expected = input.expectedRemoteHandle;
+  if (expected) assertCancellationViewIdentity(current, expected);
   const outcome = await cancelActiveWorkspaceExecution({
     current,
+    expectedRemoteHandle: expected,
     actionId: input.actionId,
     reason: input.reason,
     remoteOperations: input.remoteOperations
   });
-  return outcome === "already_terminal" ? current : input.follow();
+  const final = outcome === "already_terminal" ? current : await input.follow();
+  if (expected) assertCancellationViewIdentity(final, expected);
+  return final;
 }
 
 function namespaceFor(input: {
@@ -380,8 +417,88 @@ export class WorkspaceExecutionDesktopService {
     );
   }
 
-  cancel(input: DesktopWorkspaceExecutionCancelInput) {
-    return this.withRequestCoordinator(
+  private withCancellationStorage<T>(
+    locator: DesktopWorkspaceExecutionStartInput["locator"],
+    operation: (storage: WorkspaceExecutionSessionStorage) => Promise<T>
+  ): Promise<T> {
+    if (locator.kind === "owner_canvas") return operation(ownerSessionStorage(locator));
+    return this.withBoundCoordinator(locator, ({ serverOrigin }) =>
+      operation(
+        namespaceFor({
+          profileId: locator.connectionProfileId,
+          serverOrigin,
+          workspaceId: locator.workspaceId,
+          projectId: locator.projectId,
+          canvasId: locator.canvasId
+        })
+      )
+    );
+  }
+
+  recoverCancellations(input: {
+    locator: DesktopWorkspaceExecutionStartInput["locator"];
+  }): Promise<DesktopWorkspaceExecutionCancellationRecovery> {
+    return this.withCancellationStorage(input.locator, async (storage) => {
+      const listed = await this.sessions.list(storage);
+      return {
+        version: "planweave.workspace-cancellation-recovery/v1",
+        sessions: listed.sessions.flatMap((session) => {
+          const intent = session.workspaceExecution?.cancellationIntent;
+          return intent && session.scope.kind === "block"
+            ? [{ sessionId: session.sessionId, blockRef: session.scope.blockRef, intent }]
+            : [];
+        })
+      };
+    });
+  }
+
+  private async persistCancellationIntent(
+    input: DesktopWorkspaceExecutionCancelInput,
+    confirmed: boolean
+  ): Promise<void> {
+    const expected = input.expectedRemoteHandle;
+    if (!expected) return;
+    await this.withCancellationStorage(input.locator, (storage) =>
+      this.sessions.withMutation(storage, async () => {
+        const session = (await this.sessions.get(storage, input.sessionId)).session;
+        const state = session.workspaceExecution;
+        if (!state || !state.handle || state.binding.bindingId !== expected.authorityBindingId)
+          throw new Error("workspace_execution_cancel_identity_mismatch");
+        assertCancellationViewIdentity({ session, handle: state.handle }, expected);
+        const intent = {
+          actionId: input.actionId,
+          reason: input.reason,
+          expectedRemoteHandle: expected,
+          effectiveExecutor: input.effectiveExecutor
+        };
+        if (
+          (confirmed && !state.cancellationIntent) ||
+          (state.cancellationIntent &&
+            (state.cancellationIntent.actionId !== intent.actionId ||
+              state.cancellationIntent.reason !== intent.reason ||
+              !isDeepStrictEqual(state.cancellationIntent.expectedRemoteHandle, expected) ||
+              !isDeepStrictEqual(
+                state.cancellationIntent.effectiveExecutor,
+                intent.effectiveExecutor
+              )))
+        )
+          throw new Error("workspace_execution_cancel_identity_mismatch");
+        const next = { ...state };
+        if (confirmed) delete next.cancellationIntent;
+        else next.cancellationIntent = intent;
+        await this.sessions.update(
+          storage,
+          input.sessionId,
+          { workspaceExecution: next },
+          { expectedStateVersion: session.stateVersion }
+        );
+      })
+    );
+  }
+
+  async cancel(input: DesktopWorkspaceExecutionCancelInput) {
+    await this.persistCancellationIntent(input, false);
+    const result = await this.withRequestCoordinator(
       async ({ coordinator, request, remoteOperations, localRuntime }) => {
         const view = await cancelWorkspaceExecutionSession({
           follow: async () =>
@@ -390,6 +507,7 @@ export class WorkspaceExecutionDesktopService {
             ),
           actionId: input.actionId,
           reason: input.reason,
+          expectedRemoteHandle: input.expectedRemoteHandle,
           remoteOperations
         });
         if (localRuntime && request.authority.kind === "owner_canvas") {
@@ -404,6 +522,9 @@ export class WorkspaceExecutionDesktopService {
       },
       input
     );
+    if (["completed", "failed", "stopped"].includes(result.session.phase))
+      await this.persistCancellationIntent(input, true);
+    return result;
   }
 
   private withRequestCoordinator<T>(

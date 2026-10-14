@@ -1,3 +1,4 @@
+import type { EndpointScopeCancellationState } from "../hooks/useWorkspaceAgentEndpointRun";
 import {
   useCallback,
   useEffect,
@@ -68,6 +69,7 @@ type GraphViewProps = {
   autoRunScopeMode: AutoRunScopeMode;
   autoRunState: DesktopAutoRunState | null;
   endpointScopeRunPhase: EndpointScopeRunPhase | null;
+  endpointScopeCancellation?: EndpointScopeCancellationState | null;
   selectedRemoteRunPhase?: RemoteRunLifecyclePhase | null;
   edges: Edge[];
   fileSyncResult: DesktopPackageFileSyncResult | null;
@@ -167,6 +169,7 @@ export function GraphView({
   autoRunScopeMode,
   autoRunState,
   endpointScopeRunPhase,
+  endpointScopeCancellation,
   selectedRemoteRunPhase = null,
   edges,
   fileSyncResult,
@@ -592,6 +595,7 @@ export function GraphView({
         autoRunRetrospective={autoRunRetrospective}
         autoRunState={autoRunState}
         endpointScopeRunPhase={endpointScopeRunPhase}
+        endpointScopeCancellation={endpointScopeCancellation}
         selectedRemoteRunPhase={selectedRemoteRunPhase}
         controlRef={autoRunControlRef}
         affectedTasks={fileSyncResult?.affectedTasks ?? []}
