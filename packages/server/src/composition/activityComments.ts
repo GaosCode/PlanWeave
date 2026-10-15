@@ -66,13 +66,9 @@ export function createActivityJournalComposition(input: {
         record
       )
   });
-  const activityProjection = new ActivityProjectionService({
-    activity: activityRepository,
-    clock: input.clock
-  });
-  const assignmentActivityProjections = new Map<string, ActivityProjectionService>();
-  const assignmentActivityProjection = (workspaceId: string) => {
-    let scoped = assignmentActivityProjections.get(workspaceId);
+  const workspaceActivityProjections = new Map<string, ActivityProjectionService>();
+  const workspaceActivityProjection = (workspaceId: string) => {
+    let scoped = workspaceActivityProjections.get(workspaceId);
     if (!scoped) {
       scoped = new ActivityProjectionService({
         activity: new ActivityRepository(input.database, {
@@ -82,7 +78,7 @@ export function createActivityJournalComposition(input: {
         }),
         clock: input.clock
       });
-      assignmentActivityProjections.set(workspaceId, scoped);
+      workspaceActivityProjections.set(workspaceId, scoped);
     }
     return scoped;
   };
@@ -90,8 +86,7 @@ export function createActivityJournalComposition(input: {
     artifactStore,
     humanObserverJournal,
     activityRepository,
-    activityProjection,
-    assignmentActivityProjection
+    workspaceActivityProjection
   };
 }
 

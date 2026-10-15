@@ -125,7 +125,7 @@ export function createRemoteCoordinationOptions(input: {
               ? "Assigned work item to an Agent Host"
               : "Assigned work item to automatic Host selection";
       input.activity
-        .assignmentActivityProjection(record.workspaceId)
+        .workspaceActivityProjection(record.workspaceId)
         .projectAssignmentEventInCallerTransaction({
           projectId: record.projectId,
           workItem: record.workItem,
@@ -143,7 +143,7 @@ export function createRemoteCoordinationOptions(input: {
       >[0]
     ) => {
       input.activity
-        .assignmentActivityProjection(transition.dispatch.workspaceId)
+        .workspaceActivityProjection(transition.dispatch.workspaceId)
         .projectRemoteRunEventInCallerTransaction({
           projectId: transition.dispatch.projectId,
           type: transition.type,

@@ -725,6 +725,127 @@ describe("authorized Activity pagination", () => {
 });
 
 describe("composed live comment read grants", () => {
+  it("commits membership transitions in their workspace when project IDs are shared", async () => {
+    const fixture = await setupCommentReadComposition();
+    const owner = fixture.owner;
+    const otherOwner = fixture.createOtherWorkspace();
+    const otherObserverCount = fixture.database
+      .prepare("SELECT COUNT(*) AS count FROM human_observer_events WHERE workspace_id=?")
+      .get(otherOwner.workspaceId)!.count;
+    const member = await inviteAndJoin(
+      fixture.origin,
+      owner.token,
+      fixture.projectId,
+      "Scoped member"
+    );
+    const memberId = String(
+      fixture.database
+        .prepare(
+          "SELECT human_principal_id FROM workspace_device_sessions WHERE credential_sha256=?"
+        )
+        .get(hashHumanToken(member))!.human_principal_id
+    );
+    const read = (token: string) =>
+      fetch(
+        `${fixture.base}/comments?workItem=${encodeURIComponent(
+          JSON.stringify({ kind: "task", canvasId: "default", taskId: "T-001" })
+        )}`,
+        { headers: jsonHeaders(token) }
+      );
+    const membership = () =>
+      fixture.database
+        .prepare(
+          "SELECT role, revoked_at FROM workspace_memberships WHERE workspace_id=? AND human_principal_id=?"
+        )
+        .get(owner.workspaceId, memberId);
+    expect(membership()).toMatchObject({ role: "member", revoked_at: null });
+    expect((await read(member)).status).toBe(403);
+    for (const [action, role, invitationStatus] of [
+      ["promote", "owner", 200],
+      ["demote", "member", 403]
+    ] as const) {
+      const response = await fetch(`${fixture.base}/human/members/${memberId}/${action}`, {
+        method: "POST",
+        headers: jsonHeaders(owner.token)
+      });
+      expect(response.status).toBe(200);
+      expect(membership()).toMatchObject({ role, revoked_at: null });
+      const invitations = await fetch(`${fixture.base}/human/invitations`, {
+        headers: jsonHeaders(member)
+      });
+      expect(invitations.status).toBe(invitationStatus);
+    }
+    await fixture.mutateAccess(owner.token, owner.workspaceId, "default", {
+      operation: "grant",
+      expectedAclRevision: 0,
+      humanPrincipalId: memberId,
+      role: "viewer"
+    });
+    expect((await read(member)).status).toBe(200);
+    const removed = await fetch(`${fixture.base}/human/members/${memberId}/remove`, {
+      method: "POST",
+      headers: jsonHeaders(owner.token)
+    });
+    expect(removed.status).toBe(200);
+    expect(membership()!.revoked_at).not.toBeNull();
+    expect((await read(member)).status).toBe(401);
+    const feed = await fetch(`${fixture.base}/activity`, { headers: jsonHeaders(owner.token) });
+    expect(feed.status).toBe(200);
+    const body = (await feed.json()) as { items: Array<{ activityId: string; type: string }> };
+    expect(body.items.map((item) => item.type).sort()).toEqual([
+      "member_joined",
+      "member_removed",
+      "owner_demoted",
+      "owner_promoted"
+    ]);
+    const projected = fixture.database
+      .prepare(
+        "SELECT workspace_id,projected_at FROM activity_projection_outbox WHERE project_id=? AND source_kind='membership'"
+      )
+      .all(fixture.projectId);
+    expect(projected).toHaveLength(4);
+    for (const row of projected) {
+      expect(row.workspace_id).toBe(owner.workspaceId);
+      expect(row.projected_at).not.toBeNull();
+    }
+    const observed = fixture.database
+      .prepare("SELECT workspace_id,event_json FROM human_observer_events WHERE project_id=?")
+      .all(fixture.projectId)
+      .map((row) => ({
+        workspaceId: row.workspace_id,
+        event: JSON.parse(String(row.event_json)) as { kind: string; activityId?: string }
+      }))
+      .filter((row) => row.event.activityId);
+    expect(observed).toHaveLength(8);
+    for (const item of body.items) {
+      expect(observed.filter((row) => row.event.activityId === item.activityId)).toEqual(
+        expect.arrayContaining(
+          ["membership", "activity"].map((kind) => ({
+            workspaceId: owner.workspaceId,
+            event: expect.objectContaining({ kind, activityId: item.activityId })
+          }))
+        )
+      );
+    }
+    const otherFeed = await fetch(`${fixture.base}/activity`, {
+      headers: jsonHeaders(otherOwner.token)
+    });
+    expect(otherFeed.status).toBe(200);
+    expect(await otherFeed.json()).toMatchObject({ items: [] });
+    expect(
+      fixture.database
+        .prepare("SELECT COUNT(*) AS count FROM human_observer_events WHERE workspace_id=?")
+        .get(otherOwner.workspaceId)!.count
+    ).toBe(otherObserverCount);
+    expect(
+      fixture.database
+        .prepare(
+          "SELECT 1 FROM workspace_memberships WHERE workspace_id=? AND human_principal_id=?"
+        )
+        .get(otherOwner.workspaceId, memberId)
+    ).toBeUndefined();
+  });
+
   it("revokes cached-client reads and isolates identical project/canvas IDs between workspaces", async () => {
     const fixture = await setupCommentReadComposition();
     const owner = fixture.owner;

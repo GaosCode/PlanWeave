@@ -282,16 +282,18 @@ export function createIdentityServices(input: {
         membershipRole: membership.role
       });
       input.workspaceIdentity.invalidateMembers(workspaceId);
-      input.activity.activityProjection.projectMembershipEventInCallerTransaction({
-        projectId: membership.projectId,
-        type,
-        membershipId: membership.membershipId,
-        transitionRevision: membership.revision,
-        humanPrincipalId: membership.humanPrincipalId,
-        displayName: principal.displayName,
-        membershipRole: membership.role,
-        occurredAt: membership.updatedAt
-      });
+      input.activity
+        .workspaceActivityProjection(workspaceId)
+        .projectMembershipEventInCallerTransaction({
+          projectId: membership.projectId,
+          type,
+          membershipId: membership.membershipId,
+          transitionRevision: membership.revision,
+          humanPrincipalId: membership.humanPrincipalId,
+          displayName: principal.displayName,
+          membershipRole: membership.role,
+          occurredAt: membership.updatedAt
+        });
     },
     onInvitationTransitionInTransaction: ({ invitation }) => {
       const workspaceId = input.workspaceIdentity.workspaceForLegacyProject(invitation.projectId);
