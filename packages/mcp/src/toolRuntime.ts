@@ -105,7 +105,9 @@ export const runtimeGateway: RuntimeGateway = {
   async getStatus(projectId, canvasId) {
     const selectedCanvasId = await resolveSelectedCanvasId(projectId, canvasId);
     return sanitizeExecutionStatus(
-      await getExecutionStatus({ projectRoot: await resolveCanvasWorkspace(projectId, canvasId) }),
+      await getExecutionStatus({
+        projectRoot: await resolveCanvasWorkspace(projectId, selectedCanvasId)
+      }),
       selectedCanvasId
     );
   },

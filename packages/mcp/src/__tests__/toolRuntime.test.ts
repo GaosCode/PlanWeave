@@ -2,8 +2,20 @@ import { access, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/p
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { redoDesktopPlanGraphCommand, undoDesktopPlanGraphCommand } from "@planweave-ai/runtime";
+import {
+  claimNext,
+  openProject,
+  redoDesktopPlanGraphCommand,
+  resolveTaskCanvasWorkspace,
+  selectTaskCanvas,
+  undoDesktopPlanGraphCommand
+} from "@planweave-ai/runtime";
 import { runtimeGateway } from "../toolRuntime.js";
+
+vi.mock("@planweave-ai/runtime", async (importOriginal) => {
+  const runtime = await importOriginal<typeof import("@planweave-ai/runtime")>();
+  return { ...runtime, openProject: vi.fn(runtime.openProject) };
+});
 
 const packageFiles = [
   {
@@ -26,6 +38,83 @@ afterEach(() => {
 });
 
 describe("MCP runtime gateway", () => {
+  it.each([
+    undefined,
+    null,
+    "default"
+  ])("keeps status data and canvas identity together when selection changes (%s)", async (canvasId) => {
+    const home = await realpath(await mkdtemp(join(tmpdir(), "planweave-mcp-status-")));
+    vi.stubEnv("PLANWEAVE_HOME", home);
+    const project = await runtimeGateway.initProject("Status snapshot");
+    const second = await runtimeGateway.createCanvas(project.projectId, "Other status");
+    await runtimeGateway.createTask(project.projectId, "default", { title: "Selected task" });
+    await runtimeGateway.createTask(project.projectId, second.canvasId, { title: "Other task" });
+    await runtimeGateway.createTask(project.projectId, second.canvasId, { title: "Extra task" });
+    const selectedWorkspace = await resolveTaskCanvasWorkspace(project.workspaceRoot, "default");
+    await expect(claimNext({ projectRoot: selectedWorkspace })).resolves.toMatchObject({
+      kind: "block",
+      ref: "T-SELECTED-TASK#B-001"
+    });
+    await selectTaskCanvas(project.workspaceRoot, "default");
+
+    const unrelated = join(home, "projects", "broken-status-neighbor");
+    await mkdir(unrelated);
+    await writeFile(join(unrelated, "project.json"), "{");
+    const before = await runtimeGateway.getStatus(project.projectId, "default");
+    expect(before).toMatchObject({
+      canvasId: "default",
+      taskTotal: 1,
+      blockTotal: 2,
+      tasks: [{ taskId: "T-SELECTED-TASK", status: "in_progress" }],
+      blocks: [
+        { ref: "T-SELECTED-TASK#B-001", status: "in_progress" },
+        { ref: "T-SELECTED-TASK#R-001", status: "planned" }
+      ],
+      currentRefs: ["T-SELECTED-TASK#B-001"]
+    });
+    const other = await runtimeGateway.getStatus(project.projectId, second.canvasId);
+    expect(other).toMatchObject({
+      canvasId: second.canvasId,
+      taskTotal: 2,
+      blockTotal: 4,
+      tasks: [
+        { taskId: "T-OTHER-TASK", status: "ready" },
+        { taskId: "T-EXTRA-TASK", status: "ready" }
+      ],
+      currentRefs: []
+    });
+
+    let reached!: () => void;
+    let resume!: () => void;
+    const captured = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const runtime =
+      await vi.importActual<typeof import("@planweave-ai/runtime")>("@planweave-ai/runtime");
+    vi.mocked(openProject).mockImplementationOnce(async (options) => {
+      const resolved = await runtime.openProject(options);
+      reached();
+      await released;
+      return resolved;
+    });
+    const reading = runtimeGateway.getStatus(project.projectId, canvasId);
+    try {
+      await captured;
+      await selectTaskCanvas(project.workspaceRoot, second.canvasId);
+    } finally {
+      resume();
+    }
+    const status = await reading;
+    expect(status.canvasId).toBe("default");
+    expect(status).toEqual(before);
+    await expect(runtime.openProject({ projectId: project.projectId })).resolves.toMatchObject({
+      activeCanvasId: second.canvasId
+    });
+  });
+
   it("isolates every exact project consumer from unrelated corrupt registrations and canvases", async () => {
     const home = await realpath(await mkdtemp(join(tmpdir(), "planweave-mcp-registry-")));
     vi.stubEnv("PLANWEAVE_HOME", home);
