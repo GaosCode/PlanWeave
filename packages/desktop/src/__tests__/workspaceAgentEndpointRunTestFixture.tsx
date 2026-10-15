@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
 import type { DesktopWorkspaceExecutionCancelInput } from "../shared/workspaceExecution";
+import type { WorkspaceCanvasLocator } from "../shared/canvasLocator";
 import { renderHook } from "@testing-library/react";
 import type {
   ClaimResult,
@@ -211,6 +212,8 @@ export function feedbackClaim(feedbackId = "FE-001"): Extract<ClaimResult, { kin
 }
 
 export function renderRun(input?: {
+  workspaceLocator?: WorkspaceCanvasLocator;
+  createId?: () => string;
   endpoint?: AvailableAgentEndpoint;
   endpoints?: AvailableAgentEndpoint[];
   graph?: DesktopGraphViewModel;
@@ -388,26 +391,28 @@ export function renderRun(input?: {
     ({ authorityKey }: { authorityKey: string }) => {
       const startWithEndpoint = useWorkspaceAgentEndpointRun({
         activeProjectId:
-          input?.activeProjectId === undefined ? "project-server" : input.activeProjectId,
+          input?.activeProjectId === undefined
+            ? (input?.workspaceLocator?.projectId ?? "project-server")
+            : input.activeProjectId,
         agentEndpoints: input?.endpoints ?? [input?.endpoint ?? remoteEndpoint],
         collaborationController: { ensureWorkAuthority },
         canvasBinding: input?.localCanvas
           ? null
           : {
               kind: "remote",
-              workspaceId: "workspace-1",
-              projectId: "project-server",
-              canvasId: "canvas-main"
+              workspaceId: input?.workspaceLocator?.workspaceId ?? "workspace-1",
+              projectId: input?.workspaceLocator?.projectId ?? "project-server",
+              canvasId: input?.workspaceLocator?.canvasId ?? "canvas-main"
             },
         canvasLocator: input?.localCanvas
           ? null
-          : {
+          : (input?.workspaceLocator ?? {
               kind: "workspace",
               connectionProfileId: "profile-1",
               workspaceId: "workspace-1",
               projectId: "project-server",
               canvasId: "canvas-main"
-            },
+            }),
         graph: input?.graph ?? graph,
         preferences:
           input?.preferences ??
@@ -419,7 +424,7 @@ export function renderRun(input?: {
                   remoteEndpointId: "endpoint-windows"
                 }
               }),
-        selectedCanvasId: "canvas-main",
+        selectedCanvasId: input?.workspaceLocator?.canvasId ?? "canvas-main",
         selectedProject: project,
         workspaceRuntimeAuthorityKey: authorityKey,
         runtimeAvailability: input?.runtimeAvailability ?? { kind: "available" },
@@ -431,7 +436,7 @@ export function renderRun(input?: {
           onCollaborationObserverSignal: vi.fn(() => () => undefined),
           readCollaborationCanvasBindingRuntimeAvailability: readCanvasRuntimeAvailability
         },
-        createId: () => "operation-1",
+        createId: input?.createId ?? (() => "operation-1"),
         localAutoRunApi: {
           getAutoRunState: vi.fn(async () =>
             localRunState("paused", { error: "Step limit reached.", stepCount: 1 })

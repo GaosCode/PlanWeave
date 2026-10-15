@@ -385,7 +385,8 @@ export class WorkspaceExecutionDesktopService {
       this.sessions.withMutation(storage, async () => {
         const stored = (await this.starts.read(input)) ?? {
           input,
-          settled: false,
+          // The admission lock seals this ID before any later start can acquire ownership.
+          settled: true,
           cancellationConfirmed: false,
           cancellation: null
         };
