@@ -18,6 +18,7 @@ import {
   type TaskCanvasRecord,
   type TaskCanvasRegistry
 } from "../desktop/canvasRegistry.js";
+import { legacyCanvasWorkspace } from "../desktop/legacyCanvasWorkspace.js";
 import { readActiveTaskCanvasSelectionForWorkspace } from "../desktop/canvasSelectionStore.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import {
@@ -135,6 +136,24 @@ async function lifecycleSnapshot(workspace: ProjectWorkspace): Promise<{
 
 type LifecycleSnapshot = Awaited<ReturnType<typeof lifecycleSnapshot>>;
 
+function lifecycleCanvasWorkspace(
+  snapshot: LifecycleSnapshot,
+  canvas: ProjectCanvasNode
+): ProjectWorkspace {
+  let workspace: ProjectWorkspace;
+  if (snapshot.registry) {
+    const record = snapshot.registry.canvases.find((candidate) => candidate.canvasId === canvas.id);
+    if (!record) throw new Error(`Task canvas '${canvas.id}' does not exist in the registry.`);
+    workspace = legacyCanvasWorkspace(snapshot.loaded.workspace, record);
+  } else {
+    workspace = projectCanvasWorkspace(snapshot.loaded.workspace, canvas);
+  }
+  assertWorkspaceChild(snapshot.loaded.workspace, workspace.packageDir);
+  assertWorkspaceChild(snapshot.loaded.workspace, workspace.stateFile);
+  assertWorkspaceChild(snapshot.loaded.workspace, workspace.resultsDir);
+  return workspace;
+}
+
 async function commitLifecycleGraph(
   snapshot: LifecycleSnapshot,
   manifest: ProjectGraphManifest
@@ -189,7 +208,7 @@ export async function renameProjectCanvas(input: {
       await assertCurrentProjectWorkspace(project);
       const snapshot = await lifecycleSnapshot(project);
       const canvas = requireLifecycleCanvas(snapshot, input.canvasId);
-      const workspace = projectCanvasWorkspace(snapshot.loaded.workspace, canvas);
+      const workspace = lifecycleCanvasWorkspace(snapshot, canvas);
       const graphTarget = snapshot.registry
         ? join(project.workspaceRoot, "desktop", "canvases.json")
         : projectGraphPath(project);
@@ -236,10 +255,7 @@ async function removeLifecycleCanvas(
   snapshot: LifecycleSnapshot,
   canvas: ProjectCanvasNode
 ): Promise<void> {
-  const workspace = projectCanvasWorkspace(snapshot.loaded.workspace, canvas);
-  assertWorkspaceChild(snapshot.loaded.workspace, workspace.packageDir);
-  assertWorkspaceChild(snapshot.loaded.workspace, workspace.stateFile);
-  assertWorkspaceChild(snapshot.loaded.workspace, workspace.resultsDir);
+  const workspace = lifecycleCanvasWorkspace(snapshot, canvas);
   assertProjectCanvasUnreferenced(snapshot.loaded.manifest, canvas.id);
   if (
     canvas.id === defaultCanvasId ||
@@ -300,7 +316,7 @@ export async function removeProjectCanvas(input: {
           throw new Error(
             `Cannot archive task canvas '${canvasId}' because it is the only canvas in the project.`
           );
-        const workspace = projectCanvasWorkspace(snapshot.loaded.workspace, canvas);
+        const workspace = lifecycleCanvasWorkspace(snapshot, canvas);
         if (
           canvasId === defaultCanvasId ||
           workspace.workspaceRoot === project.workspaceRoot ||

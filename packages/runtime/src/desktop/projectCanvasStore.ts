@@ -1,6 +1,7 @@
+import { legacyCanvasWorkspace } from "./legacyCanvasWorkspace.js";
 import { capturePackageStorageIdentity } from "../package/packageStorageIdentity.js";
 import { mkdir } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -62,10 +63,6 @@ function registryPath(workspace: ProjectWorkspace): string {
 
 function toWorkspaceRelative(workspace: ProjectWorkspace, path: string): string {
   return relative(workspace.workspaceRoot, path).split("\\").join("/");
-}
-
-function fromWorkspaceRelative(workspace: ProjectWorkspace, path: string): string {
-  return isAbsolute(path) ? path : join(workspace.workspaceRoot, path);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -168,27 +165,6 @@ async function readRegistryForWorkspace(
     projectWorkspace,
     registry: normalizeRegistry(await readJsonFile<unknown>(path)),
     diagnosticsByCanvasId: new Map()
-  };
-}
-
-function legacyCanvasWorkspace(
-  projectWorkspace: ProjectWorkspace,
-  record: TaskCanvasRecord
-): ProjectWorkspace {
-  const packageDir = fromWorkspaceRelative(projectWorkspace, record.packageDir);
-  const stateFile = fromWorkspaceRelative(projectWorkspace, record.stateFile);
-  const resultsDir = fromWorkspaceRelative(projectWorkspace, record.resultsDir);
-  const workspaceRoot =
-    record.canvasId === defaultCanvasId ? projectWorkspace.workspaceRoot : dirname(packageDir);
-  return {
-    ...projectWorkspace,
-    packageStorageIdentity: null,
-    resultsStorageIdentity: null,
-    workspaceRoot,
-    packageDir,
-    manifestFile: join(packageDir, "manifest.json"),
-    stateFile,
-    resultsDir
   };
 }
 

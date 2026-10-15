@@ -1,8 +1,9 @@
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { IpcMainInvokeEvent } from "electron";
 import {
+  createEmptyState,
   createSqlitePlanGraphStore,
   exportCanvasPackageFiles,
   getActiveTaskCanvasId,
@@ -322,9 +323,30 @@ describe("main canvas-selection IPC persistence", () => {
     });
   });
 
-  it("preserves the registry's legacy default package and selection history", async () => {
+  it.each(
+    (["rename", "remove"] as const).flatMap((operation) =>
+      (["present", "missing"] as const).map((canonical) => ({ operation, canonical }))
+    )
+  )("preserves legacy default paths and selection history during $operation with canonical storage $canonical", async ({
+    operation,
+    canonical
+  }) => {
     const f = await fixture();
     const legacyPackage = join(f.init.workspace.workspaceRoot, "legacy-package");
+    const legacyState = join(f.init.workspace.workspaceRoot, "legacy-state", "runtime.json");
+    const legacyResults = join(f.init.workspace.workspaceRoot, "legacy-results");
+    await fs.mkdir(dirname(legacyState), { recursive: true });
+    await fs.mkdir(legacyResults, { recursive: true });
+    await fs.writeFile(
+      legacyState,
+      JSON.stringify({
+        ...createEmptyState(),
+        tasks: { "T-LEGACY": { status: "implemented", openFeedbackCount: 0 } },
+        blocks: { "T-LEGACY#B-001": { status: "completed", lastRunId: "RUN-LEGACY" } }
+      })
+    );
+    await fs.writeFile(join(legacyResults, "history.txt"), "legacy history");
+    await fs.writeFile(join(f.aWorkspace.resultsDir, "history.txt"), "canonical history");
     await fs.cp(f.aWorkspace.packageDir, legacyPackage, { recursive: true });
     await fs.unlink(join(f.init.workspace.workspaceRoot, "project-graph.json"));
     const timestamp = new Date(0).toISOString();
@@ -338,8 +360,8 @@ describe("main canvas-selection IPC persistence", () => {
             canvasId: "default",
             name: "Legacy A",
             packageDir: "legacy-package",
-            stateFile: f.aWorkspace.stateFile,
-            resultsDir: f.aWorkspace.resultsDir,
+            stateFile: "legacy-state/runtime.json",
+            resultsDir: legacyResults,
             createdAt: timestamp,
             updatedAt: timestamp
           },
@@ -372,6 +394,81 @@ describe("main canvas-selection IPC persistence", () => {
       command: { layout: { activeCanvasId: "default" } },
       workspaceRef: { packageDir: f.bWorkspace.packageDir }
     });
+    const registryPath = join(f.init.workspace.workspaceRoot, "desktop", "canvases.json");
+    const registryBefore = JSON.parse(await fs.readFile(registryPath, "utf8"));
+    const legacyManifest = join(legacyPackage, "manifest.json");
+    const manifestBefore = JSON.parse(await fs.readFile(legacyManifest, "utf8"));
+    const stateBefore = await fs.readFile(legacyState, "utf8");
+    const independentPaths = [
+      f.aWorkspace.manifestFile,
+      f.aWorkspace.stateFile,
+      join(f.aWorkspace.packageDir, "selection-marker.txt"),
+      join(f.aWorkspace.resultsDir, "history.txt"),
+      f.bWorkspace.manifestFile,
+      f.bWorkspace.stateFile,
+      join(f.bWorkspace.packageDir, "selection-marker.txt")
+    ];
+    const independentBefore = await Promise.all(independentPaths.map((path) => fs.readFile(path)));
+    const canonicalBackup = join(temporaryRoot, "canonical-default-backup");
+    if (canonical === "missing") await fs.rename(dirname(f.aWorkspace.packageDir), canonicalBackup);
+    if (operation === "rename") {
+      let failed = false;
+      vi.mocked(fs.rename).mockImplementation(async (from, to) => {
+        if (!failed && to.toString() === registryPath) {
+          failed = true;
+          throw new Error("LEGACY-REGISTRY-COMMIT-FAIL");
+        }
+        return actual.rename(from, to);
+      });
+      await expect(
+        runtimeBridgeProjectHandlers.renameTaskCanvas(event, f.root, "default", "Renamed legacy")
+      ).rejects.toThrow("LEGACY-REGISTRY-COMMIT-FAIL");
+      vi.mocked(fs.rename).mockImplementation(actual.rename);
+      expect(JSON.parse(await fs.readFile(legacyManifest, "utf8"))).toEqual(manifestBefore);
+      expect(JSON.parse(await fs.readFile(registryPath, "utf8"))).toEqual(registryBefore);
+      const renamed = await runtimeBridgeProjectHandlers.renameTaskCanvas(
+        event,
+        f.root,
+        "default",
+        "Renamed legacy"
+      );
+      expect(renamed).toMatchObject({
+        canvasId: "default",
+        name: "Renamed legacy",
+        packageDir: "legacy-package"
+      });
+      expect(JSON.parse(await fs.readFile(legacyManifest, "utf8")).project.title).toBe(
+        "Renamed legacy"
+      );
+      const registryAfter = JSON.parse(await fs.readFile(registryPath, "utf8"));
+      expect(registryAfter.canvases[0]).toMatchObject({
+        ...registryBefore.canvases[0],
+        name: "Renamed legacy",
+        updatedAt: expect.any(String)
+      });
+      expect(registryAfter.canvases[1]).toEqual(registryBefore.canvases[1]);
+      expect(await fs.readFile(legacyState, "utf8")).toBe(stateBefore);
+      expect(await fs.readFile(join(legacyResults, "history.txt"), "utf8")).toBe("legacy history");
+    } else {
+      await runtimeBridgeProjectHandlers.removeTaskCanvas(event, f.root, "default");
+      await expect(fs.access(join(legacyPackage, "selection-marker.txt"))).rejects.toMatchObject({
+        code: "ENOENT"
+      });
+      expect(JSON.parse(await fs.readFile(legacyManifest, "utf8"))).toMatchObject({
+        nodes: [],
+        project: { title: "Legacy A" }
+      });
+      expect(JSON.parse(await fs.readFile(legacyState, "utf8"))).toEqual(createEmptyState());
+      expect(await fs.readdir(legacyResults)).toEqual([]);
+      expect(JSON.parse(await fs.readFile(registryPath, "utf8"))).toEqual(registryBefore);
+    }
+    if (canonical === "missing") {
+      await expect(fs.access(f.aWorkspace.packageDir)).rejects.toMatchObject({ code: "ENOENT" });
+      await fs.rename(canonicalBackup, dirname(f.aWorkspace.packageDir));
+    }
+    expect(await Promise.all(independentPaths.map((path) => fs.readFile(path)))).toEqual(
+      independentBefore
+    );
   });
 
   it("releases a failed canonical-owner resolution for an alias retry", async () => {
