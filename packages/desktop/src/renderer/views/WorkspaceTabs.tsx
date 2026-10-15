@@ -127,6 +127,7 @@ export type WorkspaceTabsGraphWorkspaceProps = {
   handleGraphDragOver: (event: DragEvent) => void;
   handleGraphDrop: (event: DragEvent) => void;
   handleOpenBlockInspector: (ref: string, canvasId?: string | null) => Promise<void>;
+  handleOpenBlockWorkspace: (ref: string) => void;
   handleOpenRunRecord: (
     recordId: string | null | undefined,
     canvasId?: string | null

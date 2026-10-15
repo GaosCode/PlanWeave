@@ -385,6 +385,10 @@ function renderOwnerFleetRun(input?: {
       stopLocal: vi.fn(async () => localRunState("stopped")),
       previewClaimNext,
       workspaceExecutionApi: {
+        recoverWorkspaceExecutionCancellations: vi.fn(async () => ({
+          version: "planweave.workspace-cancellation-recovery/v1" as const,
+          sessions: []
+        })),
         startWorkspaceExecution,
         followWorkspaceExecution,
         respondWorkspaceExecution,
@@ -736,6 +740,15 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
     await act(async () => running);
 
     expect(cancelWorkspaceExecution).toHaveBeenCalledWith({
+      expectedRemoteHandle: expect.objectContaining({
+        target: "remote",
+        runSessionId: "SESSION-0001",
+        operationId: "operation-1",
+        dispatchId: "dispatch-1",
+        executionAttemptId: "attempt-1",
+        attemptStateVersion: 1,
+        leaseId: "lease-1"
+      }),
       locator: {
         kind: "workspace",
         connectionProfileId: "profile-server-b",
@@ -813,6 +826,10 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
           api: null,
           createId: () => "cancel-stale-1",
           workspaceExecutionApi: {
+            recoverWorkspaceExecutionCancellations: vi.fn(async () => ({
+              version: "planweave.workspace-cancellation-recovery/v1" as const,
+              sessions: []
+            })),
             startWorkspaceExecution,
             followWorkspaceExecution,
             respondWorkspaceExecution,

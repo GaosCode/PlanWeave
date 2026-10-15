@@ -183,13 +183,12 @@ it.each([
       return actualFs.rename(source, target);
     });
   } else {
-    const write = projectGraph.writeProjectGraph;
-    vi.spyOn(projectGraph, "writeProjectGraph").mockImplementation(async (project, manifest) => {
-      if (!manifest.canvases.some((item) => item.id === canvas.canvasId)) {
+    vi.mocked(rename).mockImplementation(async (source, target) => {
+      if (String(target) === projectGraph.projectGraphPath(owner.workspace)) {
         deleting.release();
         await allowDelete.promise;
       }
-      return write(project, manifest);
+      return actualFs.rename(source, target);
     });
   }
   const projectLock = mutation.withProjectMutationLock;

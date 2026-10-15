@@ -80,6 +80,7 @@ type GraphViewProps = {
   handleAutoRunClick: () => Promise<void>;
   handleAutoRunNextAction: (action: AutoRunNextActionDescriptor) => Promise<void>;
   handleOpenBlockInspector: (ref: string, canvasId?: string | null) => Promise<void>;
+  handleOpenBlockWorkspace: (ref: string) => void;
   handleConnect: (connection: Connection) => Promise<void>;
   handleEdgesDelete: (deletedEdges: Edge[]) => Promise<void>;
   handleReconnectEdge: (oldEdge: Edge, connection: Connection) => Promise<void>;
@@ -180,6 +181,7 @@ export function GraphView({
   handleAutoRunClick,
   handleAutoRunNextAction,
   handleOpenBlockInspector,
+  handleOpenBlockWorkspace,
   handleConnect,
   handleEdgesDelete,
   handleReconnectEdge,
@@ -293,12 +295,27 @@ export function GraphView({
     (ref: string) => {
       setActiveView("graph");
       if (ref.includes("#")) {
+        if (
+          onDownloadWorkspaceFork &&
+          endpointScopeCancellation?.sessions.some((session) => session.blockRef === ref)
+        ) {
+          handleOpenBlockWorkspace(ref);
+          return;
+        }
         void handleOpenBlockInspector(ref, selectedCanvasId);
         return;
       }
       onTaskPanelSelect(ref);
     },
-    [handleOpenBlockInspector, onTaskPanelSelect, selectedCanvasId, setActiveView]
+    [
+      endpointScopeCancellation,
+      handleOpenBlockInspector,
+      handleOpenBlockWorkspace,
+      onDownloadWorkspaceFork,
+      onTaskPanelSelect,
+      selectedCanvasId,
+      setActiveView
+    ]
   );
   useEffect(() => {
     if (!graph || workspaceCanvasCanEdit === false) {

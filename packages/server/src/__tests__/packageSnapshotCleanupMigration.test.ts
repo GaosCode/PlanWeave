@@ -1,6 +1,10 @@
 import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyMigrations, centralSchemaVersion } from "../migrations.js";
+import {
+  applyMigrations,
+  centralSchemaVersion,
+  latestCentralSchemaVersion
+} from "../migrations.js";
 import { packageSnapshotCleanupMigration } from "../migrations/packageSnapshotCleanup.js";
 import { packageSnapshotFixture } from "./packageSnapshotFixture.js";
 
@@ -60,7 +64,7 @@ describe("package snapshot cleanup migration", () => {
       .prepare("SELECT * FROM workspace_principals ORDER BY human_principal_id")
       .all();
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(packageSnapshotCleanupMigration.version);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
     const upgraded = database.prepare("SELECT * FROM package_snapshots ORDER BY snapshot_id").all();
     expect(upgraded).toEqual(
       oldRows.map((row) => ({ ...row, backing_cleanup_completed_at: null }))
@@ -110,6 +114,6 @@ describe("package snapshot cleanup migration", () => {
     ).toEqual([]);
     database.exec("DROP TRIGGER fail_snapshot_cleanup_version");
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(73);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
   });
 });

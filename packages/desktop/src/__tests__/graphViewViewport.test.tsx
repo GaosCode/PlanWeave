@@ -146,6 +146,7 @@ function defaultProps(
     edgeTypes: {} as ComponentProps<typeof GraphView>["edgeTypes"],
     graph: graph(),
     handleAutoRunClick: vi.fn().mockResolvedValue(undefined),
+    handleOpenBlockWorkspace: vi.fn(),
     handleConnect: vi.fn().mockResolvedValue(undefined),
     handleEdgesDelete: vi.fn().mockResolvedValue(undefined),
     handleReconnectEdge: vi.fn().mockResolvedValue(undefined),
@@ -197,6 +198,45 @@ afterEach(() => {
 });
 
 describe("GraphView viewport fitting", () => {
+  it.each([
+    true,
+    false
+  ])("opens the retained cancellation Block in the correct Workspace surface (%s)", (remote) => {
+    const openWorkspace = vi.fn();
+    const openInspector = vi.fn().mockResolvedValue(undefined);
+    render(
+      <GraphView
+        {...defaultProps({
+          selectedProject: remote ? null : project,
+          onDownloadWorkspaceFork: remote ? vi.fn().mockResolvedValue(undefined) : undefined,
+          handleOpenBlockWorkspace: openWorkspace,
+          handleOpenBlockInspector: openInspector,
+          miniRunPanelOpen: true,
+          endpointScopeCancellation: {
+            scopeIdentity: "original-scope",
+            phase: "failed",
+            sessions: [
+              {
+                blockRef: "T-001#B-001",
+                sessionId: "SESSION-0001",
+                status: "failed",
+                error: "follow failed"
+              }
+            ]
+          }
+        })}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open block" }));
+    if (remote) {
+      expect(openWorkspace).toHaveBeenCalledWith("T-001#B-001");
+      expect(openInspector).not.toHaveBeenCalled();
+    } else {
+      expect(openInspector).toHaveBeenCalledWith("T-001#B-001", "canvas-main");
+      expect(openWorkspace).not.toHaveBeenCalled();
+    }
+  });
+
   it("keeps a read-only Workspace canvas navigable and enables editing after permission refresh", async () => {
     const refresh = vi.fn().mockResolvedValue(true);
     const props = defaultProps({

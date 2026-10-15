@@ -1042,6 +1042,7 @@ export function ProjectWorkspaceProvider({
     handleGraphDragOver,
     handleGraphDrop,
     handleOpenBlockInspector,
+    handleOpenBlockWorkspace: taskWorkspaceNavigation.openBlockWorkspace,
     handleOpenRunRecord,
     handleReconnectEdge,
     handleRedoGraph,
