@@ -452,6 +452,7 @@
         "workspaceConnectionSelection.test.ts",
         "workspaceExecutionCharacterization.test.ts",
         "workspaceExecutionStartServer.test.ts",
+        "workspaceExecutionPreSessionCrash.test.ts",
         "workspaceExecutionOperatorCas.test.ts",
         "workspaceExecutionProcessBoundary.test.ts",
         "workspaceSessionPreflight.test.ts",

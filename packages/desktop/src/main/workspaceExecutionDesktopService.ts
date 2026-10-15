@@ -325,6 +325,7 @@ export class WorkspaceExecutionDesktopService {
             await this.starts.write({
               input,
               settled: false,
+              owner: this.starts.owner,
               cancellation: null,
               cancellationConfirmed: false
             });
@@ -392,6 +393,8 @@ export class WorkspaceExecutionDesktopService {
         if (cancellation.reason !== command.reason)
           throw new Error("workspace_execution_cancel_identity_mismatch");
         await this.starts.write({ ...stored, cancellation });
+        // Read sessions after proving the owner ended: it may persist a dispatch before exiting.
+        const settled = stored.settled || this.starts.ownerHasEnded(stored);
         const listed = await this.sessions.list(storage);
         if (listed.diagnostics.length) throw new Error("workspace_execution_resume_mismatch");
         const matches = listed.sessions.filter(
@@ -400,7 +403,7 @@ export class WorkspaceExecutionDesktopService {
             workspaceStartDispatchKey(command.startRequestId)
         );
         if (matches.length > 1) throw new Error("workspace_execution_resume_mismatch");
-        return { cancellation, session: matches[0], settled: stored.settled };
+        return { cancellation, session: matches[0], settled };
       })
     );
     let confirmed = false;

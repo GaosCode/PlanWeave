@@ -14,18 +14,42 @@ const intentSchema = z
   .object({
     input: desktopWorkspaceExecutionStartInputSchema,
     settled: z.boolean(),
+    owner: z
+      .object({ pid: z.number().int().positive(), instanceId: z.string().uuid() })
+      .strict()
+      .optional(),
     cancellationConfirmed: z.boolean(),
     cancellation: desktopWorkspaceExecutionStartCancellationInputSchema.nullable()
   })
   .strict();
 type StartIntent = z.infer<typeof intentSchema>;
+const processOwner = { pid: process.pid, instanceId: randomUUID() };
 
 export function workspaceStartDispatchKey(startRequestId: string): string {
   return `workspace-execution-${startRequestId}`;
 }
 
 export class WorkspaceExecutionStartIntents {
+  readonly owner = processOwner;
+
   constructor(private readonly root: string) {}
+
+  ownerHasEnded(intent: StartIntent): boolean {
+    const owner = intent.owner;
+    if (!owner) return false;
+    if (owner.pid === processOwner.pid && owner.instanceId === processOwner.instanceId)
+      return false;
+    try {
+      process.kill(owner.pid, 0);
+      return false;
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error) {
+        if (error.code === "ESRCH") return true;
+        if (error.code === "EPERM") return false;
+      }
+      throw error;
+    }
+  }
 
   private directory(locator: DesktopWorkspaceExecutionStartInput["locator"]) {
     return join(
