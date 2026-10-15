@@ -7,7 +7,9 @@ import { CommentRepository } from "../comments/repository.js";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import type { ReadStream } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { validateHeaderValue } from "node:http";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   setup,
@@ -228,6 +230,28 @@ describe("attachment HTTP opened-source cleanup", () => {
 });
 
 describe("attachment live binding read access", () => {
+  it("does not allocate persistent digest locks for missing HTTP downloads", async () => {
+    const test = await stage("existing.txt");
+    const member = await inviteAndJoin(test.origin, test.token, "project-a", "Reader");
+    const base = `${test.origin}/api/v1/projects/project-a/attachments`;
+    const existing = await fetch(`${base}/comments/comment-download/${test.digest}`, {
+      headers: auth(member)
+    });
+    expect(existing.status).toBe(200);
+    expect(Buffer.from(await existing.arrayBuffer())).toEqual(test.bytes);
+    const lockDirectory = join(test.directory, "comment-attachments", "lifecycle-locks");
+    const before = (await readdir(lockDirectory)).sort();
+    for (let index = 0; index < 12; index++) {
+      const missing = createHash("sha256").update(`never-uploaded-${index}`).digest("hex");
+      for (const path of [`by-digest/${missing}`, `comments/comment-download/${missing}`]) {
+        const response = await fetch(`${base}/${path}`, { headers: auth(member) });
+        expect(response.status, path).toBe(404);
+        expect(await response.json()).toEqual({ error: "attachment_not_found" });
+      }
+    }
+    expect((await readdir(lockDirectory)).sort()).toEqual(before);
+  });
+
   it("denies private bindings before opening bytes and permits a readable digest reference", async () => {
     const test = await stage("private.txt");
     const member = await inviteAndJoin(test.origin, test.token, "project-a", "Reader");

@@ -422,6 +422,16 @@ export class CommentAttachmentService {
       if (input.actor.projectId !== input.projectId) {
         deny("attachment_auth_project_mismatch");
       }
+      if (
+        !this.options.repository.getBinding(
+          input.workspaceId,
+          input.projectId,
+          input.commentId,
+          input.digestSha256
+        )
+      ) {
+        deny("attachment_not_found");
+      }
       return await this.withDigestRead(input.digestSha256, async () => {
         const binding = this.options.repository.getBinding(
           input.workspaceId,
@@ -474,6 +484,17 @@ export class CommentAttachmentService {
       const digest = commentContentSha256Schema.parse(input.digestSha256);
       const base = authorizeAttachmentProjectAccess({ subject, projectId: input.projectId });
       if (!base.allowed) deny(base.code, base.message);
+      if (
+        !this.options.repository.listDigestReadBindings(input.workspaceId, input.projectId, digest)
+          .length &&
+        !this.options.repository.listDigestPendingUploads(
+          input.workspaceId,
+          input.projectId,
+          digest
+        ).length
+      ) {
+        deny("attachment_not_found");
+      }
       return await this.withDigestRead(digest, async () => {
         const bindings = this.options.repository.listDigestReadBindings(
           input.workspaceId,
