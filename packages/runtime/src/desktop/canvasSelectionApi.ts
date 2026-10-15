@@ -3,10 +3,11 @@ import { dirname, join, resolve } from "node:path";
 import { resolvePlanweaveHome } from "../paths.js";
 import {
   assertCurrentProjectWorkspace,
-  captureProjectWorkspaceRootIdentity,
-  resolveProjectWorkspaceInHome
+  captureProjectWorkspaceAdmissionIdentity,
+  resolveProjectWorkspaceInHome,
+  type ProjectWorkspaceAdmissionIdentity
 } from "../project.js";
-import { assertProjectRootIdentity, type ProjectRootIdentity } from "../fs/projectRootIdentity.js";
+import { assertProjectRootIdentity } from "../fs/projectRootIdentity.js";
 import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { executePlanGraphCommand } from "../plangraph/index.js";
 import { readActiveTaskCanvasSelectionForWorkspace } from "./canvasSelectionStore.js";
@@ -24,13 +25,13 @@ export function selectTaskCanvas(projectRoot: string, canvasId: string): Promise
   const home = resolvePlanweaveHome();
   const root = resolve(projectRoot);
   let key: string;
-  let admittedIdentity: ProjectRootIdentity;
+  let admittedIdentity: ProjectWorkspaceAdmissionIdentity;
   try {
     // Identity must be known before an asynchronous resolution can reorder intent admission.
     const canonicalHome = realpathSync.native(home);
     const canonicalRoot = realpathSync.native(root);
     key = `${canonicalHome}\0${canonicalRoot}`;
-    admittedIdentity = captureProjectWorkspaceRootIdentity(canonicalRoot, canonicalHome);
+    admittedIdentity = captureProjectWorkspaceAdmissionIdentity(canonicalRoot, canonicalHome);
   } catch (caught) {
     return Promise.reject(caught);
   }
@@ -54,14 +55,21 @@ export function selectTaskCanvas(projectRoot: string, canvasId: string): Promise
 export async function selectTaskCanvasForWorkspace(
   projectWorkspace: ProjectWorkspace,
   canvasId: string,
-  admittedIdentity?: ProjectRootIdentity
+  admittedIdentity?: ProjectWorkspaceAdmissionIdentity
 ): Promise<string> {
   return withProjectMutationLock(
     dirname(projectWorkspace.projectFile),
     async () => {
       if (admittedIdentity !== undefined)
-        await assertProjectRootIdentity(dirname(projectWorkspace.projectFile), admittedIdentity);
-      await assertCurrentProjectWorkspace(projectWorkspace);
+        await assertProjectRootIdentity(
+          dirname(projectWorkspace.projectFile),
+          admittedIdentity.rootIdentity
+        );
+      await assertCurrentProjectWorkspace(
+        admittedIdentity === undefined
+          ? projectWorkspace
+          : { ...projectWorkspace, projectCreatedAt: admittedIdentity.projectCreatedAt }
+      );
       const commandWorkspace = await resolveSelectedCanvasWorkspaceForProject(projectWorkspace);
       const result = await executePlanGraphCommand({
         projectRoot: commandWorkspace,

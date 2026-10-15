@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,10 +15,16 @@ import { createSqlitePlanGraphStore } from "../plangraph/index.js";
 import * as projects from "../project.js";
 import { createProjectCanvas } from "../projectGraph/projectCanvasMutation.js";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, cp: vi.fn(actual.cp) };
+});
+
 const originalHome = process.env.PLANWEAVE_HOME;
 let temporaryRoot: string | undefined;
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.mocked(cp).mockReset();
   if (originalHome === undefined) delete process.env.PLANWEAVE_HOME;
   else process.env.PLANWEAVE_HOME = originalHome;
   if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
@@ -40,6 +46,95 @@ function outcome<T>(promise: Promise<T>) {
 }
 
 describe("canvas selection project-instance admission", () => {
+  it.each([
+    "external",
+    "managed"
+  ] as const)("rejects every old queued selection after in-place package reset: %s", async (kind) => {
+    temporaryRoot = await mkdtemp(join(tmpdir(), "pw-selection-reset-"));
+    process.env.PLANWEAVE_HOME = join(temporaryRoot, "home");
+    const source = join(temporaryRoot, "source");
+    await mkdir(source);
+    const previous =
+      kind === "external"
+        ? await initWorkspace({ projectRoot: source, projectGraph: true })
+        : await initManagedWorkspace({ name: "Reset project", projectGraph: true });
+    const root = previous.workspace.rootPath;
+    const other = await createProjectCanvas({
+      projectRoot: previous.workspace,
+      title: "Surviving canvas"
+    });
+    await selectTaskCanvas(root, other.canvas.id);
+    await saveDesktopLayoutDirect(previous.workspace, defaultDesktopLayout(previous.project.id));
+    const oldDirectory = await stat(previous.workspace.workspaceRoot);
+    const canonicalPackageDir = await realpath(previous.workspace.packageDir);
+    const backupEntered = deferred(),
+      resumeBackup = deferred(),
+      resetDone = deferred(),
+      release = deferred(),
+      selectionQueued = deferred();
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    vi.mocked(cp).mockImplementation(async (...args) => {
+      if (args[0] === previous.workspace.packageDir || args[0] === canonicalPackageDir) {
+        backupEntered.resolve();
+        await resumeBackup.promise;
+      }
+      return actual.cp(...args);
+    });
+    const lock = projectLocks.withProjectMutationLock;
+    const holder = lock(previous.workspace.workspaceRoot, async () => {
+      const fresh = await initWorkspace({ projectRoot: root, resetPackage: true });
+      const directory = await stat(fresh.workspace.workspaceRoot);
+      const activePath = join(fresh.workspace.workspaceRoot, "desktop", "active-canvas.json");
+      const layoutPath = join(fresh.workspace.workspaceRoot, "desktop", "layout.json");
+      const store = await createSqlitePlanGraphStore({ projectRoot: fresh.workspace });
+      await store.log.latestUndoable();
+      const paths = [activePath, layoutPath, store.indexPath];
+      const before = await Promise.all(paths.map((path) => readFile(path)));
+      resetDone.resolve();
+      await release.promise;
+      return { fresh, directory, paths, before };
+    });
+    const watchedHolder = outcome(holder);
+    const selections: Array<ReturnType<typeof outcome<string>>> = [];
+    try {
+      await Promise.race([backupEntered.promise, holder]);
+      vi.spyOn(projectLocks, "withProjectMutationLock").mockImplementation(
+        (roots, action, options) => {
+          if (options?.operation === "select-canvas:default") selectionQueued.resolve();
+          return lock(roots, action, options);
+        }
+      );
+      selections.push(outcome(selectTaskCanvas(root, "default")));
+      await selectionQueued.promise;
+      selections.push(outcome(selectTaskCanvas(root, "default")));
+      resumeBackup.resolve();
+      await Promise.race([resetDone.promise, holder]);
+      release.resolve();
+      const snapshot = await holder;
+      expect(snapshot.directory.dev).toBe(oldDirectory.dev);
+      expect(snapshot.directory.ino).toBe(oldDirectory.ino);
+      expect(snapshot.directory.birthtimeMs).toBe(oldDirectory.birthtimeMs);
+      expect(snapshot.fresh.project.createdAt).not.toBe(previous.project.createdAt);
+      const results = await Promise.all(selections);
+      expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+      for (const result of results) {
+        if (result.status === "rejected")
+          expect(String(result.reason)).toContain("identity changed");
+      }
+      expect(await readActiveTaskCanvasSelectionForWorkspace(snapshot.fresh.workspace)).toEqual({
+        activeCanvasId: other.canvas.id
+      });
+      expect(await Promise.all(snapshot.paths.map((path) => readFile(path)))).toEqual(
+        snapshot.before
+      );
+      expect(await selectTaskCanvas(root, "default")).toBe("default");
+    } finally {
+      resumeBackup.resolve();
+      release.resolve();
+      await Promise.all([watchedHolder, ...selections]);
+    }
+  });
+
   it.each([
     "external",
     "managed-delayed-resolution"

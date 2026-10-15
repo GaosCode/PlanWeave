@@ -2,7 +2,7 @@ import {
   capturePackageStorageIdentity,
   assertPackageStorageIdentity
 } from "./package/packageStorageIdentity.js";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import {
   captureProjectRootIdentitySync,
@@ -15,7 +15,7 @@ import { canonicalFileTarget } from "./fs/canonicalFileTarget.js";
 import { withProjectMutationLock } from "./fs/withProjectMutationLock.js";
 import { createProjectId, projectIdFromCanonicalRoot } from "./projectId.js";
 import { resolvePlanweaveHome } from "./paths.js";
-import { readProjectMetadataFile } from "./projectMetadata.js";
+import { parseProjectMetadata, readProjectMetadataFile } from "./projectMetadata.js";
 import { canonicalCanvasWorkspacePaths } from "./projectGraph/canonicalWorkspace.js";
 import type {
   PackageWorkspaceRef,
@@ -135,16 +135,25 @@ function registeredWorkspaceIdAtRoot(
   return basename(resolvedRootPath);
 }
 
-/** Canonical Home and source paths must be captured before selection enters its FIFO. */
-export function captureProjectWorkspaceRootIdentity(
+export type ProjectWorkspaceAdmissionIdentity = {
+  rootIdentity: ProjectRootIdentity;
+  projectCreatedAt: string;
+};
+
+/** Capture physical identity and metadata generation before selection enters its FIFO. */
+export function captureProjectWorkspaceAdmissionIdentity(
   canonicalRoot: string,
   canonicalHome: string
-): ProjectRootIdentity {
+): ProjectWorkspaceAdmissionIdentity {
   const projectsRoot = realpathSync.native(join(canonicalHome, "projects"));
   const id =
     registeredWorkspaceIdAtRoot(projectsRoot, canonicalRoot) ??
     projectIdFromCanonicalRoot(canonicalRoot);
-  return captureProjectRootIdentitySync(join(projectsRoot, id));
+  const workspaceRoot = join(projectsRoot, id);
+  const rootIdentity = captureProjectRootIdentitySync(workspaceRoot);
+  const projectFile = join(workspaceRoot, "project.json");
+  const project = parseProjectMetadata(JSON.parse(readFileSync(projectFile, "utf8")), projectFile);
+  return { rootIdentity, projectCreatedAt: project.createdAt };
 }
 
 async function workspaceFromRegisteredRoot(
