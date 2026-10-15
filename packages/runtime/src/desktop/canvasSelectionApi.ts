@@ -1,7 +1,12 @@
 import { realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { resolvePlanweaveHome } from "../paths.js";
-import { assertCurrentProjectWorkspace, resolveProjectWorkspaceInHome } from "../project.js";
+import {
+  assertCurrentProjectWorkspace,
+  captureProjectWorkspaceRootIdentity,
+  resolveProjectWorkspaceInHome
+} from "../project.js";
+import { assertProjectRootIdentity, type ProjectRootIdentity } from "../fs/projectRootIdentity.js";
 import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { executePlanGraphCommand } from "../plangraph/index.js";
 import { readActiveTaskCanvasSelectionForWorkspace } from "./canvasSelectionStore.js";
@@ -19,16 +24,20 @@ export function selectTaskCanvas(projectRoot: string, canvasId: string): Promise
   const home = resolvePlanweaveHome();
   const root = resolve(projectRoot);
   let key: string;
+  let admittedIdentity: ProjectRootIdentity;
   try {
     // Identity must be known before an asynchronous resolution can reorder intent admission.
-    key = `${realpathSync.native(home)}\0${realpathSync.native(root)}`;
+    const canonicalHome = realpathSync.native(home);
+    const canonicalRoot = realpathSync.native(root);
+    key = `${canonicalHome}\0${canonicalRoot}`;
+    admittedIdentity = captureProjectWorkspaceRootIdentity(canonicalRoot, canonicalHome);
   } catch (caught) {
     return Promise.reject(caught);
   }
   const previous = selectionQueues.get(key) ?? Promise.resolve();
   const operation = previous.then(async () => {
     const projectWorkspace = await resolveProjectWorkspaceInHome(root, home);
-    return selectTaskCanvasForWorkspace(projectWorkspace, canvasId);
+    return selectTaskCanvasForWorkspace(projectWorkspace, canvasId, admittedIdentity);
   });
   const tail = operation.then(
     () => undefined,
@@ -44,11 +53,14 @@ export function selectTaskCanvas(projectRoot: string, canvasId: string): Promise
 /** Execute selection inside an existing project lane without waiting on outer intent admission. */
 export async function selectTaskCanvasForWorkspace(
   projectWorkspace: ProjectWorkspace,
-  canvasId: string
+  canvasId: string,
+  admittedIdentity?: ProjectRootIdentity
 ): Promise<string> {
   return withProjectMutationLock(
     dirname(projectWorkspace.projectFile),
     async () => {
+      if (admittedIdentity !== undefined)
+        await assertProjectRootIdentity(dirname(projectWorkspace.projectFile), admittedIdentity);
       await assertCurrentProjectWorkspace(projectWorkspace);
       const commandWorkspace = await resolveSelectedCanvasWorkspaceForProject(projectWorkspace);
       const result = await executePlanGraphCommand({

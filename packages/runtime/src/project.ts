@@ -2,13 +2,18 @@ import {
   capturePackageStorageIdentity,
   assertPackageStorageIdentity
 } from "./package/packageStorageIdentity.js";
+import { realpathSync } from "node:fs";
 import { realpath } from "node:fs/promises";
+import {
+  captureProjectRootIdentitySync,
+  type ProjectRootIdentity
+} from "./fs/projectRootIdentity.js";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { PlanWeaveWorkspaceNotInitializedError } from "./errors.js";
 import { optionalStat } from "./fs/optionalFile.js";
 import { canonicalFileTarget } from "./fs/canonicalFileTarget.js";
 import { withProjectMutationLock } from "./fs/withProjectMutationLock.js";
-import { createProjectId } from "./projectId.js";
+import { createProjectId, projectIdFromCanonicalRoot } from "./projectId.js";
 import { resolvePlanweaveHome } from "./paths.js";
 import { readProjectMetadataFile } from "./projectMetadata.js";
 import { canonicalCanvasWorkspacePaths } from "./projectGraph/canonicalWorkspace.js";
@@ -111,6 +116,13 @@ export async function directRegisteredWorkspaceId(
       resolvedRootPath = rootPath;
     }
   }
+  return registeredWorkspaceIdAtRoot(projectsRoot, resolvedRootPath);
+}
+
+function registeredWorkspaceIdAtRoot(
+  projectsRoot: string,
+  resolvedRootPath: string
+): string | null {
   const relativePath = relative(projectsRoot, resolvedRootPath);
   if (
     !relativePath ||
@@ -121,6 +133,18 @@ export async function directRegisteredWorkspaceId(
     return null;
   }
   return basename(resolvedRootPath);
+}
+
+/** Canonical Home and source paths must be captured before selection enters its FIFO. */
+export function captureProjectWorkspaceRootIdentity(
+  canonicalRoot: string,
+  canonicalHome: string
+): ProjectRootIdentity {
+  const projectsRoot = realpathSync.native(join(canonicalHome, "projects"));
+  const id =
+    registeredWorkspaceIdAtRoot(projectsRoot, canonicalRoot) ??
+    projectIdFromCanonicalRoot(canonicalRoot);
+  return captureProjectRootIdentitySync(join(projectsRoot, id));
 }
 
 async function workspaceFromRegisteredRoot(

@@ -16,10 +16,13 @@ export function projectSlug(value: string): string {
   return normalized || "project";
 }
 
-export async function createProjectId(projectRoot: string): Promise<string> {
-  const rootPath = await realpath(projectRoot);
+export function projectIdFromCanonicalRoot(rootPath: string): string {
   const shortHash = createHash("sha256").update(rootPath).digest("hex").slice(0, 8);
   return `${projectSlug(basename(rootPath))}-${shortHash}`;
+}
+
+export async function createProjectId(projectRoot: string): Promise<string> {
+  return projectIdFromCanonicalRoot(await realpath(projectRoot));
 }
 
 export function createManagedProjectId(name: string): string {
