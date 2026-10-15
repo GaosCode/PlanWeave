@@ -1,3 +1,7 @@
+import {
+  finishDispatchTerminal,
+  type DispatchTerminalTransition
+} from "./dispatchTerminalPersistence.js";
 import { createHash } from "node:crypto";
 import {
   acpRecoveryIdentitySchema,
@@ -81,7 +85,12 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
   private readonly mailbox: DurableMailbox;
   private readonly operations: RemoteOperationRepository;
 
-  constructor(private readonly database: SqliteDatabase) {
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly onTerminalTransitionInTransaction?: (
+      transition: DispatchTerminalTransition
+    ) => void
+  ) {
     this.artifacts = new ArtifactAuthorizationRepository(database);
     this.mailbox = new DurableMailbox(database);
     this.operations = new RemoteOperationRepository(database);
@@ -566,29 +575,22 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
     operation: RemoteOperation;
     status: "completed" | "failed" | "cancelled";
   }): void {
-    inWriteTransaction(this.database, () => {
-      const row = this.database
-        .prepare("SELECT status,lease_id FROM dispatches WHERE id=?")
-        .get(input.operation.dispatchId);
-      if (!row) throw new Error("remote_dispatch_not_found");
-      if (row.status === input.status) return;
-      if (row.status !== "awaiting_writeback" || row.lease_id !== input.operation.attempt.leaseId) {
-        throw new Error("remote_dispatch_not_awaiting_writeback");
-      }
-      const now = new Date().toISOString();
-      const updated = this.database
-        .prepare(
-          `UPDATE dispatches SET status=?,finished_at=?
-           WHERE id=? AND status='awaiting_writeback' AND lease_id=?`
-        )
-        .run(input.status, now, input.operation.dispatchId, input.operation.attempt.leaseId);
-      if (updated.changes !== 1) throw new Error("remote_dispatch_terminal_conflict");
-      this.database
-        .prepare(
-          `INSERT INTO dispatch_events(dispatch_id,type,payload_json,occurred_at)
-           VALUES (?,?,?,?)`
-        )
-        .run(input.operation.dispatchId, `dispatch.${input.status}`, "{}", now);
+    const { operation, status } = input;
+    if (!operation.attempt.hostId || !operation.attempt.leaseId) {
+      throw new Error("remote_dispatch_not_awaiting_writeback");
+    }
+    finishDispatchTerminal(this.database, {
+      dispatch: {
+        id: operation.dispatchId,
+        workspaceId: operation.workspaceId,
+        projectId: operation.projectId,
+        blockRef: operation.blockRef,
+        hostId: operation.attempt.hostId,
+        leaseId: operation.attempt.leaseId,
+        executionAttemptId: operation.executionAttemptId
+      },
+      status,
+      onTransitionInTransaction: this.onTerminalTransitionInTransaction
     });
   }
 }

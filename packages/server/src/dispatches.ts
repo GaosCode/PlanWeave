@@ -17,6 +17,7 @@ import {
   type ProtocolDispatchResult
 } from "./protocol.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqlite.js";
+import { finishDispatchTerminal } from "./dispatchTerminalPersistence.js";
 import { remoteExecutionActionRequestSchema } from "./remoteExecutionLifecycle.js";
 
 export const dispatchStatusSchema = z.enum([
@@ -832,27 +833,15 @@ export class DispatchService {
   }
 
   private finishWriteback(dispatch: DispatchRecord, status: "completed" | "failed" | "cancelled") {
-    inWriteTransaction(this.database, () => {
-      const current = this.getRequired(dispatch.id);
-      if (current.status === status) return;
-      if (current.status !== "awaiting_writeback") {
-        throw new Error("dispatch_writeback_state_changed");
-      }
-      const finishedAt = new Date().toISOString();
-      const updated = this.database
-        .prepare(
-          "UPDATE dispatches SET status=?,finished_at=? WHERE id=? AND status='awaiting_writeback' AND lease_id=?"
-        )
-        .run(status, finishedAt, dispatch.id, dispatch.leaseId);
-      if (updated.changes !== 1) throw new Error("dispatch_writeback_state_changed");
-      this.appendEvent(dispatch.id, `dispatch.${status}`, {});
-      if (status !== "cancelled") {
+    finishDispatchTerminal(this.database, {
+      dispatch,
+      status,
+      onTransitionInTransaction: (transition) =>
         this.options.onActivityTransitionInTransaction?.({
-          type: status === "completed" ? "remote_run_succeeded" : "remote_run_failed",
-          dispatch: this.getRequired(dispatch.id),
-          occurredAt: finishedAt
-        });
-      }
+          type: transition.type,
+          dispatch: this.getRequired(transition.dispatchId),
+          occurredAt: transition.occurredAt
+        })
     });
   }
 

@@ -1,5 +1,5 @@
 import { ownerPackageLocatorForRun } from "@planweave-ai/agent-host-protocol";
-import { DispatchService, type DispatchRecord } from "./dispatches.js";
+import { DispatchService, type DispatchServiceOptions, type DispatchRecord } from "./dispatches.js";
 import { ArtifactAuthorizationRepository } from "./artifactAuthorization.js";
 import {
   AgentHostRepository,
@@ -386,7 +386,38 @@ export function createRemoteBlockCoordination(
       throw error;
     }
   };
-  const remoteDispatchPersistence = new SqliteRemoteDispatchPersistence(database);
+  const projectDispatchActivity: NonNullable<
+    DispatchServiceOptions["onActivityTransitionInTransaction"]
+  > = (input) => {
+    if (!options.onDispatchActivityTransitionInTransaction) return;
+    const operation = operations.getByDispatchId(input.dispatch.id);
+    // Legacy dispatches can lack an operation and therefore a provable Canvas scope.
+    // Their lifecycle still recovers, but cannot publish scoped Activity.
+    if (!operation) return;
+    if (
+      operation.workspaceId !== input.dispatch.workspaceId ||
+      operation.projectId !== input.dispatch.projectId ||
+      operation.blockRef !== input.dispatch.blockRef ||
+      operation.executionAttemptId !== input.dispatch.executionAttemptId
+    ) {
+      throw new Error("remote_activity_dispatch_identity_mismatch");
+    }
+    options.onDispatchActivityTransitionInTransaction({
+      ...input,
+      workItem: {
+        kind: "block",
+        canvasId: operation.canvasId,
+        blockRef: operation.blockRef
+      }
+    });
+  };
+  const remoteDispatchPersistence = new SqliteRemoteDispatchPersistence(database, (transition) => {
+    projectDispatchActivity({
+      type: transition.type,
+      dispatch: dispatches.getRequired(transition.dispatchId),
+      occurredAt: transition.occurredAt
+    });
+  });
   const coordinator = new RemoteBlockCoordinator({
     runtimeLeases: options.runtimeLeases,
     dispatchCandidates: new ServerCanvasDispatchCandidateReader(contentVersions, {
@@ -499,29 +530,7 @@ export function createRemoteBlockCoordination(
         await coordinator.fail(operation.id);
       }
     },
-    onActivityTransitionInTransaction: (input) => {
-      if (!options.onDispatchActivityTransitionInTransaction) return;
-      const operation = operations.getByDispatchId(input.dispatch.id);
-      // Legacy dispatches can lack an operation and therefore a provable Canvas scope.
-      // Their lifecycle still recovers, but cannot publish scoped Activity.
-      if (!operation) return;
-      if (
-        operation.workspaceId !== input.dispatch.workspaceId ||
-        operation.projectId !== input.dispatch.projectId ||
-        operation.blockRef !== input.dispatch.blockRef ||
-        operation.executionAttemptId !== input.dispatch.executionAttemptId
-      ) {
-        throw new Error("remote_activity_dispatch_identity_mismatch");
-      }
-      options.onDispatchActivityTransitionInTransaction({
-        ...input,
-        workItem: {
-          kind: "block",
-          canvasId: operation.canvasId,
-          blockRef: operation.blockRef
-        }
-      });
-    },
+    onActivityTransitionInTransaction: projectDispatchActivity,
     onProgressInTransaction: (input) => {
       const operation = operations.getByDispatchId(input.dispatch.id);
       options.onDispatchProgressInTransaction?.({

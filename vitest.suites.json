@@ -1175,6 +1175,7 @@
         "vpsE2eGate.test.ts",
         "vpsE2eLive.test.ts",
         "remoteRunActivityScope.test.ts",
+        "remoteTerminalActivity.test.ts",
         "workAssignmentDispatch.test.ts",
         "workAssignmentRepository.test.ts",
         "workAssignmentService.test.ts",
