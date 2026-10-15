@@ -260,30 +260,24 @@ export function useWorkspaceAgentEndpointRun(
       if (!run.failed) run.lifecycle?.onCancelled?.();
       return;
     }
-    const sessions: EndpointScopeCancellationState["sessions"] = [
-      ...run.workspaceSessions.entries()
-    ].map(([blockRef, session]) => ({
+    const cancellationRow = (
+      blockRef: string,
+      sessionId: string,
+      error: string | null
+    ): EndpointScopeCancellationState["sessions"][number] => ({
       blockRef,
-      sessionId: session.sessionId,
-      status: run.cancellationRequests.has(session.sessionId)
-        ? "in_flight"
-        : session.error
-          ? "failed"
-          : "pending",
-      error: session.error
-    }));
-    sessions.push(
-      ...[...run.workspaceStarts.values()].map((start) => ({
-        blockRef: start.input.blockRef,
-        sessionId: start.startRequestId,
-        status: run.cancellationRequests.has(start.startRequestId)
-          ? ("in_flight" as const)
-          : start.error
-            ? ("failed" as const)
-            : ("pending" as const),
-        error: start.error
-      }))
-    );
+      sessionId,
+      status: run.cancellationRequests.has(sessionId) ? "in_flight" : error ? "failed" : "pending",
+      error
+    });
+    const sessions = [
+      ...Array.from(run.workspaceSessions, ([blockRef, session]) =>
+        cancellationRow(blockRef, session.sessionId, session.error)
+      ),
+      ...Array.from(run.workspaceStarts.values(), (start) =>
+        cancellationRow(start.input.blockRef, start.startRequestId, start.error)
+      )
+    ];
     const state: EndpointScopeCancellationState = {
       scopeIdentity: run.scopeIdentity,
       phase: sessions.some((session) => session.status === "failed") ? "failed" : "cancelling",
