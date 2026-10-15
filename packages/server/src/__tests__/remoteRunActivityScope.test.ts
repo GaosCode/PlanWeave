@@ -1,9 +1,18 @@
 import { createServer } from "node:http";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parseServerConfig, type ServerConfig } from "../config.js";
+import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
+import { applyMigrationsThroughVersion } from "./support/migrationFixture.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket, type RawData } from "ws";
 import { createActivityJournalComposition } from "../composition/activityComments.js";
 import { createRemoteCoordinationOptions } from "../composition/remoteExecution.js";
-import { createRemoteBlockCoordination } from "../distributedCoordination.js";
+import {
+  createRemoteBlockCoordination,
+  startRemoteBlockCoordinationServer
+} from "../distributedCoordination.js";
 import { ActivityRepository } from "../comments/activityRepository.js";
 import { buildRemoteRunActivity } from "../comments/activityProjection.js";
 import { HumanIdentityRepository } from "../identity/repository.js";
@@ -37,13 +46,41 @@ function messages(socket: WebSocket, count: number) {
   });
 }
 
+function coordinationOptions(
+  database: SqliteDatabase,
+  config: ServerConfig,
+  activity: ReturnType<typeof createActivityJournalComposition>
+) {
+  const identity = new HumanIdentityRepository(database);
+  const workspaceIdentity = new WorkspaceIdentityRepository(database);
+  return createRemoteCoordinationOptions({
+    config,
+    clock: () => new Date(),
+    activity,
+    ownerRuntimeLeases: {
+      acquire() {
+        throw new Error("unexpected_runtime_acquire");
+      },
+      acquireForHost() {
+        throw new Error("unexpected_runtime_acquire");
+      }
+    },
+    ownerRuntimeAvailability: { hasRuntimeProject: () => false, hasRuntimeScope: () => false },
+    getAuthorization() {
+      throw new Error("unexpected_operator_authorization");
+    },
+    getHumanIdentity: () => identity,
+    getWorkspaceIdentity: () => workspaceIdentity
+  });
+}
+
 async function setup() {
   const fixture = await setupCommentReadComposition();
   const { database, config, projectId, owner } = fixture;
+  const identity = new HumanIdentityRepository(database);
   const workspaceId = owner.workspaceId;
   const scope = { workspaceId, projectId };
   const workspaceIdentity = new WorkspaceIdentityRepository(database);
-  const identity = new HumanIdentityRepository(database);
   const member = createWorkspaceDevice({
     database,
     workspaceIdentity,
@@ -63,25 +100,7 @@ async function setup() {
     visibility: "shared"
   });
   const activity = createActivityJournalComposition({ database, config, clock: () => new Date() });
-  const options = createRemoteCoordinationOptions({
-    config,
-    clock: () => new Date(),
-    activity,
-    ownerRuntimeLeases: {
-      acquire() {
-        throw new Error("unexpected_runtime_acquire");
-      },
-      acquireForHost() {
-        throw new Error("unexpected_runtime_acquire");
-      }
-    },
-    ownerRuntimeAvailability: { hasRuntimeProject: () => false, hasRuntimeScope: () => false },
-    getAuthorization() {
-      throw new Error("unexpected_operator_authorization");
-    },
-    getHumanIdentity: () => identity,
-    getWorkspaceIdentity: () => workspaceIdentity
-  });
+  const options = coordinationOptions(database, config, activity);
   const coordination = createRemoteBlockCoordination(database, options, {
     serverInstanceOwnerToken: "activity-scope-test"
   });
@@ -182,6 +201,106 @@ async function setup() {
 }
 
 describe("remote run Activity scope at composition boundaries", () => {
+  it("starts after migrating legacy dispatches without operations and emits no unscoped Activity", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-legacy-dispatch-startup-"));
+    cleanups.push(() => rm(directory, { recursive: true, force: true }));
+    const config = parseServerConfig({
+      version: "server-config/v1",
+      bind: { host: "127.0.0.1", port: 7443 },
+      publicUrl: "http://127.0.0.1:7443",
+      allowInsecureDevelopment: true,
+      dataDirectory: directory,
+      trustedProjects: [],
+      operatorCredentials: [
+        { operatorId: "admin", tokenSha256: "a".repeat(64), projectIds: [], serverAdmin: true }
+      ]
+    });
+    const legacy = await openServerDatabase(config.databasePath, 5000);
+    try {
+      applyMigrationsThroughVersion(legacy, 26);
+      legacy.exec(`
+        INSERT INTO human_principals(human_principal_id,display_name,created_at)
+          VALUES('legacy-owner','Owner','2020-01-01T00:00:00.000Z');
+        INSERT INTO project_memberships(
+          membership_id,project_id,human_principal_id,role,created_at,updated_at,revision
+        ) VALUES('legacy-membership','legacy-project','legacy-owner','owner',
+          '2020-01-01T00:00:00.000Z','2020-01-01T00:00:00.000Z',1);
+        INSERT INTO agent_hosts(id,display_name,credential_hash,capabilities_json,capacity,created_at)
+          VALUES('legacy-host','Legacy host','${"a".repeat(64)}','[]',1,'2020-01-01T00:00:00.000Z');
+      `);
+      for (const status of ["leased", "running", "cancelling"]) {
+        legacy
+          .prepare(`INSERT INTO dispatches(
+          id,project_id,block_ref,host_id,required_capabilities_json,status,
+          lease_id,execution_attempt_id,lease_expires_at,created_at
+        ) VALUES(?,'legacy-project','T-001#B-001','legacy-host','[]',?,?,?,
+          '2020-01-01T00:00:00.000Z','2020-01-01T00:00:00.000Z')`)
+          .run(`legacy-${status}`, status, `lease-${status}`, `attempt-${status}`);
+      }
+      expect(legacy.prepare("SELECT COUNT(*) AS count FROM remote_operations").get()).toEqual({
+        count: 0
+      });
+    } finally {
+      legacy.close();
+    }
+    const { server, coordination } = await startRemoteBlockCoordinationServer(
+      config,
+      (database) => {
+        const activity = createActivityJournalComposition({
+          database,
+          config,
+          clock: () => new Date()
+        });
+        return coordinationOptions(database, config, activity);
+      }
+    );
+    try {
+      expect(server.readiness().status).toBe("ready");
+      const workspaceId = new WorkspaceIdentityRepository(
+        server.database
+      ).workspaceForLegacyProject("legacy-project");
+      expect(workspaceId).toBeTruthy();
+      for (const status of ["leased", "running", "cancelling"]) {
+        expect(coordination.dispatches.getRequired(`legacy-${status}`)).toMatchObject({
+          workspaceId,
+          status: "interrupted",
+          interruption: { reason: "lease_lost", resumable: false }
+        });
+        expect(coordination.operations.getByDispatchId(`legacy-${status}`)).toBeUndefined();
+      }
+      expect(
+        server.database
+          .prepare(
+            "SELECT COUNT(*) AS count FROM dispatch_events WHERE type='dispatch.interrupted'"
+          )
+          .get()
+      ).toEqual({ count: 3 });
+      for (const table of [
+        "activity_records",
+        "activity_projection_outbox",
+        "human_observer_events"
+      ]) {
+        expect(server.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({
+          count: 0
+        });
+      }
+    } finally {
+      server.close();
+    }
+  });
+
+  it("rejects an operation-dispatch identity mismatch without changing dispatch state or publishing Activity", async () => {
+    const fixture = await setup();
+    fixture.database
+      .prepare("UPDATE dispatches SET block_ref='T-001#B-OTHER' WHERE id=?")
+      .run(fixture.dispatch.id);
+    expect(() => fixture.accept()).toThrow("remote_activity_dispatch_identity_mismatch");
+    expect(fixture.coordination.dispatches.getRequired(fixture.dispatch.id).status).toBe("leased");
+    expect(
+      (await fixture.read()).items.filter((item) => item.type.startsWith("remote_run"))
+    ).toEqual([]);
+  });
+
   it("keeps private dispatch lifecycle out of HTTP, live and replay until a Canvas viewer grant", async () => {
     const fixture = await setup();
     const baseline = fixture.activity.humanObserverJournal.appendInCallerTransaction(

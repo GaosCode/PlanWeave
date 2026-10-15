@@ -502,7 +502,9 @@ export function createRemoteBlockCoordination(
     onActivityTransitionInTransaction: (input) => {
       if (!options.onDispatchActivityTransitionInTransaction) return;
       const operation = operations.getByDispatchId(input.dispatch.id);
-      if (!operation) throw new Error("remote_operation_not_found_for_dispatch");
+      // Legacy dispatches can lack an operation and therefore a provable Canvas scope.
+      // Their lifecycle still recovers, but cannot publish scoped Activity.
+      if (!operation) return;
       if (
         operation.workspaceId !== input.dispatch.workspaceId ||
         operation.projectId !== input.dispatch.projectId ||
