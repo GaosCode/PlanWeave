@@ -1,12 +1,14 @@
 import { z } from "zod";
 import {
   desktopWorkspaceExecutionResponseSchema,
+  desktopWorkspaceExecutionStartCancellationSchema,
   desktopWorkspaceExecutionCancellationRecoverySchema
 } from "./workspaceExecution.js";
 
 export const workspaceExecutionInvokeChannels = {
   conversation: "planweave:workspaceExecution:conversation",
   start: "planweave:workspaceExecution:start",
+  cancelStart: "planweave:workspaceExecution:cancelStart",
   follow: "planweave:workspaceExecution:follow",
   respond: "planweave:workspaceExecution:respond",
   cancel: "planweave:workspaceExecution:cancel",
@@ -33,6 +35,7 @@ export const workspaceExecutionIpcResultSchema = z.discriminatedUnion("ok", [
     .object({
       ok: z.literal(true),
       value: z.union([
+        desktopWorkspaceExecutionStartCancellationSchema,
         desktopWorkspaceExecutionResponseSchema,
         desktopWorkspaceExecutionCancellationRecoverySchema
       ])

@@ -93,6 +93,11 @@ export type OperatorControlPort = {
     request: unknown,
     runtimeWire?: OperatorOperationRuntimeWire
   ): Promise<unknown>;
+  lookupOperation?(
+    principal: OperatorRequestPrincipal,
+    query: unknown,
+    runtimeWire?: OperatorOperationRuntimeWire
+  ): Promise<unknown>;
   observeOperation(
     principal: OperatorRequestPrincipal,
     operationId: string,
@@ -143,7 +148,7 @@ type OperatorRoute =
   | { kind: "list_hosts" }
   | { kind: "list_agent_endpoints" }
   | { kind: "get_host" | "revoke_host" | "renew_host_credential"; hostId: string }
-  | { kind: "dispatch" }
+  | { kind: "dispatch" | "lookup_operation" }
   | { kind: "owner_canvas_materialization_head" | "owner_canvas_materialize" }
   | {
       kind:
@@ -194,6 +199,8 @@ function route(request: IncomingMessage, pathname: string): OperatorRoute | unde
   if (request.method === "GET" && pathname === "/api/v1/agent-endpoints") {
     return { kind: "list_agent_endpoints" };
   }
+  if (request.method === "GET" && pathname === "/api/v1/remote-operations")
+    return { kind: "lookup_operation" };
   if (request.method === "POST" && pathname === "/api/v1/remote-operations") {
     return { kind: "dispatch" };
   }
@@ -647,6 +654,20 @@ export async function handleOperatorHttpRequest(
             principal,
             matched.hostId,
             await readJson(request)
+          )
+        );
+        break;
+      case "lookup_operation":
+        if (!options.service.lookupOperation)
+          throw new Error("operator_operation_lookup_unavailable");
+        varyOnAccept(response);
+        respond(
+          response,
+          200,
+          await options.service.lookupOperation(
+            principal,
+            query(url, ["humanPrincipalId", "projectId", "canvasId", "blockRef", "idempotencyKey"]),
+            operationRuntimeWire(request.headers.accept)
           )
         );
         break;

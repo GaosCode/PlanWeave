@@ -451,6 +451,7 @@
         "workspaceConnectionReadLifecycle.test.ts",
         "workspaceConnectionSelection.test.ts",
         "workspaceExecutionCharacterization.test.ts",
+        "workspaceExecutionStartServer.test.ts",
         "workspaceExecutionProcessBoundary.test.ts",
         "workspaceSessionPreflight.test.ts",
         "workspaceCanvasPublishSnapshot.test.ts",

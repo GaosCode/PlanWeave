@@ -25,6 +25,14 @@ export type WorkspaceScopeSession = {
   error: string | null;
 };
 
+export type WorkspaceScopeStart = {
+  input: DesktopWorkspaceExecutionStartInput;
+  startRequestId: string;
+  actionId: string | null;
+  reason: string;
+  error: string | null;
+};
+
 export type ActiveEndpointScopeRun = {
   scopeIdentity: string;
   lifecycle?: WorkspaceAgentEndpointScopeLifecycle;
@@ -33,6 +41,7 @@ export type ActiveEndpointScopeRun = {
   cancellationRequests: Map<string, Promise<void>>;
   controller: AbortController;
   pendingWorkspaceStarts: Set<Promise<void>>;
+  workspaceStarts: Map<string, WorkspaceScopeStart>;
   workspaceSessions: Map<string, WorkspaceScopeSession>;
 };
 
@@ -49,7 +58,7 @@ export function restoreWorkspaceScopeCancellation(input: {
   locator: DesktopWorkspaceExecutionStartInput["locator"];
   scopeIdentity: string;
 }): ActiveEndpointScopeRun | null {
-  if (!input.recovered.sessions.length) return null;
+  if (!input.recovered.sessions.length && !input.recovered.starts.length) return null;
   const controller = new AbortController();
   controller.abort();
   return {
@@ -59,6 +68,15 @@ export function restoreWorkspaceScopeCancellation(input: {
     failed: false,
     cancellationRequests: new Map(),
     pendingWorkspaceStarts: new Set(),
+    workspaceStarts: new Map(
+      input.recovered.starts.map((start) => [
+        start.startRequestId,
+        {
+          ...start,
+          error: "workspace_execution_cancel_unconfirmed"
+        }
+      ])
+    ),
     workspaceSessions: new Map(
       input.recovered.sessions.map(({ sessionId, blockRef, intent }) => [
         blockRef,

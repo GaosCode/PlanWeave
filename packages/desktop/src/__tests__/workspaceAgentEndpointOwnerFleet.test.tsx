@@ -387,6 +387,7 @@ function renderOwnerFleetRun(input?: {
       workspaceExecutionApi: {
         recoverWorkspaceExecutionCancellations: vi.fn(async () => ({
           version: "planweave.workspace-cancellation-recovery/v1" as const,
+          starts: [],
           sessions: []
         })),
         startWorkspaceExecution,
@@ -499,7 +500,8 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
       } as const,
       blockRef: "T-001#B-001",
       agentEndpointId: "endpoint-windows",
-      effectiveExecutor: { name: "codex", agentId: "codex" }
+      effectiveExecutor: { name: "codex", agentId: "codex" },
+      startRequestId: "operation-fleet-1"
     };
     expect(startWorkspaceExecution).toHaveBeenCalledWith(startInput);
     expect(followWorkspaceExecution).toHaveBeenCalledWith({
@@ -535,7 +537,8 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
       } as const,
       blockRef: "T-001#B-001",
       agentEndpointId: "endpoint-windows",
-      effectiveExecutor: { name: "codex", agentId: "codex" }
+      effectiveExecutor: { name: "codex", agentId: "codex" },
+      startRequestId: "operation-fleet-1"
     };
     expect(startWorkspaceExecution).toHaveBeenCalledWith(startInput);
     expect(followWorkspaceExecution).toHaveBeenCalledWith({
@@ -573,7 +576,8 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
       },
       blockRef: "T-001#B-001",
       agentEndpointId: "endpoint-windows",
-      effectiveExecutor: { name: "codex", agentId: "codex" }
+      effectiveExecutor: { name: "codex", agentId: "codex" },
+      startRequestId: "operation-fleet-1"
     });
     expect(followWorkspaceExecution).toHaveBeenCalledTimes(1);
     expect(ensureWorkAuthority).not.toHaveBeenCalled();
@@ -760,6 +764,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
       agentEndpointId: "endpoint-windows",
       effectiveExecutor: { name: "codex", agentId: "codex" },
       sessionId: "SESSION-0001",
+      startRequestId: "operation-fleet-1",
       actionId: "operation-fleet-1",
       reason: "Desktop Auto Run stop requested."
     });
@@ -828,6 +833,7 @@ describe("workspace Agent Endpoint owner fleet routing", () => {
           workspaceExecutionApi: {
             recoverWorkspaceExecutionCancellations: vi.fn(async () => ({
               version: "planweave.workspace-cancellation-recovery/v1" as const,
+              starts: [],
               sessions: []
             })),
             startWorkspaceExecution,

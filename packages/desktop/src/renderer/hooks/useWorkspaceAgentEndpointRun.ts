@@ -247,7 +247,12 @@ export function useWorkspaceAgentEndpointRun(
 
   const publishCancellation = useCallback((run: ActiveEndpointScopeRun) => {
     if (!run.controller.signal.aborted) return;
-    if (run.settled && run.workspaceSessions.size === 0 && run.pendingWorkspaceStarts.size === 0) {
+    if (
+      run.settled &&
+      run.workspaceSessions.size === 0 &&
+      run.pendingWorkspaceStarts.size === 0 &&
+      run.workspaceStarts.size === 0
+    ) {
       if (retainedRuns.current.get(run.scopeIdentity) !== run) return;
       retainedRuns.current.delete(run.scopeIdentity);
       if (activeEndpointScopeRun.current === run) activeEndpointScopeRun.current = null;
@@ -267,6 +272,18 @@ export function useWorkspaceAgentEndpointRun(
           : "pending",
       error: session.error
     }));
+    sessions.push(
+      ...[...run.workspaceStarts.values()].map((start) => ({
+        blockRef: start.input.blockRef,
+        sessionId: start.startRequestId,
+        status: run.cancellationRequests.has(start.startRequestId)
+          ? ("in_flight" as const)
+          : start.error
+            ? ("failed" as const)
+            : ("pending" as const),
+        error: start.error
+      }))
+    );
     const state: EndpointScopeCancellationState = {
       scopeIdentity: run.scopeIdentity,
       phase: sessions.some((session) => session.status === "failed") ? "failed" : "cancelling",
@@ -497,6 +514,7 @@ export function useWorkspaceAgentEndpointRun(
         cancellationRequests: new Map(),
         controller,
         pendingWorkspaceStarts: new Set(),
+        workspaceStarts: new Map(),
         workspaceSessions: new Map()
       };
       const requestEpoch = executionRequestEpoch.current;
@@ -581,8 +599,18 @@ export function useWorkspaceAgentEndpointRun(
               effectiveExecutor
             };
           }
+          const startRequestId = createId();
+          startInput = { ...startInput, startRequestId };
+          activeRun.workspaceStarts.set(startRequestId, {
+            input: startInput,
+            startRequestId,
+            actionId: null,
+            reason: "Desktop Auto Run stop requested.",
+            error: null
+          });
           const startSettlement = executionApi.startWorkspaceExecution(startInput).then(
             async (view) => {
+              activeRun.workspaceStarts.delete(startRequestId);
               const session: WorkspaceScopeSession = {
                 input: startInput,
                 sessionId: view.session.sessionId,
@@ -859,7 +887,11 @@ export function useWorkspaceAgentEndpointRun(
       } finally {
         activeRun.settled = true;
         if (controller.signal.aborted || activeRun.failed) void abortRun(activeRun);
-        if (activeRun.workspaceSessions.size || activeRun.pendingWorkspaceStarts.size) {
+        if (
+          activeRun.workspaceSessions.size ||
+          activeRun.pendingWorkspaceStarts.size ||
+          activeRun.workspaceStarts.size
+        ) {
           publishCancellation(activeRun);
         } else if (controller.signal.aborted) {
           publishCancellation(activeRun);
@@ -890,6 +922,7 @@ export function useWorkspaceAgentEndpointRun(
       input.stopLocal,
       input.waitForLocalUnit,
       cancelWorkspaceSession,
+      createId,
       abortRun,
       publishCancellation,
       executionApi

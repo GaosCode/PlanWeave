@@ -87,9 +87,16 @@ function createOwnerCanvasCoordinator(input: {
           input.client.dispatchRemoteOperation(intent, input.locator.humanPrincipalId)
       },
       query: {
-        async recover() {
-          return null;
-        },
+        recover: ({ binding, idempotencyKey }) =>
+          input.client.lookupRemoteOperation(
+            {
+              projectId: binding.projectId,
+              canvasId: binding.canvasId,
+              blockRef: binding.blockRef,
+              idempotencyKey
+            },
+            input.locator.humanPrincipalId
+          ),
         observe: ({ operationId }) =>
           input.client.observeRemoteOperation(operationId, input.locator.humanPrincipalId),
         replay: ({ operationId, afterCursor }) =>

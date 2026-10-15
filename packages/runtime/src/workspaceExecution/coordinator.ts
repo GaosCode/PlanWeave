@@ -182,7 +182,8 @@ export class WorkspaceExecutionCoordinator {
 
   async execute(
     rawRequest: unknown,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    dispatchKey?: string
   ): Promise<WorkspaceExecutionCoordinatorResult> {
     const request = workspaceExecutionRequestSchema.parse(rawRequest);
     const binding = await this.input.authority.resolve(request.authority, request.scope, signal);
@@ -242,8 +243,25 @@ export class WorkspaceExecutionCoordinator {
       if (binding.kind !== "remote" || !request.effectiveExecutor) {
         throw new WorkspaceExecutionError("workspace_execution_authority_mismatch");
       }
+      if (dispatchKey) {
+        const listed = await this.sessions.list(storage);
+        if (listed.diagnostics.length)
+          throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+        const matches = listed.sessions.filter(
+          (session) => session.workspaceExecution?.dispatchIntent?.idempotencyKey === dispatchKey
+        );
+        if (matches.length > 1)
+          throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+        const existing = matches[0];
+        if (existing) {
+          const recovered = await this.recoverForCancellation(request, existing.sessionId, signal);
+          if (!recovered) throw new WorkspaceExecutionError("remote_dispatch_unavailable");
+          return recovered;
+        }
+      }
       const resumable = await this.findScopedSession(storage, binding.bindingId, request);
       if (resumable) {
+        if (dispatchKey) throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
         return this.resumeOrRecover(storage, binding, resumable, request, signal);
       }
       let currentAuthority: Awaited<ReturnType<WorkAuthorityPort["ensure"]>>;
@@ -269,7 +287,8 @@ export class WorkspaceExecutionCoordinator {
       const intent = remoteIntent({
         binding,
         endpointId: target.agentEndpointId,
-        idempotencyKey: `workspace-execution-${(this.input.idempotencyKey ?? randomUUID)()}`
+        idempotencyKey:
+          dispatchKey ?? `workspace-execution-${(this.input.idempotencyKey ?? randomUUID)()}`
       });
       const session = await this.sessions.create(storage, {
         kind: "run",
@@ -314,6 +333,59 @@ export class WorkspaceExecutionCoordinator {
     }
     await this.assertStoredRemoteWorkAuthority(binding, signal);
     return this.resumeOrRecover(storage, binding, detail.session, request, signal);
+  }
+
+  async recoverForCancellation(
+    rawRequest: unknown,
+    sessionId: string,
+    signal?: AbortSignal
+  ): Promise<WorkspaceExecutionCoordinatorResult | null> {
+    const request = workspaceExecutionRequestSchema.parse(rawRequest);
+    const storage = this.storageForExistingSession(request);
+    const session = (await this.sessions.get(storage, sessionId)).session;
+    const state = session.workspaceExecution;
+    if (!state) throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    const binding = adoptStoredWorkspaceAuthorityBinding(state.binding);
+    if (
+      binding.kind !== "remote" ||
+      !requestMatchesStoredBinding(request, binding) ||
+      !bindingMatchesSession(session, binding.bindingId, request)
+    )
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    await this.assertStoredRemoteWorkAuthority(binding, signal);
+    const handle = remoteWorkspaceExecutionHandleSchema.safeParse(state.handle);
+    const snapshot = handle.success
+      ? await this.input.remote.follow({ binding, handle: handle.data, signal })
+      : state.dispatchIntent
+        ? await this.input.remote.recover({
+            binding,
+            session,
+            intent: state.dispatchIntent,
+            signal
+          })
+        : null;
+    if (!snapshot) return null;
+    if (
+      handle.success &&
+      (snapshot.handle.operationId !== handle.data.operationId ||
+        snapshot.handle.dispatchId !== handle.data.dispatchId ||
+        snapshot.handle.executionAttemptId !== handle.data.executionAttemptId ||
+        snapshot.handle.leaseId !== handle.data.leaseId)
+    )
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    const persisted = await persistRemoteObservation({
+      sessions: this.sessions,
+      storage,
+      binding,
+      original: session,
+      snapshot,
+      clock: this.input.clock
+    });
+    return {
+      handle: remoteWorkspaceExecutionHandleSchema.parse(persisted.workspaceExecution?.handle),
+      session: persisted,
+      events: []
+    };
   }
 
   async observeExisting(input: {

@@ -431,6 +431,24 @@ export class OperatorControlClient {
     );
   }
 
+  async lookupRemoteOperation(
+    query: { projectId: string; canvasId: string; blockRef: string; idempotencyKey: string },
+    humanPrincipalId: string
+  ) {
+    const { operatorObservationToRemoteRun } = await import("./operatorRemoteOperations.js");
+    const params = new URLSearchParams({ ...query, humanPrincipalId });
+    const view = await this.json(
+      "GET",
+      `/api/v1/remote-operations?${params}`,
+      operatorPublicOperationViewSchema.nullable(),
+      {
+        accept: OPERATOR_PUBLIC_RUNTIME_MEDIA_TYPE,
+        humanPrincipalId
+      }
+    );
+    return view ? operatorObservationToRemoteRun(view) : null;
+  }
+
   async observeRemoteOperation(operationId: string, humanPrincipalId?: string) {
     const { operatorObservationToRemoteRun } = await import("./operatorRemoteOperations.js");
     const id = opaqueIdentifierSchema.parse(operationId);

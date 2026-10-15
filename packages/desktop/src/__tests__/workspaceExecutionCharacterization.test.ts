@@ -8,6 +8,7 @@ import {
 import { exampleHumanIdentityToken } from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
 import {
   capturePackageSnapshot,
+  createRemoteBlockRuntimePort,
   loadPlanGraphPackage,
   projectWorkspaceExecutionCoordinatorView
 } from "@planweave-ai/runtime";
@@ -20,6 +21,7 @@ import {
 } from "../../../server/src/remoteExecutionActions.js";
 import { createWorkspaceScopeCancellation } from "../renderer/collaboration/workspaceScopeCancellation.js";
 import { restoreWorkspaceScopeCancellation } from "../renderer/collaboration/workspaceScopeCancellationRecovery.js";
+import { createStartCancellationServerFixture } from "./workspaceExecutionStartCancellationTestFixture.js";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import type { CollaborationRemoteOperationsPort } from "../main/collaboration/CollaborationRemoteOperationsClient.js";
 import { CollaborationRemoteOperationsFacade } from "../main/collaboration/collaborationRemoteOperations.js";
@@ -246,7 +248,10 @@ describe("workspace execution authority characterization", () => {
     "CAS restart",
     "CAS replaced attempt",
     "CAS replaced lease",
-    "accepted response lost"
+    "accepted response lost",
+    "start accepted response lost",
+    "start before accept failure",
+    "start local writeback failure"
   ] as const)("preserves owner Canvas cancellation identity through %s", async (replacementAt) => {
     const { root } = await createTestWorkspace();
     const loaded = await loadPlanGraphPackage(root);
@@ -343,7 +348,26 @@ describe("workspace execution authority characterization", () => {
         );
       }
       if (url.pathname === "/api/v1/remote-operations" && init?.method === "POST") {
+        if (
+          replacementAt === "start accepted response lost" ||
+          replacementAt === "start before accept failure"
+        )
+          throw new Error("dispatch response lost");
+        if (replacementAt === "start local writeback failure")
+          await createRemoteBlockRuntimePort({ projectRoot: root }).claim({
+            ref: "T-001#B-001",
+            operationId: "different-owner",
+            controlPlane: "owner",
+            sourceRevision: captured.snapshot.sourceRevision,
+            graphFingerprint: loaded.graph.packageFingerprint
+          });
         return Response.json(runningObservation, { status: 202 });
+      }
+      if (url.pathname === "/api/v1/remote-operations" && init?.method === "GET") {
+        expect(url.searchParams.get("idempotencyKey")).toBe("workspace-execution-start-lost");
+        return Response.json(
+          replacementAt === "start before accept failure" ? null : currentObservation
+        );
       }
       if (url.pathname.endsWith("/events")) {
         return Response.json(emptyReplay(Number(url.searchParams.get("afterCursor") ?? "0")));
@@ -437,6 +461,106 @@ describe("workspace execution authority characterization", () => {
         operation
       });
 
+    if (replacementAt.startsWith("start ")) {
+      const collaboration = new CollaborationService({
+        profileStorePaths: { profilesPath: join(sessionsRoot, "profiles.json") },
+        workspaceProfileStorePaths: { profilesPath: join(sessionsRoot, "workspace-profiles.json") },
+        credentialsPath: join(sessionsRoot, "credentials.json"),
+        invitationsPath: join(sessionsRoot, "invitations.json")
+      });
+      const db = await openServerDatabase(join(sessionsRoot, "start-actions.sqlite"), 5_000);
+      actionDatabases.push(db);
+      const actions = createStartCancellationServerFixture({
+        database: db,
+        read: () => currentObservation,
+        write: (value) => {
+          currentObservation = value;
+        }
+      });
+      executeAction = actions.execute;
+      const first = new WorkspaceExecutionDesktopService(
+        collaboration,
+        operatorControl,
+        sessionsRoot
+      );
+      const startInput = { ...requestInput, startRequestId: "start-lost" };
+      await expect(first.start(startInput)).rejects.toMatchObject({
+        code:
+          replacementAt === "start local writeback failure"
+            ? "remote_ownership_operation_conflict"
+            : "operator_request_failed"
+      });
+      const stop = {
+        input: startInput,
+        startRequestId: "start-lost",
+        actionId: "stop-lost",
+        reason: "Desktop Auto Run stop requested."
+      };
+      if (replacementAt === "start before accept failure") {
+        expect(await first.cancelStart(stop)).toMatchObject({ confirmed: false });
+      } else {
+        failObservation = true;
+        await expect(first.cancelStart(stop)).rejects.toThrow();
+        failObservation = false;
+      }
+      const restarted = new WorkspaceExecutionDesktopService(
+        collaboration,
+        operatorControl,
+        sessionsRoot
+      );
+      const recovered = await restarted.recoverCancellations({ locator: requestInput.locator });
+      expect(recovered.starts).toEqual([stop]);
+      const restored = restoreWorkspaceScopeCancellation({
+        recovered,
+        locator: requestInput.locator,
+        scopeIdentity: "scope-start-lost"
+      });
+      if (!restored) throw new Error("restored Stop intent required");
+      const cancellation = createWorkspaceScopeCancellation({
+        api: {
+          cancelWorkspaceExecutionStart: (input) => restarted.cancelStart(input),
+          cancelWorkspaceExecution: (input) => restarted.cancel(input),
+          recoverWorkspaceExecutionCancellations: (input) => restarted.recoverCancellations(input),
+          startWorkspaceExecution: (input) => restarted.start(input),
+          followWorkspaceExecution: (input) => restarted.follow(input),
+          respondWorkspaceExecution: (input) => restarted.respond(input),
+          remoteAcpConversation: vi.fn()
+        },
+        createId: () => "unused",
+        publish: vi.fn()
+      });
+      const results = await cancellation.abortRun(restored, true);
+      if (replacementAt === "start accepted response lost") {
+        expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+        expect(restored.workspaceStarts.size).toBe(0);
+        expect(actions.sideEffects()).toBe(1);
+        expect(
+          (await restarted.recoverCancellations({ locator: requestInput.locator })).starts
+        ).toEqual([]);
+      } else {
+        expect(results.some((result) => result.status === "rejected")).toBe(true);
+        expect(restored.workspaceStarts.size).toBe(1);
+        if (replacementAt === "start before accept failure") {
+          expect(await restarted.cancelStart(stop)).toMatchObject({ confirmed: false });
+          expect(calls.filter((call) => call.url.pathname.endsWith("/actions"))).toHaveLength(0);
+        } else {
+          expect(
+            (
+              await createRemoteBlockRuntimePort({ projectRoot: root }).query({
+                ref: requestInput.blockRef,
+                operationId: "different-owner"
+              })
+            ).ownership.operationId
+          ).toBe("different-owner");
+        }
+      }
+      expect(
+        calls.filter(
+          (call) => call.url.pathname === "/api/v1/remote-operations" && call.method === "POST"
+        )
+      ).toHaveLength(1);
+      return;
+    }
     const started = await runWithOwner(({ coordinator, request: value }) =>
       coordinator.execute(value)
     );
@@ -678,6 +802,7 @@ describe("workspace execution authority characterization", () => {
         if (!restored) throw new Error("restored cancellation required");
         const cancellation = createWorkspaceScopeCancellation({
           api: {
+            cancelWorkspaceExecutionStart: (input) => restarted.cancelStart(input),
             cancelWorkspaceExecution: (input) => restarted.cancel(input),
             recoverWorkspaceExecutionCancellations: (input) =>
               restarted.recoverCancellations(input),

@@ -7,6 +7,55 @@ import { operation, renderRun } from "./workspaceAgentEndpointRunTestFixture";
 
 describe("workspace Agent Endpoint cancellation", () => {
   it.each([
+    "Stop",
+    "scope switch"
+  ] as const)("retains the same Stop request after an accepted start rejects on %s", async (source) => {
+    let rejectStart!: (error: Error) => void;
+    const start = vi.fn(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          rejectStart = reject;
+        })
+    );
+    let confirmed = false;
+    const cancelStart = vi.fn(async () => ({
+      version: "planweave.workspace-start-cancellation/v1",
+      confirmed
+    }));
+    const h = renderRun({
+      startWorkspaceExecution: start,
+      cancelWorkspaceExecutionStart: cancelStart
+    });
+    let run!: Promise<void>;
+    act(() => {
+      run = h.result.current({ kind: "block", blockRef: "T-001#B-001" });
+    });
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
+    let stopped: Promise<unknown> | undefined;
+    if (source === "Stop") stopped = h.result.current.stop().catch(() => undefined);
+    else act(() => h.rerender({ authorityKey: "workspace-authority-2" }));
+    await act(async () => {
+      rejectStart(new Error("accepted response lost"));
+      await run;
+      await stopped;
+    });
+    expect(h.lifecycle.onCancelled).not.toHaveBeenCalled();
+    if (source === "scope switch") {
+      expect(h.result.current.cancellation).toBeNull();
+      act(() => h.rerender({ authorityKey: "workspace-authority-1" }));
+    }
+    expect(h.result.current.cancellation).toMatchObject({
+      phase: "failed",
+      sessions: [{ blockRef: "T-001#B-001", status: "failed" }]
+    });
+    expect(cancelStart).toHaveBeenCalled();
+    confirmed = true;
+    await act(() => h.result.current.stop());
+    expect(cancelStart.mock.calls.at(-1)).toEqual(cancelStart.mock.calls[0]);
+    expect(h.result.current.cancellation).toBeNull();
+    expect(start).toHaveBeenCalledOnce();
+  });
+  it.each([
     "follow failure",
     "scope switch",
     "unmount"

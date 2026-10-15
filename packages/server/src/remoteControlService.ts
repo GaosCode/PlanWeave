@@ -1,3 +1,4 @@
+import { remoteOperationLookupQuerySchema } from "@planweave-ai/collaboration-protocol/remote-run";
 import { acpConversationActionSchema } from "@planweave-ai/agent-host-protocol";
 import {
   operatorActionRequestSchema,
@@ -371,6 +372,46 @@ export class RemoteControlService {
       callerHumanPrincipalId: request.humanPrincipalId
     });
     return this.observeOperation(principal, outcome.operation.id, runtimeWire);
+  }
+
+  async lookupOperation(
+    principal: OperatorRequestPrincipal,
+    rawQuery: unknown,
+    runtimeWire: OperatorOperationRuntimeWire = "legacy-rich"
+  ) {
+    const { humanPrincipalId, projectId, ...identity } = z
+      .object({ humanPrincipalId: humanPrincipalIdSchema, projectId: opaqueIdentifierSchema })
+      .passthrough()
+      .parse(rawQuery);
+    const query = remoteOperationLookupQuerySchema.parse(identity);
+    if (
+      !query.canvasId ||
+      !query.blockRef ||
+      !query.idempotencyKey ||
+      query.operationId ||
+      query.dispatchId ||
+      query.workItem
+    )
+      throw new Error("operator_operation_scope_required");
+    this.authorizeOwnerHuman(principal, humanPrincipalId);
+    const ownerScope = this.options.resolveOwnerRuntimeScope?.({
+      ownerHumanPrincipalId: humanPrincipalId,
+      projectId,
+      canvasId: query.canvasId
+    });
+    if (this.options.resolveOwnerRuntimeScope && !ownerScope)
+      throw new Error("operator_project_forbidden");
+    const workspaceId = ownerScope?.workspaceId ?? this.resolveWorkspace(principal);
+    if (!ownerScope)
+      this.options.authorizeCanvas?.({ workspaceId, projectId, canvasId: query.canvasId });
+    const operation = this.options.operations.findByIdempotencyKeyInScope({
+      workspaceId,
+      projectId,
+      canvasId: query.canvasId,
+      blockRef: query.blockRef,
+      idempotencyKey: query.idempotencyKey
+    });
+    return operation ? this.observeOperation(principal, operation.id, runtimeWire) : null;
   }
 
   async observeOperation(

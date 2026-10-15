@@ -227,6 +227,7 @@ export function renderRun(input?: {
   localCanvas?: boolean;
   waitForTerminal?: ReturnType<typeof vi.fn>;
   startWorkspaceExecution?: ReturnType<typeof vi.fn>;
+  cancelWorkspaceExecutionStart?: ReturnType<typeof vi.fn>;
   followWorkspaceExecution?: ReturnType<typeof vi.fn>;
   startGate?: Promise<void>;
   recoverWorkspaceExecutionCancellations?: ReturnType<typeof vi.fn>;
@@ -443,10 +444,17 @@ export function renderRun(input?: {
         previewClaimNext,
         resolveLiveRemoteBinding,
         workspaceExecutionApi: {
+          cancelWorkspaceExecutionStart:
+            input?.cancelWorkspaceExecutionStart ??
+            vi.fn(async () => ({
+              version: "planweave.workspace-start-cancellation/v1",
+              confirmed: false
+            })),
           recoverWorkspaceExecutionCancellations:
             input?.recoverWorkspaceExecutionCancellations ??
             vi.fn(async () => ({
               version: "planweave.workspace-cancellation-recovery/v1" as const,
+              starts: [],
               sessions: []
             })),
           startWorkspaceExecution,

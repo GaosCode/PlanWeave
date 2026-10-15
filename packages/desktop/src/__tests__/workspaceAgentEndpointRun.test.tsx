@@ -1112,6 +1112,7 @@ it("cancels an owner-canvas endpoint scope when only its registered workspace ch
         workspaceExecutionApi: {
           recoverWorkspaceExecutionCancellations: vi.fn(async () => ({
             version: "planweave.workspace-cancellation-recovery/v1" as const,
+            starts: [],
             sessions: []
           })),
           startWorkspaceExecution: vi.fn(),

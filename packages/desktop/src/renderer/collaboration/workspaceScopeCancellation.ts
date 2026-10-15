@@ -1,6 +1,7 @@
 import type { PlanWeaveWorkspaceExecutionApi } from "../../shared/workspaceExecution";
 import type {
   ActiveEndpointScopeRun,
+  WorkspaceScopeStart,
   WorkspaceScopeSession
 } from "./workspaceScopeCancellationRecovery";
 
@@ -57,6 +58,35 @@ export function createWorkspaceScopeCancellation(input: {
     input.publish(activeRun);
     return cancellation;
   };
+  const cancelStart = (run: ActiveEndpointScopeRun, start: WorkspaceScopeStart): Promise<void> => {
+    const existing = run.cancellationRequests.get(start.startRequestId);
+    if (existing) return existing;
+    start.actionId ??= input.createId();
+    start.error = null;
+    const cancellation = Promise.resolve()
+      .then(async () => {
+        if (!input.api) throw new Error("workspace_execution_bridge_unavailable");
+        const result = await input.api.cancelWorkspaceExecutionStart({
+          input: start.input,
+          startRequestId: start.startRequestId,
+          actionId: start.actionId!,
+          reason: start.reason
+        });
+        if (!result.confirmed) throw new Error("workspace_execution_cancel_unconfirmed");
+        run.workspaceStarts.delete(start.startRequestId);
+      })
+      .catch((error: unknown) => {
+        start.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      })
+      .finally(() => {
+        run.cancellationRequests.delete(start.startRequestId);
+        input.publish(run);
+      });
+    run.cancellationRequests.set(start.startRequestId, cancellation);
+    input.publish(run);
+    return cancellation;
+  };
   const abortRun = async (run: ActiveEndpointScopeRun, retryFailed = false) => {
     run.controller.abort();
     const cancellations = [...run.workspaceSessions.entries()]
@@ -66,9 +96,21 @@ export function createWorkspaceScopeCancellation(input: {
       )
       .map(([ref, session]) => cancelSession(run, ref, session));
     input.publish(run);
-    const results = await Promise.allSettled([...run.pendingWorkspaceStarts, ...cancellations]);
+    const starts = [...run.workspaceStarts.values()]
+      .filter(
+        (start) =>
+          retryFailed || !start.actionId || run.cancellationRequests.has(start.startRequestId)
+      )
+      .map((start) => cancelStart(run, start));
+    const results = await Promise.allSettled([
+      ...run.pendingWorkspaceStarts,
+      ...cancellations,
+      ...starts
+    ]);
     input.publish(run);
-    return results;
+    return run.workspaceSessions.size === 0 && run.workspaceStarts.size === 0
+      ? results.filter((result) => result.status === "fulfilled")
+      : results;
   };
   return { cancelSession, abortRun };
 }

@@ -201,6 +201,46 @@ function registerWorkspaceHost(fixture: Awaited<ReturnType<typeof setup>>) {
 }
 
 describe("RemoteControlService owner fleet control plane", () => {
+  it("looks up the exact accepted launch key over HTTP without falling back to the latest block execution", async () => {
+    const fixture = await setup();
+    const operation = fixture.coordination.operations.create({
+      workspaceId: fixture.workspaceId,
+      projectId: "project-a",
+      canvasId: "default",
+      blockRef: "T-001#B-001",
+      ownershipGeneration: "generation-lookup",
+      idempotencyKey: "accepted-launch",
+      sourceFingerprint: "source-lookup",
+      requiredCapabilities: ["acp.codex"]
+    });
+    const params = new URLSearchParams({
+      humanPrincipalId: TEST_REMOTE_AGENT_OWNER_ID,
+      projectId: "project-a",
+      canvasId: "default",
+      blockRef: "T-001#B-001",
+      idempotencyKey: "accepted-launch"
+    });
+    const headers = {
+      Authorization: `Bearer ${adminToken}`,
+      "x-planweave-human-identity": `Bearer ${fixture.humanIdentityToken}`,
+      Accept: "application/vnd.planweave.operator-operation.public-runtime-v1+json"
+    };
+    const response = await fetch(`${fixture.origin}/api/v1/remote-operations?${params}`, {
+      headers
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ operationId: operation.id });
+    params.set("idempotencyKey", "never-accepted");
+    const missing = await fetch(`${fixture.origin}/api/v1/remote-operations?${params}`, {
+      headers
+    });
+    expect(missing.status).toBe(200);
+    expect(await missing.json()).toBeNull();
+    params.set("humanPrincipalId", "another-owner");
+    expect(
+      (await fetch(`${fixture.origin}/api/v1/remote-operations?${params}`, { headers })).status
+    ).toBe(403);
+  });
   it("serves an unstarted operation without requiring Host Runtime ownership", async () => {
     const fixture = await setup();
     const operation = fixture.coordination.operations.create({

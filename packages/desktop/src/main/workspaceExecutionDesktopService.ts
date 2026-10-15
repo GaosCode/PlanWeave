@@ -20,6 +20,7 @@ import {
 } from "@planweave-ai/runtime";
 import type {
   DesktopWorkspaceExecutionCancellationRecovery,
+  DesktopWorkspaceExecutionStartCancellationInput,
   DesktopWorkspaceExecutionCancelInput,
   DesktopWorkspaceExecutionFollowInput,
   DesktopWorkspaceExecutionRespondInput,
@@ -37,6 +38,11 @@ import {
   withOwnerCanvasExecutionCoordinator,
   type OwnerCanvasRemoteOperations
 } from "./workspaceExecutionOwnerCanvas.js";
+
+import {
+  WorkspaceExecutionStartIntents,
+  workspaceStartDispatchKey
+} from "./workspaceExecutionStartIntents.js";
 
 type RemoteBinding = ValidatedWorkspaceAuthorityBinding & RemoteWorkspaceAuthorityBinding;
 type WorkspaceRemoteBinding = ValidatedWorkspaceAuthorityBinding &
@@ -296,6 +302,7 @@ function requestFor(
 
 export class WorkspaceExecutionDesktopService {
   private readonly sessions: DesktopWorkspaceExecutionSessionRepository;
+  private readonly starts: WorkspaceExecutionStartIntents;
 
   constructor(
     private readonly collaboration: CollaborationService,
@@ -303,24 +310,126 @@ export class WorkspaceExecutionDesktopService {
     sessionsRoot = join(desktopHomePaths().collaborationDir, "workspace-execution")
   ) {
     this.sessions = new DesktopWorkspaceExecutionSessionRepository(sessionsRoot);
+    this.starts = new WorkspaceExecutionStartIntents(sessionsRoot);
   }
 
-  start(input: DesktopWorkspaceExecutionStartInput) {
-    return this.withRequestCoordinator(
-      async ({ coordinator, request, remoteOperations, localRuntime }) => {
-        const view = projectWorkspaceExecutionCoordinatorView(await coordinator.execute(request));
-        if (localRuntime && request.authority.kind === "owner_canvas") {
-          await writeBackOwnerCanvasExecution({
-            request: request as OwnerLocalWritebackContext["request"],
-            view,
-            runtime: localRuntime,
-            remoteOperations: remoteOperations as OwnerCanvasRemoteOperations
-          });
-        }
-        return view;
-      },
-      input
+  async start(input: DesktopWorkspaceExecutionStartInput) {
+    let admitted = false;
+    let sessionId: string | undefined;
+    const startRequestId = input.startRequestId;
+    if (startRequestId) {
+      const admission = await this.withCancellationStorage(input.locator, (storage) =>
+        this.sessions.withMutation(storage, async () => {
+          const existing = await this.starts.read(input);
+          if (!existing) {
+            await this.starts.write({
+              input,
+              settled: false,
+              cancellation: null,
+              cancellationConfirmed: false
+            });
+            return { admitted: true, sessionId: undefined };
+          }
+          if (existing.cancellation) throw new Error("workspace_execution_cancel_unconfirmed");
+          const listed = await this.sessions.list(storage);
+          if (listed.diagnostics.length) throw new Error("workspace_execution_resume_mismatch");
+          const matches = listed.sessions.filter(
+            (session) =>
+              session.workspaceExecution?.dispatchIntent?.idempotencyKey ===
+              workspaceStartDispatchKey(startRequestId)
+          );
+          if (matches.length !== 1) throw new Error("workspace_execution_start_unconfirmed");
+          return { admitted: false, sessionId: matches[0].sessionId };
+        })
+      );
+      admitted = admission.admitted;
+      sessionId = admission.sessionId;
+    }
+    try {
+      return await this.withRequestCoordinator(
+        async ({ coordinator, request, remoteOperations, localRuntime }) => {
+          const view = projectWorkspaceExecutionCoordinatorView(
+            await coordinator.execute(
+              request,
+              undefined,
+              input.startRequestId ? workspaceStartDispatchKey(input.startRequestId) : undefined
+            )
+          );
+          if (localRuntime && request.authority.kind === "owner_canvas") {
+            await writeBackOwnerCanvasExecution({
+              request: request as OwnerLocalWritebackContext["request"],
+              view,
+              runtime: localRuntime,
+              remoteOperations: remoteOperations as OwnerCanvasRemoteOperations
+            });
+          }
+          return view;
+        },
+        sessionId ? { ...input, sessionId } : input
+      );
+    } finally {
+      if (admitted)
+        await this.withCancellationStorage(input.locator, (storage) =>
+          this.sessions.withMutation(storage, async () => {
+            const intent = await this.starts.read(input);
+            if (intent) await this.starts.write({ ...intent, settled: true });
+          })
+        );
+    }
+  }
+
+  async cancelStart(command: DesktopWorkspaceExecutionStartCancellationInput) {
+    const input = { ...command.input, startRequestId: command.startRequestId };
+    const pending = await this.withCancellationStorage(input.locator, (storage) =>
+      this.sessions.withMutation(storage, async () => {
+        const stored = (await this.starts.read(input)) ?? {
+          input,
+          settled: false,
+          cancellationConfirmed: false,
+          cancellation: null
+        };
+        const cancellation = stored.cancellation ?? { ...command, input };
+        if (cancellation.reason !== command.reason)
+          throw new Error("workspace_execution_cancel_identity_mismatch");
+        await this.starts.write({ ...stored, cancellation });
+        const listed = await this.sessions.list(storage);
+        if (listed.diagnostics.length) throw new Error("workspace_execution_resume_mismatch");
+        const matches = listed.sessions.filter(
+          (session) =>
+            session.workspaceExecution?.dispatchIntent?.idempotencyKey ===
+            workspaceStartDispatchKey(command.startRequestId)
+        );
+        if (matches.length > 1) throw new Error("workspace_execution_resume_mismatch");
+        return { cancellation, session: matches[0], settled: stored.settled };
+      })
     );
+    let confirmed = false;
+    if (!pending.session) confirmed = pending.settled;
+    else {
+      const recovered = await this.withRequestCoordinator(
+        async ({ coordinator, request }) =>
+          coordinator.recoverForCancellation(request, pending.session.sessionId),
+        { ...input, sessionId: pending.session.sessionId }
+      );
+      if (recovered) {
+        const cancelled = await this.cancel({
+          ...input,
+          sessionId: pending.session.sessionId,
+          actionId: pending.cancellation.actionId,
+          reason: pending.cancellation.reason,
+          expectedRemoteHandle: recovered.handle.target === "remote" ? recovered.handle : undefined
+        });
+        confirmed = ["completed", "failed", "stopped"].includes(cancelled.session.phase);
+      }
+    }
+    if (confirmed)
+      await this.withCancellationStorage(input.locator, (storage) =>
+        this.sessions.withMutation(storage, async () => {
+          const current = await this.starts.read(input);
+          if (current) await this.starts.write({ ...current, cancellationConfirmed: true });
+        })
+      );
+    return { version: "planweave.workspace-start-cancellation/v1" as const, confirmed };
   }
 
   follow(input: DesktopWorkspaceExecutionFollowInput) {
@@ -440,11 +549,18 @@ export class WorkspaceExecutionDesktopService {
   }): Promise<DesktopWorkspaceExecutionCancellationRecovery> {
     return this.withCancellationStorage(input.locator, async (storage) => {
       const listed = await this.sessions.list(storage);
+      const starts = await this.starts.recover(input.locator);
+      const startKeys = new Set(
+        starts.map((start) => workspaceStartDispatchKey(start.startRequestId))
+      );
       return {
         version: "planweave.workspace-cancellation-recovery/v1",
+        starts,
         sessions: listed.sessions.flatMap((session) => {
           const intent = session.workspaceExecution?.cancellationIntent;
-          return intent && session.scope.kind === "block"
+          return intent &&
+            session.scope.kind === "block" &&
+            !startKeys.has(session.workspaceExecution?.dispatchIntent?.idempotencyKey ?? "")
             ? [{ sessionId: session.sessionId, blockRef: session.scope.blockRef, intent }]
             : [];
         })

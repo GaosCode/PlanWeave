@@ -15,6 +15,7 @@ import { workspaceCanvasLocatorSchema } from "./canvasLocator.js";
 
 const identifierSchema = z.string().trim().min(1).max(256);
 const blockExecutionShape = {
+  startRequestId: identifierSchema.max(236).optional(),
   blockRef: z.string().trim().min(3).max(512),
   agentEndpointId: identifierSchema,
   effectiveExecutor: effectiveWorkspaceExecutorSchema
@@ -99,9 +100,28 @@ export const desktopWorkspaceExecutionCancellationRecoveryInputSchema = z
     locator: z.union([workspaceCanvasLocatorSchema, desktopOwnerCanvasExecutionLocatorSchema])
   })
   .strict();
+export const desktopWorkspaceExecutionStartCancellationInputSchema = z
+  .object({
+    input: desktopWorkspaceExecutionStartInputSchema,
+    startRequestId: identifierSchema.max(236),
+    actionId: identifierSchema,
+    reason: z.string().trim().min(1).max(2_048)
+  })
+  .strict();
+export const desktopWorkspaceExecutionStartCancellationSchema = z
+  .object({
+    version: z.literal("planweave.workspace-start-cancellation/v1"),
+    confirmed: z.boolean()
+  })
+  .strict();
+export type DesktopWorkspaceExecutionStartCancellationInput = z.infer<
+  typeof desktopWorkspaceExecutionStartCancellationInputSchema
+>;
+
 export const desktopWorkspaceExecutionCancellationRecoverySchema = z
   .object({
     version: z.literal("planweave.workspace-cancellation-recovery/v1"),
+    starts: z.array(desktopWorkspaceExecutionStartCancellationInputSchema),
     sessions: z.array(
       z
         .object({
@@ -139,6 +159,9 @@ export type DesktopWorkspaceExecutionResponse = z.infer<
 >;
 
 export interface PlanWeaveWorkspaceExecutionApi {
+  cancelWorkspaceExecutionStart(
+    input: DesktopWorkspaceExecutionStartCancellationInput
+  ): Promise<z.infer<typeof desktopWorkspaceExecutionStartCancellationSchema>>;
   recoverWorkspaceExecutionCancellations(
     input: z.infer<typeof desktopWorkspaceExecutionCancellationRecoveryInputSchema>
   ): Promise<DesktopWorkspaceExecutionCancellationRecovery>;

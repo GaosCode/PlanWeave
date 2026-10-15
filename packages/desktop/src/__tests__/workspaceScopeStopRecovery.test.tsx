@@ -75,6 +75,7 @@ describe("scope Stop recovery consumers", () => {
     const old = deferred<{ version: string; sessions: unknown[] }>();
     const recover = vi.fn().mockReturnValueOnce(old.promise).mockResolvedValue({
       version: "planweave.workspace-cancellation-recovery/v1",
+      starts: [],
       sessions: []
     });
     const h = renderRun({ recoverWorkspaceExecutionCancellations: recover });
@@ -84,6 +85,7 @@ describe("scope Stop recovery consumers", () => {
     await act(async () =>
       old.resolve({
         version: "planweave.workspace-cancellation-recovery/v1",
+        starts: [],
         sessions: [
           {
             sessionId: "SESSION-0001",
@@ -159,6 +161,7 @@ describe("scope Stop recovery consumers", () => {
     };
     const recover = vi.fn(async () => ({
       version: "planweave.workspace-cancellation-recovery/v1",
+      starts: [],
       sessions: [
         {
           sessionId: "SESSION-0001",
