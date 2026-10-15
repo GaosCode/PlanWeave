@@ -95,6 +95,7 @@ export type RemoteBlockCoordinationOptions = {
       | "remote_run_failed"
       | "remote_run_interrupted";
     dispatch: DispatchRecord;
+    workItem: import("./work/schemas.js").WorkItemRef;
     occurredAt: string;
   }) => void;
   onDispatchProgressInTransaction?: (input: {
@@ -498,7 +499,27 @@ export function createRemoteBlockCoordination(
         await coordinator.fail(operation.id);
       }
     },
-    onActivityTransitionInTransaction: options.onDispatchActivityTransitionInTransaction,
+    onActivityTransitionInTransaction: (input) => {
+      if (!options.onDispatchActivityTransitionInTransaction) return;
+      const operation = operations.getByDispatchId(input.dispatch.id);
+      if (!operation) throw new Error("remote_operation_not_found_for_dispatch");
+      if (
+        operation.workspaceId !== input.dispatch.workspaceId ||
+        operation.projectId !== input.dispatch.projectId ||
+        operation.blockRef !== input.dispatch.blockRef ||
+        operation.executionAttemptId !== input.dispatch.executionAttemptId
+      ) {
+        throw new Error("remote_activity_dispatch_identity_mismatch");
+      }
+      options.onDispatchActivityTransitionInTransaction({
+        ...input,
+        workItem: {
+          kind: "block",
+          canvasId: operation.canvasId,
+          blockRef: operation.blockRef
+        }
+      });
+    },
     onProgressInTransaction: (input) => {
       const operation = operations.getByDispatchId(input.dispatch.id);
       options.onDispatchProgressInTransaction?.({

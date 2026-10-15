@@ -148,6 +148,7 @@ export function createRemoteCoordinationOptions(input: {
           projectId: transition.dispatch.projectId,
           type: transition.type,
           dispatchId: transition.dispatch.id,
+          workItem: transition.workItem,
           hostId: transition.dispatch.hostId,
           occurredAt: transition.occurredAt
         });

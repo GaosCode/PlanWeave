@@ -415,7 +415,12 @@ export class CommentService {
         for (const row of batch) {
           scanned += 1;
           cursor = activityCursorFromRecord(row);
-          if (this.canRead(query.actor, row.workItem?.canvasId)) items.push(row);
+          // A remote run without its original work-item scope cannot be disclosed as project-wide.
+          if (
+            !(row.source.kind === "remote_run" && !row.workItem) &&
+            this.canRead(query.actor, row.workItem?.canvasId)
+          )
+            items.push(row);
           if (items.length === query.limit) {
             const more = this.activity.list({
               projectId: query.projectId,

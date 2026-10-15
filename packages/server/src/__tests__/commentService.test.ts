@@ -523,6 +523,7 @@ describe("CommentService", () => {
     const gapRecord = {
       activityId: "act-manual-gap",
       projectId,
+      workItem: { kind: "block" as const, canvasId: "default", blockRef: "T-001#B-001" },
       type: "remote_run_failed" as const,
       source: { kind: "remote_run" as const, sourceId: "dispatch-2:failed" },
       summary: {

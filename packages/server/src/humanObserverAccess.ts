@@ -67,6 +67,12 @@ export function humanObserverEventIsVisible(
 ): boolean {
   if (visibility.kind === "none") return false;
   if (PROJECT_WIDE_OBSERVER_KINDS.has(event.kind)) return visibility.kind === "project";
+  // Historical remote-run projections without scope are not project-wide events.
+  if (
+    (event.kind === "remote_run" || (event.kind === "activity" && event.dispatchId)) &&
+    !event.workItem
+  )
+    return false;
   const canvasId = event.canvasId ?? event.workItem?.canvasId;
   return typeof canvasId === "string"
     ? visibility.canvasIds.has(canvasId)
