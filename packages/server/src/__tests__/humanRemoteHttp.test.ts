@@ -911,19 +911,29 @@ describe("human remote operation HTTP", () => {
       error: "remote_interaction_expired"
     });
 
+    const cancellation = {
+      kind: "cancel",
+      actionId: "human-cancel-1",
+      operationId: operation.operationId,
+      dispatchId: operation.dispatchId,
+      executionAttemptId: operation.executionAttemptId,
+      expectedAttemptVersion: operation.attempt.stateVersion,
+      leaseId: operation.attempt.leaseId,
+      reason: "Owner requested cancellation"
+    };
+    const stale = await fetch(`${collection}/${operation.operationId}/actions`, {
+      method: "POST",
+      headers: headers(ownerToken),
+      body: JSON.stringify({ ...cancellation, actionId: "stale-cancel", expectedAttemptVersion: 0 })
+    });
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toEqual({
+      error: "remote_action_attempt_version_conflict"
+    });
     const action = await fetch(`${collection}/${operation.operationId}/actions`, {
       method: "POST",
       headers: headers(ownerToken),
-      body: JSON.stringify({
-        kind: "cancel",
-        actionId: "human-cancel-1",
-        operationId: operation.operationId,
-        dispatchId: operation.dispatchId,
-        executionAttemptId: operation.executionAttemptId,
-        expectedAttemptVersion: operation.attempt.stateVersion,
-        leaseId: operation.attempt.leaseId,
-        reason: "Owner requested cancellation"
-      })
+      body: JSON.stringify(cancellation)
     });
     const actionBody = (await action.json()) as Record<string, unknown>;
     expect({ status: action.status, body: actionBody }).toMatchObject({

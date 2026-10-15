@@ -454,18 +454,19 @@ export class WorkspaceExecutionDesktopService {
 
   private async persistCancellationIntent(
     input: DesktopWorkspaceExecutionCancelInput,
-    confirmed: boolean
-  ): Promise<void> {
+    confirmed: boolean,
+    replacement?: NonNullable<DesktopWorkspaceExecutionCancelInput["expectedRemoteHandle"]>
+  ): Promise<DesktopWorkspaceExecutionCancelInput> {
     const expected = input.expectedRemoteHandle;
-    if (!expected) return;
-    await this.withCancellationStorage(input.locator, (storage) =>
+    if (!expected) return input;
+    return this.withCancellationStorage(input.locator, (storage) =>
       this.sessions.withMutation(storage, async () => {
         const session = (await this.sessions.get(storage, input.sessionId)).session;
         const state = session.workspaceExecution;
         if (!state || !state.handle || state.binding.bindingId !== expected.authorityBindingId)
           throw new Error("workspace_execution_cancel_identity_mismatch");
         assertCancellationViewIdentity({ session, handle: state.handle }, expected);
-        const intent = {
+        const requestedIntent = {
           actionId: input.actionId,
           reason: input.reason,
           expectedRemoteHandle: expected,
@@ -474,42 +475,96 @@ export class WorkspaceExecutionDesktopService {
         if (
           (confirmed && !state.cancellationIntent) ||
           (state.cancellationIntent &&
-            (state.cancellationIntent.actionId !== intent.actionId ||
-              state.cancellationIntent.reason !== intent.reason ||
-              !isDeepStrictEqual(state.cancellationIntent.expectedRemoteHandle, expected) ||
+            (state.cancellationIntent.reason !== requestedIntent.reason ||
               !isDeepStrictEqual(
                 state.cancellationIntent.effectiveExecutor,
-                intent.effectiveExecutor
+                requestedIntent.effectiveExecutor
               )))
         )
           throw new Error("workspace_execution_cancel_identity_mismatch");
+        const intent = state.cancellationIntent ?? requestedIntent;
+        assertCancellationViewIdentity(
+          { session: { ...session, phase: "running" }, handle: intent.expectedRemoteHandle },
+          expected
+        );
+        if (confirmed && !isDeepStrictEqual(intent, requestedIntent))
+          throw new Error("workspace_execution_cancel_identity_mismatch");
+        let executableIntent = intent;
+        if (replacement && isDeepStrictEqual(intent, requestedIntent)) {
+          assertCancellationViewIdentity(
+            { session: { ...session, phase: "running" }, handle: replacement },
+            expected
+          );
+          if (
+            replacement.attemptStateVersion === null ||
+            expected.attemptStateVersion === null ||
+            replacement.attemptStateVersion <= expected.attemptStateVersion
+          )
+            throw new Error("workspace_execution_cancel_version_not_advanced");
+          executableIntent = {
+            ...intent,
+            actionId: randomUUID(),
+            expectedRemoteHandle: replacement
+          };
+        }
         const next = { ...state };
         if (confirmed) delete next.cancellationIntent;
-        else next.cancellationIntent = intent;
+        else next.cancellationIntent = executableIntent;
         await this.sessions.update(
           storage,
           input.sessionId,
           { workspaceExecution: next },
           { expectedStateVersion: session.stateVersion }
         );
+        return { ...input, ...executableIntent };
       })
     );
   }
 
   async cancel(input: DesktopWorkspaceExecutionCancelInput) {
-    await this.persistCancellationIntent(input, false);
+    const cancellation = await this.persistCancellationIntent(input, false);
     const result = await this.withRequestCoordinator(
       async ({ coordinator, request, remoteOperations, localRuntime }) => {
-        const view = await cancelWorkspaceExecutionSession({
-          follow: async () =>
-            projectWorkspaceExecutionCoordinatorView(
-              await coordinator.follow(request, input.sessionId)
-            ),
-          actionId: input.actionId,
-          reason: input.reason,
-          expectedRemoteHandle: input.expectedRemoteHandle,
-          remoteOperations
-        });
+        const follow = async () =>
+          projectWorkspaceExecutionCoordinatorView(
+            await coordinator.follow(request, input.sessionId)
+          );
+        let view: WorkspaceExecutionCoordinatorView;
+        try {
+          view = await cancelWorkspaceExecutionSession({
+            follow,
+            actionId: cancellation.actionId,
+            reason: cancellation.reason,
+            expectedRemoteHandle: cancellation.expectedRemoteHandle,
+            remoteOperations
+          });
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            "code" in error &&
+            error.code === "remote_action_attempt_version_conflict" &&
+            cancellation.expectedRemoteHandle
+          ) {
+            const expected = cancellation.expectedRemoteHandle;
+            const observed = await remoteOperations.observeRemoteOperation(expected.operationId);
+            if (
+              observed.operationId !== expected.operationId ||
+              observed.dispatchId !== expected.dispatchId ||
+              observed.executionAttemptId !== expected.executionAttemptId ||
+              observed.attempt.leaseId !== expected.leaseId
+            )
+              throw new Error("workspace_execution_cancel_identity_mismatch");
+            const current = await follow();
+            assertCancellationViewIdentity(current, cancellation.expectedRemoteHandle);
+            if (current.handle.target !== "remote")
+              throw new Error("workspace_execution_remote_handle_required");
+            await this.persistCancellationIntent(cancellation, false, {
+              ...current.handle,
+              attemptStateVersion: observed.attempt.stateVersion
+            });
+          }
+          throw error;
+        }
         if (localRuntime && request.authority.kind === "owner_canvas") {
           await writeBackOwnerCanvasExecution({
             request: request as OwnerLocalWritebackContext["request"],
@@ -520,10 +575,10 @@ export class WorkspaceExecutionDesktopService {
         }
         return view;
       },
-      input
+      cancellation
     );
     if (["completed", "failed", "stopped"].includes(result.session.phase))
-      await this.persistCancellationIntent(input, true);
+      await this.persistCancellationIntent(cancellation, true);
     return result;
   }
 

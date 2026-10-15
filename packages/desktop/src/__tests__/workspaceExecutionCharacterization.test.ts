@@ -12,6 +12,14 @@ import {
   projectWorkspaceExecutionCoordinatorView
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { openServerDatabase, type SqliteDatabase } from "../../../server/src/sqlite.js";
+import { applyMigrations } from "../../../server/src/migrations.js";
+import {
+  RemoteExecutionActionRepository,
+  RemoteExecutionActionService
+} from "../../../server/src/remoteExecutionActions.js";
+import { createWorkspaceScopeCancellation } from "../renderer/collaboration/workspaceScopeCancellation.js";
+import { restoreWorkspaceScopeCancellation } from "../renderer/collaboration/workspaceScopeCancellationRecovery.js";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import type { CollaborationRemoteOperationsPort } from "../main/collaboration/CollaborationRemoteOperationsClient.js";
 import { CollaborationRemoteOperationsFacade } from "../main/collaboration/collaborationRemoteOperations.js";
@@ -38,8 +46,10 @@ import {
 } from "../../../runtime/src/__tests__/workspaceExecutionCoordinatorTestFixture.js";
 
 const temporaryDirectories: string[] = [];
+const actionDatabases: SqliteDatabase[] = [];
 
 afterEach(async () => {
+  for (const database of actionDatabases.splice(0)) database.close();
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -231,8 +241,13 @@ describe("workspace execution authority characterization", () => {
 
   it.each([
     "observe",
-    "final follow"
-  ] as const)("keeps owner Canvas session recovery pinned when replacement arrives at %s", async (replacementAt) => {
+    "final follow",
+    "CAS retry",
+    "CAS restart",
+    "CAS replaced attempt",
+    "CAS replaced lease",
+    "accepted response lost"
+  ] as const)("preserves owner Canvas cancellation identity through %s", async (replacementAt) => {
     const { root } = await createTestWorkspace();
     const loaded = await loadPlanGraphPackage(root);
     const captured = await capturePackageSnapshot({ projectRoot: root });
@@ -258,6 +273,7 @@ describe("workspace execution authority characterization", () => {
     });
     let currentObservation = runningObservation;
     let failObservation = false;
+    let executeAction: ((body: unknown) => Promise<unknown>) | undefined;
     const scheduledObservations: (typeof runningObservation)[] = [];
     let interactionSettled = false;
     let materializedHead: {
@@ -348,6 +364,18 @@ describe("workspace execution authority characterization", () => {
         );
       }
       if (url.pathname.endsWith("/actions")) {
+        if (executeAction) {
+          try {
+            return Response.json(await executeAction(body), { status: 202 });
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.message === "remote_action_attempt_version_conflict"
+            )
+              return Response.json({ error: error.message }, { status: 409 });
+            throw error;
+          }
+        }
         return Response.json({
           request: body,
           state: "recorded",
@@ -520,6 +548,159 @@ describe("workspace execution authority characterization", () => {
       reason: "Desktop Auto Run stop requested.",
       expectedRemoteHandle: started.handle
     };
+    if (replacementAt.startsWith("CAS ") || replacementAt === "accepted response lost") {
+      const database = await openServerDatabase(join(sessionsRoot, "actions.sqlite"), 5_000);
+      actionDatabases.push(database);
+      applyMigrations(database);
+      database.exec("PRAGMA foreign_keys=OFF");
+      const ownerToken = "00000000-0000-4000-8000-000000000023";
+      database
+        .prepare(
+          "INSERT INTO server_instance_ownership(singleton,owner_token,process_id,hostname,acquired_at) VALUES(1,?,1,'test-host',?)"
+        )
+        .run(ownerToken, "2030-01-01T00:00:00.000Z");
+      const actions = new RemoteExecutionActionRepository(database);
+      let sideEffects = 0;
+      const engine = new RemoteExecutionActionService(
+        actions,
+        {
+          snapshot: () => ({
+            dispatchState: "persisted",
+            operationId: currentObservation.operationId,
+            dispatchId: currentObservation.dispatchId,
+            executionAttemptId: currentObservation.executionAttemptId,
+            attemptStatus: "running",
+            attemptVersion: currentObservation.attempt.stateVersion,
+            leaseId: currentObservation.attempt.leaseId,
+            leaseFenced: false,
+            hostCapabilities: []
+          }),
+          apply: async () => {
+            sideEffects += 1;
+            currentObservation = remoteOperationObservationSchema.parse({
+              ...currentObservation,
+              attempt: {
+                ...currentObservation.attempt,
+                stateVersion: currentObservation.attempt.stateVersion + 1
+              }
+            });
+            return "delivered";
+          }
+        },
+        ownerToken
+      );
+      const commands: unknown[] = [];
+      let loseResponse = replacementAt === "accepted response lost";
+      executeAction = async (command) => {
+        commands.push(command);
+        let result: Awaited<ReturnType<typeof engine.execute>>;
+        try {
+          result = await engine.execute(command);
+        } catch (error) {
+          if (replacementAt === "CAS replaced attempt" || replacementAt === "CAS replaced lease") {
+            const replacement =
+              replacementAt === "CAS replaced attempt"
+                ? { executionAttemptId: "attempt-2", dispatchId: "dispatch-2" }
+                : {};
+            currentObservation = remoteOperationObservationSchema.parse({
+              ...currentObservation,
+              ...replacement,
+              attempt: { ...currentObservation.attempt, ...replacement, leaseId: "lease-2" }
+            });
+          }
+          throw error;
+        }
+        if (loseResponse) {
+          loseResponse = false;
+          throw new Error("response lost");
+        }
+        currentObservation = remoteOperationObservationSchema.parse({
+          ...currentObservation,
+          state: "cancelled",
+          attempt: { ...currentObservation.attempt, status: "cancelled" }
+        });
+        return {
+          request: result.request,
+          state: result.state,
+          createdAt: result.createdAt,
+          deliveredAt: result.deliveredAt
+        };
+      };
+      if (replacementAt !== "accepted response lost") {
+        currentObservation = remoteOperationObservationSchema.parse({
+          ...currentObservation,
+          attempt: { ...currentObservation.attempt, stateVersion: 2 }
+        });
+      }
+      await expect(service.cancel(cancelInput)).rejects.toThrow();
+      const restarted = new WorkspaceExecutionDesktopService(
+        collaboration,
+        operatorControl,
+        sessionsRoot
+      );
+      const recovery = await restarted.recoverCancellations({ locator: requestInput.locator });
+      const intent = recovery.sessions[0]?.intent;
+      expect(intent).toBeDefined();
+      if (!intent) throw new Error("cancel intent required");
+      if (replacementAt === "CAS replaced attempt" || replacementAt === "CAS replaced lease") {
+        expect(intent.actionId).toBe(cancelInput.actionId);
+        expect(intent.expectedRemoteHandle).toEqual(cancelInput.expectedRemoteHandle);
+        await expect(restarted.cancel(cancelInput)).rejects.toThrow(
+          /workspace_execution_(cancel_identity|resume)_mismatch/
+        );
+        expect(commands).toHaveLength(1);
+        expect(sideEffects).toBe(0);
+        return;
+      }
+      if (replacementAt === "accepted response lost") {
+        expect(intent.actionId).toBe(cancelInput.actionId);
+        expect(intent.expectedRemoteHandle).toEqual(cancelInput.expectedRemoteHandle);
+      } else {
+        expect(intent.actionId).not.toBe(cancelInput.actionId);
+        expect(intent.expectedRemoteHandle).toMatchObject({
+          attemptStateVersion: 2,
+          leaseId: "lease-1",
+          executionAttemptId: "attempt-1"
+        });
+        expect(actions.getRequired(cancelInput.actionId)).toMatchObject({
+          state: "recorded",
+          request: { expectedAttemptVersion: 1 }
+        });
+      }
+      if (replacementAt === "CAS retry") {
+        expect((await service.cancel(cancelInput)).session.phase).toBe("stopped");
+      } else {
+        const restored = restoreWorkspaceScopeCancellation({
+          recovered: recovery,
+          locator: requestInput.locator,
+          scopeIdentity: "scope-1"
+        });
+        if (!restored) throw new Error("restored cancellation required");
+        const cancellation = createWorkspaceScopeCancellation({
+          api: {
+            cancelWorkspaceExecution: (input) => restarted.cancel(input),
+            recoverWorkspaceExecutionCancellations: (input) =>
+              restarted.recoverCancellations(input),
+            startWorkspaceExecution: (input) => restarted.start(input),
+            followWorkspaceExecution: (input) => restarted.follow(input),
+            respondWorkspaceExecution: (input) => restarted.respond(input),
+            remoteAcpConversation: vi.fn()
+          },
+          createId: () => "unused-recovered-id",
+          publish: vi.fn()
+        });
+        const results = await cancellation.abortRun(restored, true);
+        expect(results).toEqual([{ status: "fulfilled", value: undefined }]);
+        expect(restored.workspaceSessions.size).toBe(0);
+      }
+      expect(commands).toHaveLength(2);
+      expect(sideEffects).toBe(1);
+      if (replacementAt === "accepted response lost") expect(commands[1]).toEqual(commands[0]);
+      expect(
+        (await restarted.recoverCancellations({ locator: requestInput.locator })).sessions
+      ).toEqual([]);
+      return;
+    }
     failObservation = true;
     await expect(service.cancel(cancelInput)).rejects.toThrow();
     failObservation = false;

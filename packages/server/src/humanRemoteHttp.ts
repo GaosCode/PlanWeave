@@ -199,6 +199,9 @@ function safeError(error: unknown): { status: number; code: string } {
     return { status: 404, code: "human_remote_block_not_found" };
   }
   if (!(error instanceof Error)) return { status: 500, code: "human_remote_request_failed" };
+  if (error.message === "remote_action_attempt_version_conflict") {
+    return { status: 409, code: error.message };
+  }
   if (
     error.message === "authority_scope_forbidden" ||
     error.message === "authority_workspace_mismatch"
