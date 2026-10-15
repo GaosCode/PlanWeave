@@ -327,10 +327,7 @@ class ProjectGraphCanvasStore implements ProjectCanvasStore {
 }
 
 class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
-  constructor(
-    private readonly projectRoot: ProjectWorkspace,
-    private readonly loaded: LoadedProjectGraph
-  ) {}
+  constructor(private readonly projectRoot: ProjectWorkspace) {}
 
   async list(): Promise<DesktopTaskCanvasSummary[]> {
     const { projectWorkspace, registry, diagnosticsByCanvasId } = await readRegistry(
@@ -361,13 +358,6 @@ class LegacyCanvasRegistryAdapter implements ProjectCanvasStore {
   }
 
   async resolveWorkspace(canvasId?: string | null): Promise<ProjectWorkspace> {
-    if (canvasId) {
-      const canvas = this.loaded.manifest.canvases.find((candidate) => candidate.id === canvasId);
-      if (!canvas) {
-        throw new Error(`Project canvas '${canvasId}' does not exist.`);
-      }
-      return workspaceForProjectCanvas(this.loaded.workspace, canvas);
-    }
     const { projectWorkspace, registry } = await readRegistry(this.projectRoot);
     const record = selectedCanvasRecord(registry, canvasId);
     if (!record) {
@@ -439,7 +429,7 @@ class ResolvingProjectCanvasStore implements ProjectCanvasStore {
     if (loaded.source === "project_graph") {
       return new ProjectGraphCanvasStore(this.projectRoot, loaded);
     }
-    return new LegacyCanvasRegistryAdapter(this.projectRoot, loaded);
+    return new LegacyCanvasRegistryAdapter(this.projectRoot);
   }
 
   async list(): Promise<DesktopTaskCanvasSummary[]> {

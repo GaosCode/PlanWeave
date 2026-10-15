@@ -501,6 +501,7 @@
       "integration": [
         "contentToolsRuntime.test.ts",
         "exportReadIntents.test.ts",
+        "legacyStatus.test.ts",
         "localMcpLifecycle.test.ts",
         "oauthClientStore.test.ts",
         "oauthClientStoreCommit.test.ts",
