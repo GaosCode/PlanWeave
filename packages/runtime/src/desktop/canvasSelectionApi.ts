@@ -1,7 +1,8 @@
 import { realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { resolvePlanweaveHome } from "../paths.js";
-import { resolveProjectWorkspaceInHome } from "../project.js";
+import { assertCurrentProjectWorkspace, resolveProjectWorkspaceInHome } from "../project.js";
+import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { executePlanGraphCommand } from "../plangraph/index.js";
 import { readActiveTaskCanvasSelectionForWorkspace } from "./canvasSelectionStore.js";
 import { desktopLayoutCommandStore } from "./layoutStore.js";
@@ -45,17 +46,24 @@ export async function selectTaskCanvasForWorkspace(
   projectWorkspace: ProjectWorkspace,
   canvasId: string
 ): Promise<string> {
-  const commandWorkspace = await resolveSelectedCanvasWorkspaceForProject(projectWorkspace);
-  const result = await executePlanGraphCommand({
-    projectRoot: commandWorkspace,
-    indexPath: join(projectWorkspace.workspaceRoot, "cache", "plangraph.sqlite"),
-    command: {
-      type: "updateLayout",
-      layoutScope: "canvas",
-      layout: { activeCanvasId: canvasId }
+  return withProjectMutationLock(
+    dirname(projectWorkspace.projectFile),
+    async () => {
+      await assertCurrentProjectWorkspace(projectWorkspace);
+      const commandWorkspace = await resolveSelectedCanvasWorkspaceForProject(projectWorkspace);
+      const result = await executePlanGraphCommand({
+        projectRoot: commandWorkspace,
+        indexPath: join(projectWorkspace.workspaceRoot, "cache", "plangraph.sqlite"),
+        command: {
+          type: "updateLayout",
+          layoutScope: "canvas",
+          layout: { activeCanvasId: canvasId }
+        },
+        dependencies: { layoutStore: desktopLayoutCommandStore }
+      });
+      if (!result.ok) throw graphCommandError(result);
+      return (await readActiveTaskCanvasSelectionForWorkspace(projectWorkspace)).activeCanvasId;
     },
-    dependencies: { layoutStore: desktopLayoutCommandStore }
-  });
-  if (!result.ok) throw graphCommandError(result);
-  return (await readActiveTaskCanvasSelectionForWorkspace(projectWorkspace)).activeCanvasId;
+    { operation: `select-canvas:${canvasId}` }
+  );
 }

@@ -15,7 +15,6 @@ import {
   readActiveTaskCanvasSelection,
   writeActiveTaskCanvasSelection
 } from "../desktop/canvasSelectionStore.js";
-import * as planGraphCommands from "../plangraph/index.js";
 import { archiveTaskCanvas } from "../desktop/canvasApi.js";
 import * as projectLocks from "../fs/withProjectMutationLock.js";
 import { spawn } from "node:child_process";
@@ -510,9 +509,13 @@ describe("forced archive selection transaction", () => {
     expect(await pathExists(target.canvasWorkspace.manifestFile)).toBe(true);
   });
 
-  it("does not wait on an outer selection queue while holding the archive project lock", async () => {
+  it("completes a queued selection after archiving its prior active canvas without deadlocking", async () => {
     const { root } = await createTestWorkspace();
     const target = await createProjectCanvas({
+      projectRoot: root,
+      title: "Prior active canvas"
+    });
+    const destination = await createProjectCanvas({
       projectRoot: root,
       title: "Queued selection target"
     });
@@ -525,15 +528,15 @@ describe("forced archive selection transaction", () => {
     const resumed = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const execute = planGraphCommands.executePlanGraphCommand;
-    vi.spyOn(planGraphCommands, "executePlanGraphCommand").mockImplementationOnce(
-      async (options) => {
+    const lock = projectLocks.withProjectMutationLock;
+    vi.spyOn(projectLocks, "withProjectMutationLock").mockImplementationOnce(
+      async (roots, fn, options) => {
         reached();
         await resumed;
-        return execute(options);
+        return lock(roots, fn, options);
       }
     );
-    const queued = selectTaskCanvas(root, "default").then(
+    const queued = selectTaskCanvas(root, destination.canvas.id).then(
       (value) => ({ value }),
       (error) => ({ error })
     );
@@ -549,5 +552,11 @@ describe("forced archive selection transaction", () => {
       release();
       await queued;
     }
+    expect(await queued).toEqual({ value: destination.canvas.id });
+    expect((await readActiveTaskCanvasSelection(root)).activeCanvasId).toBe(destination.canvas.id);
+    expect(canvasIdsFromGraph((await loadProjectGraph(root)).manifest)).toContain(
+      destination.canvas.id
+    );
+    expect(await pathExists(target.canvasWorkspace.workspaceRoot)).toBe(false);
   });
 });
