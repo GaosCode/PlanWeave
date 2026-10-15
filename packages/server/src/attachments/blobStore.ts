@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, type ReadStream } from "node:fs";
-import { chmod, link, mkdir, open, readFile, realpath, stat, unlink } from "node:fs/promises";
+import type { ReadStream } from "node:fs";
+import { chmod, link, mkdir, open, readFile, realpath, unlink } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import {
@@ -217,10 +217,21 @@ export class CommentAttachmentBlobStore {
   ): Promise<{ metadata: CommentAttachmentBlobMetadata; stream: ReadStream }> {
     const metadata = this.getRequired(digestSha256);
     const path = await this.resolveBlobPath(metadata.digestSha256);
-    if ((await stat(path)).size !== metadata.sizeBytes) {
-      throw new Error("attachment_blob_size_mismatch");
+    const handle = await open(path, "r");
+    try {
+      if ((await handle.stat()).size !== metadata.sizeBytes) {
+        throw new Error("attachment_blob_size_mismatch");
+      }
+      // The stream owns the already-open descriptor, including cancellation and close.
+      return { metadata, stream: handle.createReadStream({ autoClose: true }) };
+    } catch (error) {
+      return withAttachmentCleanup(
+        async () => {
+          throw error;
+        },
+        () => handle.close()
+      );
     }
-    return { metadata, stream: createReadStream(path) };
   }
 
   /**

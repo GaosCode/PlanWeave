@@ -361,32 +361,47 @@ export class CommentAttachmentService {
       if (input.actor.projectId !== input.projectId) {
         deny("attachment_auth_project_mismatch");
       }
-      const record = this.options.repository.getPendingRequired(
+      const candidate = this.options.repository.getPendingRequired(
         input.workspaceId,
         input.projectId,
         input.pendingUploadId
       );
-      const auth = authorizePendingUploadRead({
+      const initialAuth = authorizePendingUploadRead({
         subject,
         projectId: input.projectId,
-        record,
+        record: candidate,
         now: this.clock()
       });
-      if (!auth.allowed) deny(auth.code, auth.message);
-      if (!record.digestSha256) deny("attachment_not_found");
+      if (!initialAuth.allowed) deny(initialAuth.code, initialAuth.message);
+      if (!candidate.digestSha256) deny("attachment_not_found");
+      return await this.withDigestRead(candidate.digestSha256, async () => {
+        const record = this.options.repository.getPendingRequired(
+          input.workspaceId,
+          input.projectId,
+          input.pendingUploadId
+        );
+        const auth = authorizePendingUploadRead({
+          subject,
+          projectId: input.projectId,
+          record,
+          now: this.clock()
+        });
+        if (!auth.allowed) deny(auth.code, auth.message);
+        if (!record.digestSha256) deny("attachment_not_found");
 
-      if (!this.canReadPending(input.actor, record)) deny("attachment_auth_forbidden");
-      const { metadata, stream } = await this.options.blobs.openRead(record.digestSha256);
-      return {
-        record,
-        metadata: {
-          digestSha256: metadata.digestSha256,
-          sizeBytes: metadata.sizeBytes,
-          mediaType: metadata.mediaType,
-          fileName: record.fileName
-        },
-        stream
-      };
+        if (!this.canReadPending(input.actor, record)) deny("attachment_auth_forbidden");
+        const { metadata, stream } = await this.options.blobs.openRead(record.digestSha256);
+        return {
+          record,
+          metadata: {
+            digestSha256: metadata.digestSha256,
+            sizeBytes: metadata.sizeBytes,
+            mediaType: metadata.mediaType,
+            fileName: record.fileName
+          },
+          stream
+        };
+      });
     } catch (error) {
       mapUnknown(error);
     }
@@ -407,32 +422,34 @@ export class CommentAttachmentService {
       if (input.actor.projectId !== input.projectId) {
         deny("attachment_auth_project_mismatch");
       }
-      const binding = this.options.repository.getBinding(
-        input.workspaceId,
-        input.projectId,
-        input.commentId,
-        input.digestSha256
-      );
-      if (!binding) deny("attachment_not_found");
+      return await this.withDigestRead(input.digestSha256, async () => {
+        const binding = this.options.repository.getBinding(
+          input.workspaceId,
+          input.projectId,
+          input.commentId,
+          input.digestSha256
+        );
+        if (!binding) deny("attachment_not_found");
 
-      const auth = authorizeCommentAttachmentRead({
-        subject,
-        projectId: input.projectId,
-        binding
+        const auth = authorizeCommentAttachmentRead({
+          subject,
+          projectId: input.projectId,
+          binding
+        });
+        if (!auth.allowed) deny(auth.code, auth.message);
+
+        const readable = this.options.repository
+          .listDigestReadBindings(input.workspaceId, input.projectId, binding.digestSha256)
+          .find((reference) => reference.binding.commentId === binding.commentId);
+        if (
+          !readable?.workItem ||
+          !this.options.canRead({ ...input, canvasId: readable.workItem.canvasId })
+        ) {
+          deny("attachment_auth_forbidden");
+        }
+        const { stream } = await this.options.blobs.openRead(binding.digestSha256);
+        return { binding, stream };
       });
-      if (!auth.allowed) deny(auth.code, auth.message);
-
-      const readable = this.options.repository
-        .listDigestReadBindings(input.workspaceId, input.projectId, binding.digestSha256)
-        .find((reference) => reference.binding.commentId === binding.commentId);
-      if (
-        !readable?.workItem ||
-        !this.options.canRead({ ...input, canvasId: readable.workItem.canvasId })
-      ) {
-        deny("attachment_auth_forbidden");
-      }
-      const { stream } = await this.options.blobs.openRead(binding.digestSha256);
-      return { binding, stream };
     } catch (error) {
       mapUnknown(error);
     }
@@ -457,34 +474,68 @@ export class CommentAttachmentService {
       const digest = commentContentSha256Schema.parse(input.digestSha256);
       const base = authorizeAttachmentProjectAccess({ subject, projectId: input.projectId });
       if (!base.allowed) deny(base.code, base.message);
-      const bindings = this.options.repository.listDigestReadBindings(
-        input.workspaceId,
-        input.projectId,
-        digest
-      );
-      const pending = this.options.repository.listDigestPendingUploads(
-        input.workspaceId,
-        input.projectId,
-        digest
-      );
-      if (!bindings.length && !pending.length) deny("attachment_not_found");
-      const allowed =
-        bindings.some(
-          (reference) =>
-            reference.workItem &&
-            this.options.canRead({ ...input, canvasId: reference.workItem.canvasId })
-        ) || pending.some((record) => this.canReadPending(input.actor, record));
-      if (!allowed) deny("attachment_auth_forbidden");
+      return await this.withDigestRead(digest, async () => {
+        const bindings = this.options.repository.listDigestReadBindings(
+          input.workspaceId,
+          input.projectId,
+          digest
+        );
+        const pending = this.options.repository.listDigestPendingUploads(
+          input.workspaceId,
+          input.projectId,
+          digest
+        );
+        if (!bindings.length && !pending.length) deny("attachment_not_found");
+        const allowed =
+          bindings.some(
+            (reference) =>
+              reference.workItem &&
+              this.options.canRead({ ...input, canvasId: reference.workItem.canvasId })
+          ) || pending.some((record) => this.canReadPending(input.actor, record));
+        if (!allowed) deny("attachment_auth_forbidden");
 
-      const { metadata, stream } = await this.options.blobs.openRead(digest);
-      return {
-        digestSha256: metadata.digestSha256,
-        sizeBytes: metadata.sizeBytes,
-        mediaType: metadata.mediaType,
-        stream
-      };
+        const { metadata, stream } = await this.options.blobs.openRead(digest);
+        return {
+          digestSha256: metadata.digestSha256,
+          sizeBytes: metadata.sizeBytes,
+          mediaType: metadata.mediaType,
+          stream
+        };
+      });
     } catch (error) {
       mapUnknown(error);
+    }
+  }
+
+  private async withDigestRead<T extends { stream: import("node:fs").ReadStream }>(
+    digest: string,
+    action: () => Promise<T>
+  ): Promise<T> {
+    let opened: T | undefined;
+    try {
+      return await this.options.lifecycle.withDigest(digest, async () => {
+        opened = await action();
+        return opened;
+      });
+    } catch (error) {
+      if (opened && !opened.stream.closed) {
+        const stream = opened.stream;
+        return withAttachmentCleanup(
+          async () => {
+            throw error;
+          },
+          () =>
+            new Promise<void>((resolve, reject) => {
+              stream.once("error", reject);
+              stream.once("close", () => {
+                stream.off("error", reject);
+                resolve();
+              });
+              stream.destroy();
+            })
+        );
+      }
+      throw error;
     }
   }
 

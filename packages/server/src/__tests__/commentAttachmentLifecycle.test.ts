@@ -3,6 +3,8 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdir, readdir, rename, rmdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AttachmentProcessHarness } from "./support/commentAttachmentProcessHarness.js";
+import { once } from "node:events";
 import { CommentAttachmentDigestLifecycle } from "../attachments/digestLifecycle.js";
 import { humanAuthContextSchema } from "../identity/schemas.js";
 import { openServerDatabase } from "../sqlite.js";
@@ -15,12 +17,18 @@ import {
   finalizePending
 } from "./support/commentAttachmentHttpFixture.js";
 const filesystem = vi.hoisted(() => ({
+  opened: undefined as undefined | ((handle: import("node:fs/promises").FileHandle) => void),
   pause: undefined as undefined | ((path: string) => Promise<void>)
 }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args);
+      filesystem.opened?.(handle);
+      return handle;
+    },
     realpath: async (...args: Parameters<typeof actual.realpath>) => {
       const result = await actual.realpath(...args);
       if (filesystem.pause) await filesystem.pause(String(args[0]));
@@ -30,6 +38,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 afterEach(() => {
   filesystem.pause = undefined;
+  filesystem.opened = undefined;
   vi.restoreAllMocks();
 });
 
@@ -83,6 +92,210 @@ async function assertDownload(
 }
 
 describe("comment attachment lifecycle", () => {
+  it.each([
+    "pending",
+    "by-digest"
+  ] as const)("opens an authorized %s download before competing process GC", async (route) => {
+    const start = new Date("2026-07-24T12:00:00.000Z");
+    const stack = await setup({ clock: () => start });
+    const token = await bootstrap(stack.origin);
+    const id = await stage(stack.origin, token);
+    await uploadPending(stack.origin, token, "project-a", id, payload, "text/plain", digest);
+    const collector = new AttachmentProcessHarness({
+      directory: stack.directory,
+      now: new Date(start.getTime() + 120_000).toISOString(),
+      mode: "normal"
+    });
+    const entered = signal();
+    const release = signal();
+    let paused = false;
+    filesystem.pause = async (path) => {
+      if (path === blobPath(stack.directory) && !paused) {
+        paused = true;
+        entered.resolve();
+        await release.promise;
+      }
+    };
+    const reading = fetch(
+      `${stack.origin}/api/v1/projects/project-a/attachments/${route}/${route === "pending" ? id : digest}`,
+      { headers: auth(token) }
+    );
+    let cleaning: Promise<Response> | undefined;
+    try {
+      const origin = await collector.ready();
+      await entered.promise;
+      cleaning = fetch(`${origin}/api/v1/projects/project-a/attachments/cleanup`, {
+        method: "POST",
+        headers: auth(token)
+      });
+      await collector.waitFor("digest-attempt");
+      const claims = await openServerDatabase(
+        join(stack.directory, "comment-attachments", "lifecycle.sqlite"),
+        5000
+      );
+      try {
+        expect(
+          claims
+            .prepare("SELECT process_id FROM attachment_digest_claims WHERE digest=?")
+            .get(digest)?.process_id
+        ).toBe(process.pid);
+      } finally {
+        claims.close();
+      }
+      expect(
+        stack.attachmentRepository.getPendingRequired(stack.workspaceA, "project-a", id).status
+      ).toBe("uploaded");
+      release.resolve();
+      const response = await reading;
+      expect(response.status).toBe(200);
+      expect(Buffer.from(await response.arrayBuffer())).toEqual(payload);
+      expect(await (await cleaning).json()).toEqual({ removedPending: 1, removedBlobs: 1 });
+      expect(stack.blobs.get(digest)).toBeUndefined();
+    } finally {
+      release.resolve();
+      await collector.dispose();
+      await Promise.allSettled([reading, cleaning]);
+    }
+  }, 20000);
+
+  it("hands off an opened descriptor that survives GC and closes after consumption or cancellation", async () => {
+    let now = new Date("2026-07-24T12:00:00.000Z");
+    const stack = await setup({ clock: () => now });
+    const token = await bootstrap(stack.origin);
+    const id = await stage(stack.origin, token);
+    await uploadPending(stack.origin, token, "project-a", id, payload, "text/plain", digest);
+    const record = stack.attachmentRepository.getPendingRequired(stack.workspaceA, "project-a", id);
+    const actor = humanAuthContextSchema.parse({
+      humanPrincipalId: record.uploaderHumanPrincipalId,
+      displayName: "Owner",
+      deviceCredentialId: "device",
+      projectId: "project-a",
+      role: "owner",
+      membershipId: "membership"
+    });
+    const input = { actor, workspaceId: stack.workspaceA, projectId: "project-a" };
+    const consumed = await stack.attachmentService.openPendingRead({
+      ...input,
+      pendingUploadId: id
+    });
+    const cancelled = await stack.attachmentService.openDigestRead({
+      ...input,
+      digestSha256: digest
+    });
+    try {
+      expect(consumed.stream.pending).toBe(false);
+      expect(cancelled.stream.pending).toBe(false);
+      const closed = once(cancelled.stream, "close");
+      cancelled.stream.destroy();
+      await closed;
+      expect(cancelled.stream.closed).toBe(true);
+      now = new Date(now.getTime() + 120_000);
+      expect(
+        await stack.attachmentService.cleanupExpiredStaged(stack.workspaceA, "project-a")
+      ).toEqual({ removedPending: 1, removedBlobs: 1 });
+      const chunks: Buffer[] = [];
+      for await (const chunk of consumed.stream) chunks.push(Buffer.from(chunk));
+      expect(Buffer.concat(chunks)).toEqual(payload);
+      expect(consumed.stream.closed).toBe(true);
+    } finally {
+      consumed.stream.destroy();
+      cancelled.stream.destroy();
+    }
+  });
+
+  it.each([
+    "pending",
+    "by-digest"
+  ] as const)("rechecks TTL after a %s read waits for the digest claim", async (route) => {
+    let now = new Date("2026-07-24T12:00:00.000Z");
+    const stack = await setup({ clock: () => now });
+    const token = await bootstrap(stack.origin);
+    const id = await stage(stack.origin, token);
+    await uploadPending(stack.origin, token, "project-a", id, payload, "text/plain", digest);
+    const held = signal();
+    const release = signal();
+    const entered = signal();
+    const claim = stack.lifecycle.withDigest(digest, async () => {
+      held.resolve();
+      await release.promise;
+    });
+    await held.promise;
+    const native = stack.lifecycle.withDigest.bind(stack.lifecycle);
+    vi.spyOn(stack.lifecycle, "withDigest").mockImplementation(
+      async <T>(sha: string, action: () => Promise<T>) => {
+        entered.resolve();
+        return native(sha, action);
+      }
+    );
+    const open = vi.spyOn(stack.blobs, "openRead");
+    const reading = fetch(
+      `${stack.origin}/api/v1/projects/project-a/attachments/${route}/${route === "pending" ? id : digest}`,
+      { headers: auth(token) }
+    );
+    try {
+      await entered.promise;
+      now = new Date(now.getTime() + 120_000);
+    } finally {
+      release.resolve();
+      await claim;
+    }
+    const response = await reading;
+    expect(response.status).toBe(route === "pending" ? 409 : 403);
+    await response.arrayBuffer();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("closes the descriptor when validation fails before stream handoff", async () => {
+    const stack = await setup();
+    const token = await bootstrap(stack.origin);
+    const id = await stage(stack.origin, token);
+    await uploadPending(stack.origin, token, "project-a", id, payload, "text/plain", digest);
+    await writeFile(blobPath(stack.directory), "short");
+    let handle: import("node:fs/promises").FileHandle | undefined;
+    filesystem.opened = (opened) => {
+      handle = opened;
+    };
+    await expect(stack.blobs.openRead(digest)).rejects.toThrow("attachment_blob_size_mismatch");
+    expect(handle).toBeDefined();
+    await expect(handle!.stat()).rejects.toMatchObject({ code: "EBADF" });
+  });
+
+  it("closes an admitted descriptor if releasing the digest claim fails", async () => {
+    const stack = await setup();
+    const token = await bootstrap(stack.origin);
+    const id = await stage(stack.origin, token);
+    await uploadPending(stack.origin, token, "project-a", id, payload, "text/plain", digest);
+    const claims = new DatabaseSync(
+      join(stack.directory, "comment-attachments", "lifecycle.sqlite")
+    );
+    let handle: import("node:fs/promises").FileHandle | undefined;
+    filesystem.opened = (opened) => {
+      handle = opened;
+    };
+    claims.exec(
+      "CREATE TRIGGER reject_download_release BEFORE DELETE ON attachment_digest_claims BEGIN SELECT RAISE(ABORT,'release_failed'); END;"
+    );
+    try {
+      const response = await fetch(
+        `${stack.origin}/api/v1/projects/project-a/attachments/pending/${id}`,
+        { headers: auth(token) }
+      );
+      expect(response.status).toBe(500);
+      await response.arrayBuffer();
+      expect(handle).toBeDefined();
+      await expect(handle!.stat()).rejects.toMatchObject({ code: "EBADF" });
+    } finally {
+      claims.exec("DROP TRIGGER reject_download_release");
+      claims.close();
+    }
+    const retry = await fetch(
+      `${stack.origin}/api/v1/projects/project-a/attachments/pending/${id}`,
+      { headers: auth(token) }
+    );
+    expect(retry.status).toBe(200);
+    expect(Buffer.from(await retry.arrayBuffer())).toEqual(payload);
+  });
+
   it("expires finalized unbound drafts at the TTL boundary and retains bound audit bytes", async () => {
     let now = new Date("2026-07-24T12:00:00.000Z");
     const stack = await setup({ clock: () => now });

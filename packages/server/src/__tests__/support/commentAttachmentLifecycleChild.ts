@@ -67,6 +67,7 @@ class ProcessLifecycle extends CommentAttachmentDigestLifecycle {
       process.send?.({ event: "gc-entry-held", digest });
       await gate;
     }
+    process.send?.({ event: "digest-attempt", digest });
     return super.withDigest(digest, action);
   }
 }
