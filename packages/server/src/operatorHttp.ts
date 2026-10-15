@@ -420,7 +420,10 @@ function safeError(error: unknown): { status: number; code: string } {
   if (error.message === "remote_run_v3_required") {
     return { status: 400, code: error.message };
   }
-  if (error.message === "remote_acp_event_replay_cursor_ahead") {
+  if (
+    error.message === "remote_acp_event_replay_cursor_ahead" ||
+    error.message === "remote_action_attempt_version_conflict"
+  ) {
     return { status: 409, code: error.message };
   }
   if (
