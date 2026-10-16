@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,7 +22,12 @@ import { attachHumanObserverWebSocketServer } from "../humanObserverWs.js";
 import { AuthorizationChangeSignal } from "../authorizationChangeSignal.js";
 import { WebSocketUpgradeRouter } from "../webSocketUpgradeRouter.js";
 import { setupCommentReadComposition } from "./support/commentReadAccessCompositionFixture.js";
-import { auth, createWorkspaceDevice } from "./support/commentAttachmentHttpFixture.js";
+import {
+  auth,
+  createPending,
+  createWorkspaceDevice,
+  uploadPending
+} from "./support/commentAttachmentHttpFixture.js";
 import { createRemoteDispatchFixture } from "./support/remoteDispatchFixture.js";
 import { executionEnvelopeFor } from "./protocolTestFixtures.js";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
@@ -31,13 +37,18 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-function messages(socket: WebSocket, count: number) {
+function messages(socket: WebSocket, count: number | "welcome") {
   return new Promise<Record<string, unknown>[]>((resolve, reject) => {
     const received: Record<string, unknown>[] = [];
     const timer = setTimeout(() => reject(new Error("observer_messages_timeout")), 3000);
     const listener = (data: RawData) => {
       received.push(JSON.parse(data.toString()));
-      if (received.length !== count) return;
+      if (
+        count === "welcome"
+          ? received.at(-1)?.type !== "human.observer.welcome"
+          : received.length !== count
+      )
+        return;
       clearTimeout(timer);
       socket.off("message", listener);
       resolve(received);
@@ -137,7 +148,7 @@ async function setup() {
     await observer.close();
     await new Promise<void>((resolve) => observerHttp.close(() => resolve()));
   });
-  const connect = async (cursor: number, count = 1) => {
+  const connect = async (cursor: number, count: number | "welcome" = 1) => {
     const socket = new WebSocket(
       `ws://127.0.0.1:${address.port}/api/v1/projects/${projectId}/human/observe`,
       {
@@ -402,6 +413,120 @@ describe("remote run Activity scope at composition boundaries", () => {
       { kind: "project", cursor: revokedBarrier.cursor },
       { type: "human.observer.welcome" }
     ]);
+  });
+
+  it("filters persisted unscoped comment attachments while replaying scoped attachments by current Canvas access", async () => {
+    const fixture = await setup();
+    const journal = fixture.activity.humanObserverJournal;
+    const baseline = journal.appendInCallerTransaction(fixture.scope, { kind: "project" });
+    const comment = await fixture.createComment(
+      fixture.owner.token,
+      "default",
+      "Private attachment comment"
+    );
+    const bytes = Buffer.from("Private attachment bytes");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const pending = await createPending(fixture.origin, fixture.owner.token, fixture.projectId, {
+      commentId: comment.commentId,
+      expectedSizeBytes: bytes.length,
+      mediaType: "text/plain",
+      expectedDigestSha256: digest
+    });
+    expect(pending.response.status).toBe(201);
+    const uploaded = await uploadPending(
+      fixture.origin,
+      fixture.owner.token,
+      fixture.projectId,
+      String(pending.payload.pendingUploadId),
+      bytes,
+      "text/plain",
+      digest
+    );
+    expect(uploaded.response.status).toBe(201);
+    const scoped = journal.replay(fixture.scope, baseline.cursor);
+    expect(scoped.kind).toBe("events");
+    if (scoped.kind !== "events") throw new Error("expected_attachment_events");
+    const currentAttachment = scoped.events.find((event) => event.kind === "attachment");
+    expect(currentAttachment).toMatchObject({
+      commentId: comment.commentId,
+      workItem: { kind: "task", canvasId: "default", taskId: "T-001" }
+    });
+
+    const historicalOccurredAt = "2020-01-01T00:00:00.000Z";
+    const historicalCursors: number[] = [];
+    for (const commentId of [comment.commentId, "missing-historical-comment"]) {
+      const inserted = fixture.database
+        .prepare(`INSERT INTO human_observer_events
+          (workspace_id,project_id,previous_cursor,event_json,occurred_at)
+          VALUES(?,?,?,?,?)`)
+        .run(
+          fixture.scope.workspaceId,
+          fixture.projectId,
+          journal.head(fixture.scope),
+          JSON.stringify({ kind: "attachment", commentId }),
+          historicalOccurredAt
+        );
+      historicalCursors.push(Number(inserted.lastInsertRowid));
+    }
+    const staged = journal.appendInCallerTransaction(fixture.scope, { kind: "attachment" });
+    const membership = journal.appendInCallerTransaction(fixture.scope, { kind: "membership" });
+    const project = journal.appendInCallerTransaction(fixture.scope, { kind: "project" });
+
+    const replayAsMember = await fixture.connect(baseline.cursor, "welcome");
+    const memberMessages = await replayAsMember.ready;
+    expect(memberMessages).toMatchObject([
+      { kind: "attachment", cursor: staged.cursor, previousCursor: baseline.cursor },
+      { kind: "membership", cursor: membership.cursor, previousCursor: staged.cursor },
+      { kind: "project", cursor: project.cursor, previousCursor: membership.cursor },
+      { type: "human.observer.welcome", cursor: project.cursor }
+    ]);
+    expect(JSON.stringify(memberMessages)).not.toContain(comment.commentId);
+    expect(JSON.stringify(memberMessages)).not.toContain(historicalOccurredAt);
+    replayAsMember.socket.terminate();
+
+    await fixture.mutateAccess(fixture.owner.token, fixture.scope.workspaceId, "default", {
+      operation: "grant",
+      expectedAclRevision: 0,
+      humanPrincipalId: fixture.member.principalId,
+      role: "viewer"
+    });
+    const replayAsViewer = await fixture.connect(baseline.cursor, "welcome");
+    const viewerMessages = await replayAsViewer.ready;
+    expect(viewerMessages).toContainEqual(
+      expect.objectContaining({
+        kind: "attachment",
+        cursor: currentAttachment!.cursor,
+        commentId: comment.commentId,
+        workItem: { kind: "task", canvasId: "default", taskId: "T-001" }
+      })
+    );
+    expect(
+      viewerMessages.filter((event) => historicalCursors.includes(Number(event.cursor)))
+    ).toEqual([]);
+    expect(JSON.stringify(viewerMessages)).not.toContain("missing-historical-comment");
+    expect(JSON.stringify(viewerMessages)).not.toContain(historicalOccurredAt);
+    replayAsViewer.socket.terminate();
+
+    const grant = fixture.access.listActiveCanvasPersonGrants({
+      ...fixture.scope,
+      canvasId: "default",
+      humanPrincipalId: fixture.member.principalId
+    })[0]!;
+    await fixture.mutateAccess(fixture.owner.token, fixture.scope.workspaceId, "default", {
+      operation: "revoke",
+      expectedAclRevision: 1,
+      grantId: grant.grantId
+    });
+    const replayAfterRevoke = await fixture.connect(baseline.cursor, "welcome");
+    const revokedMessages = await replayAfterRevoke.ready;
+    expect(revokedMessages).toMatchObject([
+      { kind: "attachment", cursor: staged.cursor },
+      { kind: "membership", cursor: membership.cursor },
+      { kind: "project", cursor: project.cursor },
+      { type: "human.observer.welcome", cursor: project.cursor }
+    ]);
+    expect(JSON.stringify(revokedMessages)).not.toContain(comment.commentId);
+    expect(JSON.stringify(revokedMessages)).not.toContain(historicalOccurredAt);
   });
 
   it("refuses historical unscoped Activity, recovered outbox and journal while retaining project events", async () => {
