@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { unlink } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
 import { WorkspaceExecutionStartIntents } from "../main/workspaceExecutionStartIntents.js";
@@ -5,6 +7,104 @@ import {
   pauseStartAfterJournalPersisted,
   setupPreAdmissionStop
 } from "./workspaceExecutionPreAdmissionStopFixture.js";
+
+it.each([
+  "current",
+  "reused"
+] as const)("recovers a pending Stop with a %s PID instance without reviving its request", async (instance) => {
+  const h = await setupPreAdmissionStop();
+  const journal = new WorkspaceExecutionStartIntents(h.sessionsRoot);
+  const otherInstance =
+    journal.owner.instanceId === "00000000-0000-4000-8000-000000000001"
+      ? "00000000-0000-4000-8000-000000000002"
+      : "00000000-0000-4000-8000-000000000001";
+  const owner = {
+    pid: process.pid,
+    instanceId: instance === "current" ? journal.owner.instanceId : otherInstance
+  };
+  // A persisted identity models PID reuse without requiring the OS to recycle a PID.
+  await journal.write({
+    input: h.input,
+    owner,
+    settled: false,
+    cancellation: h.stop,
+    cancellationConfirmed: false
+  });
+  expect(await journal.read(h.input)).toMatchObject({ owner, settled: false });
+  expect(await h.diskFiles()).toHaveLength(1);
+  const service = h.create();
+  expect(await service.recoverCancellations({ locator: h.input.locator })).toMatchObject({
+    starts: [h.stop],
+    sessions: []
+  });
+  const confirmed = instance === "reused";
+  expect(await service.cancelStart(h.stop)).toMatchObject({ confirmed });
+  expect(await service.cancelStart(h.stop)).toMatchObject({ confirmed });
+  expect((await service.recoverCancellations({ locator: h.input.locator })).starts).toEqual(
+    confirmed ? [] : [h.stop]
+  );
+  expect(await journal.read(h.input)).toMatchObject({
+    owner,
+    settled: false,
+    cancellation: h.stop,
+    cancellationConfirmed: confirmed
+  });
+  await expect(service.start(h.input)).rejects.toThrow("workspace_execution_cancel_unconfirmed");
+  expect(h.server.countOperations()).toBe(0);
+  if (confirmed) {
+    expect(
+      (await service.start({ ...h.input, startRequestId: "after-reused-pid" })).handle
+    ).toMatchObject({ target: "remote" });
+    expect(h.server.countOperations()).toBe(1);
+    expect(
+      h.requests.filter(
+        (request) => request.path.endsWith("/remote-operations") && request.method === "POST"
+      )
+    ).toHaveLength(1);
+    await expect(service.start(h.input)).rejects.toThrow("workspace_execution_cancel_unconfirmed");
+    expect(h.server.countOperations()).toBe(1);
+  }
+});
+
+it("keeps a pending Stop unconfirmed while its different-PID owner is really alive", async () => {
+  const h = await setupPreAdmissionStop();
+  const child = spawn(
+    process.execPath,
+    ["-e", 'process.on("message", () => {}); process.send("ready");'],
+    { stdio: ["ignore", "ignore", "pipe", "ipc"] }
+  );
+  const exited = once(child, "exit");
+  try {
+    const [ready] = await once(child, "message");
+    expect(ready).toBe("ready");
+    if (!child.pid) throw new Error("live_child_pid_required");
+    expect(child.pid).not.toBe(process.pid);
+    const journal = new WorkspaceExecutionStartIntents(h.sessionsRoot);
+    await journal.write({
+      input: h.input,
+      owner: {
+        pid: child.pid,
+        instanceId:
+          journal.owner.instanceId === "00000000-0000-4000-8000-000000000001"
+            ? "00000000-0000-4000-8000-000000000002"
+            : "00000000-0000-4000-8000-000000000001"
+      },
+      settled: false,
+      cancellation: h.stop,
+      cancellationConfirmed: false
+    });
+    const service = h.create();
+    expect(await service.cancelStart(h.stop)).toMatchObject({ confirmed: false });
+    expect((await service.recoverCancellations({ locator: h.input.locator })).starts).toEqual([
+      h.stop
+    ]);
+    await expect(service.start(h.input)).rejects.toThrow("workspace_execution_cancel_unconfirmed");
+    expect(h.server.countOperations()).toBe(0);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await exited;
+  }
+});
 
 it("settles its admitted owner after credential loss without reauthorizing local cleanup", async () => {
   const h = await setupPreAdmissionStop();

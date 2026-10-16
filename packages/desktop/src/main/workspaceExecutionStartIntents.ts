@@ -37,8 +37,7 @@ export class WorkspaceExecutionStartIntents {
   ownerHasEnded(intent: StartIntent): boolean {
     const owner = intent.owner;
     if (!owner) return false;
-    if (owner.pid === processOwner.pid && owner.instanceId === processOwner.instanceId)
-      return false;
+    if (owner.pid === processOwner.pid) return owner.instanceId !== processOwner.instanceId;
     try {
       process.kill(owner.pid, 0);
       return false;
