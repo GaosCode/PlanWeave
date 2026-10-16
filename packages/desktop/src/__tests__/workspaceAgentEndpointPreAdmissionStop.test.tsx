@@ -9,13 +9,19 @@ import {
   renderRun
 } from "./workspaceAgentEndpointRunTestFixture";
 import { agentEndpointPreferenceKey } from "../renderer/collaboration/agentEndpointPreferences";
-import { setupPreAdmissionStop } from "./workspaceExecutionPreAdmissionStopFixture.js";
+import {
+  pauseStartAfterJournalPersisted,
+  setupPreAdmissionStop
+} from "./workspaceExecutionPreAdmissionStopFixture.js";
 import {
   availableRuntime,
   statusProjection
 } from "./helpers/collaborationRuntimeAvailabilityFixture";
 
-it("retains a failed pre-admission Workspace start until real Main Stop recovery frees the renderer scope", async () => {
+it.each([
+  "before",
+  "after"
+] as const)("retains a failed %s-admission Workspace start until real Main Stop recovery frees the renderer scope", async (timing) => {
   const main = await setupPreAdmissionStop();
   const service = main.create();
   const preload = main.preload(service);
@@ -54,8 +60,30 @@ it("retains a failed pre-admission Workspace start until real Main Stop recovery
   await act(async () => {
     await recover.mock.results[0]?.value;
   });
-  await main.clearCredential();
-  await act(() => h.result.current({ kind: "block", blockRef: main.input.blockRef }));
+  if (timing === "before") {
+    await main.clearCredential();
+    await act(() => h.result.current({ kind: "block", blockRef: main.input.blockRef }));
+  } else {
+    const barrier = pauseStartAfterJournalPersisted("renderer-request-1");
+    let starting!: Promise<void>;
+    act(() => {
+      starting = h.result.current({ kind: "block", blockRef: main.input.blockRef });
+    });
+    try {
+      await barrier.persisted;
+      expect((await main.journals()).map((journal) => journal.value)).toEqual([
+        expect.objectContaining({
+          owner: expect.objectContaining({ pid: process.pid }),
+          settled: false,
+          cancellation: null
+        })
+      ]);
+      await main.clearCredential();
+    } finally {
+      barrier.release();
+    }
+    await act(() => starting);
+  }
   expect(h.setError.mock.calls).toEqual([["workspace_execution_request_failed"]]);
   expect(start).toHaveBeenCalledOnce();
   await vi.waitFor(() =>
@@ -67,7 +95,8 @@ it("retains a failed pre-admission Workspace start until real Main Stop recovery
   expect(start).toHaveBeenCalledOnce();
   expect(cancelStart).toHaveBeenCalled();
   expect(main.server.countOperations()).toBe(0);
-  expect(await main.diskFiles()).toEqual([]);
+  if (timing === "before") expect(await main.diskFiles()).toEqual([]);
+  else expect(await main.journals()).toHaveLength(1);
   expect(h.lifecycle.onCancelled).not.toHaveBeenCalled();
   await act(() => h.result.current({ kind: "block", blockRef: main.input.blockRef }));
   expect(start).toHaveBeenCalledOnce();

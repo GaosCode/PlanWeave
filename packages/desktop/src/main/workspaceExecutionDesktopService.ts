@@ -314,7 +314,12 @@ export class WorkspaceExecutionDesktopService {
   }
 
   async start(input: DesktopWorkspaceExecutionStartInput) {
-    let admitted = false;
+    let admitted:
+      | {
+          storage: WorkspaceExecutionSessionStorage;
+          owner: WorkspaceExecutionStartIntents["owner"];
+        }
+      | undefined;
     let sessionId: string | undefined;
     const startRequestId = input.startRequestId;
     if (startRequestId) {
@@ -329,7 +334,12 @@ export class WorkspaceExecutionDesktopService {
               cancellation: null,
               cancellationConfirmed: false
             });
-            return { admitted: true, sessionId: undefined };
+            return {
+              admitted: true as const,
+              storage,
+              owner: this.starts.owner,
+              sessionId: undefined
+            };
           }
           if (existing.cancellation) throw new Error("workspace_execution_cancel_unconfirmed");
           const listed = await this.sessions.list(storage);
@@ -340,10 +350,10 @@ export class WorkspaceExecutionDesktopService {
               workspaceStartDispatchKey(startRequestId)
           );
           if (matches.length !== 1) throw new Error("workspace_execution_start_unconfirmed");
-          return { admitted: false, sessionId: matches[0].sessionId };
+          return { admitted: false as const, sessionId: matches[0].sessionId };
         })
       );
-      admitted = admission.admitted;
+      if (admission.admitted) admitted = admission;
       sessionId = admission.sessionId;
     }
     try {
@@ -369,13 +379,15 @@ export class WorkspaceExecutionDesktopService {
         sessionId ? { ...input, sessionId } : input
       );
     } finally {
-      if (admitted)
-        await this.withCancellationStorage(input.locator, (storage) =>
-          this.sessions.withMutation(storage, async () => {
-            const intent = await this.starts.read(input);
-            if (intent) await this.starts.write({ ...intent, settled: true });
-          })
-        );
+      if (admitted) {
+        const { storage, owner } = admitted;
+        await this.sessions.withMutation(storage, async () => {
+          const intent = await this.starts.read(input);
+          if (!intent || !isDeepStrictEqual(intent.owner, owner))
+            throw new Error("workspace_execution_resume_mismatch");
+          await this.starts.write({ ...intent, settled: true });
+        });
+      }
     }
   }
 

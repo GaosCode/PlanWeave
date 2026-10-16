@@ -1,7 +1,7 @@
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
 import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import { loadPlanGraphPackage } from "@planweave-ai/runtime";
 import type { WebSocket } from "ws";
@@ -19,6 +19,7 @@ import {
   WorkspaceConnectionProfileStore
 } from "../main/collaboration/index.js";
 import { WorkspaceExecutionDesktopService } from "../main/workspaceExecutionDesktopService.js";
+import { WorkspaceExecutionStartIntents } from "../main/workspaceExecutionStartIntents.js";
 import { createWorkspaceExecutionPreloadApi } from "../preload/workspaceExecutionPreloadBridge.js";
 import { workspaceExecutionHandlerResult } from "../main/workspaceExecutionIpcResult.js";
 import {
@@ -34,6 +35,35 @@ const httpServers: Server[] = [];
 const compositions: DistributedServerComposition[] = [];
 const databases: SqliteDatabase[] = [];
 const sockets: WebSocket[] = [];
+
+export function pauseStartAfterJournalPersisted(startRequestId: string) {
+  let persisted!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    persisted = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const write = WorkspaceExecutionStartIntents.prototype.write;
+  const spy = vi
+    .spyOn(WorkspaceExecutionStartIntents.prototype, "write")
+    .mockImplementation(async function (this: WorkspaceExecutionStartIntents, intent) {
+      await write.call(this, intent);
+      if (intent.input.startRequestId !== startRequestId || intent.settled || !intent.owner) return;
+      spy.mockRestore();
+      persisted();
+      await gate;
+    });
+  return {
+    persisted: entered,
+    release: () => {
+      spy.mockRestore();
+      release();
+    }
+  };
+}
+
 afterEach(async () => {
   await Promise.all(collaborations.splice(0).map((service) => service.shutdown()));
   for (const socket of sockets.splice(0)) socket.terminate();

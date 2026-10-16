@@ -1,7 +1,87 @@
 import { unlink } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
 import { WorkspaceExecutionStartIntents } from "../main/workspaceExecutionStartIntents.js";
-import { setupPreAdmissionStop } from "./workspaceExecutionPreAdmissionStopFixture.js";
+import {
+  pauseStartAfterJournalPersisted,
+  setupPreAdmissionStop
+} from "./workspaceExecutionPreAdmissionStopFixture.js";
+
+it("settles its admitted owner after credential loss without reauthorizing local cleanup", async () => {
+  const h = await setupPreAdmissionStop();
+  const service = h.create();
+  const journal = new WorkspaceExecutionStartIntents(h.sessionsRoot);
+  const barrier = pauseStartAfterJournalPersisted(h.input.startRequestId);
+  const starting = expect(service.start(h.input)).rejects.toMatchObject({
+    code: "collaboration_unknown",
+    message: "Human device credential is not available for this profile.",
+    httpStatus: undefined
+  });
+  try {
+    await barrier.persisted;
+    expect(await journal.read(h.input)).toMatchObject({
+      input: h.input,
+      owner: journal.owner,
+      settled: false,
+      cancellation: null
+    });
+    await h.clearCredential();
+  } finally {
+    barrier.release();
+  }
+  await starting;
+  expect((await h.diskFiles()).filter((name) => !name.startsWith("start-intents/"))).toEqual([]);
+  expect(h.server.countOperations()).toBe(0);
+  await h.restoreCredential();
+  expect(await service.cancelStart(h.stop)).toMatchObject({ confirmed: true });
+  expect((await service.recoverCancellations({ locator: h.input.locator })).starts).toEqual([]);
+  expect(await journal.read(h.input)).toMatchObject({
+    input: h.input,
+    owner: journal.owner,
+    settled: true,
+    cancellation: h.stop,
+    cancellationConfirmed: true
+  });
+  await expect(service.start(h.input)).rejects.toThrow("workspace_execution_cancel_unconfirmed");
+  expect(
+    (await service.start({ ...h.input, startRequestId: "fresh-after-credential-loss" })).handle
+  ).toMatchObject({ target: "remote" });
+  expect(h.server.countOperations()).toBe(1);
+  expect(
+    h.requests.filter(
+      (request) => request.path.endsWith("/remote-operations") && request.method === "POST"
+    )
+  ).toHaveLength(1);
+});
+
+it.each([
+  "owner",
+  "input"
+] as const)("does not settle a journal whose %s changed after admission", async (changed) => {
+  const h = await setupPreAdmissionStop();
+  const journal = new WorkspaceExecutionStartIntents(h.sessionsRoot);
+  const barrier = pauseStartAfterJournalPersisted(h.input.startRequestId);
+  const starting = expect(h.create().start(h.input)).rejects.toThrow(
+    "workspace_execution_resume_mismatch"
+  );
+  let replacement!: NonNullable<Awaited<ReturnType<typeof journal.read>>>;
+  try {
+    await barrier.persisted;
+    const admitted = await journal.read(h.input);
+    if (!admitted) throw new Error("admitted_journal_required");
+    replacement =
+      changed === "owner"
+        ? {
+            ...admitted,
+            owner: { pid: process.pid, instanceId: "00000000-0000-4000-8000-000000000001" }
+          }
+        : { ...admitted, input: { ...h.input, agentEndpointId: "another-endpoint" } };
+    await journal.write(replacement);
+  } finally {
+    barrier.release();
+  }
+  await starting;
+  expect(await journal.read(replacement.input)).toEqual(replacement);
+});
 
 it("seals a credential failure before admission and preserves the Stop across service reconstruction", async () => {
   const h = await setupPreAdmissionStop();
