@@ -3,7 +3,6 @@ import { isAbsolute, join, relative } from "node:path";
 import { optionalStat } from "../fs/optionalFile.js";
 import { writeJsonFile } from "../json.js";
 import { projectGraphPath, writeProjectGraph } from "../projectGraph/loadProjectGraph.js";
-import { projectGraphFromLegacyRegistry } from "../projectGraph/migration.js";
 import { projectCanvasWorkspace } from "../projectGraph/projectGraphWorkspace.js";
 import type { LoadedProjectGraph, ProjectCanvasNode } from "../projectGraph/types.js";
 import type { ProjectWorkspace } from "../types.js";
@@ -25,8 +24,13 @@ export async function prepareManagedProjectRelocation(
     ? normalizeRegistry(JSON.parse(registryBytes.toString("utf8")))
     : null;
   function relocateStorage<T extends CanvasStoragePaths>(storage: T): T {
-    const relocate = (path: string) =>
-      isAbsolute(path) ? join(next.workspaceRoot, relative(previous.workspaceRoot, path)) : path;
+    const relocate = (path: string) => {
+      if (!isAbsolute(path)) return path;
+      const ownedPath = relative(previous.workspaceRoot, path);
+      return ownedPath && !ownedPath.startsWith("..") && !isAbsolute(ownedPath)
+        ? join(next.workspaceRoot, ownedPath)
+        : path;
+    };
     return {
       ...storage,
       packageDir: relocate(storage.packageDir),
@@ -34,12 +38,9 @@ export async function prepareManagedProjectRelocation(
       resultsDir: relocate(storage.resultsDir)
     };
   }
-  const previousCanvases = [
-    ...graph.manifest.canvases,
-    ...(registry ? projectGraphFromLegacyRegistry(registry).canvases : [])
-  ];
+  // The loaded graph owns storage; an overridden registry can retain retired locators.
   // Validate against the old owner before rebasing, then against the new owner.
-  const storageWorkspaces = previousCanvases.flatMap((canvas) => [
+  const storageWorkspaces = graph.manifest.canvases.flatMap((canvas) => [
     projectCanvasWorkspace(previous, canvas),
     projectCanvasWorkspace(next, relocateStorage(canvas))
   ]);

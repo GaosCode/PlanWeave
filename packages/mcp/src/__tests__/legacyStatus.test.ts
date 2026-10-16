@@ -22,6 +22,7 @@ import {
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runtimeGateway } from "../toolRuntime.js";
+import { importTransactionIdentityDigest } from "../../../runtime/src/package/importTransactionContent.js";
 import { normalizeRegistry } from "../../../runtime/src/desktop/canvasRegistry.js";
 import { handlePlanweaveTool } from "../tools.js";
 import { readJson } from "./toolTestHelpers.js";
@@ -486,4 +487,122 @@ it.each([
   ).toContain("Submitted after moving");
   await expect(access(project.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
   expect(relative(renamed.workspaceRoot, moved.resultsDir)).toBe("results");
+});
+
+it("renames formal canonical history without admitting a retired registry locator", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "planweave-retired-registry-")));
+  const retired = await realpath(await mkdtemp(join(tmpdir(), "planweave-retired-owner-")));
+  vi.stubEnv("PLANWEAVE_HOME", home);
+  try {
+    const project = await runtimeGateway.initProject("Retired registry");
+    await runtimeGateway.createTask(project.projectId, "default", {
+      title: "Historical work",
+      promptMarkdown: "Keep completed history through managed rename."
+    });
+    const workspace = await resolveTaskCanvasWorkspace(project.workspaceRoot, "default");
+    await claimBlock({ projectRoot: workspace, ref: "T-HISTORICAL-WORK#B-001" });
+    const reportPath = join(home, "completed.md");
+    const report = "Historical implementation before retiring the registry.\n";
+    await writeFile(reportPath, report);
+    await submitBlockResult({ projectRoot: workspace, ref: "T-HISTORICAL-WORK#B-001", reportPath });
+    const expected = await runtimeGateway.getStatus(project.projectId, "default");
+    const storage = {
+      packageDir: join(retired, "package"),
+      stateFile: join(retired, "state.json"),
+      resultsDir: join(retired, "results")
+    };
+    await cp(workspace.packageDir, storage.packageDir, { recursive: true });
+    await cp(workspace.stateFile, storage.stateFile);
+    await cp(workspace.resultsDir, storage.resultsDir, { recursive: true });
+    await writeFile(join(retired, "sentinel.txt"), "Independent retired owner data");
+    const sentinelBefore = await importTransactionIdentityDigest(retired);
+    await mkdir(join(project.workspaceRoot, "desktop"), { recursive: true });
+    await writeFile(
+      join(project.workspaceRoot, "desktop", "canvases.json"),
+      JSON.stringify({
+        version: "desktop-canvases/v1",
+        activeCanvasId: "default",
+        canvases: [
+          {
+            canvasId: "default",
+            name: "Retired registry",
+            ...storage,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      })
+    );
+    const renamed = await renameProject(project.projectId, "Retired registry moved");
+    expect(renamed.projectId).not.toBe(project.projectId);
+    expect(renamed.workspaceRoot).not.toBe(project.workspaceRoot);
+    const args = { projectId: renamed.projectId, canvasId: "default" };
+    expect(readJson(await handlePlanweaveTool("get_status", args, runtimeGateway))).toEqual({
+      ...expected,
+      projectId: renamed.projectId
+    });
+    expect(
+      readJson(await handlePlanweaveTool("list_ready_blocks", args, runtimeGateway))
+    ).toMatchObject({ readyBlocks: [{ ref: "T-HISTORICAL-WORK#R-001" }] });
+    expect(
+      readJson(
+        await handlePlanweaveTool(
+          "get_block_detail",
+          { ...args, blockRef: "T-HISTORICAL-WORK#B-001" },
+          runtimeGateway
+        )
+      )
+    ).toMatchObject({ block: { status: "completed", latestRunId: "RUN-001" } });
+    expect(
+      readJson(
+        await handlePlanweaveTool(
+          "get_prompt",
+          { ...args, ref: "T-HISTORICAL-WORK#R-001" },
+          runtimeGateway
+        )
+      )
+    ).toMatchObject({ markdown: expect.stringContaining(report.trim()) });
+    const moved = await resolveTaskCanvasWorkspace(renamed.workspaceRoot, "default");
+    expect(moved.resultsDir).toBe(join(renamed.workspaceRoot, "canvases", "default", "results"));
+    expect(
+      await readFile(
+        join(
+          moved.resultsDir,
+          "T-HISTORICAL-WORK",
+          "blocks",
+          "B-001",
+          "runs",
+          "RUN-001",
+          "report.md"
+        ),
+        "utf8"
+      )
+    ).toBe(report);
+    await runtimeGateway.createTask(renamed.projectId, "default", {
+      title: "New work",
+      promptMarkdown: "Use the current formal owner."
+    });
+    const fresh = await resolveTaskCanvasWorkspace(renamed.workspaceRoot, "default");
+    await expect(
+      claimBlock({ projectRoot: fresh, ref: "T-NEW-WORK#B-001" })
+    ).resolves.toMatchObject({ kind: "block", ref: "T-NEW-WORK#B-001" });
+    await writeFile(reportPath, "Fresh submission under the renamed owner.\n");
+    await submitBlockResult({ projectRoot: fresh, ref: "T-NEW-WORK#B-001", reportPath });
+    expect(
+      await readFile(
+        join(fresh.resultsDir, "T-NEW-WORK", "blocks", "B-001", "runs", "RUN-001", "report.md"),
+        "utf8"
+      )
+    ).toBe("Fresh submission under the renamed owner.\n");
+    expect(
+      normalizeRegistry(
+        JSON.parse(await readFile(join(renamed.workspaceRoot, "desktop", "canvases.json"), "utf8"))
+      ).canvases[0]
+    ).toMatchObject(storage);
+    await expect(access(project.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await importTransactionIdentityDigest(retired)).toBe(sentinelBefore);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+    await rm(retired, { recursive: true, force: true });
+  }
 });

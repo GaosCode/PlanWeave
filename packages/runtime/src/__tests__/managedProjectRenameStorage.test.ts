@@ -876,10 +876,43 @@ it.each([
 });
 
 it.each([
-  false,
-  true
-])("restores original absolute references and history after a post-move failure (formal=%s)", async (formal) => {
+  { formal: false, retired: false },
+  { formal: true, retired: false },
+  { formal: true, retired: true }
+])("restores owner references and history after a post-move failure (formal=$formal, retired=$retired)", async ({
+  formal,
+  retired
+}) => {
   const { home, project, workspace, storage } = await absoluteStorageFixture(formal);
+  let retiredRoot: string | null = null;
+  let retiredBefore: string | null = null;
+  if (retired) {
+    retiredRoot = await realpath(await mkdtemp(join(tmpdir(), "planweave-retired-owner-")));
+    directories.push(retiredRoot);
+    await cp(storage.packageDir, join(retiredRoot, "package"), { recursive: true });
+    await cp(storage.stateFile, join(retiredRoot, "state.json"));
+    await cp(storage.resultsDir, join(retiredRoot, "results"), { recursive: true });
+    retiredBefore = await importTransactionIdentityDigest(retiredRoot);
+    const registryFile = join(workspace.workspaceRoot, "desktop", "canvases.json");
+    const registry = normalizeRegistry(JSON.parse(await readFile(registryFile, "utf8")));
+    registry.canvases[0] = {
+      ...registry.canvases[0],
+      packageDir: join(retiredRoot, "package"),
+      stateFile: join(retiredRoot, "state.json"),
+      resultsDir: join(retiredRoot, "results")
+    };
+    await writeJsonFile(registryFile, registry);
+    const loaded = await projectGraph.loadProjectGraph(workspace.rootPath);
+    await projectGraph.writeProjectGraph(workspace, {
+      ...loaded.manifest,
+      canvases: loaded.manifest.canvases.map((canvas) => ({
+        ...canvas,
+        packageDir: relative(workspace.workspaceRoot, canvas.packageDir),
+        stateFile: relative(workspace.workspaceRoot, canvas.stateFile),
+        resultsDir: relative(workspace.workspaceRoot, canvas.resultsDir)
+      }))
+    });
+  }
   const source = await mkdtemp(join(tmpdir(), "planweave-absolute-source-"));
   directories.push(source);
   await linkProjectSourceRoot(project.id, source);
@@ -887,8 +920,22 @@ it.each([
   const before = await storageContents(workspace.workspaceRoot);
   const defaultsBefore = await readFile(join(home, "source-defaults.json"), "utf8");
   let failed = false;
+  const nextRoot = join(home, "projects", createManagedProjectId("Storage destination"));
   vi.mocked(rename).mockImplementation(async (oldPath, newPath) => {
     if (!failed && String(newPath) === join(home, "source-defaults.json")) {
+      await expect(access(workspace.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(access(nextRoot)).resolves.toBeUndefined();
+      expect((await projectGraph.loadProjectGraph(nextRoot)).manifest.canvases[0].title).toBe(
+        "Storage destination"
+      );
+      const published = normalizeRegistry(
+        JSON.parse(await readFile(join(nextRoot, "desktop", "canvases.json"), "utf8"))
+      );
+      expect(published.canvases[0].resultsDir).toBe(
+        retiredRoot
+          ? join(retiredRoot, "results")
+          : join(nextRoot, relative(workspace.workspaceRoot, storage.resultsDir))
+      );
       failed = true;
       throw new Error("absolute relocation dependency failure");
     }
@@ -912,9 +959,21 @@ it.each([
     )
   ).toBe("Completed before absolute storage relocation.\n");
   expect((await loadPackage(restored)).manifest.project.title).toBe("Test Plan");
-  await expect(
-    access(join(home, "projects", createManagedProjectId("Storage destination")))
-  ).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(access(nextRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  if (retiredRoot) {
+    expect(await importTransactionIdentityDigest(retiredRoot)).toBe(retiredBefore);
+    const retried = await renameProject(project.id, "Storage destination");
+    expect(retried.workspaceRoot).toBe(nextRoot);
+    const moved = await resolveTaskCanvasWorkspace(nextRoot, "default");
+    expect(
+      await readFile(
+        join(moved.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "report.md"),
+        "utf8"
+      )
+    ).toBe("Completed before absolute storage relocation.\n");
+    await expect(access(workspace.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await importTransactionIdentityDigest(retiredRoot)).toBe(retiredBefore);
+  }
 });
 
 it.each([
