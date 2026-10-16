@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rename,
   rm,
@@ -14,8 +15,11 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { initManagedWorkspace } from "../initWorkspace.js";
-import { renameProject } from "../desktop/projectApi.js";
+import { renameProject, linkProjectSourceRoot } from "../desktop/projectApi.js";
+import { setSourceDefaultProject } from "../desktop/sourceDefaultProject.js";
+import { claimNext, submitBlockResult } from "../taskManager/index.js";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
+import { normalizeRegistry } from "../desktop/canvasRegistry.js";
 import { acquireExecutorResultsWriteLease } from "../package/executorResultsWriteLease.js";
 import { withExecutorResultsWriteLease } from "../autoRun/executorResultsLifecycle.js";
 import {
@@ -323,7 +327,7 @@ it("requires committed recovery cleanup before relocating absolute journal paths
   });
 });
 async function fixture() {
-  const home = await mkdtemp(join(tmpdir(), "planweave-managed-rename-"));
+  const home = await realpath(await mkdtemp(join(tmpdir(), "planweave-managed-rename-")));
   directories.push(home);
   process.env.PLANWEAVE_HOME = home;
   process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = join(home, "desktop-settings.json");
@@ -782,4 +786,164 @@ it("moves normal managed history and preserves state while updating project and 
     "history-before-rename"
   );
   expect((await loadPackage(moved)).manifest.project.title).toBe("Storage destination");
+});
+
+async function storageContents(root: string): Promise<Record<string, string | null>> {
+  const contents: Record<string, string | null> = {};
+  async function visit(directory: string) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        contents[relative(root, path)] = null;
+        await visit(path);
+      } else contents[relative(root, path)] = (await readFile(path)).toString("base64");
+    }
+  }
+  await visit(root);
+  return contents;
+}
+
+async function absoluteStorageFixture(formal: boolean) {
+  const init = await fixture();
+  const manifest = basicManifest();
+  await writeJsonFile(init.workspace.manifestFile, manifest);
+  await writePromptFiles(init.workspace.packageDir, manifest);
+  const loaded = await projectGraph.loadProjectGraph(init.workspace.rootPath);
+  const canvases = loaded.manifest.canvases.map((canvas) => ({
+    ...canvas,
+    packageDir: join(init.workspace.workspaceRoot, canvas.packageDir),
+    stateFile: join(init.workspace.workspaceRoot, canvas.stateFile),
+    resultsDir: join(init.workspace.workspaceRoot, canvas.resultsDir)
+  }));
+  await writeJsonFile(join(init.workspace.workspaceRoot, "desktop", "canvases.json"), {
+    version: "desktop-canvases/v1",
+    activeCanvasId: "default",
+    canvases: canvases.map((canvas) => ({
+      canvasId: canvas.id,
+      name: canvas.title,
+      packageDir: canvas.packageDir,
+      stateFile: canvas.stateFile,
+      resultsDir: canvas.resultsDir,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    }))
+  });
+  if (formal)
+    await projectGraph.writeProjectGraph(init.workspace, { ...loaded.manifest, canvases });
+  else await rm(projectGraphPath(init.workspace));
+  const storage = await resolveTaskCanvasWorkspace(init.workspace.rootPath, "default");
+  await expect(claimNext({ projectRoot: storage })).resolves.toMatchObject({
+    kind: "block",
+    ref: "T-001#B-001"
+  });
+  const reportPath = join(init.home, "implementation.md");
+  await writeFile(reportPath, "Completed before absolute storage relocation.\n");
+  await submitBlockResult({ projectRoot: storage, ref: "T-001#B-001", reportPath });
+  return { ...init, storage };
+}
+
+it.each([
+  "transaction",
+  "lease"
+] as const)("rejects an absolute-storage %s before modifying rename metadata", async (kind) => {
+  const { home, project, workspace, storage } = await absoluteStorageFixture(true);
+  const lease =
+    kind === "lease"
+      ? await acquireExecutorResultsWriteLease(storage, "absolute-active-writer")
+      : null;
+  const transaction =
+    kind === "transaction"
+      ? await ImportTransaction.create({ workspaceRoot: storage.workspaceRoot })
+      : null;
+  try {
+    if (transaction) {
+      const staged = join(home, "staged-results");
+      await cp(storage.resultsDir, staged, { recursive: true });
+      await transaction.replacePath(storage.resultsDir, staged);
+    }
+    const before = await importTransactionIdentityDigest(workspace.workspaceRoot);
+    await expect(renameProject(project.id, "Storage destination")).rejects.toThrow(
+      kind === "lease" ? "executor results write conflict" : "write conflict"
+    );
+    expect(await importTransactionIdentityDigest(workspace.workspaceRoot)).toBe(before);
+    await expect(
+      access(join(home, "projects", createManagedProjectId("Storage destination")))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await lease?.release();
+    await transaction?.rollback();
+  }
+});
+
+it.each([
+  false,
+  true
+])("restores original absolute references and history after a post-move failure (formal=%s)", async (formal) => {
+  const { home, project, workspace, storage } = await absoluteStorageFixture(formal);
+  const source = await mkdtemp(join(tmpdir(), "planweave-absolute-source-"));
+  directories.push(source);
+  await linkProjectSourceRoot(project.id, source);
+  await setSourceDefaultProject(source, project.id);
+  const before = await storageContents(workspace.workspaceRoot);
+  const defaultsBefore = await readFile(join(home, "source-defaults.json"), "utf8");
+  let failed = false;
+  vi.mocked(rename).mockImplementation(async (oldPath, newPath) => {
+    if (!failed && String(newPath) === join(home, "source-defaults.json")) {
+      failed = true;
+      throw new Error("absolute relocation dependency failure");
+    }
+    return actualFs.rename(oldPath, newPath);
+  });
+  await expect(renameProject(project.id, "Storage destination")).rejects.toThrow(
+    "absolute relocation dependency failure"
+  );
+  expect(failed).toBe(true);
+  expect(await storageContents(workspace.workspaceRoot)).toEqual(before);
+  expect(await readFile(join(home, "source-defaults.json"), "utf8")).toBe(defaultsBefore);
+  expect((await projectGraph.loadProjectGraph(workspace.rootPath)).source).toBe(
+    formal ? "project_graph" : "legacy_registry"
+  );
+  const restored = await resolveTaskCanvasWorkspace(workspace.rootPath, "default");
+  expect(restored.resultsDir).toBe(storage.resultsDir);
+  expect(
+    await readFile(
+      join(restored.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001", "report.md"),
+      "utf8"
+    )
+  ).toBe("Completed before absolute storage relocation.\n");
+  expect((await loadPackage(restored)).manifest.project.title).toBe("Test Plan");
+  await expect(
+    access(join(home, "projects", createManagedProjectId("Storage destination")))
+  ).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it.each([
+  false,
+  true
+])("rejects outside-project absolute storage before any rename effect (formal=%s)", async (formal) => {
+  const { home, project, workspace } = await absoluteStorageFixture(formal);
+  const registryFile = join(workspace.workspaceRoot, "desktop", "canvases.json");
+  const graph = await projectGraph.loadProjectGraph(workspace.rootPath);
+  const outside = join(home, "outside-results");
+  await mkdir(outside);
+  await writeFile(join(outside, "untouched.txt"), "outside data");
+  if (formal) {
+    await projectGraph.writeProjectGraph(workspace, {
+      ...graph.manifest,
+      canvases: graph.manifest.canvases.map((canvas) => ({ ...canvas, resultsDir: outside }))
+    });
+  } else {
+    const registry = normalizeRegistry(JSON.parse(await readFile(registryFile, "utf8")));
+    registry.canvases[0].resultsDir = outside;
+    await writeJsonFile(registryFile, registry);
+  }
+  const before = await importTransactionIdentityDigest(workspace.workspaceRoot);
+  await expect(renameProject(project.id, "Storage destination")).rejects.toThrow(
+    "outside the PlanWeave workspace"
+  );
+  expect(await importTransactionIdentityDigest(workspace.workspaceRoot)).toBe(before);
+  expect(await readFile(join(outside, "untouched.txt"), "utf8")).toBe("outside data");
+  await expect(
+    access(join(home, "projects", createManagedProjectId("Storage destination")))
+  ).rejects.toMatchObject({ code: "ENOENT" });
 });

@@ -10,8 +10,9 @@ import {
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
+  claimBlock,
   claimNext,
   loadProjectGraph,
   readProjectPaths,
@@ -21,6 +22,7 @@ import {
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runtimeGateway } from "../toolRuntime.js";
+import { normalizeRegistry } from "../../../runtime/src/desktop/canvasRegistry.js";
 import { handlePlanweaveTool } from "../tools.js";
 import { readJson } from "./toolTestHelpers.js";
 
@@ -290,4 +292,198 @@ describe("legacy root default canvas status", () => {
     );
     expect(reviewPrompt.markdown).toContain(report.trim());
   });
+});
+
+it.each([
+  { source: "legacy_registry", multiple: false },
+  { source: "project_graph", multiple: false },
+  { source: "legacy_registry", multiple: true },
+  { source: "project_graph", multiple: true }
+] as const)("rebases inside-project absolute storage through public rename ($source, multiple=$multiple)", async ({
+  source,
+  multiple
+}) => {
+  const { home, project, expected, report } = await createLegacyStatusFixture("conflicting", true);
+  const registryPath = join(project.workspaceRoot, "desktop", "canvases.json");
+  const registry = normalizeRegistry(JSON.parse(await readFile(registryPath, "utf8")));
+  registry.canvases[0].resultsDir = join(project.workspaceRoot, "results");
+  if (multiple) {
+    for (const key of ["packageDir", "stateFile"] as const) {
+      registry.canvases[0][key] = join(project.workspaceRoot, registry.canvases[0][key]);
+    }
+    const extraRoot = join(project.workspaceRoot, "absolute-extra");
+    await mkdir(extraRoot);
+    await cp(
+      join(project.workspaceRoot, "canvases", "default", "package"),
+      join(extraRoot, "package"),
+      { recursive: true }
+    );
+    await cp(
+      join(project.workspaceRoot, "canvases", "default", "state.json"),
+      join(extraRoot, "state.json")
+    );
+    await cp(
+      join(project.workspaceRoot, "canvases", "default", "results"),
+      join(extraRoot, "results"),
+      { recursive: true }
+    );
+    registry.canvases.push({
+      ...registry.canvases[0],
+      canvasId: "extra",
+      name: "Extra",
+      packageDir: join(extraRoot, "package"),
+      stateFile: join(extraRoot, "state.json"),
+      resultsDir: join(extraRoot, "results")
+    });
+  }
+  await writeFile(registryPath, JSON.stringify(registry));
+  if (source === "project_graph") {
+    await writeFile(
+      join(project.workspaceRoot, "project-graph.json"),
+      JSON.stringify({
+        version: "plan-project/v1",
+        canvases: registry.canvases.map(
+          (canvas: {
+            canvasId: string;
+            name: string;
+            packageDir: string;
+            stateFile: string;
+            resultsDir: string;
+          }) => ({
+            id: canvas.canvasId,
+            type: "canvas",
+            title: canvas.name,
+            packageDir: canvas.packageDir,
+            stateFile: canvas.stateFile,
+            resultsDir: canvas.resultsDir
+          })
+        ),
+        edges: [],
+        crossTaskEdges: []
+      })
+    );
+  }
+  if (multiple) {
+    const extra = await resolveTaskCanvasWorkspace(project.workspaceRoot, "extra");
+    await expect(claimNext({ projectRoot: extra })).resolves.toMatchObject({
+      kind: "block",
+      ref: "T-RESIDUE-WORK#B-001"
+    });
+  }
+  const canonical = join(project.workspaceRoot, "canvases", "default");
+  const residueBefore = await Promise.all(
+    ["package/manifest.json", "state.json", "results/residue-history.txt"].map((path) =>
+      readFile(join(canonical, path), "utf8")
+    )
+  );
+  const renamed = await renameProject(project.projectId, "Absolute renamed");
+  expect(renamed.projectId).not.toBe(project.projectId);
+  expect(renamed.workspaceRoot).not.toBe(project.workspaceRoot);
+  const args = { projectId: renamed.projectId, canvasId: "default" };
+  expect(readJson(await handlePlanweaveTool("get_status", args, runtimeGateway))).toEqual({
+    ...expected,
+    projectId: renamed.projectId
+  });
+  expect(readJson(await handlePlanweaveTool("list_ready_blocks", args, runtimeGateway))).toEqual({
+    readyBlocks: [expect.objectContaining({ ref: "T-LEGACY-WORK#R-001" })]
+  });
+  expect(
+    readJson(
+      await handlePlanweaveTool(
+        "get_block_detail",
+        { ...args, blockRef: "T-LEGACY-WORK#B-001" },
+        runtimeGateway
+      )
+    )
+  ).toMatchObject({ block: { status: "completed", latestRunId: "RUN-001" } });
+  expect(
+    readJson(
+      await handlePlanweaveTool(
+        "get_prompt",
+        { ...args, ref: "T-LEGACY-WORK#R-001" },
+        runtimeGateway
+      )
+    )
+  ).toMatchObject({ markdown: expect.stringContaining(report.trim()) });
+  const paths = await readProjectPaths(renamed.workspaceRoot);
+  expect(paths).toMatchObject({
+    packageDir: join(renamed.workspaceRoot, "package"),
+    statePath: join(renamed.workspaceRoot, "state.json"),
+    resultsDir: join(renamed.workspaceRoot, "results")
+  });
+  const moved = await resolveTaskCanvasWorkspace(renamed.workspaceRoot, "default");
+  expect(
+    await readFile(
+      join(moved.resultsDir, "T-LEGACY-WORK", "blocks", "B-001", "runs", "RUN-001", "report.md"),
+      "utf8"
+    )
+  ).toBe(report);
+  expect(
+    await Promise.all(
+      ["package/manifest.json", "state.json", "results/residue-history.txt"].map((path) =>
+        readFile(join(renamed.workspaceRoot, "canvases", "default", path), "utf8")
+      )
+    )
+  ).toEqual(residueBefore);
+  const persistedRegistry = await readFile(
+    join(renamed.workspaceRoot, "desktop", "canvases.json"),
+    "utf8"
+  );
+  expect(persistedRegistry).not.toContain(project.workspaceRoot);
+  const graph = await loadProjectGraph(renamed.workspaceRoot);
+  expect(JSON.stringify(graph.manifest)).not.toContain(project.workspaceRoot);
+  expect(graph.manifest.canvases[0]).toMatchObject({
+    packageDir: multiple ? join(renamed.workspaceRoot, "package") : "package",
+    stateFile: multiple ? join(renamed.workspaceRoot, "state.json") : "state.json",
+    resultsDir: join(renamed.workspaceRoot, "results")
+  });
+  if (multiple) {
+    expect(
+      readJson(
+        await handlePlanweaveTool(
+          "get_status",
+          { projectId: renamed.projectId, canvasId: "extra" },
+          runtimeGateway
+        )
+      )
+    ).toMatchObject({ currentRefs: ["T-RESIDUE-WORK#B-001"] });
+    const extra = await resolveTaskCanvasWorkspace(renamed.workspaceRoot, "extra");
+    const nextReport = join(home, "after-rename.md");
+    await writeFile(nextReport, "Submitted after moving absolute storage.\n");
+    await submitBlockResult({
+      projectRoot: extra,
+      ref: "T-RESIDUE-WORK#B-001",
+      reportPath: nextReport
+    });
+    expect(
+      await readFile(
+        join(extra.resultsDir, "T-RESIDUE-WORK", "blocks", "B-001", "runs", "RUN-001", "report.md"),
+        "utf8"
+      )
+    ).toContain("Submitted after moving");
+  }
+  await runtimeGateway.createTask(renamed.projectId, "default", {
+    title: "New work",
+    promptMarkdown: "New work after relocation"
+  });
+  const fresh = await resolveTaskCanvasWorkspace(renamed.workspaceRoot, "default");
+  await expect(claimBlock({ projectRoot: fresh, ref: "T-NEW-WORK#B-001" })).resolves.toMatchObject({
+    kind: "block",
+    ref: "T-NEW-WORK#B-001"
+  });
+  const nextReport = join(home, "after-rename.md");
+  await writeFile(nextReport, "Submitted after moving absolute storage.\n");
+  await submitBlockResult({
+    projectRoot: fresh,
+    ref: "T-NEW-WORK#B-001",
+    reportPath: nextReport
+  });
+  expect(
+    await readFile(
+      join(fresh.resultsDir, "T-NEW-WORK", "blocks", "B-001", "runs", "RUN-001", "report.md"),
+      "utf8"
+    )
+  ).toContain("Submitted after moving");
+  await expect(access(project.workspaceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(relative(renamed.workspaceRoot, moved.resultsDir)).toBe("results");
 });

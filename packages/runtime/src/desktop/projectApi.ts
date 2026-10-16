@@ -6,7 +6,7 @@ import {
 } from "../package/importTransaction.js";
 import { withImportTransactionMutationAdmission } from "../package/importTransactionLock.js";
 import { assertNoExecutorResultsWriteLease } from "../package/executorResultsWriteLease.js";
-import { realpath, rename, rm, stat } from "node:fs/promises";
+import { readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import {
@@ -48,6 +48,7 @@ import type {
 import { desktopRegisteredProjectIdSchema } from "./types/desktopBridgeInputSchemas.js";
 import type { DesktopProjectReference, DesktopProjectSummary } from "./types.js";
 import { getActiveTaskCanvasId, listTaskCanvases } from "./canvasApi.js";
+import { prepareManagedProjectRelocation } from "./managedProjectRelocation.js";
 import {
   readActiveTaskCanvasSelection,
   writeActiveTaskCanvasSelection
@@ -343,10 +344,8 @@ async function rewriteSingleCanvasProjectTitle(
 }
 
 type SingleCanvasTitleSnapshot = {
-  canvasId: string;
-  projectGraphTitle: string;
   manifestFile: string;
-  manifestTitle: string | null;
+  manifestBytes: Buffer | null;
 } | null;
 
 async function readSingleCanvasTitleSnapshot(
@@ -361,37 +360,20 @@ async function readSingleCanvasTitleSnapshot(
     return null;
   }
   const manifestFile = projectCanvasWorkspace(workspace, canvas).manifestFile;
-  let manifestTitle: string | null = null;
-  if (await optionalStat(manifestFile)) {
-    const manifest = manifestSchema.parse(
-      await readJsonFile<unknown>(manifestFile)
-    ) as PlanPackageManifest;
-    manifestTitle = manifest.project.title;
-  }
   return {
-    canvasId: canvas.id,
-    projectGraphTitle: canvas.title,
     manifestFile,
-    manifestTitle
+    manifestBytes: (await optionalStat(manifestFile)) ? await readFile(manifestFile) : null
   };
 }
 
 async function restoreSingleCanvasTitleSnapshot(
-  workspace: ProjectWorkspace,
   snapshot: SingleCanvasTitleSnapshot
 ): Promise<void> {
   if (!snapshot) {
     return;
   }
-  const loaded = await loadProjectGraphForWorkspace(workspace);
-  await writeProjectGraph(workspace, {
-    ...loaded.manifest,
-    canvases: loaded.manifest.canvases.map((canvas) =>
-      canvas.id === snapshot.canvasId ? { ...canvas, title: snapshot.projectGraphTitle } : canvas
-    )
-  });
-  if (snapshot.manifestTitle !== null && (await optionalStat(snapshot.manifestFile))) {
-    await rewritePackageManifestTitle(snapshot.manifestFile, snapshot.manifestTitle);
+  if (snapshot.manifestBytes !== null && (await optionalStat(snapshot.manifestFile))) {
+    await writeFile(snapshot.manifestFile, snapshot.manifestBytes);
   }
 }
 
@@ -478,19 +460,20 @@ async function renameManagedProject(
           previousWorkspace.sourceRoot = nextProject.sourceRoot;
           nextWorkspace.sourceRoot = nextProject.sourceRoot;
           const graph = await loadProjectGraphForWorkspace(previousWorkspace);
+          const relocation = await prepareManagedProjectRelocation(
+            previousWorkspace,
+            nextWorkspace,
+            graph
+          );
           const storageWorkspaces = [
             previousWorkspace,
             nextWorkspace,
-            ...graph.manifest.canvases.flatMap((canvas) => [
-              projectCanvasWorkspace(previousWorkspace, canvas),
-              projectCanvasWorkspace(nextWorkspace, canvas)
-            ])
+            ...relocation.storageWorkspaces
           ];
           const roots = [
             previousWorkspaceRoot,
             nextWorkspaceRoot,
-            projectGraphPath(previousWorkspace),
-            projectGraphPath(nextWorkspace),
+            ...relocation.metadataPaths,
             ...storageWorkspaces.flatMap((workspace) => [
               workspace.packageDir,
               workspace.stateFile,
@@ -511,10 +494,17 @@ async function renameManagedProject(
                   })
                 );
               }
-              await assertNoPendingImportTransactionWrite({
-                workspaceRoot: previousWorkspaceRoot,
-                target: projectGraphPath(previousWorkspace)
-              });
+              for (const workspace of [previousWorkspace, nextWorkspace]) {
+                for (const target of [
+                  projectGraphPath(workspace),
+                  join(workspace.workspaceRoot, "desktop", "canvases.json")
+                ]) {
+                  await assertNoPendingImportTransactionWrite({
+                    workspaceRoot: workspace.workspaceRoot,
+                    target
+                  });
+                }
+              }
               await assertNoExecutorResultsWriteLease(previousWorkspaceRoot);
               if (nextProjectId === previousProjectId) {
                 await rewriteManagedProjectFiles(nextWorkspace, nextProject);
@@ -529,6 +519,7 @@ async function renameManagedProject(
                 try {
                   await rename(previousWorkspaceRoot, nextWorkspaceRoot);
                   moved = true;
+                  await relocation.persist();
                   await rewriteManagedProjectFiles(nextWorkspace, nextProject);
                   await updateSourceDefaultProjectReference(
                     previousProjectId,
@@ -553,10 +544,8 @@ async function renameManagedProject(
                         rootPath: previousWorkspaceRoot,
                         sourceRoot: previousProject.sourceRoot ?? null
                       });
-                      await restoreSingleCanvasTitleSnapshot(
-                        previousWorkspace,
-                        previousTitleSnapshot
-                      );
+                      await restoreSingleCanvasTitleSnapshot(previousTitleSnapshot);
+                      await relocation.restore();
                     } catch (rollbackError) {
                       throw new Error(
                         `Project rename failed: ${errorMessage(error)}; rollback failed: ${errorMessage(rollbackError)}`
