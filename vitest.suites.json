@@ -455,6 +455,7 @@
         "workspaceExecutionPreAdmissionStop.test.ts",
         "workspaceAgentEndpointPreAdmissionStop.test.tsx",
         "workspaceExecutionPreSessionCrash.test.ts",
+        "workspaceExecutionUnconfirmedSealRestart.test.ts",
         "workspaceExecutionOperatorCas.test.ts",
         "workspaceExecutionProcessBoundary.test.ts",
         "workspaceSessionPreflight.test.ts",
