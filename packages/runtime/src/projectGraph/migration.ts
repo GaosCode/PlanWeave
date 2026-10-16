@@ -9,18 +9,14 @@ import {
 export function projectGraphFromLegacyRegistry(registry: TaskCanvasRegistry): ProjectGraphManifest {
   return {
     version: supportedProjectGraphVersion,
-    canvases: registry.canvases.map((canvas) =>
-      canvas.canvasId === "default"
-        ? canonicalProjectCanvasNode({ id: "default", title: canvas.name })
-        : {
-            id: canvas.canvasId,
-            type: "canvas",
-            title: canvas.name,
-            packageDir: canvas.packageDir,
-            stateFile: canvas.stateFile,
-            resultsDir: canvas.resultsDir
-          }
-    ),
+    canvases: registry.canvases.map((canvas) => ({
+      id: canvas.canvasId,
+      type: "canvas",
+      title: canvas.name,
+      packageDir: canvas.packageDir,
+      stateFile: canvas.stateFile,
+      resultsDir: canvas.resultsDir
+    })),
     edges: [],
     crossTaskEdges: []
   };

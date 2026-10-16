@@ -310,9 +310,9 @@ describe("project graph loader", () => {
     expect(loaded.manifest.canvases.map((canvas) => canvas.id)).toEqual(["default", "second"]);
     expect(loaded.manifest.canvases[0]).toMatchObject({
       id: "default",
-      packageDir: "canvases/default/package",
-      stateFile: "canvases/default/state.json",
-      resultsDir: "canvases/default/results"
+      packageDir: "package",
+      stateFile: "state.json",
+      resultsDir: "results"
     });
   });
 
