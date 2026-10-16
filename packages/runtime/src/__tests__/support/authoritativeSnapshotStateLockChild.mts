@@ -142,7 +142,7 @@ try {
   })();
   void operation.catch(() => {});
   await requested;
-  // In the old inversion the claim owns package; in the fixed order materializer already owns it.
+  // Observe package-lock ownership before resuming materialization.
   if (!initialPackageHolder) await packageHeld;
   release();
   const results = await Promise.race([

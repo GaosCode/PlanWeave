@@ -124,7 +124,7 @@ afterEach(async () => {
   boundary.release = null;
   boundary.beforeHealthDirectory = null;
   boundary.directoryEntered = false;
-  // Release only this suite's disposable children if a pre-fix assertion fails.
+  // Release this suite's disposable children even when an assertion fails.
   await Promise.all(roots.map((root) => writeFile(join(root, "release"), "release")));
   for (const root of roots) {
     let events = "";
