@@ -1,4 +1,11 @@
 import { writeProjectGraph } from "./loadProjectGraph.js";
+import {
+  resolveDefaultCanvasMigrationStorage,
+  assertSameDefaultCanvasMigrationStorage,
+  migrationStorageTargets,
+  type DefaultCanvasMigrationStorage
+} from "./defaultCanvasMigrationStorage.js";
+import { runtimeStateSchema } from "../schema/runtimeState.js";
 import { withImportTransactionMutationAdmission } from "../package/importTransactionLock.js";
 import { withCanvasStorageReplacement } from "../package/withCanvasStorageMutation.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
@@ -88,8 +95,8 @@ function workspaceRelative(projectWorkspace: ProjectWorkspace, path: string): st
   return relative(projectWorkspace.workspaceRoot, path).split("\\").join("/");
 }
 
-function isIgnoredPath(path: string): boolean {
-  return path.split(/[\\/]/).some((part) => ignoredFileNames.has(part));
+function isIgnoredFileName(fileName: string): boolean {
+  return ignoredFileNames.has(fileName);
 }
 
 async function collectDirectoryFiles(
@@ -107,14 +114,16 @@ async function collectDirectoryFiles(
   for (const entry of entries) {
     const absolutePath = join(root, entry.name);
     const relativePath = join(prefix, entry.name).split("\\").join("/");
-    if (isIgnoredPath(relativePath)) {
-      continue;
+    if (!entry.isDirectory() && !entry.isFile()) {
+      throw new Error(
+        `Default canvas migration cannot copy non-regular storage '${absolutePath}'.`
+      );
     }
     if (entry.isDirectory()) {
       await collectDirectoryFiles(absolutePath, relativePath, files);
       continue;
     }
-    if (!entry.isFile()) {
+    if (isIgnoredFileName(entry.name)) {
       continue;
     }
     files.set(relativePath, await normalizedFileContent(absolutePath));
@@ -136,7 +145,7 @@ async function normalizedFileContent(path: string): Promise<string> {
 async function collectSnapshot(paths: DefaultCanvasWorkspacePaths): Promise<WorkspaceSnapshot> {
   const files = new Map<string, string>();
   await collectDirectoryFiles(paths.packageDir, "package", files);
-  if ((await optionalStat(paths.stateFile)) && !isIgnoredPath(basename(paths.stateFile))) {
+  if ((await optionalStat(paths.stateFile)) && !isIgnoredFileName(basename(paths.stateFile))) {
     files.set("state.json", await normalizedFileContent(paths.stateFile));
   }
   await collectDirectoryFiles(paths.resultsDir, "results", files);
@@ -164,14 +173,12 @@ function sortedKeys(files: Map<string, string>): string[] {
 
 function detectDiagnostics(input: {
   projectWorkspace: ProjectWorkspace;
+  legacyPaths: DefaultCanvasWorkspacePaths;
   legacy: WorkspaceSnapshot;
   canonical: WorkspaceSnapshot;
   action: DefaultCanvasWorkspaceMigrationAction;
 }): ValidationIssue[] {
-  const legacyPath = workspaceRelative(
-    input.projectWorkspace,
-    legacyDefaultCanvasWorkspacePaths(input.projectWorkspace).packageDir
-  );
+  const legacyPath = workspaceRelative(input.projectWorkspace, input.legacyPaths.packageDir);
   const canonicalPath = workspaceRelative(
     input.projectWorkspace,
     canonicalDefaultCanvasWorkspacePaths(input.projectWorkspace).workspaceRoot
@@ -209,9 +216,24 @@ function detectDiagnostics(input: {
 export async function detectDefaultCanvasWorkspaceMigration(
   projectWorkspace: ProjectWorkspace
 ): Promise<DefaultCanvasWorkspaceMigrationPlan> {
-  const legacyPaths = legacyDefaultCanvasWorkspacePaths(projectWorkspace);
   const canonicalPaths = canonicalDefaultCanvasWorkspacePaths(projectWorkspace);
-  const legacy = await collectSnapshot(legacyPaths);
+  const storage = await resolveDefaultCanvasMigrationStorage(
+    projectWorkspace,
+    legacyDefaultCanvasWorkspacePaths(projectWorkspace),
+    canonicalPaths
+  );
+  return detectMigrationForStorage(projectWorkspace, storage, canonicalPaths);
+}
+
+async function detectMigrationForStorage(
+  projectWorkspace: ProjectWorkspace,
+  storage: DefaultCanvasMigrationStorage,
+  canonicalPaths: DefaultCanvasWorkspacePaths
+): Promise<DefaultCanvasWorkspaceMigrationPlan> {
+  const legacyPaths = storage.paths;
+  const legacy = storage.hasDefaultCanvas
+    ? await collectSnapshot(legacyPaths)
+    : { hasMeaningfulFiles: false, files: new Map<string, string>() };
   const canonical = await collectSnapshot(canonicalPaths);
   let action: DefaultCanvasWorkspaceMigrationAction = "none";
   let reason = "No legacy root default canvas data exists.";
@@ -240,7 +262,7 @@ export async function detectDefaultCanvasWorkspaceMigration(
     canonicalPaths,
     legacyFiles: sortedKeys(legacy.files),
     canonicalFiles: sortedKeys(canonical.files),
-    diagnostics: detectDiagnostics({ projectWorkspace, legacy, canonical, action })
+    diagnostics: detectDiagnostics({ projectWorkspace, legacyPaths, legacy, canonical, action })
   };
 }
 
@@ -327,7 +349,7 @@ async function verifyCanonical(paths: DefaultCanvasWorkspacePaths): Promise<void
   const rawManifest = await readJsonFile<unknown>(join(paths.packageDir, "manifest.json"));
   manifestSchema.parse(rawManifest);
   if (await optionalStat(paths.stateFile)) {
-    await readJsonFile<unknown>(paths.stateFile);
+    runtimeStateSchema.parse(await readJsonFile<unknown>(paths.stateFile));
   }
   if (await optionalStat(paths.resultsDir)) {
     await optionalReaddir(paths.resultsDir, { withFileTypes: true });
@@ -368,25 +390,43 @@ export async function applyDefaultCanvasWorkspaceMigration(
 ): Promise<DefaultCanvasWorkspaceMigrationApplyResult> {
   return withProjectMutationLock(projectWorkspace.workspaceRoot, async () => {
     await assertCurrentProjectWorkspace(projectWorkspace);
+    const canonicalPaths = canonicalDefaultCanvasWorkspacePaths(projectWorkspace);
+    const storage = await resolveDefaultCanvasMigrationStorage(
+      projectWorkspace,
+      legacyDefaultCanvasWorkspacePaths(projectWorkspace),
+      canonicalPaths
+    );
     return withPackageFileConsistency(
       [
         projectGraphPath(projectWorkspace),
-        legacyDefaultCanvasWorkspacePaths(projectWorkspace).packageDir,
-        legacyDefaultCanvasWorkspacePaths(projectWorkspace).stateFile,
-        legacyDefaultCanvasWorkspacePaths(projectWorkspace).resultsDir,
-        canonicalDefaultCanvasWorkspacePaths(projectWorkspace).packageDir,
-        canonicalDefaultCanvasWorkspacePaths(projectWorkspace).stateFile,
-        canonicalDefaultCanvasWorkspacePaths(projectWorkspace).resultsDir
+        join(projectWorkspace.workspaceRoot, "desktop", "canvases.json"),
+        ...migrationStorageTargets(storage.paths),
+        ...migrationStorageTargets(canonicalPaths)
       ],
-      () => applyDefaultCanvasWorkspaceMigrationLocked(projectWorkspace)
+      async () => {
+        await assertCurrentProjectWorkspace(projectWorkspace);
+        const lockedStorage = await resolveDefaultCanvasMigrationStorage(
+          projectWorkspace,
+          legacyDefaultCanvasWorkspacePaths(projectWorkspace),
+          canonicalPaths
+        );
+        assertSameDefaultCanvasMigrationStorage(storage, lockedStorage);
+        return applyDefaultCanvasWorkspaceMigrationLocked(
+          projectWorkspace,
+          lockedStorage,
+          canonicalPaths
+        );
+      }
     );
   });
 }
 
 async function applyDefaultCanvasWorkspaceMigrationLocked(
-  projectWorkspace: ProjectWorkspace
+  projectWorkspace: ProjectWorkspace,
+  storage: DefaultCanvasMigrationStorage,
+  canonicalPaths: DefaultCanvasWorkspacePaths
 ): Promise<DefaultCanvasWorkspaceMigrationApplyResult> {
-  const plan = await detectDefaultCanvasWorkspaceMigration(projectWorkspace);
+  const plan = await detectMigrationForStorage(projectWorkspace, storage, canonicalPaths);
   if (plan.action === "none") {
     return {
       ...plan,
@@ -423,6 +463,16 @@ async function applyDefaultCanvasWorkspaceMigrationLocked(
               manifestFile: join(plan.canonicalPaths.packageDir, "manifest.json")
             },
             async () => {
+              await assertCurrentProjectWorkspace(projectWorkspace);
+              assertSameDefaultCanvasMigrationStorage(
+                storage,
+                await resolveDefaultCanvasMigrationStorage(
+                  projectWorkspace,
+                  legacyDefaultCanvasWorkspacePaths(projectWorkspace),
+                  canonicalPaths
+                )
+              );
+              const sourceSnapshot = await collectSnapshot(plan.legacyPaths);
               if (plan.action === "migrate") {
                 await copyIfExists(plan.legacyPaths.packageDir, plan.canonicalPaths.packageDir, {
                   recursive: true
@@ -434,6 +484,25 @@ async function applyDefaultCanvasWorkspaceMigrationLocked(
               }
 
               await verifyCanonical(plan.canonicalPaths);
+              const copiedSnapshot = await collectSnapshot(plan.canonicalPaths);
+              if (
+                !snapshotsEqual(sourceSnapshot, copiedSnapshot) ||
+                !snapshotsEqual(sourceSnapshot, await collectSnapshot(plan.legacyPaths))
+              ) {
+                throw new Error("Default canvas migration storage verification failed.");
+              }
+              // Copying creates canonical paths, so recheck publication authority separately.
+              const publicationStorage = await resolveDefaultCanvasMigrationStorage(
+                projectWorkspace,
+                legacyDefaultCanvasWorkspacePaths(projectWorkspace),
+                canonicalPaths
+              );
+              if (
+                publicationStorage.authority !== storage.authority ||
+                publicationStorage.sourceIdentity !== storage.sourceIdentity
+              ) {
+                throw new Error("Default canvas migration authority changed before publication.");
+              }
               await writeCanonicalProjectGraph(
                 projectWorkspace,
                 await defaultCanvasTitle(plan.canonicalPaths)

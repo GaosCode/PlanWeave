@@ -756,6 +756,7 @@
         "projectCanvasLifecycleMutation.test.ts",
         "projectCanvasMutation.test.ts",
         "projectDoctor.test.ts",
+        "customDefaultCanvasMigration.test.ts",
         "projectGraph.test.ts",
         "projectGraphMaterializeRace.test.ts",
         "refreshPrompt.test.ts",

@@ -6,10 +6,8 @@ import { readJsonFile } from "./json.js";
 import { findOrphanResultsFromGraph, findOrphanStateFromGraph } from "./package/orphans.js";
 import { resolveProjectWorkspace } from "./project.js";
 import {
-  canonicalDefaultCanvasWorkspacePaths,
   compileProjectGraph,
   detectDefaultCanvasWorkspaceMigration,
-  legacyDefaultCanvasWorkspacePaths,
   loadProjectGraph,
   projectCanvasWorkspace
 } from "./projectGraph/index.js";
@@ -105,7 +103,11 @@ function isCanonicalDefaultCanvasPath(canvas: {
   );
 }
 
-function legacyRootDefaultGraph() {
+function legacyRootDefaultGraph(paths: {
+  packageDir: string;
+  stateFile: string;
+  resultsDir: string;
+}) {
   return {
     version: "plan-project/v1" as const,
     canvases: [
@@ -113,9 +115,9 @@ function legacyRootDefaultGraph() {
         id: "default",
         type: "canvas" as const,
         title: "任务画布",
-        packageDir: "package",
-        stateFile: "state.json",
-        resultsDir: "results"
+        packageDir: paths.packageDir,
+        stateFile: paths.stateFile,
+        resultsDir: paths.resultsDir
       }
     ],
     edges: [],
@@ -123,8 +125,11 @@ function legacyRootDefaultGraph() {
   };
 }
 
-function graphWithLegacyRootDefaultCanvas(loaded: LoadedProjectGraph): LoadedProjectGraph {
-  const legacyDefault = legacyRootDefaultGraph().canvases[0];
+function graphWithLegacyRootDefaultCanvas(
+  loaded: LoadedProjectGraph,
+  paths: { packageDir: string; stateFile: string; resultsDir: string }
+): LoadedProjectGraph {
+  const legacyDefault = legacyRootDefaultGraph(paths).canvases[0];
   const hasDefault = loaded.manifest.canvases.some((canvas) => canvas.id === "default");
   return {
     ...loaded,
@@ -351,7 +356,8 @@ export async function validatePackage(options: {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
   const workspace = await resolveProjectWorkspace(options.projectRoot);
-  let migrationPlan: Awaited<ReturnType<typeof detectDefaultCanvasWorkspaceMigration>>;
+  let migrationPlan: Awaited<ReturnType<typeof detectDefaultCanvasWorkspaceMigration>> | null =
+    null;
   try {
     migrationPlan = await detectDefaultCanvasWorkspaceMigration(workspace);
   } catch (error) {
@@ -362,17 +368,8 @@ export async function validatePackage(options: {
         "."
       )
     );
-    migrationPlan = {
-      action: "none",
-      reason: "Default canvas migration state could not be inspected.",
-      legacyPaths: legacyDefaultCanvasWorkspacePaths(workspace),
-      canonicalPaths: canonicalDefaultCanvasWorkspacePaths(workspace),
-      legacyFiles: [],
-      canonicalFiles: [],
-      diagnostics: []
-    };
   }
-  if (migrationPlan.action === "conflict") {
+  if (migrationPlan?.action === "conflict") {
     errors.push(...migrationPlan.diagnostics);
   }
   const seenPackageDirs = new Set<string>();
@@ -382,7 +379,7 @@ export async function validatePackage(options: {
     const loaded = await loadProjectGraph(options.projectRoot);
     const canonicalDefaultMissingWithLegacyRoot = hasCanonicalDefaultCanvasMissingWithLegacyRoot(
       loaded,
-      migrationPlan.action
+      migrationPlan?.action ?? "unavailable"
     );
     if (canonicalDefaultMissingWithLegacyRoot) {
       errors.push(
@@ -392,12 +389,12 @@ export async function validatePackage(options: {
           "project-graph.json:canvases"
         )
       );
-    } else if (migrationPlan.action === "migrate" || migrationPlan.action === "mixed_identical") {
+    } else if (migrationPlan?.action === "migrate" || migrationPlan?.action === "mixed_identical") {
       warnings.push(...migrationPlan.diagnostics);
     }
     const graphInput =
-      loaded.source !== "project_graph" && migrationPlan.action === "migrate"
-        ? graphWithLegacyRootDefaultCanvas(loaded)
+      loaded.source === "legacy_default_canvas" && migrationPlan?.action === "migrate"
+        ? graphWithLegacyRootDefaultCanvas(loaded, migrationPlan.legacyPaths)
         : canonicalDefaultMissingWithLegacyRoot
           ? graphWithoutCanonicalDefaultCanvas(loaded)
           : loaded;

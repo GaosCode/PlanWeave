@@ -2,6 +2,10 @@ import { access, cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { customDefaultCanvasMigrationFixture } from "../../../runtime/src/__tests__/customDefaultCanvasMigrationFixture.js";
+import { runtimeGateway } from "../../../mcp/src/toolRuntime.js";
+import { handlePlanweaveTool } from "../../../mcp/src/tools.js";
+import { readJson } from "../../../mcp/src/__tests__/toolTestHelpers.js";
 import { runCli, runCliExpectFailure } from "./support/cliTestHarness.js";
 
 describe("STEP-1 CLI contract: project graph", () => {
@@ -88,5 +92,55 @@ describe("STEP-1 CLI contract: project graph", () => {
     await expect(
       access(join(init.workspace.workspaceRoot, "migration-quarantine"))
     ).rejects.toThrow();
+  }, 20_000);
+
+  it.each([
+    { absolute: false, residue: false },
+    { absolute: false, residue: true },
+    { absolute: true, residue: false },
+    { absolute: true, residue: true }
+  ])("migrates registered custom storage via CLI ($absolute absolute, $residue root residue)", async ({
+    absolute,
+    residue
+  }) => {
+    const f = await customDefaultCanvasMigrationFixture(absolute, residue);
+    const env = { ...process.env, PLANWEAVE_HOME: f.home, INIT_CWD: f.root };
+    const result = JSON.parse((await runCli(["project-graph", "migrate", "--json"], env)).stdout);
+    expect(result).toMatchObject({ action: "migrate", legacyPaths: f.sourcePaths });
+    expect(await readFile(f.init.workspace.stateFile, "utf8")).toBe(f.sourceStateBytes);
+    expect(await readFile(join(f.init.workspace.resultsDir, f.reportRelativePath), "utf8")).toBe(
+      f.report
+    );
+    expect(
+      readJson(
+        await handlePlanweaveTool("get_status", { projectId: f.init.project.id }, runtimeGateway)
+      )
+    ).toMatchObject({
+      currentRefs: ["T-001#R-001"],
+      blocks: expect.arrayContaining([
+        expect.objectContaining({ ref: "T-001#B-001", status: "completed" })
+      ])
+    });
+    expect(
+      readJson(
+        await handlePlanweaveTool(
+          "list_ready_blocks",
+          { projectId: f.init.project.id },
+          runtimeGateway
+        )
+      )
+    ).toMatchObject({
+      readyBlocks: [expect.objectContaining({ ref: "T-002#B-001", canvasId: "default" })]
+    });
+    expect(
+      await runtimeGateway.getBlockDetail(f.init.project.id, "T-001#B-001", "default")
+    ).toMatchObject({ status: "completed", latestRunId: "RUN-001" });
+    expect(
+      (await runtimeGateway.getPrompt(f.init.project.id, "default", "T-001#R-001")).markdown
+    ).toContain(f.report.trim());
+    if (residue)
+      expect(
+        await readFile(join(f.init.workspace.workspaceRoot, "results", "unrelated.txt"), "utf8")
+      ).toBe("Root residue");
   }, 20_000);
 });
