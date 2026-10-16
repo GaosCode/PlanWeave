@@ -231,9 +231,14 @@ async function detectMigrationForStorage(
   canonicalPaths: DefaultCanvasWorkspacePaths
 ): Promise<DefaultCanvasWorkspaceMigrationPlan> {
   const legacyPaths = storage.paths;
-  const legacy = storage.hasDefaultCanvas
-    ? await collectSnapshot(legacyPaths)
-    : { hasMeaningfulFiles: false, files: new Map<string, string>() };
+  const hasRootPackage = storage.canonicalAuthority
+    ? Boolean(await optionalStat(join(legacyPaths.packageDir, "manifest.json")))
+    : false;
+  if (storage.canonicalAuthority && !hasRootPackage) await verifyCanonical(canonicalPaths);
+  const legacy =
+    storage.hasDefaultCanvas && (!storage.canonicalAuthority || hasRootPackage)
+      ? await collectSnapshot(legacyPaths)
+      : { hasMeaningfulFiles: false, files: new Map<string, string>() };
   const canonical = await collectSnapshot(canonicalPaths);
   let action: DefaultCanvasWorkspaceMigrationAction = "none";
   let reason = "No legacy root default canvas data exists.";

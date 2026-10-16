@@ -13,6 +13,7 @@ export type DefaultCanvasMigrationStorage = {
   identity: string;
   sourceIdentity: string;
   hasDefaultCanvas: boolean;
+  canonicalAuthority: boolean;
 };
 
 export function migrationStorageTargets(paths: DefaultCanvasWorkspacePaths): string[] {
@@ -76,7 +77,8 @@ export async function resolveDefaultCanvasMigrationStorage(
     migrationStorageTargets(registered).every(
       (path, index) => resolve(path) === canonicalTargets[index]
     );
-  // Canonical graphs retain diagnostics and explicit recovery for traditional root residue.
+  const canonicalAuthority = loaded.source !== "legacy_default_canvas" && Boolean(canonicalDefault);
+  // Canonical graphs retain diagnostics and explicit recovery for traditional root packages.
   const paths =
     loaded.source === "legacy_default_canvas" || canonicalDefault || !registered
       ? traditional
@@ -91,7 +93,14 @@ export async function resolveDefaultCanvasMigrationStorage(
     ...(loaded.source === "legacy_default_canvas" ? {} : { manifest: loaded.manifest })
   });
   if (!canvas) {
-    return { paths, authority, identity: "", sourceIdentity: "", hasDefaultCanvas: false };
+    return {
+      paths,
+      authority,
+      identity: "",
+      sourceIdentity: "",
+      hasDefaultCanvas: false,
+      canonicalAuthority
+    };
   }
   const sourceTargets = migrationStorageTargets(paths);
   for (let index = 0; index < sourceTargets.length; index++) {
@@ -113,7 +122,8 @@ export async function resolveDefaultCanvasMigrationStorage(
       ...sourceTargets,
       ...canonicalTargets
     ]),
-    hasDefaultCanvas: Boolean(canvas)
+    hasDefaultCanvas: Boolean(canvas),
+    canonicalAuthority
   };
 }
 

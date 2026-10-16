@@ -1,12 +1,37 @@
-import { access, cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, cp, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  claimNext,
+  resolveTaskCanvasWorkspace,
+  submitBlockResult,
+  submitReviewResult
+} from "@planweave-ai/runtime";
 import { customDefaultCanvasMigrationFixture } from "../../../runtime/src/__tests__/customDefaultCanvasMigrationFixture.js";
 import { runtimeGateway } from "../../../mcp/src/toolRuntime.js";
 import { handlePlanweaveTool } from "../../../mcp/src/tools.js";
 import { readJson } from "../../../mcp/src/__tests__/toolTestHelpers.js";
 import { runCli, runCliExpectFailure } from "./support/cliTestHarness.js";
+
+async function workspaceFiles(
+  root: string
+): Promise<Record<string, { bytes: string; modified: number }>> {
+  const files: Record<string, { bytes: string; modified: number }> = {};
+  async function visit(directory: string): Promise<void> {
+    for (const entry of await readdir(join(root, directory), { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else
+        files[path] = {
+          bytes: (await readFile(join(root, path))).toString("base64"),
+          modified: (await stat(join(root, path))).mtimeMs
+        };
+    }
+  }
+  await visit("");
+  return files;
+}
 
 describe("STEP-1 CLI contract: project graph", () => {
   it("initializes and materializes a formal project graph through the CLI", async () => {
@@ -105,12 +130,23 @@ describe("STEP-1 CLI contract: project graph", () => {
   }) => {
     const f = await customDefaultCanvasMigrationFixture(absolute, residue);
     const env = { ...process.env, PLANWEAVE_HOME: f.home, INIT_CWD: f.root };
+    const rootStatePath = join(f.init.workspace.workspaceRoot, "state.json");
+    const rootStateBefore = residue ? await readFile(rootStatePath, "utf8") : null;
     const result = JSON.parse((await runCli(["project-graph", "migrate", "--json"], env)).stdout);
     expect(result).toMatchObject({ action: "migrate", legacyPaths: f.sourcePaths });
     expect(await readFile(f.init.workspace.stateFile, "utf8")).toBe(f.sourceStateBytes);
     expect(await readFile(join(f.init.workspace.resultsDir, f.reportRelativePath), "utf8")).toBe(
       f.report
     );
+    const migratedFiles = await workspaceFiles(f.init.workspace.workspaceRoot);
+    expect(JSON.parse((await runCli(["validate", "--json"], env)).stdout)).toMatchObject({
+      ok: true,
+      errors: []
+    });
+    expect(
+      JSON.parse((await runCli(["project-graph", "migrate", "--json"], env)).stdout)
+    ).toMatchObject({ action: "none", created: false, legacyBackupPaths: {} });
+    expect(await workspaceFiles(f.init.workspace.workspaceRoot)).toEqual(migratedFiles);
     expect(
       readJson(
         await handlePlanweaveTool("get_status", { projectId: f.init.project.id }, runtimeGateway)
@@ -138,9 +174,56 @@ describe("STEP-1 CLI contract: project graph", () => {
     expect(
       (await runtimeGateway.getPrompt(f.init.project.id, "default", "T-001#R-001")).markdown
     ).toContain(f.report.trim());
-    if (residue)
+    const canonical = await resolveTaskCanvasWorkspace(f.root, "default");
+    expect(canonical).toMatchObject({
+      packageDir: f.init.workspace.packageDir,
+      stateFile: f.init.workspace.stateFile,
+      resultsDir: f.init.workspace.resultsDir
+    });
+    const reviewPath = join(f.home, "review.json");
+    await writeFile(
+      reviewPath,
+      JSON.stringify({
+        reviewBlockRef: "T-001#R-001",
+        taskId: "T-001",
+        verdict: "passed",
+        content: "Migrated implementation history is intact."
+      })
+    );
+    await submitReviewResult({
+      projectRoot: canonical,
+      ref: "T-001#R-001",
+      resultPath: reviewPath
+    });
+    expect(await claimNext({ projectRoot: canonical })).toMatchObject({
+      kind: "block",
+      ref: "T-002#B-001",
+      reason: "claimed"
+    });
+    const newReportPath = join(f.home, "post-migration.md");
+    await writeFile(newReportPath, "Post-migration implementation.\n");
+    expect(
+      await submitBlockResult({
+        projectRoot: canonical,
+        ref: "T-002#B-001",
+        reportPath: newReportPath
+      })
+    ).toMatchObject({ status: "completed", runId: "RUN-001" });
+    expect(
+      await readFile(
+        join(canonical.resultsDir, "T-002/blocks/B-001/runs/RUN-001/report.md"),
+        "utf8"
+      )
+    ).toBe("Post-migration implementation.\n");
+    expect(await readFile(join(canonical.resultsDir, f.reportRelativePath), "utf8")).toBe(f.report);
+    expect(
+      await readFile(join(result.legacyBackupPaths.resultsDir, f.reportRelativePath), "utf8")
+    ).toBe(f.report);
+    if (residue) {
+      expect(await readFile(rootStatePath, "utf8")).toBe(rootStateBefore);
       expect(
         await readFile(join(f.init.workspace.workspaceRoot, "results", "unrelated.txt"), "utf8")
       ).toBe("Root residue");
+    }
   }, 20_000);
 });

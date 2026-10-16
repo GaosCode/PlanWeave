@@ -6,6 +6,7 @@ import {
   readFile,
   readlink,
   rename,
+  rm,
   symlink,
   writeFile
 } from "node:fs/promises";
@@ -136,6 +137,32 @@ describe("registered default canvas migration", () => {
     await expect(access(projectGraphPath(f.init.workspace))).rejects.toMatchObject({
       code: "ENOENT"
     });
+  });
+
+  it.each([
+    "invalid",
+    "missing",
+    "read"
+  ] as const)("rejects %s canonical manifests without a traditional root package anchor", async (failure) => {
+    const f = await customDefaultCanvasMigrationFixture();
+    await applyDefaultCanvasWorkspaceMigration(f.init.workspace);
+    const graphBefore = await readFile(projectGraphPath(f.init.workspace), "utf8");
+    const manifestPath = join(f.init.workspace.packageDir, "manifest.json");
+    if (failure === "invalid") await writeJsonFile(manifestPath, { version: "invalid" });
+    if (failure === "missing") await rm(manifestPath);
+    if (failure === "read")
+      vi.mocked(readFile).mockImplementation(async (path, options) => {
+        if (path === manifestPath)
+          throw Object.assign(new Error("canonical read failed"), { code: "EIO" });
+        return actualFs.readFile(path, options);
+      });
+    await expect(detectDefaultCanvasWorkspaceMigration(f.init.workspace)).rejects.toThrow();
+    await expect(applyDefaultCanvasWorkspaceMigration(f.init.workspace)).rejects.toThrow();
+    expect(await readFile(projectGraphPath(f.init.workspace), "utf8")).toBe(graphBefore);
+    expect(await readFile(f.init.workspace.stateFile, "utf8")).toBe(f.sourceStateBytes);
+    expect(await readFile(join(f.init.workspace.resultsDir, f.reportRelativePath), "utf8")).toBe(
+      f.report
+    );
   });
 
   it.each([
