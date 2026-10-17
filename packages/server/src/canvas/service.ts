@@ -49,6 +49,17 @@ import type { ContentAuthorityStore } from "./contentAuthorityStore.js";
 import type { AuthoritativeCanvasCommitPort } from "./authoritativeCanvasCommitPort.js";
 import { packageDigestManifestFromContent } from "./contentFingerprint.js";
 
+type VerifiedAuthority = {
+  content: AuthoritativeContentVersion;
+  expectedContentHeadRevision: number;
+};
+
+type VerifiedReconnectContext = {
+  scope: CanvasScopeKey;
+  authority: VerifiedAuthority;
+  head: ReturnType<CanvasCommandRepository["head"]>;
+};
+
 export type CanvasCommandServiceOptions = {
   repository: CanvasCommandRepository;
   access: ProjectAccessRepository;
@@ -150,9 +161,9 @@ export class CanvasCommandService {
     }
   }
 
-  private async rebuildLegacyBaseline(scope: CanvasScopeKey): Promise<void> {
+  private async rebuildLegacyBaseline(scope: CanvasScopeKey): Promise<VerifiedAuthority | null> {
     const rebase = this.options.repository.legacyBaselineRebase(scope);
-    if (!rebase || rebase.status === "completed") return;
+    if (!rebase || rebase.status === "completed") return null;
 
     const contentVersions = this.options.contentVersions;
     if (!contentVersions) throw new Error("canvas_baseline_rebase_authority_unavailable");
@@ -178,53 +189,29 @@ export class CanvasCommandService {
       digestManifest: packageDigestManifestFromContent(authorityVersion.content),
       sizeBytes: authorityVersion.content.totalBytes
     });
+    return {
+      content: authorityVersion,
+      expectedContentHeadRevision: authorityHead.revision
+    };
   }
 
-  private readAuthoritativeContent(scope: CanvasScopeKey): {
-    content: AuthoritativeContentVersion;
-    expectedContentHeadRevision: number;
-  } {
+  private readAuthoritativeContent(scope: CanvasScopeKey): VerifiedAuthority {
     const contentVersions = this.options.contentVersions;
     if (!contentVersions) throw new Error("content_authority_unavailable");
     const head = contentVersions.head(scope);
     if (!head) throw new Error("initial_content_publish_required");
     const content = contentVersions.readVersion(scope, head.content);
-    if (content.content.canonicalDigest !== head.content.canonicalDigest) {
+    if (
+      content.content.canonicalDigest !== head.content.canonicalDigest ||
+      content.completed.canonicalDigest !== head.content.canonicalDigest ||
+      content.completed.versionId !== head.content.versionId
+    ) {
       throw new Error("content_authority_head_mismatch");
     }
     return {
       content,
       expectedContentHeadRevision: head.revision
     };
-  }
-
-  private snapshotFromAuthoritativeHead(
-    scope: CanvasScopeKey,
-    revision: number
-  ): CanvasSnapshotContent | null {
-    try {
-      const authority = this.readAuthoritativeContent(scope);
-      if (
-        authority.content.content.canonicalDigest !==
-        this.options.repository.head(scope).contentDigest
-      ) {
-        return null;
-      }
-      return {
-        metadata: {
-          schemaVersion: "canvas-snapshot/v2",
-          scope: canvasScopeRefSchema.parse(scope),
-          revision,
-          contentDigest: authority.content.content.canonicalDigest,
-          createdAt: authority.content.createdAt,
-          sizeBytes: authority.content.content.totalBytes
-        },
-        encoding: "content_version_ref",
-        content: authority.content.completed
-      };
-    } catch {
-      return null;
-    }
   }
 
   private commitAcceptedWithAuthoritativeContent(input: {
@@ -668,13 +655,9 @@ export class CanvasCommandService {
     request: CanvasReconnectRequest,
     scope: CanvasScopeKey
   ): Promise<CanvasReconnectResponse> {
-    const authorizedScope = {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      canvasId: scope.canvasId
-    };
+    let rebuiltAuthority: VerifiedAuthority | null;
     try {
-      await this.rebuildLegacyBaseline(scope);
+      rebuiltAuthority = await this.rebuildLegacyBaseline(scope);
     } catch (error) {
       return canvasReconnectErrorSchema.parse({
         type: "canvas.reconnect.error",
@@ -687,46 +670,108 @@ export class CanvasCommandService {
           error instanceof Error ? error.message.slice(0, 200) : "canvas_baseline_rebase_failed"
       });
     }
-    let authority: { content: AuthoritativeContentVersion; expectedContentHeadRevision: number };
-    try {
-      authority = this.readAuthoritativeContent(scope);
-    } catch (error) {
-      return canvasReconnectErrorSchema.parse({
-        type: "canvas.reconnect.error",
-        protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
-        schemaVersion: "canvas-command/v1",
-        projectId: request.projectId,
-        canvasId: request.canvasId,
-        code: "snapshot_malformed",
-        detail:
-          error instanceof Error ? error.message.slice(0, 200) : "content_authority_unavailable"
-      });
+    // SQLite commits from other processes can advance both heads during this synchronous read.
+    for (let capture = 0; capture < 2; capture += 1) {
+      let authority: VerifiedAuthority;
+      try {
+        authority =
+          capture === 0 && rebuiltAuthority !== null
+            ? rebuiltAuthority
+            : this.readAuthoritativeContent(scope);
+      } catch (error) {
+        return canvasReconnectErrorSchema.parse({
+          type: "canvas.reconnect.error",
+          protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
+          schemaVersion: "canvas-command/v1",
+          projectId: request.projectId,
+          canvasId: request.canvasId,
+          code: "snapshot_malformed",
+          detail:
+            error instanceof Error ? error.message.slice(0, 200) : "content_authority_unavailable"
+        });
+      }
+      let head = this.options.repository.head(scope);
+      if (head.revision === 0 && head.contentDigest === "0".repeat(64)) {
+        head = this.options.repository.ensureInitialHead(
+          scope,
+          authority.content.content.canonicalDigest
+        );
+      }
+      const context: VerifiedReconnectContext = { scope, authority, head };
+      let result: { ok: true; response: CanvasReconnectResponse } | { ok: false; error: unknown };
+      try {
+        const response =
+          head.contentDigest === authority.content.content.canonicalDigest
+            ? this.reconnectFromVerifiedContext(context, request)
+            : canvasReconnectErrorSchema.parse({
+                type: "canvas.reconnect.error",
+                protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
+                schemaVersion: "canvas-command/v1",
+                projectId: request.projectId,
+                canvasId: request.canvasId,
+                code: "snapshot_malformed",
+                detail: "canvas_content_head_mismatch"
+              });
+        result = { ok: true, response };
+      } catch (error) {
+        // A concurrent commit can invalidate the delta's captured head before DTO validation.
+        result = { ok: false, error };
+      }
+      const contentVersions = this.options.contentVersions;
+      if (!contentVersions) throw new Error("content_authority_unavailable");
+      let currentContentHead: ReturnType<ContentAuthorityStore["head"]>;
+      let currentHead: ReturnType<CanvasCommandRepository["head"]>;
+      try {
+        currentContentHead = contentVersions.head(scope);
+        currentHead = this.options.repository.head(scope);
+      } catch (error) {
+        return canvasReconnectErrorSchema.parse({
+          type: "canvas.reconnect.error",
+          protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
+          schemaVersion: "canvas-command/v1",
+          projectId: request.projectId,
+          canvasId: request.canvasId,
+          code: "snapshot_malformed",
+          detail:
+            error instanceof Error ? error.message.slice(0, 200) : "content_authority_unavailable"
+        });
+      }
+      if (
+        currentContentHead !== null &&
+        currentContentHead.revision === authority.expectedContentHeadRevision &&
+        currentContentHead.content.versionId === authority.content.completed.versionId &&
+        currentContentHead.content.canonicalDigest ===
+          authority.content.completed.canonicalDigest &&
+        currentHead.revision === head.revision &&
+        currentHead.contentDigest === head.contentDigest
+      ) {
+        if (!result.ok) throw result.error;
+        return result.response;
+      }
     }
-    let head = this.options.repository.head(scope);
-    if (head.revision === 0 && head.contentDigest === "0".repeat(64)) {
-      head = this.options.repository.ensureInitialHead(
-        scope,
-        authority.content.content.canonicalDigest
-      );
-    }
-    if (head.contentDigest !== authority.content.content.canonicalDigest) {
-      return canvasReconnectErrorSchema.parse({
-        type: "canvas.reconnect.error",
-        protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
-        schemaVersion: "canvas-command/v1",
-        projectId: request.projectId,
-        canvasId: request.canvasId,
-        code: "snapshot_malformed",
-        detail: "canvas_content_head_mismatch"
-      });
-    }
+    return canvasReconnectErrorSchema.parse({
+      type: "canvas.reconnect.error",
+      protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,
+      schemaVersion: "canvas-command/v1",
+      projectId: request.projectId,
+      canvasId: request.canvasId,
+      code: "snapshot_malformed",
+      detail: "content_authority_head_changed"
+    });
+  }
 
+  private reconnectFromVerifiedContext(
+    context: VerifiedReconnectContext,
+    request: CanvasReconnectRequest
+  ): CanvasReconnectResponse {
+    const { scope, head } = context;
+    const authorizedScope = canvasScopeRefSchema.parse(scope);
     if (request.afterRevision > head.revision) {
-      return this.verifiedSnapshotOrError(scope, request, "revision_ahead");
+      return this.verifiedSnapshotOrError(context, request, "revision_ahead");
     }
 
     if (request.afterRevision === 0) {
-      return this.verifiedSnapshotOrError(scope, request, "fresh_session");
+      return this.verifiedSnapshotOrError(context, request, "fresh_session");
     }
 
     if (request.afterContentDigest !== undefined) {
@@ -735,7 +780,7 @@ export class CanvasCommandService {
         entry?.contentDigest ??
         (request.afterRevision === head.revision ? head.contentDigest : undefined);
       if (digestAt !== undefined && digestAt !== request.afterContentDigest) {
-        const snapshot = this.verifiedSnapshotOrError(scope, request, "digest_mismatch");
+        const snapshot = this.verifiedSnapshotOrError(context, request, "digest_mismatch");
         return snapshot;
       }
     }
@@ -749,7 +794,7 @@ export class CanvasCommandService {
           ? request.afterRevision !== head.revision
           : entriesProbe[0]!.previousRevision !== request.afterRevision
       ) {
-        return this.verifiedSnapshotOrError(scope, request, "truncated_journal");
+        return this.verifiedSnapshotOrError(context, request, "truncated_journal");
       }
     }
 
@@ -757,17 +802,17 @@ export class CanvasCommandService {
       // Retention dropped history before the client's cursor.
       const first = this.options.repository.listJournalAfter(scope, oldest - 1)[0];
       if (!first || first.previousRevision > request.afterRevision) {
-        return this.verifiedSnapshotOrError(scope, request, "retention_gap");
+        return this.verifiedSnapshotOrError(context, request, "retention_gap");
       }
     }
 
     const entries = this.options.repository.listJournalAfter(scope, request.afterRevision);
     if (entries.length > CANVAS_COMMAND_MAX_JOURNAL_DELTA_ENTRIES) {
-      return this.verifiedSnapshotOrError(scope, request, "truncated_journal");
+      return this.verifiedSnapshotOrError(context, request, "truncated_journal");
     }
     if (entries.length === 0) {
       if (request.afterRevision !== head.revision) {
-        return this.verifiedSnapshotOrError(scope, request, "retention_gap");
+        return this.verifiedSnapshotOrError(context, request, "retention_gap");
       }
       return canvasReconnectDeltaSchema.parse({
         type: "canvas.reconnect.delta",
@@ -781,7 +826,7 @@ export class CanvasCommandService {
       });
     }
     if (entries[0]!.previousRevision !== request.afterRevision) {
-      return this.verifiedSnapshotOrError(scope, request, "truncated_journal");
+      return this.verifiedSnapshotOrError(context, request, "truncated_journal");
     }
 
     return canvasReconnectDeltaSchema.parse({
@@ -797,7 +842,7 @@ export class CanvasCommandService {
   }
 
   private verifiedSnapshotOrError(
-    scope: CanvasScopeKey,
+    context: VerifiedReconnectContext,
     request: CanvasReconnectRequest,
     reason:
       | "retention_gap"
@@ -806,9 +851,20 @@ export class CanvasCommandService {
       | "fresh_session"
       | "revision_ahead"
   ): CanvasReconnectResponse {
-    const head = this.options.repository.head(scope);
-    const snapshot = this.snapshotFromAuthoritativeHead(scope, head.revision);
-    if (!snapshot || !this.verifySnapshot(head.contentDigest, snapshot)) {
+    const { scope, head, authority } = context;
+    const snapshot: CanvasSnapshotContent = {
+      metadata: {
+        schemaVersion: "canvas-snapshot/v2",
+        scope: canvasScopeRefSchema.parse(scope),
+        revision: head.revision,
+        contentDigest: authority.content.content.canonicalDigest,
+        createdAt: authority.content.createdAt,
+        sizeBytes: authority.content.content.totalBytes
+      },
+      encoding: "content_version_ref",
+      content: authority.content.completed
+    };
+    if (!this.verifySnapshot(head.contentDigest, snapshot)) {
       return canvasReconnectErrorSchema.parse({
         type: "canvas.reconnect.error",
         protocolVersion: CANVAS_COMMAND_PROTOCOL_VERSION,

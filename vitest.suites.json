@@ -1033,6 +1033,7 @@
         "canvasCommandBaselineMigration.test.ts",
         "canvasCommandHttp.test.ts",
         "canvasCommandRecoveryBudget.test.ts",
+        "canvasCommandReconnectBudget.test.ts",
         "authoritativeExecutionRuntimeAdapter.test.ts",
         "runtimeResetProjectionParity.test.ts",
         "canvasRuntimeAvailabilityService.test.ts",
