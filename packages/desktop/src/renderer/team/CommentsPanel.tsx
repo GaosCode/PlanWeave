@@ -3,7 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { createTranslator } from "../i18n";
 import { SafeMarkdown } from "../inspector/SafeMarkdown";
-import type { StagedAttachment } from "../collaboration/attachmentUpload";
+import {
+  isStagedAttachmentPending,
+  type StagedAttachment
+} from "../collaboration/attachmentUpload";
 import type { CommentRowViewModel, CommentsPanelMode } from "../collaboration/commentViewModels";
 import type { CommentComposerDraft } from "../collaboration/commentDraftStore";
 import type { CollaborationCommentAttachmentBody } from "../../shared/collaboration.js";
@@ -444,9 +447,11 @@ export function CommentsPanel({
                     ? t("commentsAttachmentReady")
                     : attachment.phase === "error"
                       ? t("commentsAttachmentError")
-                      : t("commentsAttachmentUploading")}
+                      : attachment.phase === "cancelled"
+                        ? t("commentsAttachmentCancelled")
+                        : t("commentsAttachmentUploading")}
                 </span>
-                {attachment.phase !== "ready" && attachment.phase !== "error" ? (
+                {isStagedAttachmentPending(attachment) ? (
                   <span className="tabular-nums text-muted-foreground">
                     {Math.round(attachment.progress * 100)}%
                   </span>
@@ -462,7 +467,7 @@ export function CommentsPanel({
                     {t("commentsDownloadAttachment")}
                   </Button>
                 ) : null}
-                {attachment.phase === "ready" || attachment.phase === "error" ? (
+                {!isStagedAttachmentPending(attachment) ? (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -507,7 +512,12 @@ export function CommentsPanel({
           </Button>
           <Button
             size="sm"
-            disabled={!canCompose || submitting || !draft.body.trim()}
+            disabled={
+              !canCompose ||
+              submitting ||
+              !draft.body.trim() ||
+              stagedAttachments.some(isStagedAttachmentPending)
+            }
             data-testid="comments-submit"
             onClick={() => void onSubmit()}
           >

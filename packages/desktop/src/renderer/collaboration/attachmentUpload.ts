@@ -39,6 +39,15 @@ export type StagedAttachment = {
   input: StagedAttachmentInput | null;
 };
 
+export function isStagedAttachmentPending(attachment: StagedAttachment): boolean {
+  return (
+    attachment.phase === "queued" ||
+    attachment.phase === "creating" ||
+    attachment.phase === "uploading" ||
+    attachment.phase === "finalizing"
+  );
+}
+
 const allowedMedia = new Set<string>(COMMENT_ATTACHMENT_ALLOWED_MEDIA_TYPES);
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -112,15 +121,21 @@ export async function uploadStagedAttachment(input: {
     progress: 0.1,
     errorMessage: null
   };
+  const cancelled = (): StagedAttachment => ({
+    ...current,
+    phase: "cancelled",
+    progress: 0,
+    errorMessage: null,
+    input: null
+  });
+  if (input.isCancelled()) return cancelled();
   input.onProgress(current);
-  if (input.isCancelled()) {
-    return { ...current, phase: "cancelled", progress: 0 };
-  }
 
   try {
+    if (input.isCancelled()) return cancelled();
     const digestSha256 = await sha256Hex(input.bytes);
     if (input.isCancelled()) {
-      return { ...current, phase: "cancelled", progress: 0 };
+      return cancelled();
     }
 
     const pending = await input.api.createCollaborationPendingAttachment({
@@ -129,6 +144,7 @@ export async function uploadStagedAttachment(input: {
       fileName: current.displayName,
       expectedDigestSha256: digestSha256
     });
+    if (input.isCancelled()) return cancelled();
     current = {
       ...current,
       phase: "uploading",
@@ -138,7 +154,7 @@ export async function uploadStagedAttachment(input: {
     };
     input.onProgress(current);
     if (input.isCancelled()) {
-      return { ...current, phase: "cancelled", progress: 0 };
+      return cancelled();
     }
 
     await input.api.uploadCollaborationPendingAttachment({
@@ -147,16 +163,18 @@ export async function uploadStagedAttachment(input: {
       bodyBase64: bytesToBase64(input.bytes),
       digestSha256
     });
+    if (input.isCancelled()) return cancelled();
     current = { ...current, phase: "finalizing", progress: 0.8 };
     input.onProgress(current);
     if (input.isCancelled()) {
-      return { ...current, phase: "cancelled", progress: 0 };
+      return cancelled();
     }
 
     const finalized = await input.api.finalizeCollaborationPendingAttachment({
       pendingUploadId: pending.pendingUploadId,
       expectedDigestSha256: digestSha256
     });
+    if (input.isCancelled()) return cancelled();
     const ready: StagedAttachment = {
       ...current,
       phase: "ready",
@@ -175,7 +193,7 @@ export async function uploadStagedAttachment(input: {
     return ready;
   } catch (error) {
     if (input.isCancelled()) {
-      return { ...current, phase: "cancelled", progress: 0 };
+      return cancelled();
     }
     const message =
       error && typeof error === "object" && "message" in error

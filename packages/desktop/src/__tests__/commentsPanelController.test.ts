@@ -1,7 +1,13 @@
 /* @vitest-environment jsdom */
 
-import { webcrypto } from "node:crypto";
 import { createElement } from "react";
+import {
+  deferred,
+  scopedPanel,
+  enableUploads,
+  imageFile,
+  stageImage
+} from "./helpers/commentsComposerFixture";
 import "@testing-library/jest-dom/vitest";
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -385,80 +391,6 @@ describe("useActivityPanelController", () => {
   });
 });
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((yes, no) => {
-    resolve = yes;
-    reject = no;
-  });
-  return { promise, resolve, reject };
-}
-
-async function scopedPanel() {
-  const fixture = createApi();
-  const shell = acquireCollaborationReadModelController(fixture.api);
-  await shell.controller.setActiveProject({
-    profileId: "profile-1",
-    projectId: "project-1",
-    canvasId: "canvas-1"
-  });
-  const hook = renderHook(
-    ({ open }) =>
-      useCommentsPanelController({
-        workItem: taskItem,
-        open,
-        api: fixture.api,
-        t: createTranslator("en")
-      }),
-    { initialProps: { open: true } }
-  );
-  await waitFor(() => expect(hook.result.current.loading).toBe(false));
-  await waitFor(() => expect(hook.result.current.canCompose).toBe(true));
-  const switchProject = async (projectId: string, profileId = "profile-1") => {
-    await act(async () => {
-      fixture.changeStatus(projectId, profileId);
-      await shell.controller.setActiveProject({ profileId, projectId, canvasId: "canvas-1" });
-    });
-    await waitFor(() => expect(hook.result.current.loading).toBe(false));
-  };
-  return { ...fixture, ...hook, shell, switchProject };
-}
-
-function enableUploads(api: PlanWeaveCollaborationApi) {
-  vi.stubGlobal("crypto", webcrypto);
-  let seq = 0;
-  vi.mocked(api.createCollaborationPendingAttachment).mockImplementation(async () => ({
-    pendingUploadId: `upload-${++seq}`
-  }));
-  vi.mocked(api.uploadCollaborationPendingAttachment).mockResolvedValue(undefined);
-  vi.mocked(api.finalizeCollaborationPendingAttachment).mockImplementation(async (command) => ({
-    pendingUploadId: command.pendingUploadId,
-    digestSha256: command.expectedDigestSha256,
-    sizeBytes: 4,
-    mediaType: "image/png",
-    fileName: "image.png"
-  }));
-}
-
-const imageFile = (name: string) => ({
-  name,
-  type: "image/png",
-  size: 4,
-  arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer
-});
-
-async function stageImage(panel: Awaited<ReturnType<typeof scopedPanel>>, name: string) {
-  await act(async () => {
-    await panel.result.current.stageFiles([imageFile(name)]);
-  });
-  await waitFor(() =>
-    expect(
-      panel.result.current.stagedAttachments.find((item) => item.displayName === name)?.phase
-    ).toBe("ready")
-  );
-}
-
 describe("comments hook mutation scope and composer ownership", () => {
   it.each([
     true,
@@ -644,6 +576,10 @@ describe("comments hook mutation scope and composer ownership", () => {
       await f.result.current.stageFiles([imageFile("old.png")]);
     });
     await waitFor(() => expect(f.result.current.stagedAttachments[0]?.phase).toBe(phase));
+    act(() => f.result.current.setDraftBody("pending attachment draft"));
+    await act(async () => expect(await f.result.current.submitComment()).toBe(false));
+    expect(f.createComment).not.toHaveBeenCalled();
+    expect(f.result.current.actionError).toBe(createTranslator("en")("commentsAttachmentsPending"));
     await f.switchProject("project-B");
     await stageImage(f, "B.png");
     const attachments = f.result.current.stagedAttachments;
@@ -672,11 +608,66 @@ describe("comments hook mutation scope and composer ownership", () => {
     await f.switchProject("project-B");
     await act(async () => {
       buffer.resolve(new Uint8Array([1, 2, 3, 4]).buffer);
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await buffer.promise;
     });
     expect(f.api.createCollaborationPendingAttachment).not.toHaveBeenCalled();
     expect(f.result.current.stagedAttachments).toEqual([]);
     f.unmount();
+  });
+});
+
+describe("draft attachment cancellation and submission", () => {
+  it("blocks submission while the file read is queued, including the staging event", async () => {
+    const f = await scopedPanel();
+    enableUploads(f.api);
+    const buffer = deferred<ArrayBuffer>();
+    act(() => f.result.current.setDraftBody("queued draft"));
+    await act(async () => {
+      const staging = f.result.current.stageFiles([
+        { ...imageFile("queued.png"), arrayBuffer: () => buffer.promise }
+      ]);
+      expect(await f.result.current.submitComment()).toBe(false);
+      await staging;
+    });
+    expect(f.result.current.stagedAttachments[0]?.phase).toBe("queued");
+    expect(f.createComment).not.toHaveBeenCalled();
+    await act(async () => {
+      expect(await f.result.current.submitComment()).toBe(false);
+    });
+    expect(f.result.current.actionError).toBe(createTranslator("en")("commentsAttachmentsPending"));
+    await act(async () => buffer.resolve(new Uint8Array([1, 2, 3, 4]).buffer));
+    await waitFor(() => expect(f.result.current.stagedAttachments[0]?.phase).toBe("ready"));
+    const input = f.result.current.stagedAttachments[0]!.input;
+    await act(async () => expect(await f.result.current.submitComment()).toBe(true));
+    expect(f.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({ body: "queued draft", attachments: [input] })
+    );
+    expect(f.result.current.stagedAttachments).toEqual([]);
+    f.unmount();
+    f.shell.release();
+  });
+
+  it("uses current draft and ready attachments after cancellation in the submit event", async () => {
+    const f = await scopedPanel();
+    enableUploads(f.api);
+    await stageImage(f, "cancelled.png");
+    const localId = f.result.current.stagedAttachments[0]!.localId;
+    act(() => f.result.current.setDraftBody("previous text"));
+    await act(async () => {
+      f.result.current.cancelAttachment(localId);
+      f.result.current.setDraftBody("current text");
+      expect(await f.result.current.submitComment()).toBe(true);
+    });
+    expect(f.createComment).toHaveBeenCalledWith(
+      expect.objectContaining({ body: "current text", attachments: [] })
+    );
+    expect(f.result.current.stagedAttachments[0]).toMatchObject({
+      phase: "cancelled",
+      input: null
+    });
+    expect(f.result.current.draft.body).toBe("");
+    f.unmount();
+    f.shell.release();
   });
 });
 

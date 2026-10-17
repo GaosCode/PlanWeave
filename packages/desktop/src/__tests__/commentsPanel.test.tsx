@@ -84,6 +84,77 @@ describe("CommentsPanel", () => {
     };
   }
 
+  it.each(
+    (["en", "zh-CN"] as const).flatMap((language) =>
+      (["queued", "creating", "uploading", "finalizing", "cancelled", "error"] as const).map(
+        (phase) => ({ language, phase })
+      )
+    )
+  )("shows $phase state and keyboard actions in $language", async ({ language, phase }) => {
+    const user = userEvent.setup();
+    const translate = createTranslator(language);
+    const terminal = phase === "cancelled" || phase === "error";
+    const props = editProps({
+      t: translate,
+      draft: { body: "publishable text", showPreview: false },
+      stagedAttachments: [
+        {
+          localId: "draft-state",
+          displayName: "state.png",
+          mediaType: "image/png",
+          sizeBytes: 4,
+          phase,
+          progress: 0.35,
+          errorMessage: phase === "error" ? "upload failed" : null,
+          pendingUploadId: null,
+          digestSha256: null,
+          input: null
+        }
+      ]
+    });
+    render(<CommentsPanel {...props} />);
+    const row = screen.getByTestId("comments-staged-attachment");
+    expect(row).toHaveTextContent(
+      terminal
+        ? translate(
+            phase === "cancelled" ? "commentsAttachmentCancelled" : "commentsAttachmentError"
+          )
+        : translate("commentsAttachmentUploading")
+    );
+    if (terminal) {
+      expect(row).toHaveTextContent(
+        language === "en" ? "attachment will not be sent" : "此附件不会发送"
+      );
+      expect(row).not.toHaveTextContent("35%");
+      expect(within(row).queryByTestId("comments-cancel-attachment")).not.toBeInTheDocument();
+    } else {
+      expect(row).toHaveTextContent("35%");
+      expect(within(row).queryByTestId("comments-remove-attachment")).not.toBeInTheDocument();
+    }
+    expect(
+      within(row).queryByTestId("comments-download-pending-attachment")
+    ).not.toBeInTheDocument();
+    const action = within(row).getByRole("button", {
+      name: translate(terminal ? "commentsRemoveAttachment" : "commentsCancelAttachment")
+    });
+    action.focus();
+    await user.keyboard("{Enter}");
+    expect(terminal ? props.onRemoveAttachment : props.onCancelAttachment).toHaveBeenCalledWith(
+      "draft-state"
+    );
+    const submit = screen.getByTestId("comments-submit");
+    if (terminal) {
+      expect(submit).toBeEnabled();
+      submit.focus();
+      await user.keyboard(" ");
+      expect(props.onSubmit).toHaveBeenCalledOnce();
+    } else {
+      expect(submit).toBeDisabled();
+      await user.click(submit);
+      expect(props.onSubmit).not.toHaveBeenCalled();
+    }
+  });
+
   it("offers a public download only for ready staged attachments", async () => {
     const onDownloadPendingAttachment = vi.fn().mockResolvedValue(undefined);
     const attachment = {

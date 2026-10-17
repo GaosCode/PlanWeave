@@ -12,6 +12,7 @@ import {
 } from "../collaboration/commentPaginationSession";
 import {
   createStagedAttachmentFromFile,
+  isStagedAttachmentPending,
   uploadStagedAttachment,
   type StagedAttachment
 } from "../collaboration/attachmentUpload";
@@ -156,6 +157,15 @@ export function useCommentsPanelController(
   const [actionError, setActionError] = useState<string | null>(null);
   const [draftTick, setDraftTick] = useState(0);
   const [stagedAttachments, setStagedAttachments] = useState<StagedAttachment[]>([]);
+  const stagedAttachmentsRef = useRef<StagedAttachment[]>([]);
+  const updateStagedAttachments = useCallback(
+    (update: (current: StagedAttachment[]) => StagedAttachment[]) => {
+      const next = update(stagedAttachmentsRef.current);
+      stagedAttachmentsRef.current = next;
+      setStagedAttachments(next);
+    },
+    []
+  );
   const cancelledUploads = useRef(new Set<string>());
   const generationRef = useRef(0);
   const mutationRequestRef = useRef(0);
@@ -173,11 +183,13 @@ export function useCommentsPanelController(
   );
   useLayoutEffect(() => {
     currentScopeRef.current = scopeToken;
+    updateStagedAttachments(() => []);
+    cancelledUploads.current = new Set();
     return () => {
       currentScopeRef.current = null;
       generationRef.current += 1;
     };
-  }, [scopeToken]);
+  }, [scopeToken, updateStagedAttachments]);
   const isCurrentScope = useCallback(() => currentScopeRef.current === scopeToken, [scopeToken]);
 
   useEffect(() => {
@@ -213,8 +225,6 @@ export function useCommentsPanelController(
   useEffect(() => {
     generationRef.current += 1;
     setPagination(emptyCommentPaginationSnapshot());
-    setStagedAttachments([]);
-    cancelledUploads.current = new Set();
     setSubmitting(false);
     setActionError(null);
     if (!args.open || !args.workItem || !sessionConnected || !api) return;
@@ -337,17 +347,19 @@ export function useCommentsPanelController(
 
   const submitComment = useCallback(async () => {
     if (!api || !args.workItem || !controller || !canMutate || !isCurrentScope()) return false;
-    const bodyCheck = validateCommentBodyLength(draft.body.trim());
+    const submittedDraft = getCommentDraft(args.workItem, scopeKey);
+    const bodyCheck = validateCommentBodyLength(submittedDraft.body.trim());
     if (!bodyCheck.ok) {
       setActionError(args.t("commentsBodyInvalid"));
       return false;
     }
-    const ready = stagedAttachments.filter((a) => a.phase === "ready" && a.input);
-    if (
-      stagedAttachments.some(
-        (a) => a.phase === "creating" || a.phase === "uploading" || a.phase === "finalizing"
-      )
-    ) {
+    const attachments = stagedAttachmentsRef.current.filter(
+      (item) => !cancelledUploads.current.has(item.localId)
+    );
+    const ready = attachments.flatMap((item) =>
+      item.phase === "ready" && item.input ? [{ localId: item.localId, input: item.input }] : []
+    );
+    if (attachments.some(isStagedAttachmentPending)) {
       setActionError(args.t("commentsAttachmentsPending"));
       return false;
     }
@@ -355,7 +367,6 @@ export function useCommentsPanelController(
       setActionError(args.t("commentsAttachmentsTooMany"));
       return false;
     }
-    const submittedDraft = draft;
     const consumedAttachments = new Set(ready.map((item) => item.localId));
     const request = ++mutationRequestRef.current;
     const isCurrentRequest = () => isCurrentScope() && request === mutationRequestRef.current;
@@ -364,8 +375,8 @@ export function useCommentsPanelController(
     try {
       const result = await controller.createComment({
         workItem: args.workItem,
-        body: draft.body.trim(),
-        attachments: ready.map((a) => a.input!)
+        body: submittedDraft.body.trim(),
+        attachments: ready.map((item) => item.input)
       });
       if (!isCurrentRequest()) return result !== null;
       if (!result) {
@@ -377,7 +388,9 @@ export function useCommentsPanelController(
       paginationRef.current?.confirm(result);
       clearCommentDraft(args.workItem, submittedDraft, scopeKey);
       for (const localId of consumedAttachments) cancelledUploads.current.add(localId);
-      setStagedAttachments((prev) => prev.filter((item) => !consumedAttachments.has(item.localId)));
+      updateStagedAttachments((prev) =>
+        prev.filter((item) => !consumedAttachments.has(item.localId))
+      );
       setDraftTick((v) => v + 1);
       return true;
     } catch (error) {
@@ -392,11 +405,10 @@ export function useCommentsPanelController(
     args.workItem,
     canMutate,
     controller,
-    draft,
     isCurrentScope,
     scopeKey,
     snapshot.lastError,
-    stagedAttachments
+    updateStagedAttachments
   ]);
 
   const editComment = useCallback(
@@ -483,7 +495,8 @@ export function useCommentsPanelController(
       }
       const remaining =
         COMMENT_ATTACHMENTS_MAX_COUNT -
-        stagedAttachments.filter((a) => a.phase !== "cancelled" && a.phase !== "error").length;
+        stagedAttachmentsRef.current.filter((a) => a.phase !== "cancelled" && a.phase !== "error")
+          .length;
       if (remaining <= 0) {
         setActionError(args.t("commentsAttachmentsTooMany"));
         return;
@@ -496,26 +509,31 @@ export function useCommentsPanelController(
           continue;
         }
         const localId = created.staged.localId;
-        setStagedAttachments((prev) => [...prev, created.staged]);
+        updateStagedAttachments((prev) => [...prev, created.staged]);
+        // Each selection creates one localId for one upload attempt; removed ids are never reused.
+        const acceptsProgress = () =>
+          isCurrentScope() &&
+          !cancelledUploads.current.has(localId) &&
+          stagedAttachmentsRef.current.some((item) => item.localId === localId);
         void (async () => {
           try {
             const buffer = new Uint8Array(await file.arrayBuffer());
-            if (!isCurrentScope()) return;
+            if (!acceptsProgress()) return;
             await uploadStagedAttachment({
               api,
               staged: created.staged,
               bytes: buffer,
-              isCancelled: () => !isCurrentScope() || cancelledUploads.current.has(localId),
+              isCancelled: () => !acceptsProgress(),
               onProgress: (next) => {
-                if (!isCurrentScope()) return;
-                setStagedAttachments((prev) =>
+                if (!acceptsProgress()) return;
+                updateStagedAttachments((prev) =>
                   prev.map((item) => (item.localId === localId ? next : item))
                 );
               }
             });
           } catch {
-            if (!isCurrentScope()) return;
-            setStagedAttachments((prev) =>
+            if (!acceptsProgress()) return;
+            updateStagedAttachments((prev) =>
               prev.map((item) =>
                 item.localId === localId
                   ? {
@@ -531,31 +549,31 @@ export function useCommentsPanelController(
         })();
       }
     },
-    [api, args.t, canMutate, isCurrentScope, stagedAttachments]
+    [api, args.t, canMutate, isCurrentScope, updateStagedAttachments]
   );
 
   const cancelAttachment = useCallback(
     (localId: string) => {
       if (!isCurrentScope()) return;
       cancelledUploads.current.add(localId);
-      setStagedAttachments((prev) =>
+      updateStagedAttachments((prev) =>
         prev.map((item) =>
           item.localId === localId
-            ? { ...item, phase: "cancelled", progress: 0, errorMessage: null }
+            ? { ...item, phase: "cancelled", progress: 0, errorMessage: null, input: null }
             : item
         )
       );
     },
-    [isCurrentScope]
+    [isCurrentScope, updateStagedAttachments]
   );
 
   const removeAttachment = useCallback(
     (localId: string) => {
       if (!isCurrentScope()) return;
       cancelledUploads.current.add(localId);
-      setStagedAttachments((prev) => prev.filter((item) => item.localId !== localId));
+      updateStagedAttachments((prev) => prev.filter((item) => item.localId !== localId));
     },
-    [isCurrentScope]
+    [isCurrentScope, updateStagedAttachments]
   );
 
   const isCancelled = useCallback((localId: string) => cancelledUploads.current.has(localId), []);
@@ -587,7 +605,7 @@ export function useCommentsPanelController(
     mode,
     rows,
     draft,
-    stagedAttachments: stagedAttachments.filter((a) => a.phase !== "cancelled"),
+    stagedAttachments,
     loading,
     loadingMore,
     hasMore: nextCursor != null,
