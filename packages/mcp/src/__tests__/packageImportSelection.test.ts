@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 async function fixture() {
-  const home = await realpath(await mkdtemp(join(tmpdir(), "planweave-mcp-import-")));
+  const home = await realpath(await mkdtemp(join(tmpdir(), "planweave-mcp-selection-home-")));
   const draftRoot = await mkdtemp(join(tmpdir(), "planweave-mcp-draft-"));
   roots.push(home, draftRoot);
   process.env.PLANWEAVE_HOME = home;

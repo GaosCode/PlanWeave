@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   initManagedWorkspace,
   replacePackageFiles,
@@ -39,7 +39,6 @@ const packageFiles: PackageFileEntry[] = [
 ];
 
 let home: string;
-let originalHome: string | undefined;
 let caseInsensitive: boolean;
 
 beforeAll(async () => {
@@ -62,18 +61,18 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  originalHome = process.env.PLANWEAVE_HOME;
   home = await mkdtemp(join(tmpdir(), "planweave-mcp-home-"));
-  process.env.PLANWEAVE_HOME = home;
+  const temporaryDirectory = join(home, "tmp");
+  await mkdir(temporaryDirectory);
+  vi.stubEnv("PLANWEAVE_HOME", home);
+  for (const variable of ["TMPDIR", "TEMP", "TMP"]) {
+    vi.stubEnv(variable, temporaryDirectory);
+  }
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(home, { recursive: true, force: true });
-  if (originalHome === undefined) {
-    delete process.env.PLANWEAVE_HOME;
-  } else {
-    process.env.PLANWEAVE_HOME = originalHome;
-  }
 });
 
 async function diskSnapshot(root: string): Promise<Record<string, string>> {

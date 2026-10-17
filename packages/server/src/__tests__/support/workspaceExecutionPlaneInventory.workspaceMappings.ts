@@ -122,6 +122,14 @@ export const workspaceMappingsInventory = [
     "Host administration UI tests stub mapping observations."
   ),
   inventoryEntry(
+    "wm-desktop-preAdmissionStop-fixture",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/desktop/src/__tests__/workspaceExecutionPreAdmissionStopFixture.ts",
+    "reportOnline workspaceMappings ready",
+    "Pre-admission Stop fixture reports the current workspace mapping ready."
+  ),
+  inventoryEntry(
     "wm-desktop-selfHostedTwoClientE2E",
     "workspaceMappings",
     "endpoint_readiness",

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,7 +7,6 @@ import { prepareContainerRuntime } from "../containerPrepare.js";
 import { hashOperatorToken } from "../operatorAuth.js";
 
 const directories: string[] = [];
-const owner = { uid: process.getuid?.() ?? 0, gid: process.getgid?.() ?? 0 };
 
 afterEach(async () => {
   await Promise.all(
@@ -18,6 +17,8 @@ afterEach(async () => {
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "planweave-server-container-prepare-"));
   directories.push(root);
+  const { uid, gid } = await lstat(root);
+  const owner = { uid, gid };
   const inputTlsDirectory = join(root, "input-tls");
   const runtimeDirectory = join(root, "runtime");
   const stateDirectory = join(root, "state");
@@ -61,7 +62,7 @@ async function fixture() {
   });
   const configInput = serverConfigFileInput(config);
   await writeFile(configPath, `${JSON.stringify(configInput)}\n`);
-  return { configPath, inputTlsDirectory, runtimeDirectory, stateDirectory };
+  return { configPath, inputTlsDirectory, runtimeDirectory, stateDirectory, owner };
 }
 
 describe("container runtime preparation", () => {
@@ -72,7 +73,7 @@ describe("container runtime preparation", () => {
       inputTlsDirectory: input.inputTlsDirectory,
       runtimeDirectory: input.runtimeDirectory,
       stateDirectory: input.stateDirectory,
-      owner
+      owner: input.owner
     });
     const runtimeConfig = JSON.parse(
       await readFile(join(input.runtimeDirectory, "server.json"), "utf8")
@@ -103,8 +104,11 @@ describe("container runtime preparation", () => {
         inputTlsDirectory: input.inputTlsDirectory,
         runtimeDirectory: input.runtimeDirectory,
         stateDirectory: input.stateDirectory,
-        owner
+        owner: input.owner
       })
     ).rejects.toThrow("server_container_runtime_directory_invalid");
+    await expect(readFile(join(input.runtimeDirectory, "existing"), "utf8")).resolves.toBe(
+      "do-not-overwrite"
+    );
   });
 });
