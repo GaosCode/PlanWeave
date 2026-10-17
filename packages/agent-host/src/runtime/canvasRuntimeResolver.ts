@@ -1,4 +1,5 @@
-import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   canonicalProjectCanvasNode,
@@ -17,6 +18,7 @@ import {
 } from "@planweave-ai/runtime";
 import type { CanvasRuntimeLogicalScope } from "@planweave-ai/agent-host-protocol";
 import type { AgentHostConfig } from "../config/schema.js";
+import { publishManagedRuntimeFile } from "./publishManagedRuntimeFile.js";
 
 function contained(root: string, candidate: string): boolean {
   const path = relative(root, candidate);
@@ -239,17 +241,19 @@ export class ConfiguredCanvasRuntimeResolver implements CanvasRuntimeResolverPor
   }
 
   private async writeOnce(path: string, content: string): Promise<void> {
+    let entry: Stats;
     try {
-      await writeFile(path, content, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      entry = await lstat(path);
     } catch (error) {
-      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") {
+      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") {
         throw error;
       }
-      const entry = await lstat(path);
-      if (entry.isSymbolicLink() || !entry.isFile()) {
-        throw new CanvasRuntimeResolutionError("runtime_project_escape");
-      }
-      await readFile(path, "utf8");
+      await publishManagedRuntimeFile(path, content);
+      entry = await lstat(path);
     }
+    if (entry.isSymbolicLink() || !entry.isFile()) {
+      throw new CanvasRuntimeResolutionError("runtime_project_escape");
+    }
+    await readFile(path, "utf8");
   }
 }

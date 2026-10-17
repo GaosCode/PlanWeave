@@ -940,7 +940,10 @@
         "remoteExecutionHistory.test.ts",
         "resolveHostExecutable.test.ts",
         "tlsTrust.test.ts",
-        "canvasRuntimeSnapshotEvidence.test.ts"
+        "canvasRuntimeSnapshotEvidence.test.ts",
+        "canvasRuntimeFilePublication.test.ts",
+        "canvasRuntimeFilePublicationFailures.test.ts",
+        "managedCanvasInitialization.test.ts"
       ],
       "platform": [],
       "performance": []
