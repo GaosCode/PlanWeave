@@ -3,28 +3,94 @@ import type { Duplex } from "node:stream";
 
 export type WebSocketUpgradeHandler = {
   matches(request: IncomingMessage): boolean;
-  handle(request: IncomingMessage, socket: Duplex, head: Buffer): void;
+  handle(
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    upgrade: WebSocketUpgradeContext
+  ): void | Promise<void>;
 };
 
-function rejectUpgrade(socket: Duplex): void {
-  socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
-  socket.destroy();
+export type WebSocketUpgradeContext = {
+  reject(status: number, message: string): void;
+  /** Transfer ownership before attempting a handshake; HTTP rejection is no longer safe. */
+  handoff(): boolean;
+};
+
+type FailurePhase = "matches" | "handler" | "response" | "socket";
+
+function logFailure(phase: FailurePhase): void {
+  console.error(JSON.stringify({ scope: "websocket-upgrade", event: "upgrade_failed", phase }));
 }
 
 export class WebSocketUpgradeRouter {
   private readonly handlers = new Set<WebSocketUpgradeHandler>();
   private closed = false;
   private readonly listener = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    if (this.closed) {
-      rejectUpgrade(socket);
-      return;
+    let state: "pending" | "handed_off" | "rejected" = "pending";
+    const writable = () => !socket.destroyed && socket.writable && !socket.writableEnded;
+    const onError = () => {
+      logFailure("socket");
+      socket.destroy();
+    };
+    socket.on("error", onError);
+    socket.once("close", () => socket.off("error", onError));
+    const upgrade: WebSocketUpgradeContext = {
+      reject(status, message) {
+        if (state !== "pending") return;
+        state = "rejected";
+        try {
+          if (writable()) {
+            socket.write(
+              `HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
+              (error) => {
+                if (error) {
+                  logFailure("response");
+                  socket.destroy();
+                }
+              }
+            );
+          }
+        } catch {
+          logFailure("response");
+        } finally {
+          socket.destroy();
+        }
+      },
+      handoff: () => {
+        if (state !== "pending") return false;
+        if (this.closed || !writable()) {
+          upgrade.reject(404, "Not Found");
+          return false;
+        }
+        state = "handed_off";
+        return true;
+      }
+    };
+    const fail = (phase: FailurePhase) => {
+      logFailure(phase);
+      if (state === "pending") upgrade.reject(500, "Internal Server Error");
+      else socket.destroy();
+    };
+    let phase: FailurePhase = "matches";
+    try {
+      if (this.closed || !writable()) {
+        upgrade.reject(404, "Not Found");
+        return;
+      }
+      const matches = [...this.handlers].filter((handler) => handler.matches(request));
+      const handler = matches.length === 1 ? matches[0] : undefined;
+      if (!handler) {
+        upgrade.reject(404, "Not Found");
+        return;
+      }
+      phase = "handler";
+      void Promise.resolve(handler.handle(request, socket, head, upgrade)).catch(() =>
+        fail("handler")
+      );
+    } catch {
+      fail(phase);
     }
-    const matches = [...this.handlers].filter((handler) => handler.matches(request));
-    if (matches.length !== 1) {
-      rejectUpgrade(socket);
-      return;
-    }
-    matches[0]?.handle(request, socket, head);
   };
 
   constructor(private readonly server: HttpServer) {

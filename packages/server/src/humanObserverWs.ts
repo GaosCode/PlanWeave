@@ -1,3 +1,4 @@
+import { opaqueIdentifierSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import {
@@ -93,15 +94,11 @@ function projectIdFromUrl(url: string | undefined): string | undefined {
   const match = /^\/api\/v1\/projects\/([^/]+)\/human\/observe(?:\?.*)?$/.exec(url);
   if (!match) return undefined;
   try {
-    return decodeURIComponent(match[1]);
+    const parsed = opaqueIdentifierSchema.safeParse(decodeURIComponent(match[1]!));
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }
-}
-
-function reject(socket: Duplex, status: number, message: string): void {
-  socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-  socket.destroy();
 }
 
 type SerializedMessage = {
@@ -538,18 +535,18 @@ export function attachHumanObserverWebSocketServer(
 
   const unregister = options.upgradeRouter.register({
     matches: (request) => projectIdFromUrl(request.url) !== undefined,
-    handle: (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    handle: (request: IncomingMessage, socket: Duplex, head: Buffer, upgrade) => {
       const projectId = projectIdFromUrl(request.url);
       if (!projectId) {
-        reject(socket, 403, "Forbidden");
+        upgrade.reject(403, "Forbidden");
         return;
       }
       if (!humanTransportAllowed(request.socket, options.transportAdmission)) {
-        reject(socket, 426, "Upgrade Required");
+        upgrade.reject(426, "Upgrade Required");
         return;
       }
       if (!isAllowedClientOrigin(request.headers, options.allowedClientOrigins)) {
-        reject(socket, 403, "Forbidden");
+        upgrade.reject(403, "Forbidden");
         return;
       }
       const admitted = authenticateScope(request.headers.authorization, projectId, true);
@@ -567,9 +564,10 @@ export function attachHumanObserverWebSocketServer(
             options.workspaceIdentity,
             request.headers.authorization
           );
-        reject(socket, hasDevice ? 403 : 401, hasDevice ? "Forbidden" : "Unauthorized");
+        upgrade.reject(hasDevice ? 403 : 401, hasDevice ? "Forbidden" : "Unauthorized");
         return;
       }
+      if (!upgrade.handoff()) return;
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) =>
         handleConnection(
           webSocket,

@@ -1,4 +1,3 @@
-import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import { workspaceMembersInvalidatedSchema } from "@planweave-ai/collaboration-protocol/connection";
 import { humanDeviceTokenSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
@@ -16,18 +15,15 @@ export function attachWorkspaceMembersWebSocketServer(options: {
   allowedClientOrigins?: readonly string[];
 }) {
   const server = new WebSocketServer({ noServer: true, maxPayload: 1024 });
-  const reject = (socket: Duplex, status: number) => {
-    socket.write(`HTTP/1.1 ${status} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-    socket.destroy();
-  };
+
   const unregister = options.upgradeRouter.register({
     matches: (request) => request.url === "/api/v1/workspace-connection/members/observe",
-    handle(request, socket, head) {
+    handle(request, socket, head, upgrade) {
       if (
         !humanTransportAllowed(request.socket, options.transportAdmission) ||
         !isAllowedClientOrigin(request.headers, options.allowedClientOrigins)
       ) {
-        reject(socket, 403);
+        upgrade.reject(403, "Rejected");
         return;
       }
       const authorization = request.headers.authorization;
@@ -39,9 +35,10 @@ export function attachWorkspaceMembersWebSocketServer(options: {
         ? options.workspaceIdentity.readWorkspaceConnectionSelf(token.data)
         : undefined;
       if (!self || !token?.success) {
-        reject(socket, 401);
+        upgrade.reject(401, "Rejected");
         return;
       }
+      if (!upgrade.handoff()) return;
       server.handleUpgrade(request, socket, head, (client) => {
         const notify = () => {
           const current = options.workspaceIdentity.readWorkspaceConnectionSelf(token.data);

@@ -1,3 +1,4 @@
+import { opaqueIdentifierSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import {
@@ -84,10 +85,10 @@ function routeFromUrl(url: string | undefined): LiveRoute | undefined {
   const match = LIVE_SYNC_PATH_PATTERN.exec(url);
   if (!match) return undefined;
   try {
-    return {
-      projectId: decodeURIComponent(match[1] ?? ""),
-      canvasId: decodeURIComponent(match[2] ?? "")
-    };
+    const projectId = opaqueIdentifierSchema.safeParse(decodeURIComponent(match[1]!));
+    const canvasId = opaqueIdentifierSchema.safeParse(decodeURIComponent(match[2]!));
+    if (!projectId.success || !canvasId.success) return undefined;
+    return { projectId: projectId.data, canvasId: canvasId.data };
   } catch {
     return undefined;
   }
@@ -95,11 +96,6 @@ function routeFromUrl(url: string | undefined): LiveRoute | undefined {
 
 function keyFor(scope: CanvasScopeKey): string {
   return `${scope.workspaceId}\0${scope.projectId}\0${scope.canvasId}`;
-}
-
-function reject(socket: Duplex, status: number, message: string): void {
-  socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-  socket.destroy();
 }
 
 function parseFrame(data: RawData): unknown {
@@ -516,29 +512,29 @@ export function attachCanvasLiveSyncWebSocketServer(
 
   const unregister = options.upgradeRouter.register({
     matches: (request) => routeFromUrl(request.url) !== undefined,
-    handle: (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    handle: (request: IncomingMessage, socket: Duplex, head: Buffer, upgrade) => {
       const route = routeFromUrl(request.url);
       if (!route) {
-        reject(socket, 403, "Forbidden");
+        upgrade.reject(403, "Forbidden");
         return;
       }
       if (!humanTransportAllowed(request.socket, options.transportAdmission)) {
-        reject(socket, 426, "Upgrade Required");
+        upgrade.reject(426, "Upgrade Required");
         return;
       }
       if (!isAllowedClientOrigin(request.headers, options.allowedClientOrigins)) {
-        reject(socket, 403, "Forbidden");
+        upgrade.reject(403, "Forbidden");
         return;
       }
       const authorization = authorizeRead(request.headers.authorization, route);
       if (!authorization.ok) {
-        reject(
-          socket,
+        upgrade.reject(
           authorization.code === "unauthorized" ? 401 : 403,
           authorization.code === "unauthorized" ? "Unauthorized" : "Forbidden"
         );
         return;
       }
+      if (!upgrade.handoff()) return;
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) =>
         handleConnection(webSocket, authorization.route, request.headers.authorization)
       );

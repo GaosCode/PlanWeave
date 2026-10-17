@@ -1,17 +1,11 @@
 import { createHash } from "node:crypto";
 import type { IncomingMessage } from "node:http";
-import type { Duplex } from "node:stream";
 import type { ServerConfig } from "../config.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { WebSocketUpgradeRouter } from "../webSocketUpgradeRouter.js";
 
 const webSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const readinessPath = "/readyz/ws";
-
-function reject(socket: Duplex, status: number, message: string): void {
-  socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-  socket.destroy();
-}
 
 function validWebSocketKey(value: string | string[] | undefined): value is string {
   if (!value || Array.isArray(value)) return false;
@@ -44,25 +38,26 @@ export function attachReverseProxyWebSocketReadiness(options: {
   const advertisedOrigin = new URL(options.config.transport.advertisedOrigin).origin;
   options.upgradeRouter.register({
     matches: (request) => request.url === readinessPath,
-    handle: (request, socket) => {
+    handle: (request, socket, _head, upgrade) => {
       if (!options.transportAdmission.allowsNetworkTransport(request.socket)) {
-        reject(socket, 426, "Upgrade Required");
+        upgrade.reject(426, "Upgrade Required");
         return;
       }
       if (request.headers.origin !== advertisedOrigin) {
-        reject(socket, 403, "Forbidden");
+        upgrade.reject(403, "Forbidden");
         return;
       }
       if (!connectionRequestsUpgrade(request)) {
-        reject(socket, 400, "Bad Request");
+        upgrade.reject(400, "Bad Request");
         return;
       }
       const key = request.headers["sec-websocket-key"];
       if (!validWebSocketKey(key)) {
-        reject(socket, 400, "Bad Request");
+        upgrade.reject(400, "Bad Request");
         return;
       }
       const accept = createHash("sha1").update(`${key}${webSocketGuid}`).digest("base64");
+      if (!upgrade.handoff()) return;
       socket.write(
         "HTTP/1.1 101 Switching Protocols\r\n" +
           "Upgrade: websocket\r\n" +

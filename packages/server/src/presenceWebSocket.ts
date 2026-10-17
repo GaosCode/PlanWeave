@@ -1,3 +1,4 @@
+import { opaqueIdentifierSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { PresenceTransportDiagnostics } from "./presenceTransportDiagnostics.js";
 import { PresenceOutboundQueue, PRESENCE_OUTBOUND_LIMITS } from "./presenceOutboundQueue.js";
 import { randomUUID } from "node:crypto";
@@ -74,18 +75,13 @@ function routeFromUrl(url: string | undefined): PresenceRoute | undefined {
   const match = PRESENCE_PATH_PATTERN.exec(url);
   if (!match) return undefined;
   try {
-    return {
-      projectId: decodeURIComponent(match[1] ?? ""),
-      canvasId: decodeURIComponent(match[2] ?? "")
-    };
+    const projectId = opaqueIdentifierSchema.safeParse(decodeURIComponent(match[1]!));
+    const canvasId = opaqueIdentifierSchema.safeParse(decodeURIComponent(match[2]!));
+    if (!projectId.success || !canvasId.success) return undefined;
+    return { projectId: projectId.data, canvasId: canvasId.data };
   } catch {
     return undefined;
   }
-}
-
-function reject(socket: Duplex, status: number, message: string): void {
-  socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-  socket.destroy();
 }
 
 function closeCodeForRemoval(reason: CanvasPresenceRemovalReason): number {
@@ -476,18 +472,18 @@ export function attachCanvasPresenceWebSocketServer(
 
   const unregister = options.upgradeRouter.register({
     matches: (request) => routeFromUrl(request.url) !== undefined,
-    handle: (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    handle: (request: IncomingMessage, socket: Duplex, head: Buffer, upgrade) => {
       const route = routeFromUrl(request.url);
       if (!route) {
-        reject(socket, 403, "Forbidden");
+        upgrade.reject(403, "Forbidden");
         return;
       }
       if (!humanTransportAllowed(request.socket, options.transportAdmission)) {
-        reject(socket, 426, "Upgrade Required");
+        upgrade.reject(426, "Upgrade Required");
         return;
       }
       if (!isAllowedClientOrigin(request.headers, options.allowedClientOrigins)) {
-        reject(socket, 403, "Forbidden");
+        upgrade.reject(403, "Forbidden");
         return;
       }
       const authenticated = authenticateCollaborationForScope(
@@ -505,9 +501,10 @@ export function attachCanvasPresenceWebSocketServer(
           request.headers.authorization,
           route.projectId
         );
-        reject(socket, credentialActor ? 403 : 401, credentialActor ? "Forbidden" : "Unauthorized");
+        upgrade.reject(credentialActor ? 403 : 401, credentialActor ? "Forbidden" : "Unauthorized");
         return;
       }
+      if (!upgrade.handoff()) return;
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) =>
         handleConnection(
           webSocket,

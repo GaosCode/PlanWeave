@@ -1189,6 +1189,8 @@
         "workAssignmentTempPackage.test.ts",
         "workAssignmentWorkspaceProjection.test.ts",
         "workRuntimeFactsPort.test.ts",
+        "webSocketUpgradeBoundary.test.ts",
+        "webSocketUpgradeRouter.test.ts",
         "workspaceConnectionHttp.test.ts",
         "workspaceExecutionPlaneGapHttp.test.ts",
         "workspaceIdentityHttp.test.ts",

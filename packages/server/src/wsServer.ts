@@ -1,4 +1,5 @@
 import {
+  opaqueIdentifierSchema,
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
   HISTORICAL_PERMISSION_REPLAY_VERSION_HEADER,
   negotiateHistoricalPermissionReplayVersion,
@@ -27,7 +28,7 @@ import {
   hostHelloSchema,
   serverEventSchema
 } from "./protocol.js";
-import type { WebSocketUpgradeRouter } from "./webSocketUpgradeRouter.js";
+import { WebSocketUpgradeRouter, type WebSocketUpgradeContext } from "./webSocketUpgradeRouter.js";
 import type { TransportAdmissionPolicy } from "./insecureTransport.js";
 import { logHostProtocolRejection, publicHostProtocolRejection } from "./hostProtocolRejection.js";
 import type { CanvasRuntimeRpcBroker } from "./canvas/runtimeRpcBroker.js";
@@ -58,17 +59,13 @@ export type AgentHostWebSocketServer = {
   close(): Promise<void>;
 };
 
-function rejectUpgrade(socket: Duplex, status: number, message: string): void {
-  socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-  socket.destroy();
-}
-
 function hostIdFromUrl(url: string | undefined): string | undefined {
   if (!url) return undefined;
   const match = /^\/agent-hosts\/([^/]+)\/connect(?:\?.*)?$/.exec(url);
   if (!match) return undefined;
   try {
-    return decodeURIComponent(match[1]);
+    const parsed = opaqueIdentifierSchema.safeParse(decodeURIComponent(match[1]!));
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }
@@ -495,10 +492,15 @@ export function attachAgentHostWebSocketServer(
     });
   };
 
-  const upgradeListener = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+  const upgradeListener = (
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    upgrade: WebSocketUpgradeContext
+  ) => {
     const hostId = hostIdFromUrl(request.url);
     if (!hostId) {
-      rejectUpgrade(socket, 404, "Not Found");
+      upgrade.reject(404, "Not Found");
       return;
     }
     const authentication = authenticateAgentHostRequest(
@@ -508,7 +510,7 @@ export function attachAgentHostWebSocketServer(
       options.transportAdmission
     );
     if (!authentication.ok) {
-      rejectUpgrade(socket, authentication.status, authentication.message);
+      upgrade.reject(authentication.status, authentication.message);
       return;
     }
     let exactPermissionOptionsVersion: 1 | undefined;
@@ -523,9 +525,10 @@ export function attachAgentHostWebSocketServer(
       if (historicalPermissionReplayVersion === 1 && exactPermissionOptionsVersion !== 1)
         throw new Error("historical_permission_replay_unsupported");
     } catch {
-      rejectUpgrade(socket, 400, "Unsupported Permission Options Version");
+      upgrade.reject(400, "Unsupported Permission Options Version");
       return;
     }
+    if (!upgrade.handoff()) return;
     webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
       handleConnection(
         webSocket,
@@ -536,15 +539,15 @@ export function attachAgentHostWebSocketServer(
     });
   };
 
-  const unregisterUpgrade = options.upgradeRouter
-    ? options.upgradeRouter.register({
-        matches: (request) => hostIdFromUrl(request.url) !== undefined,
-        handle: upgradeListener
-      })
-    : (() => {
-        options.server.on("upgrade", upgradeListener);
-        return () => options.server.off("upgrade", upgradeListener);
-      })();
+  const upgradeRouter = options.upgradeRouter ?? new WebSocketUpgradeRouter(options.server);
+  const unregister = upgradeRouter.register({
+    matches: (request) => hostIdFromUrl(request.url) !== undefined,
+    handle: upgradeListener
+  });
+  const unregisterUpgrade = () => {
+    unregister();
+    if (!options.upgradeRouter) upgradeRouter.close();
+  };
 
   let closePromise: Promise<void> | undefined;
   return {

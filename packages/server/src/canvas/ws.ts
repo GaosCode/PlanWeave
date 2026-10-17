@@ -1,3 +1,4 @@
+import { opaqueIdentifierSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import {
@@ -20,7 +21,7 @@ import {
 } from "../identity/index.js";
 import type { TransportAdmissionPolicy } from "../insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
-import type { WebSocketUpgradeRouter } from "../webSocketUpgradeRouter.js";
+import type { WebSocketUpgradeContext, WebSocketUpgradeRouter } from "../webSocketUpgradeRouter.js";
 import { isAllowedClientOrigin } from "../clientOrigin.js";
 import { CanvasCommandService } from "./service.js";
 import {
@@ -57,18 +58,13 @@ function routeFromUrl(url: string | undefined): CommandRoute | undefined {
   const match = COMMAND_PATH_PATTERN.exec(url);
   if (!match) return undefined;
   try {
-    return {
-      projectId: decodeURIComponent(match[1] ?? ""),
-      canvasId: decodeURIComponent(match[2] ?? "")
-    };
+    const projectId = opaqueIdentifierSchema.safeParse(decodeURIComponent(match[1]!));
+    const canvasId = opaqueIdentifierSchema.safeParse(decodeURIComponent(match[2]!));
+    if (!projectId.success || !canvasId.success) return undefined;
+    return { projectId: projectId.data, canvasId: canvasId.data };
   } catch {
     return undefined;
   }
-}
-
-function reject(socket: Duplex, status: number, message: string): void {
-  socket.write(`HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-  socket.destroy();
 }
 
 function send(socket: WebSocket, message: CanvasCommandServerMessage): void {
@@ -114,23 +110,26 @@ export function attachCanvasCommandWebSocketServer(
     matches(request) {
       return routeFromUrl(request.url) !== undefined;
     },
-    handle(request, socket, head) {
-      void handleUpgrade(request, socket, head);
-    }
+    handle: handleUpgrade
   });
 
-  async function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
+  async function handleUpgrade(
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    upgrade: WebSocketUpgradeContext
+  ) {
     const route = routeFromUrl(request.url);
     if (!route) {
-      reject(socket, 404, "Not Found");
+      upgrade.reject(404, "Not Found");
       return;
     }
     if (!humanTransportAllowed(request.socket, options.transportAdmission)) {
-      reject(socket, 400, "Bad Request");
+      upgrade.reject(400, "Bad Request");
       return;
     }
     if (!isAllowedClientOrigin(request.headers, options.allowedClientOrigins)) {
-      reject(socket, 403, "Forbidden");
+      upgrade.reject(403, "Forbidden");
       return;
     }
     const authenticated = authenticateCollaborationForScope(
@@ -148,11 +147,12 @@ export function attachCanvasCommandWebSocketServer(
         request.headers.authorization,
         route.projectId
       );
-      reject(socket, credentialActor ? 404 : 401, credentialActor ? "Not Found" : "Unauthorized");
+      upgrade.reject(credentialActor ? 404 : 401, credentialActor ? "Not Found" : "Unauthorized");
       return;
     }
     const context = authenticated.actor;
 
+    if (!upgrade.handoff()) return;
     webSocketServer.handleUpgrade(request, socket, head, (ws) => {
       sessions.add(ws);
       let closed = false;
