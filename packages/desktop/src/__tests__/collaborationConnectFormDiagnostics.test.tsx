@@ -443,8 +443,9 @@ describe("CollaborationConnectForm connection diagnostics", () => {
       }),
       workspaceProfileStorePaths: { profilesPath: join(root, "workspace-profiles.json") },
       safeStorage,
-      createClient: () =>
+      createClient: ({ profile }) =>
         ({
+          connectionProfile: profile,
           verifyAccess: vi.fn().mockResolvedValue(undefined),
           startObserver: vi.fn((handlers) =>
             handlers.onStatus?.({ state: "connected", cursor: 0 })

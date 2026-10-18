@@ -222,8 +222,9 @@ describe("desktop canvas presence transport", () => {
         safeStorage
       }),
       onPresenceSignal: (signal) => presenceSignals.push(signal),
-      createClient: () =>
+      createClient: ({ profile }) =>
         ({
+          connectionProfile: profile,
           verifyAccess: vi.fn().mockResolvedValue(undefined),
           projectId: "project-demo-001",
           presenceCanvas: () => startPresence.at(-1) ?? null,
@@ -309,8 +310,9 @@ describe("desktop canvas presence transport", () => {
         safeStorage
       }),
       onPresenceSignal: (signal) => presenceSignals.push(signal),
-      createClient: () =>
+      createClient: ({ profile }) =>
         ({
+          connectionProfile: profile,
           verifyAccess: vi.fn().mockResolvedValue(undefined),
           projectId: "project-demo-001",
           presenceCanvas: () => "default",

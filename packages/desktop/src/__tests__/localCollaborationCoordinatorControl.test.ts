@@ -1252,8 +1252,9 @@ describe("LocalCollaborationCoordinatorControl", () => {
       invitationsPath: join(root, "invitations.json"),
       safeStorage,
       syncOperatorProfile: async () => undefined,
-      createClient: () =>
+      createClient: ({ profile }) =>
         ({
+          connectionProfile: profile,
           bootstrapOwner: vi.fn().mockResolvedValue({
             ...exampleBootstrapResponse,
             workspaceId: "workspace-2"
