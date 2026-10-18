@@ -1083,6 +1083,7 @@
         "humanObserverJournal.test.ts",
         "humanObserverWsFrame.test.ts",
         "humanObserverWs.test.ts",
+        "humanObserverWsLifecycle.test.ts",
         "humanObserverWsCanvasFilter.test.ts",
         "humanRemoteHttp.test.ts",
         "humanRemoteUnstartedOperation.test.ts",
