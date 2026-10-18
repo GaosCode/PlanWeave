@@ -117,7 +117,7 @@ export async function setupUpgradeBoundary() {
         child.send({ command: "checkpoint" });
         await waitEvent("checkpoint");
       },
-      raw(path: string, token = deviceToken) {
+      raw(path: string, token = deviceToken, firstFrame = Buffer.alloc(0)) {
         const socket = connect({ host: "127.0.0.1", port: Number(new URL(origin).port) });
         sockets.add(socket);
         let response = "";
@@ -130,17 +130,22 @@ export async function setupUpgradeBoundary() {
         });
         socket.once("connect", () =>
           socket.write(
-            [
-              `GET ${path} HTTP/1.1`,
-              `Host: ${new URL(origin).host}`,
-              "Connection: Upgrade",
-              "Upgrade: websocket",
-              "Sec-WebSocket-Version: 13",
-              "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
-              `Authorization: Bearer ${token}`,
-              "",
-              ""
-            ].join("\r\n")
+            Buffer.concat([
+              Buffer.from(
+                [
+                  `GET ${path} HTTP/1.1`,
+                  `Host: ${new URL(origin).host}`,
+                  "Connection: Upgrade",
+                  "Upgrade: websocket",
+                  "Sec-WebSocket-Version: 13",
+                  "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+                  `Authorization: Bearer ${token}`,
+                  "",
+                  ""
+                ].join("\r\n")
+              ),
+              firstFrame
+            ])
           )
         );
         return bounded(
@@ -152,6 +157,37 @@ export async function setupUpgradeBoundary() {
           ),
           "raw upgrade close"
         );
+      },
+      async observer() {
+        const socket = new WebSocket(
+          `${origin.replace("http:", "ws:")}/api/v1/projects/${projectId}/human/observe`,
+          { headers: { Authorization: `Bearer ${deviceToken}` } }
+        );
+        webSockets.add(socket);
+        socket.once("close", () => webSockets.delete(socket));
+        const welcome = new Promise<unknown>((resolve) =>
+          socket.once("message", (data) => resolve(JSON.parse(data.toString())))
+        );
+        await bounded(
+          new Promise<void>((resolve, reject) => {
+            socket.once("open", resolve);
+            socket.once("error", reject);
+          }),
+          "observer open"
+        );
+        socket.send(
+          JSON.stringify({
+            type: "human.observer.hello",
+            protocolVersion: 1,
+            projectId,
+            lastCursor: 0
+          })
+        );
+        assert.equal(
+          z.object({ type: z.string() }).parse(await bounded(welcome, "observer welcome")).type,
+          "human.observer.welcome"
+        );
+        return socket;
       },
       async healthyPresence() {
         const path = `/api/v1/projects/${projectId}/canvases/default/human/presence`;

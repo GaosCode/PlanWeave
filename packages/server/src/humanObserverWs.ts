@@ -274,6 +274,7 @@ export function attachHumanObserverWebSocketServer(
     let authorizationExpired = false;
     let unsubscribeJournal = () => {};
     let unsubscribeAuthorization = () => {};
+    let helloTimer: ReturnType<typeof setTimeout> | undefined;
     let authorizationSafetyTimer: ReturnType<typeof setTimeout> | undefined;
     let phase: "awaiting_hello" | "replaying" | "live" | "catchup" | "stopping" | "closed" =
       "awaiting_hello";
@@ -294,6 +295,8 @@ export function attachHumanObserverWebSocketServer(
       if (phase === "closed" || phase === "stopping") return false;
       if (phase === "catchup" && nextPhase === "catchup") return false;
       phase = nextPhase;
+      if (helloTimer) clearTimeout(helloTimer);
+      helloTimer = undefined;
       if (authorizationSafetyTimer) clearTimeout(authorizationSafetyTimer);
       authorizationSafetyTimer = undefined;
       unsubscribeJournal();
@@ -309,6 +312,7 @@ export function attachHumanObserverWebSocketServer(
       socket.close(code, reason);
     };
     const validateAuthorization = (): boolean => {
+      if (phase === "closed" || phase === "stopping" || phase === "catchup") return false;
       try {
         if (stillAuthorized()) return true;
         expireAuthorization();
@@ -320,6 +324,16 @@ export function attachHumanObserverWebSocketServer(
     sessions.set(socket, () => {
       stopApplicationSending("stopping");
     });
+    const finishConnection = () => {
+      stopApplicationSending("stopping");
+      phase = "closed";
+      sessions.delete(socket);
+    };
+    socket.on("error", () => {
+      finishConnection();
+      socket.terminate();
+    });
+    socket.on("close", finishConnection);
     const sendSerialized = (
       message: SerializedMessage,
       bufferedByteLimit = limits.maxBufferedBytes
@@ -363,7 +377,9 @@ export function attachHumanObserverWebSocketServer(
           const outgoing = isObserverEvent(next.message)
             ? serializeMessage(observerEventForDelivery(next.message, deliveredCursor))
             : serializeMessage(next.message);
-          if ((await sendSerialized(outgoing)) !== "sent") {
+          const result = await sendSerialized(outgoing);
+          if (phase !== "live") return;
+          if (result !== "sent") {
             signalCatchup(options.journal.head(scope));
             break;
           }
@@ -432,7 +448,7 @@ export function attachHumanObserverWebSocketServer(
       }
     );
     scheduleAuthorizationSafetyCheck();
-    const helloTimer = setTimeout(
+    helloTimer = setTimeout(
       () => closeApplicationSocket(4002, "observer hello required"),
       limits.helloTimeoutMs
     );
@@ -466,7 +482,9 @@ export function attachHumanObserverWebSocketServer(
         const event = replay.events[index];
         if (!humanObserverEventIsVisible(event, visibility)) continue;
         const outgoing = serializeMessage(observerEventForDelivery(event, deliveredCursor));
-        if ((await sendSerialized(outgoing)) !== "sent") {
+        const result = await sendSerialized(outgoing);
+        if (phase !== "replaying") return;
+        if (result !== "sent") {
           signalCatchup(options.journal.head(scope));
           return;
         }
@@ -474,17 +492,17 @@ export function attachHumanObserverWebSocketServer(
         if ((index + 1) % limits.replayBatchEvents === 0) await yieldToEventLoop();
       }
       if (phase !== "replaying") return;
-      if (
-        (await sendSerialized(
-          serializeMessage({
-            type: "human.observer.welcome",
-            protocolVersion: 1,
-            projectId: scope.projectId,
-            serverTime: clock().toISOString(),
-            cursor: replay.headCursor
-          })
-        )) !== "sent"
-      ) {
+      const result = await sendSerialized(
+        serializeMessage({
+          type: "human.observer.welcome",
+          protocolVersion: 1,
+          projectId: scope.projectId,
+          serverTime: clock().toISOString(),
+          cursor: replay.headCursor
+        })
+      );
+      if (phase !== "replaying") return;
+      if (result !== "sent") {
         signalCatchup(options.journal.head(scope));
         return;
       }
@@ -503,7 +521,8 @@ export function attachHumanObserverWebSocketServer(
           if (message.type !== "human.observer.hello" || message.projectId !== scope.projectId) {
             throw new Error("human_observer_hello_invalid");
           }
-          clearTimeout(helloTimer);
+          if (helloTimer) clearTimeout(helloTimer);
+          helloTimer = undefined;
           void initialize(message.lastCursor).catch(() =>
             closeApplicationSocket(1011, "observer error")
           );
@@ -520,16 +539,6 @@ export function attachHumanObserverWebSocketServer(
       } catch {
         closeApplicationSocket(4000, "protocol error");
       }
-    });
-    socket.on("close", () => {
-      phase = "closed";
-      clearTimeout(helloTimer);
-      if (authorizationSafetyTimer) clearTimeout(authorizationSafetyTimer);
-      unsubscribeJournal();
-      unsubscribeAuthorization();
-      pending.length = 0;
-      pendingBytes = 0;
-      sessions.delete(socket);
     });
   };
 

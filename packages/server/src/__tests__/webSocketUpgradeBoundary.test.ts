@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { setupUpgradeBoundary } from "./support/webSocketUpgradeBoundaryHarness.js";
+import { bounded, setupUpgradeBoundary } from "./support/webSocketUpgradeBoundaryHarness.js";
 
 type Fixture = Awaited<ReturnType<typeof setupUpgradeBoundary>>;
 
@@ -10,6 +10,10 @@ async function healthy(fixture: Fixture) {
     type: "canvas.presence.snapshot",
     sessions: []
   });
+  const observer = await fixture.observer();
+  const closed = new Promise<number>((resolve) => observer.once("close", resolve));
+  observer.close(1000);
+  expect(await bounded(closed, "healthy observer close")).toBe(1000);
   await fixture.checkpoint();
   expect(fixture.child.exitCode, fixture.output()).toBeNull();
   expect(fixture.child.signalCode).toBeNull();
@@ -34,6 +38,34 @@ function rejected(response: string, status: number) {
 }
 
 describe("real Server WebSocket upgrade boundary", () => {
+  it.each([
+    "pre-hello",
+    "live"
+  ])("isolates an Observer receive error in %s phase", async (phase) => {
+    const fixture = await setupUpgradeBoundary();
+    try {
+      if (phase === "pre-hello") {
+        const { response } = await fixture.raw(
+          `/api/v1/projects/${fixture.projectId}/human/observe`,
+          fixture.deviceToken,
+          Buffer.from([0x81, 0x01, 0x78])
+        );
+        expect(response).toContain("HTTP/1.1 101 Switching Protocols\r\n");
+      } else {
+        const socket = await fixture.observer();
+        await fixture.checkpoint();
+        const closed = new Promise<number>((resolve) => socket.once("close", resolve));
+        socket.send("x", { mask: false });
+        expect(await bounded(closed, "faulty observer close")).not.toBe(1000);
+      }
+      await healthy(fixture);
+      expect(fixture.output()).not.toContain("WS_ERR_EXPECTED_MASK");
+      redacted(fixture, []);
+    } finally {
+      expect(await fixture.dispose(), fixture.output()).toEqual({ code: 0, signal: null });
+    }
+  });
+
   it("rejects malformed identifiers before scope parsing and keeps HTTP and presence alive", async () => {
     const fixture = await setupUpgradeBoundary();
     try {
