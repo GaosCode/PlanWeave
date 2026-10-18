@@ -239,6 +239,7 @@ export function attachCanvasPresenceWebSocketServer(
       socket.close(4001, "presence authorization expired");
     };
     const validateAuthorization = () => {
+      if (cleanedUp || socket.readyState !== WebSocket.OPEN) return false;
       try {
         if (stillAuthorized()) return true;
         expireAuthorization();
@@ -282,6 +283,7 @@ export function attachCanvasPresenceWebSocketServer(
       socket.ping();
     }, heartbeatIntervalMs);
     socket.on("pong", () => {
+      if (cleanedUp || socket.readyState !== WebSocket.OPEN) return;
       alive = true;
       if (sessionId) {
         try {
@@ -314,6 +316,7 @@ export function attachCanvasPresenceWebSocketServer(
     scheduleAuthorizationSafetyCheck();
 
     socket.on("message", (data, isBinary) => {
+      if (cleanedUp || socket.readyState !== WebSocket.OPEN) return;
       const receivedMs = performance.now();
       try {
         if (isBinary) {

@@ -10,6 +10,7 @@ import { WebSocket } from "ws";
 import { parseServerConfig } from "../config.js";
 import { hashOperatorToken } from "../operatorAuth.js";
 import { seedOperatorSessions } from "./support/operatorAuthFixture.js";
+import { sendPresenceTcpBatch } from "./support/presenceTcpClient.js";
 import {
   createDistributedServerComposition,
   type DistributedServerComposition
@@ -193,6 +194,62 @@ function hello(socket: WebSocket, projectId: string): void {
 }
 
 describe("canvas presence WebSocket", () => {
+  it("cannot recreate a session from a hello queued after a protocol failure in one TCP write", async () => {
+    const fixture = await setup();
+    const owner = await bootstrap(fixture.origin, fixture.projectId);
+    const url = `${fixture.wsOrigin}/api/v1/projects/${fixture.projectId}/canvases/default/human/presence`;
+    const healthy = await connect(url, owner.deviceToken);
+    const initial = nextMessage(healthy);
+    hello(healthy, fixture.projectId);
+    expect(await initial).toMatchObject({ type: "canvas.presence.snapshot", sessions: [] });
+
+    expect(
+      await sendPresenceTcpBatch(url, owner.deviceToken, [
+        "{",
+        JSON.stringify({
+          type: "canvas.presence.hello",
+          protocolVersion: 1,
+          projectId: fixture.projectId,
+          canvasId: "default"
+        })
+      ])
+    ).toBe(4000);
+
+    // A new client must immediately see only the still-connected healthy peer, without TTL repair.
+    const verifier = await connect(url, owner.deviceToken);
+    const snapshot = nextMessage(verifier);
+    hello(verifier, fixture.projectId);
+    const body = await snapshot;
+    expect(body.type).toBe("canvas.presence.snapshot");
+    expect(body.sessions).toHaveLength(1);
+
+    const update = nextMessage(verifier);
+    healthy.send(
+      JSON.stringify({
+        type: "canvas.presence.update",
+        protocolVersion: 1,
+        projectId: fixture.projectId,
+        canvasId: "default",
+        pointer: { x: 4, y: 5 },
+        selectionIds: ["T-001"]
+      })
+    );
+    const updated = await update;
+    expect(updated).toMatchObject({
+      type: "canvas.presence.update",
+      session: { pointer: { x: 4, y: 5 }, selectionIds: ["T-001"] }
+    });
+    const leave = nextMessage(verifier);
+    const closed = waitForClose(healthy);
+    healthy.close(1000);
+    expect(await leave).toMatchObject({
+      type: "canvas.presence.leave",
+      sessionId: sessionIdFrom(updated)
+    });
+    expect(await closed).toBe(1000);
+    expect(verifier.readyState).toBe(WebSocket.OPEN);
+  });
+
   it("negotiates trace timing without adding fields to legacy receivers", async () => {
     const fixture = await setup();
     const owner = await bootstrap(fixture.origin, fixture.projectId);
