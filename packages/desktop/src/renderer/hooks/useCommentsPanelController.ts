@@ -1,5 +1,13 @@
 import { usePendingAttachmentDownload } from "./usePendingAttachmentDownload";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from "react";
 import {
   COMMENT_ATTACHMENTS_MAX_COUNT,
   COMMENT_LIST_PAGE_DEFAULT
@@ -17,9 +25,11 @@ import {
   type StagedAttachment
 } from "../collaboration/attachmentUpload";
 import {
+  beginCommentDraftSubmission,
   clearCommentDraft,
   getCommentDraft,
   setCommentDraft,
+  subscribeCommentDrafts,
   type CommentComposerDraft
 } from "../collaboration/commentDraftStore";
 import {
@@ -146,7 +156,6 @@ export function useCommentsPanelController(
   const paginationRef = useRef<CommentPaginationSession | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [draftTick, setDraftTick] = useState(0);
   const [stagedAttachments, setStagedAttachments] = useState<StagedAttachment[]>([]);
   const stagedAttachmentsRef = useRef<StagedAttachment[]>([]);
   const updateStagedAttachments = useCallback(
@@ -195,13 +204,12 @@ export function useCommentsPanelController(
     });
   }, [activeProfile, controller, sessionConnected, operationScope]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: workKey remounts draft identity
-  const draft = useMemo(() => {
-    void draftTick;
-    return args.workItem
-      ? getCommentDraft(args.workItem, scopeKey)
-      : { body: "", showPreview: false };
-  }, [args.workItem, draftTick, workKey, scopeKey]);
+  const getDraftSnapshot = useCallback(
+    () => (args.workItem ? getCommentDraft(args.workItem, scopeKey) : null),
+    [args.workItem, scopeKey]
+  );
+  const storedDraft = useSyncExternalStore(subscribeCommentDrafts, getDraftSnapshot);
+  const draft = storedDraft ?? { body: "", showPreview: false };
 
   const canMutate =
     sessionConnected &&
@@ -317,7 +325,6 @@ export function useCommentsPanelController(
     (body: string) => {
       if (!args.workItem || !isCurrentScope()) return;
       setCommentDraft(args.workItem, { body }, scopeKey);
-      setDraftTick((v) => v + 1);
     },
     [args.workItem, isCurrentScope, scopeKey]
   );
@@ -326,7 +333,6 @@ export function useCommentsPanelController(
     (show: boolean) => {
       if (!args.workItem || !isCurrentScope()) return;
       setCommentDraft(args.workItem, { showPreview: show }, scopeKey);
-      setDraftTick((v) => v + 1);
     },
     [args.workItem, isCurrentScope, scopeKey]
   );
@@ -361,6 +367,8 @@ export function useCommentsPanelController(
       setActionError(args.t("commentsAttachmentsTooMany"));
       return false;
     }
+    const finishSubmission = beginCommentDraftSubmission(args.workItem, submittedDraft, scopeKey);
+    if (!finishSubmission) return false;
     const consumedAttachments = new Set(ready.map((item) => item.localId));
     const request = ++mutationRequestRef.current;
     const isCurrentRequest = () => isCurrentScope() && request === mutationRequestRef.current;
@@ -372,6 +380,7 @@ export function useCommentsPanelController(
         body: submittedDraft.body.trim(),
         attachments: ready.map((item) => item.input)
       });
+      if (result) clearCommentDraft(args.workItem, submittedDraft, scopeKey);
       if (!isCurrentRequest()) return result !== null;
       if (!result) {
         setActionError(
@@ -380,17 +389,16 @@ export function useCommentsPanelController(
         return false;
       }
       paginationRef.current?.confirm(result);
-      clearCommentDraft(args.workItem, submittedDraft, scopeKey);
       for (const localId of consumedAttachments) cancelledUploads.current.add(localId);
       updateStagedAttachments((prev) =>
         prev.filter((item) => !consumedAttachments.has(item.localId))
       );
-      setDraftTick((v) => v + 1);
       return true;
     } catch (error) {
       if (isCurrentRequest()) setActionError(collaborationErrorMessage(mapBoundaryError(error)));
       return false;
     } finally {
+      finishSubmission();
       if (isCurrentRequest()) setSubmitting(false);
     }
   }, [

@@ -7,6 +7,22 @@ export type CommentComposerDraft = {
   showPreview: boolean;
 };
 
+const emptyDraft: CommentComposerDraft = { body: "", showPreview: false };
+const listeners = new Set<() => void>();
+const contentVersions = new WeakMap<CommentComposerDraft, object>();
+const pendingContents = new WeakSet<object>();
+
+export function subscribeCommentDrafts(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function notifyDrafts(): void {
+  for (const listener of listeners) listener();
+}
+
 const draftsByWorkItem = new Map<string, CommentComposerDraft>();
 let draftScopeKey: string | null = null;
 let draftIdentityKey: string | null = null;
@@ -67,10 +83,6 @@ export function updateCommentDraftStatus(
   return draftScopeKey;
 }
 
-function emptyDraft(): CommentComposerDraft {
-  return { body: "", showPreview: false };
-}
-
 /**
  * Scope drafts to the active collaboration project/auth session.
  * Project switch, disconnect, or auth expiry must clear unsent bodies.
@@ -80,15 +92,16 @@ export function setCommentDraftScope(scopeKey: string | null): void {
   draftsByWorkItem.clear();
   draftIdentityKey = scopeKey;
   draftScopeKey = scopeKey === null ? null : `${scopeKey}:${++scopeRevision}`;
+  notifyDrafts();
 }
 
 export function getCommentDraft(
   workItem: WorkItemRef,
   scopeKey: string | null = draftScopeKey
 ): CommentComposerDraft {
-  if (scopeKey !== draftScopeKey) return emptyDraft();
+  if (scopeKey !== draftScopeKey) return emptyDraft;
   const key = workItemKey(workItem);
-  return draftsByWorkItem.get(key) ?? emptyDraft();
+  return draftsByWorkItem.get(key) ?? emptyDraft;
 }
 
 export function setCommentDraft(
@@ -97,9 +110,16 @@ export function setCommentDraft(
   scopeKey: string | null = draftScopeKey
 ): CommentComposerDraft {
   const key = workItemKey(workItem);
-  if (scopeKey !== draftScopeKey) return emptyDraft();
-  const next = { ...getCommentDraft(workItem, scopeKey), ...patch };
+  if (scopeKey !== draftScopeKey) return emptyDraft;
+  const previous = getCommentDraft(workItem, scopeKey);
+  const next = { ...previous, ...patch };
+  const version =
+    patch.body === undefined || patch.body === previous.body
+      ? contentVersions.get(previous)
+      : undefined;
+  contentVersions.set(next, version ?? {});
   draftsByWorkItem.set(key, next);
+  notifyDrafts();
   return next;
 }
 
@@ -110,8 +130,35 @@ export function clearCommentDraft(
 ): boolean {
   if (scopeKey !== draftScopeKey) return false;
   const key = workItemKey(workItem);
-  if (expectedDraft && draftsByWorkItem.get(key) !== expectedDraft) return false;
-  return draftsByWorkItem.delete(key);
+  const current = draftsByWorkItem.get(key);
+  if (
+    expectedDraft &&
+    (!current || contentVersions.get(current) !== contentVersions.get(expectedDraft))
+  )
+    return false;
+  const deleted = draftsByWorkItem.delete(key);
+  if (deleted) notifyDrafts();
+  return deleted;
+}
+
+/** Own submitted content across unmounts; preview changes retain the same content version. */
+export function beginCommentDraftSubmission(
+  workItem: WorkItemRef,
+  draft: CommentComposerDraft,
+  scopeKey: string | null
+): (() => void) | null {
+  const version = contentVersions.get(draft);
+  if (
+    scopeKey !== draftScopeKey ||
+    draftsByWorkItem.get(workItemKey(workItem)) !== draft ||
+    !version ||
+    pendingContents.has(version)
+  )
+    return null;
+  pendingContents.add(version);
+  return () => {
+    pendingContents.delete(version);
+  };
 }
 
 /** Test helper. */

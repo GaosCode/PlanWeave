@@ -13,7 +13,12 @@ import { useCollaborationSurface } from "../renderer/hooks/useCollaborationSurfa
 import { useCollaborationStatus } from "../renderer/hooks/useCollaborationStatus";
 import { createTranslator } from "../renderer/i18n";
 import { WorkItemCommentPopover } from "../renderer/team/WorkItemCommentPopover";
-import { createApi, connectedStatus, taskItem } from "./helpers/commentsPanelFixture";
+import {
+  commentProjection,
+  createApi,
+  connectedStatus,
+  taskItem
+} from "./helpers/commentsPanelFixture";
 import { deferred } from "./helpers/commentsComposerFixture";
 
 const boundary = vi.hoisted(() => ({ api: null as PlanWeaveCollaborationApi | null }));
@@ -219,35 +224,150 @@ it("isolates API replacement from old API events, reads and return to the origin
 });
 
 it.each([
-  true,
-  false
-])("does not let the old unmounted submit change a reopened draft (success=%s)", async (success) => {
+  { response: "before reopen", edited: false },
+  { response: "after reopen", edited: false },
+  { response: "before reopen", edited: true },
+  { response: "after reopen", edited: true }
+])("consumes only the submitted draft on success $response (edited=$edited)", async ({
+  response,
+  edited
+}) => {
   const f = createApi();
   boundary.api = f.api;
-  const pending =
-    deferred<Awaited<ReturnType<PlanWeaveCollaborationApi["createCollaborationComment"]>>>();
+  const pending = deferred<ReturnType<typeof commentProjection>>();
   f.createComment.mockReturnValueOnce(pending.promise);
   render(<Shell />);
   const user = await openAndWrite("submitted body");
   await user.click(screen.getByTestId("comments-submit"));
-  await waitFor(() => expect(f.createComment).toHaveBeenCalled());
+  await waitFor(() => expect(f.createComment).toHaveBeenCalledTimes(1));
+  await close(user);
+  if (edited || response === "after reopen") {
+    await user.click(screen.getByTestId("work-item-comments-trigger"));
+    const composer = await screen.findByTestId("comments-body-input");
+    await waitFor(() => expect(composer).toBeEnabled());
+    expect(composer).toHaveValue("submitted body");
+    if (edited) {
+      await user.clear(composer);
+      await user.type(composer, "new unsent body");
+      if (response === "before reopen") await close(user);
+    }
+  }
+  await act(async () => pending.resolve(commentProjection("comment-2", "submitted body")));
+  if (response === "before reopen")
+    await user.click(screen.getByTestId("work-item-comments-trigger"));
+  const composer = await screen.findByTestId("comments-body-input");
+  await waitFor(() => expect(composer).toBeEnabled());
+  await waitFor(() => expect(composer).toHaveValue(edited ? "new unsent body" : ""));
+  await user.click(screen.getByTestId("comments-submit"));
+  expect(f.createComment).toHaveBeenCalledTimes(edited ? 2 : 1);
+});
+
+it.each([
+  "before reopen",
+  "after reopen"
+])("treats preview-only changes as the same pending content and consumes success %s", async (response) => {
+  const f = createApi();
+  boundary.api = f.api;
+  const pending = deferred<ReturnType<typeof commentProjection>>();
+  f.createComment.mockReturnValueOnce(pending.promise);
+  render(<Shell />);
+  const user = await openAndWrite("same submitted content");
+  await user.click(screen.getByTestId("comments-submit"));
+  await waitFor(() => expect(f.createComment).toHaveBeenCalledTimes(1));
+  await close(user);
+  await user.click(screen.getByTestId("work-item-comments-trigger"));
+  await waitFor(() => expect(screen.getByTestId("comments-body-input")).toBeEnabled());
+  await user.click(screen.getByTestId("comments-preview-toggle"));
+  expect(screen.getByTestId("comments-preview")).toHaveTextContent("same submitted content");
+  await user.click(screen.getByTestId("comments-submit"));
+  expect(f.createComment).toHaveBeenCalledTimes(1);
+  if (response === "before reopen") await close(user);
+  await act(async () => pending.resolve(commentProjection("comment-2", "same submitted content")));
+  if (response === "before reopen")
+    await user.click(screen.getByTestId("work-item-comments-trigger"));
+  await waitFor(() => expect(screen.getByTestId("comments-body-input")).toHaveValue(""));
+});
+
+it.each([
+  false,
+  true
+])("blocks duplicate submission across Escape and preserves failure (edited=%s)", async (edited) => {
+  const f = createApi();
+  boundary.api = f.api;
+  const pending = deferred<ReturnType<typeof commentProjection>>();
+  f.createComment.mockReturnValueOnce(pending.promise);
+  render(<Shell />);
+  const user = await openAndWrite("retry after failure");
+  await user.click(screen.getByTestId("comments-submit"));
+  await waitFor(() => expect(f.createComment).toHaveBeenCalledTimes(1));
   await close(user);
   await user.click(screen.getByTestId("work-item-comments-trigger"));
   const composer = await screen.findByTestId("comments-body-input");
   await waitFor(() => expect(composer).toBeEnabled());
-  await user.clear(composer);
-  await user.type(composer, "new unsent body");
-  await act(async () => {
-    if (success)
-      pending.resolve({
-        ...(await f.api.listCollaborationComments({ workItem: taskItem }).then((p) => p.items[0]!)),
-        commentId: "created"
-      });
-    else pending.reject(new Error("old submit unavailable"));
-  });
-  expect(composer).toHaveValue("new unsent body");
-  expect(composer).toBeEnabled();
+  await user.click(screen.getByTestId("comments-submit"));
+  expect(f.createComment).toHaveBeenCalledTimes(1);
+  if (edited) {
+    await user.clear(composer);
+    await user.type(composer, "new body after pending");
+  }
+  await act(async () => pending.reject(new Error("old submit unavailable")));
+  expect(composer).toHaveValue(edited ? "new body after pending" : "retry after failure");
   expect(screen.queryByRole("alert")).toBeNull();
+  await user.click(screen.getByTestId("comments-submit"));
+  await waitFor(() => expect(f.createComment).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(composer).toHaveValue(""));
+});
+
+it.each([
+  "disconnect",
+  "profile",
+  "project",
+  "credential",
+  "session",
+  "server",
+  "API"
+] as const)("does not consume a new draft after pending success crosses %s and ABA", async (transition) => {
+  const f = createApi();
+  boundary.api = f.api;
+  const pending = deferred<ReturnType<typeof commentProjection>>();
+  f.createComment.mockReturnValueOnce(pending.promise);
+  const view = render(<Shell />);
+  const user = await openAndWrite("old submitted body");
+  await user.click(screen.getByTestId("comments-submit"));
+  await waitFor(() => expect(f.createComment).toHaveBeenCalledTimes(1));
+  await close(user);
+  if (transition === "API") {
+    boundary.api = createApi().api;
+    view.rerender(<Shell />);
+    await openAndWrite("other API body");
+    await close(user);
+    boundary.api = f.api;
+    view.rerender(<Shell />);
+  } else {
+    const next = connectedStatus();
+    const profile = next.profiles[0]!;
+    if (transition === "disconnect") next.session.phase = "idle";
+    if (transition === "profile") {
+      profile.profileId = "profile-B";
+      next.activeProfileId = "profile-B";
+      next.session.activeProfileId = "profile-B";
+    }
+    if (transition === "project") profile.projectId = "project-B";
+    if (transition === "credential") profile.credentialRevision = "revision-B";
+    if (transition === "server") profile.serverBaseUrl = "https://other.example.test";
+    if (transition === "session") {
+      if (!next.session.operationScope) throw new Error("connected_scope_missing");
+      next.session.operationScope = { ...next.session.operationScope, sessionId: "new-session" };
+    }
+    act(() => {
+      f.emitStatus(next);
+      f.emitStatus(connectedStatus());
+    });
+  }
+  await openAndWrite("new scope body");
+  await act(async () => pending.resolve(commentProjection("comment-2", "old submitted body")));
+  expect(screen.getByTestId("comments-body-input")).toHaveValue("new scope body");
+  expect(screen.getByTestId("comments-body-input")).toBeEnabled();
 });
 
 it("retires the unmounted draft when only the final same-profile status exposes a new verified session", async () => {
