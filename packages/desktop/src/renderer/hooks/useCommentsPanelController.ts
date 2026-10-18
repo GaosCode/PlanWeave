@@ -20,7 +20,6 @@ import {
   clearCommentDraft,
   getCommentDraft,
   setCommentDraft,
-  setCommentDraftScope,
   type CommentComposerDraft
 } from "../collaboration/commentDraftStore";
 import {
@@ -118,7 +117,7 @@ export function useCommentsPanelController(
   args: UseCommentsPanelControllerArgs
 ): UseCommentsPanelControllerResult {
   const api = args.api === undefined ? collaborationBridge : args.api;
-  const { status } = useCollaborationStatus({ api });
+  const { status, draftScope: scopeKey } = useCollaborationStatus({ api });
   const { snapshot, controller } = useCollaborationReadModels({
     api,
     profileId: null,
@@ -139,15 +138,6 @@ export function useCommentsPanelController(
   const currentHumanPrincipalId =
     currentMembership?.humanPrincipalId ?? activeProfile?.humanPrincipalId ?? null;
   const currentUserIsOwner = currentMembership?.role === "owner";
-
-  const scopeKey =
-    sessionConnected && activeProfile
-      ? `${activeProfile.profileId}:${activeProfile.projectId}`
-      : null;
-
-  useEffect(() => {
-    setCommentDraftScope(scopeKey);
-  }, [scopeKey]);
 
   const workKey = args.workItem ? workItemKey(args.workItem) : null;
   const [pagination, setPagination] = useState(emptyCommentPaginationSnapshot);

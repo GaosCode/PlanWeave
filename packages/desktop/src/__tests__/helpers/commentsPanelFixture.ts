@@ -186,6 +186,10 @@ export function createApi() {
     editComment,
     tombstoneComment,
     readCommentAttachment,
+    emitStatus: (next: CollaborationStatus) => {
+      status = next;
+      for (const listener of statusListeners) listener(status);
+    },
     changeStatus: (projectId: string, profileId = "profile-1", credentialRevision?: string) => {
       status = connectedStatus();
       status.activeProfileId = profileId;

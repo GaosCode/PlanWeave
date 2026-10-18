@@ -314,6 +314,8 @@
         "windowChrome.test.ts",
         "windowExternalLinks.test.ts",
         "workItemCommentPopoverInteractions.test.tsx",
+        "workItemCommentDraftLifecycle.test.tsx",
+        "collaborationStatusSubscription.test.tsx",
         "workAuthorityDesktop.test.ts",
         "workItemIdentity.test.ts",
         "workspaceAccessScopeSelector.test.tsx",

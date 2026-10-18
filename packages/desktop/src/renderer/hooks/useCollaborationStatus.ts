@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { deactivateCommentDraftApi } from "../collaboration/commentDraftStore";
 import { collaborationBridge } from "../bridge";
 import type { CollaborationStatus, PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
+import { collaborationStatusStore } from "../collaboration/collaborationStatusStore";
 
 export type UseCollaborationStatusArgs = {
   /** Injected bridge for tests; defaults to window.planweaveCollaboration. */
@@ -9,94 +11,35 @@ export type UseCollaborationStatusArgs = {
 
 export type UseCollaborationStatusResult = {
   status: CollaborationStatus | null;
+  draftScope: string | null;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
 };
 
-/**
- * Lightweight status subscription for shell people/connect UI.
- * Does not open observer sockets; session lifecycle stays in main.
- */
+const unavailable = { status: null, draftScope: null, loading: false, error: null };
+const readUnavailable = () => unavailable;
+const subscribeUnavailable = () => () => undefined;
+const refreshUnavailable = async () => undefined;
+
+/** Shared status only; session and observer socket ownership remain in main. */
 export function useCollaborationStatus(
   args: UseCollaborationStatusArgs = {}
 ): UseCollaborationStatusResult {
   const api = args.api === undefined ? collaborationBridge : args.api;
-  const [status, setStatus] = useState<CollaborationStatus | null>(null);
-  const [loading, setLoading] = useState(Boolean(api));
-  const [error, setError] = useState<string | null>(null);
-  const generationRef = useRef(0);
-
-  const refresh = useCallback(async () => {
-    if (!api) return;
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
-    setLoading(true);
-    try {
-      const next = await api.getCollaborationStatus();
-      if (generationRef.current !== generation) return;
-      setStatus(next);
-      setError(null);
-    } catch (loadError) {
-      if (generationRef.current !== generation) return;
-      setError(loadError instanceof Error ? loadError.message : "collaboration_status_failed");
-    } finally {
-      if (generationRef.current === generation) {
-        setLoading(false);
-      }
-    }
-  }, [api]);
-
+  const previousApi = useRef(api);
   useEffect(() => {
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
-    if (!api) {
-      setStatus(null);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-
-    const load = async () => {
-      try {
-        const next = await api.getCollaborationStatus();
-        if (!cancelled && generationRef.current === generation) {
-          setStatus(next);
-          setError(null);
-        }
-      } catch (loadError) {
-        if (!cancelled && generationRef.current === generation) {
-          setError(loadError instanceof Error ? loadError.message : "collaboration_status_failed");
-        }
-      } finally {
-        if (!cancelled && generationRef.current === generation) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
-    const unsubscribe = api.onCollaborationStatusChanged((next) => {
-      generationRef.current += 1;
-      setStatus(next);
-      setError(null);
-      setLoading(false);
-    });
-
-    return () => {
-      cancelled = true;
-      generationRef.current += 1;
-      unsubscribe();
-    };
+    if (!api && previousApi.current) deactivateCommentDraftApi(previousApi.current);
+    previousApi.current = api;
   }, [api]);
-
-  return {
-    status,
-    loading,
-    error,
-    refresh
-  };
+  const store = api ? collaborationStatusStore(api) : null;
+  useEffect(() => {
+    store?.activate();
+  }, [store]);
+  const snapshot = useSyncExternalStore(
+    store?.subscribe ?? subscribeUnavailable,
+    store?.getSnapshot ?? readUnavailable,
+    readUnavailable
+  );
+  return { ...snapshot, refresh: store?.refresh ?? refreshUnavailable };
 }
