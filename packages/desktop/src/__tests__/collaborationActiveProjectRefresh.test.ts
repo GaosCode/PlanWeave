@@ -5,6 +5,7 @@ import { exampleAssignmentProjection } from "@planweave-ai/collaboration-protoco
 import type { WorkAuthorityProjection } from "@planweave-ai/collaboration-protocol/work/authority";
 import { useCollaborationReadModels } from "../renderer/hooks/useCollaborationReadModels";
 import { createMockApi } from "./helpers/collaborationReadModelFixtures";
+import { collaborationOperationScopeFixture } from "./helpers/collaborationOperationScopeFixture";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -19,7 +20,8 @@ function deferred<T>() {
 it("keeps active-project hook refresh failure diagnostic without an unhandled rejection", async () => {
   const f = createMockApi();
   const workItem = exampleAssignmentProjection.workItem;
-  const authority = await f.api.getCollaborationWorkAuthority({ workItem });
+  const operationScope = collaborationOperationScopeFixture("profile-demo-001", "project-demo-001");
+  const authority = await f.api.getCollaborationWorkAuthority({ workItem, operationScope });
   const read = vi.mocked(f.api.getCollaborationWorkAuthority);
   const old = deferred<WorkAuthorityProjection>();
   const successor = deferred<WorkAuthorityProjection>();
@@ -30,6 +32,7 @@ it("keeps active-project hook refresh failure diagnostic without an unhandled re
     ({ canvasId }) =>
       useCollaborationReadModels({
         api: f.api,
+        operationScope,
         profileId: "profile-demo-001",
         projectId: "project-demo-001",
         canvasId,

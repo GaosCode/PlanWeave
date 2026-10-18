@@ -51,6 +51,7 @@ import {
 } from "../shared/mcpTunnel";
 import { operatorControlInvokeChannels } from "../shared/operatorControl";
 import { windowAppearanceInvokeChannels } from "../shared/windowAppearance";
+import { collaborationOperationScopeFixture } from "./helpers/collaborationOperationScopeFixture";
 
 type IpcRendererListener = (event: unknown, payload: unknown) => void;
 type InvokeForwarder = (...args: unknown[]) => Promise<unknown>;
@@ -902,6 +903,10 @@ describe("preload bridge invocation", () => {
   });
 
   it("exposes the collaboration API through a separate preload surface", async () => {
+    const operationScope = {
+      ...collaborationOperationScopeFixture(),
+      serverBaseUrl: "https://collab.example.com/"
+    };
     const status: CollaborationStatus = {
       profiles: [],
       activeProfileId: null,
@@ -1364,13 +1369,15 @@ describe("preload bridge invocation", () => {
     await api.promoteCollaborationOwner({ humanPrincipalId: "human-2" });
     await api.demoteCollaborationOwner({ humanPrincipalId: "human-2" });
     await api.revokeCollaborationDevice({ deviceCredentialId: "device-1" });
-    await api.listCollaborationAssignments({ cursor: 0, limit: 20 });
-    await api.listCollaborationActivity({ limit: 20 });
+    await api.listCollaborationAssignments({ operationScope, cursor: 0, limit: 20 });
+    await api.listCollaborationActivity({ operationScope, limit: 20 });
     await api.readCollaborationPendingAttachment({
+      operationScope,
       pendingUploadId: "pending-1",
       digestSha256: "a".repeat(64)
     });
     await api.readCollaborationCommentAttachment({
+      operationScope,
       commentId: "comment-1",
       digestSha256: "a".repeat(64)
     });
@@ -1546,12 +1553,20 @@ describe("preload bridge invocation", () => {
       { displayName: "Ada Lovelace" }
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.listCollaborationAssignments,
+      { operationScope, cursor: 0, limit: 20 }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      collaborationInvokeChannels.listCollaborationActivity,
+      { operationScope, limit: 20 }
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.readCollaborationPendingAttachment,
-      { pendingUploadId: "pending-1", digestSha256: "a".repeat(64) }
+      { operationScope, pendingUploadId: "pending-1", digestSha256: "a".repeat(64) }
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.readCollaborationCommentAttachment,
-      { commentId: "comment-1", digestSha256: "a".repeat(64) }
+      { operationScope, commentId: "comment-1", digestSha256: "a".repeat(64) }
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       collaborationInvokeChannels.readCollaborationCanvasBindingRuntimeAvailability,

@@ -143,7 +143,11 @@ describe("PeopleView", () => {
     const hub = acquireCollaborationReadModelController(toCollaborationReadBridge(api)!);
     const controller = hub.controller;
     const workItem = exampleAssignmentProjection.workItem;
-    const authority = await api.getCollaborationWorkAuthority({ workItem });
+    const activeProject = scopedProjectFixture({ profileId: "profile-1", projectId: "project-1" });
+    const authority = await api.getCollaborationWorkAuthority({
+      workItem,
+      operationScope: activeProject.operationScope
+    });
     const read = vi.mocked(api.getCollaborationWorkAuthority);
     const old = deferred<WorkAuthorityProjection>();
     const next = deferred<WorkAuthorityProjection>();
@@ -152,9 +156,7 @@ describe("PeopleView", () => {
     const onOutcome = vi.fn();
     process.on("unhandledRejection", unhandled);
     try {
-      await controller.setActiveProject(
-        scopedProjectFixture({ profileId: "profile-1", projectId: "project-1" })
-      );
+      await controller.setActiveProject(activeProject);
       await controller.ensureWorkAuthority(workItem);
       render(
         <PeopleView

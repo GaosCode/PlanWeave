@@ -32,7 +32,8 @@ async function fixture() {
   const f = createMockApi();
   const read = vi.mocked(f.api.getCollaborationWorkAuthority);
   const authorityFor = read.getMockImplementation()!;
-  const initial = await f.api.getCollaborationWorkAuthority({ workItem });
+  const operationScope = collaborationOperationScopeFixture("profile-demo-001", "project-demo-001");
+  const initial = await f.api.getCollaborationWorkAuthority({ workItem, operationScope });
   const authority = {
     ...initial,
     responsibility: { ...initial.responsibility, revision: 3 },
@@ -40,13 +41,12 @@ async function fixture() {
   };
   read.mockResolvedValue(authority);
   const controller = new CollaborationReadModelController({ api: f.api });
-  await controller.setActiveProject(
-    scopedProjectFixture({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001",
-      canvasId: "canvas-1"
-    })
-  );
+  await controller.setActiveProject({
+    operationScope,
+    profileId: "profile-demo-001",
+    projectId: "project-demo-001",
+    canvasId: "canvas-1"
+  });
   await controller.ensureWorkAuthority(workItem);
   let observerCursor = 0;
   const run = async (entry: string) => {
@@ -81,7 +81,7 @@ async function fixture() {
       ).toEqual(authority.reviewer);
     }
   };
-  return { ...f, controller, read, authority, authorityFor, run };
+  return { ...f, controller, read, authority, authorityFor, operationScope, run };
 }
 
 describe("work authority request ordering", () => {
@@ -198,7 +198,12 @@ describe("work authority request ordering", () => {
         expect(
           f.controller.getSnapshot().workAuthorityByWorkItem[key]?.responsibility.revision
         ).toBe(scenario === "multi" ? 3 : 2);
-        c.resolve(await f.authorityFor({ workItem: { ...workItem, canvasId: "unrelated" } }));
+        c.resolve(
+          await f.authorityFor({
+            workItem: { ...workItem, canvasId: "unrelated" },
+            operationScope: f.operationScope
+          })
+        );
         await last;
       }
       b.resolve(f.authority);
@@ -380,7 +385,9 @@ describe("work authority request ordering", () => {
       f.read.mockRejectedValueOnce(error);
       await expect(f.controller.ensureWorkAuthority(workItem)).rejects.toBe(error);
       const otherItem = { ...workItem, canvasId: "other-canvas" };
-      f.read.mockResolvedValueOnce(await f.authorityFor({ workItem: otherItem }));
+      f.read.mockResolvedValueOnce(
+        await f.authorityFor({ workItem: otherItem, operationScope: f.operationScope })
+      );
       await f.controller.ensureWorkAuthority(otherItem);
       expect(f.controller.getSnapshot().lastError?.code).toBe(error.code);
       expect(f.controller.getSnapshot().syncPhase).toBe("forbidden");
@@ -395,7 +402,7 @@ describe("work authority request ordering", () => {
     "current activity failure"
   ])("does not replay retired aggregate authority failure after %s", async (scenario) => {
     const f = await fixture();
-    const page = await f.api.listCollaborationActivity({});
+    const page = await f.api.listCollaborationActivity({ operationScope: f.operationScope });
     const activity = deferred<typeof page>();
     const observed = deferred<void>();
     const oldError = {
@@ -559,7 +566,10 @@ describe("work authority request ordering", () => {
   ])("managing hook refreshes a new %s while the old authority request stays pending", async (scope) => {
     const f = createMockApi();
     const read = vi.mocked(f.api.getCollaborationWorkAuthority);
-    const authority = await f.api.getCollaborationWorkAuthority({ workItem });
+    const authority = await f.api.getCollaborationWorkAuthority({
+      workItem,
+      operationScope: collaborationOperationScopeFixture("profile-demo-001", "project-demo-001")
+    });
     const old = deferred<WorkAuthorityProjection>();
     const started = deferred<void>();
     const hook = renderHook(
