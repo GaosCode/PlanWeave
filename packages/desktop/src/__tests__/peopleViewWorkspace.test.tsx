@@ -1,3 +1,4 @@
+import { collaborationOperationScopeFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
@@ -84,6 +85,10 @@ describe("PeopleView workspace", () => {
       credentialStorage: "available",
       nonPersistenceWarning: null,
       session: {
+        operationScope: {
+          ...collaborationOperationScopeFixture(),
+          serverBaseUrl: "http://127.0.0.1:56584/"
+        },
         phase: "connected",
         activeProfileId: "profile-1",
         detail: null,
@@ -232,6 +237,10 @@ describe("PeopleView workspace", () => {
         credentialStorage: "available",
         nonPersistenceWarning: null,
         session: {
+          operationScope: {
+            ...collaborationOperationScopeFixture(),
+            serverBaseUrl: "http://127.0.0.1:56584/"
+          },
           phase: "connected",
           activeProfileId: "profile-1",
           detail: null,
@@ -313,6 +322,7 @@ describe("PeopleView workspace", () => {
       credentialStorage: "available",
       nonPersistenceWarning: null,
       session: {
+        operationScope: null,
         phase: "idle",
         activeProfileId: "profile-1",
         detail: null,
@@ -431,6 +441,10 @@ describe("PeopleView workspace", () => {
       credentialStorage: "available",
       nonPersistenceWarning: null,
       session: {
+        operationScope: {
+          ...collaborationOperationScopeFixture(),
+          serverBaseUrl: "http://127.0.0.1:56584/"
+        },
         phase: "connected",
         activeProfileId: "profile-1",
         detail: null,
@@ -543,6 +557,7 @@ describe("PeopleView workspace", () => {
         credentialStorage: "available",
         nonPersistenceWarning: null,
         session: {
+          operationScope: null,
           phase: "idle",
           activeProfileId: "profile-1",
           detail: null,
@@ -615,6 +630,7 @@ describe("PeopleView workspace", () => {
         credentialStorage: "available",
         nonPersistenceWarning: null,
         session: {
+          operationScope: null,
           phase: "idle",
           activeProfileId: null,
           detail: null,
@@ -687,6 +703,7 @@ describe("PeopleView workspace", () => {
       credentialStorage: "available",
       nonPersistenceWarning: null,
       session: {
+        operationScope: null,
         phase: "error",
         activeProfileId: "profile-1",
         detail: "connect_preflight_failed",
@@ -715,6 +732,10 @@ describe("PeopleView workspace", () => {
     const connectedStatus = {
       ...disconnectedStatus,
       session: {
+        operationScope: {
+          ...collaborationOperationScopeFixture(),
+          serverBaseUrl: "http://192.168.123.23:56584/"
+        },
         phase: "connected",
         activeProfileId: "profile-1",
         detail: null,
@@ -783,6 +804,7 @@ describe("PeopleView workspace", () => {
         credentialStorage: "available",
         nonPersistenceWarning: null,
         session: {
+          operationScope: null,
           phase: "idle",
           activeProfileId: null,
           detail: null,
@@ -846,6 +868,7 @@ describe("PeopleView workspace", () => {
       credentialStorage: "available",
       nonPersistenceWarning: null,
       session: {
+        operationScope: null,
         phase: "idle",
         activeProfileId: null,
         detail: "workspace_no_shared_projects",

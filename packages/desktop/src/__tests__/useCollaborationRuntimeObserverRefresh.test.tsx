@@ -1,3 +1,4 @@
+import { collaborationOperationScopeFixture } from "./helpers/collaborationOperationScopeFixture";
 // @vitest-environment jsdom
 
 import { act, renderHook } from "@testing-library/react";
@@ -112,6 +113,7 @@ function observerStatus(detail: string): CollaborationStatus {
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: collaborationOperationScopeFixture(),
       phase: "connected",
       activeProfileId: "profile-1",
       detail,

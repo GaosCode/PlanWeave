@@ -26,6 +26,7 @@ const collaborationStatus = {
   credentialStorage: "available" as const,
   nonPersistenceWarning: null,
   session: {
+    operationScope: null,
     phase: "idle" as const,
     activeProfileId: null,
     detail: null,

@@ -343,6 +343,7 @@ describe("useCommentsPanelController", () => {
       ...connectedStatus(),
       activeProfileId: null,
       session: {
+        operationScope: null,
         phase: "idle",
         activeProfileId: null,
         detail: null,

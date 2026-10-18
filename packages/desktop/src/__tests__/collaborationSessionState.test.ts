@@ -5,34 +5,13 @@ import {
 } from "../renderer/collaboration/sessionState";
 import type { CollaborationStatus } from "../shared/collaboration";
 
-function status(phase: CollaborationStatus["session"]["phase"]): CollaborationStatus {
+function status(phase: CollaborationStatus["session"]["phase"]): {
+  session: Pick<CollaborationStatus["session"], "phase" | "lastErrorCode">;
+  workspaceConnection: Pick<CollaborationStatus["workspaceConnection"], "status">;
+} {
   return {
-    profiles: [],
-    activeProfileId: null,
-    credentialStorage: "available",
-    nonPersistenceWarning: null,
-    session: {
-      phase,
-      activeProfileId: null,
-      detail: null,
-      lastErrorCode: null,
-      lastErrorMessage: null
-    },
-    workspaceConnection: {
-      schemaVersion: "workspace-setup/v1",
-      status: "local_only",
-      profile: null,
-      workspaceId: null,
-      workspaceDisplayName: null,
-      connectedAt: null,
-      error: null
-    },
-    workspacePicker: {
-      schemaVersion: "workspace-setup/v1",
-      items: [],
-      nextCursor: null
-    },
-    updatedAt: "2030-01-01T00:00:00.000Z"
+    session: { phase, lastErrorCode: null },
+    workspaceConnection: { status: "local_only" }
   };
 }
 
@@ -48,22 +27,7 @@ describe("isCollaborationSessionConnected", () => {
   it("allows Workspace identity APIs after the Server connection is live", () => {
     const connected = status("error");
     connected.session.lastErrorCode = "live_registry_project_unavailable";
-    connected.workspaceConnection = {
-      ...connected.workspaceConnection,
-      status: "connected",
-      profile: {
-        schemaVersion: "workspace-identity/v1",
-        profileId: "profile-1",
-        displayName: "Team",
-        serverBaseUrl: "http://127.0.0.1:56584/",
-        workspaceId: "workspace-1",
-        allowInsecureTransport: true
-      },
-      workspaceId: "workspace-1",
-      workspaceDisplayName: "Team",
-      connectedAt: "2030-01-01T00:00:00.000Z",
-      error: null
-    };
+    connected.workspaceConnection = { status: "connected" };
     expect(isWorkspaceConnectionConnected(connected)).toBe(true);
     expect(isWorkspaceConnectionConnected(status("connected"))).toBe(false);
     expect(isWorkspaceConnectionConnected(null)).toBe(false);

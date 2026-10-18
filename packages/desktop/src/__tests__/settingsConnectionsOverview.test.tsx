@@ -105,6 +105,7 @@ describe("SettingsConnectionsSection overview Server row", () => {
       credentialStorage: "available",
       nonPersistenceWarning: null,
       session: {
+        operationScope: null,
         phase: "idle",
         activeProfileId: null,
         detail: null,

@@ -1,4 +1,7 @@
-import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
+import {
+  collaborationOperationScopeFixture,
+  scopedProjectFixture
+} from "./helpers/collaborationOperationScopeFixture";
 import { resolveCollaborationSurfaceReadBinding } from "../renderer/hooks/useCollaborationSurface";
 /* @vitest-environment jsdom */
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -31,6 +34,7 @@ it("loads Workspace identity and members without requesting project identity end
     nonPersistenceWarning: null,
     updatedAt: "2030-01-01T00:00:00.000Z",
     session: {
+      operationScope: null,
       phase: "idle",
       activeProfileId: null,
       detail: null,
@@ -148,6 +152,7 @@ function workspaceStatus(workspaceId = "workspace-one"): CollaborationStatus {
     nonPersistenceWarning: null,
     updatedAt: "2030-01-01T00:00:00.000Z",
     session: {
+      operationScope: collaborationOperationScopeFixture("profile-one", "project-one"),
       phase: "connected",
       activeProfileId: "profile-one",
       detail: null,
@@ -204,7 +209,7 @@ async function observedPeople(
       ...status,
       profiles: [],
       activeProfileId: null,
-      session: { ...status.session, phase: "idle", activeProfileId: null }
+      session: { ...status.session, operationScope: null, phase: "idle", activeProfileId: null }
     };
   let roster = [member("human-one", "A"), member("human-removed", "Removed")];
   const signals = new Set<(signal: CollaborationObserverSignal) => void>();
@@ -519,7 +524,12 @@ describe("Workspace People membership invalidation", () => {
       if (change === "disconnect") {
         next.workspaceConnection = { ...next.workspaceConnection, status: "local_only" };
         next.activeProfileId = null;
-        next.session = { ...next.session, phase: "idle", activeProfileId: null };
+        next.session = {
+          ...next.session,
+          operationScope: null,
+          phase: "idle",
+          activeProfileId: null
+        };
       }
       act(() => f.changeStatus(next));
     }
@@ -695,7 +705,12 @@ describe("connection-only People shell invalidation", () => {
       const next = workspaceStatus(change === "workspace" ? "workspace-two" : "workspace-one");
       next.profiles = [];
       next.activeProfileId = null;
-      next.session = { ...next.session, phase: "idle", activeProfileId: null };
+      next.session = {
+        ...next.session,
+        operationScope: null,
+        phase: "idle",
+        activeProfileId: null
+      };
       if (change === "profile")
         next.workspaceConnection.profile = {
           ...next.workspaceConnection.profile!,

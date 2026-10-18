@@ -1,3 +1,4 @@
+import { collaborationOperationScopeFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
@@ -67,6 +68,7 @@ function connectedStatus(principalId = "human-1"): CollaborationStatus {
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: collaborationOperationScopeFixture(),
       phase: "connected",
       activeProfileId: "profile-1",
       detail: null,

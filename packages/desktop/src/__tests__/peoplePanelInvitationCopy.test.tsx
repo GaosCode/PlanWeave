@@ -196,6 +196,7 @@ function collaborationStatus(workspaceIdValue = "workspace-1", revision = 0): Co
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: null,
       phase: "idle",
       activeProfileId: null,
       detail: null,

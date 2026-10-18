@@ -1,3 +1,4 @@
+import { collaborationOperationScopeFixture } from "./collaborationOperationScopeFixture";
 // @vitest-environment jsdom
 
 import type { CollaborationStatus } from "../../shared/collaboration";
@@ -348,6 +349,10 @@ export function connectedWorkspaceStatus(): CollaborationStatus {
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: {
+        ...collaborationOperationScopeFixture(locator.connectionProfileId, locator.projectId),
+        serverBaseUrl
+      },
       phase: "connected",
       activeProfileId: locator.connectionProfileId,
       detail: null,

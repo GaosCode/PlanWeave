@@ -1,3 +1,4 @@
+import { collaborationOperationScopeFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
@@ -189,6 +190,10 @@ describe("CollaborationConnectForm invitation onboarding", () => {
             }
           ],
           session: {
+            operationScope: {
+              ...collaborationOperationScopeFixture("existing-project-profile", "existing-project"),
+              serverBaseUrl: "https://server.example/"
+            },
             phase: "connected",
             activeProfileId: "existing-project-profile",
             detail: "observer:connected",

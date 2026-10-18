@@ -737,6 +737,7 @@ describe("CollaborationReadModelController", () => {
     controller.handleStatusForTests(
       idleStatus({
         session: {
+          operationScope: null,
           phase: "error",
           activeProfileId: "profile-demo-001",
           detail: "observer:auth_expired",
@@ -765,6 +766,10 @@ describe("CollaborationReadModelController", () => {
     controller.handleStatusForTests(
       idleStatus({
         session: {
+          operationScope: collaborationOperationScopeFixture(
+            "profile-demo-001",
+            "project-demo-001"
+          ),
           phase: "connected",
           activeProfileId: "profile-demo-001",
           detail: "observer:failed",
@@ -793,6 +798,7 @@ describe("CollaborationReadModelController", () => {
     controller.handleStatusForTests(
       idleStatus({
         session: {
+          operationScope: null,
           phase: "ready",
           activeProfileId: "profile-demo-001",
           detail: "workspace_selected",

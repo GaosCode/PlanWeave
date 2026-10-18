@@ -596,6 +596,7 @@ describe("collaboration integration scenarios", () => {
           credentialStorage: "available",
           nonPersistenceWarning: null,
           session: {
+            operationScope: null,
             phase: "idle",
             activeProfileId: null,
             detail: null,
@@ -673,6 +674,7 @@ describe("collaboration integration scenarios", () => {
           credentialStorage: "available",
           nonPersistenceWarning: null,
           session: {
+            operationScope: null,
             phase: "idle",
             activeProfileId: null,
             detail: null,
@@ -725,6 +727,7 @@ describe("collaboration integration scenarios", () => {
           credentialStorage: "available",
           nonPersistenceWarning: null,
           session: {
+            operationScope: null,
             phase: "idle",
             activeProfileId: null,
             detail: null,

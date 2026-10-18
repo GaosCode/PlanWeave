@@ -192,6 +192,7 @@ describe("LocalServerLifecycleControls", () => {
           displayName: "Configured workspace"
         }}
         session={{
+          operationScope: null,
           phase: "error",
           activeProfileId: "profile-remote",
           detail: "live_session_bind_failed",
@@ -226,6 +227,7 @@ describe("LocalServerLifecycleControls", () => {
           displayName: "Configured workspace"
         }}
         session={{
+          operationScope: null,
           phase,
           detail,
           activeProfileId: null,

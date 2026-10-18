@@ -84,6 +84,7 @@ function dummyStatus(session: {
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: null,
       phase: session.phase,
       activeProfileId: null,
       detail: session.detail,

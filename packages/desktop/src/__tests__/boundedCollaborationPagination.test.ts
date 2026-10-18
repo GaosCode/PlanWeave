@@ -1,4 +1,7 @@
-import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
+import {
+  collaborationOperationScopeFixture,
+  scopedProjectFixture
+} from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { waitFor } from "@testing-library/react";
@@ -84,6 +87,7 @@ function connectedStatus(): CollaborationStatus {
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: collaborationOperationScopeFixture("profile-demo-001", "project-demo-001"),
       phase: "connected",
       activeProfileId: "profile-demo-001",
       detail: "observer:connected",

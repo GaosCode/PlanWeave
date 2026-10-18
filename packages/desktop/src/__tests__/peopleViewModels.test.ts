@@ -1,3 +1,4 @@
+import { collaborationOperationScopeFixture } from "./helpers/collaborationOperationScopeFixture";
 import { describe, expect, it } from "vitest";
 import type { HumanMembershipView } from "@planweave-ai/collaboration-protocol/identity/workspace";
 import { collaborationErrorCode } from "../renderer/collaboration/formatCollaborationError";
@@ -179,6 +180,7 @@ describe("peopleViewModels", () => {
       credentialStorage: "available" as const,
       nonPersistenceWarning: null,
       session: {
+        operationScope: collaborationOperationScopeFixture("p1", "project-1"),
         phase: "connected" as const,
         activeProfileId: "p1",
         detail: null,
@@ -223,6 +225,7 @@ describe("peopleViewModels", () => {
           ...connectedStatus,
           session: {
             ...connectedStatus.session,
+            operationScope: null,
             phase: "error",
             lastErrorCode: "live_registry_project_unavailable"
           },

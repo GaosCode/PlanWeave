@@ -1,3 +1,4 @@
+import { collaborationOperationScopeFixture } from "./helpers/collaborationOperationScopeFixture";
 import { describe, expect, it } from "vitest";
 import type {
   AssignmentDisplayProjection,
@@ -57,6 +58,7 @@ function statusFor(principalId: string): CollaborationStatus {
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: collaborationOperationScopeFixture(),
       phase: "connected",
       activeProfileId: "profile-1",
       detail: null,
@@ -261,7 +263,12 @@ describe("assignmentViewModels", () => {
       resolveAssigneePickerMode({
         status: {
           ...statusFor("human-1"),
-          session: { ...statusFor("human-1").session, phase: "connecting", detail: "reconnecting" }
+          session: {
+            ...statusFor("human-1").session,
+            operationScope: null,
+            phase: "connecting",
+            detail: "reconnecting"
+          }
         },
         syncPhase: "reconnecting",
         staleConflict: false,

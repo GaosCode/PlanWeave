@@ -57,7 +57,9 @@ function records(count: number, item: WorkItemRef = taskItem): CommentDisplayPro
 async function panel(count: number) {
   const fixture = createApi();
   let currentRecords = records(count);
-  const readPage = (query: Query): CommentListPage => {
+  const readPage = (
+    query: Pick<Query, "workItem" | "limit" | "includeTombstoned" | "cursor">
+  ): CommentListPage => {
     const limit = query.limit ?? pageSize;
     const available = currentRecords
       .filter((record) => JSON.stringify(record.workItem) === JSON.stringify(query.workItem))

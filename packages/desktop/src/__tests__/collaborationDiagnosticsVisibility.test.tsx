@@ -29,6 +29,7 @@ const diagnosticStatus: CollaborationStatus = {
   credentialStorage: "available",
   nonPersistenceWarning: null,
   session: {
+    operationScope: null,
     phase: "connecting",
     activeProfileId: "profile-windows",
     detail: "observer:reconnecting:attempt=3:delay_ms=2000",

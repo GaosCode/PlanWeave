@@ -1,4 +1,7 @@
-import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
+import {
+  collaborationOperationScopeFixture,
+  scopedProjectFixture
+} from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
@@ -290,6 +293,10 @@ describe("PeopleView", () => {
       credentialStorage: "available",
       nonPersistenceWarning: null,
       session: {
+        operationScope: {
+          ...collaborationOperationScopeFixture(),
+          serverBaseUrl: "https://collaboration.example.test/"
+        },
         phase: "connected",
         activeProfileId: "profile-1",
         detail: null,
@@ -346,7 +353,7 @@ describe("PeopleView", () => {
 
     emitStatus?.({
       ...connectedStatus,
-      session: { ...connectedStatus.session, phase: "idle" },
+      session: { ...connectedStatus.session, operationScope: null, phase: "idle" },
       workspaceConnection: { ...connectedStatus.workspaceConnection, status: "disconnected" },
       updatedAt: "2030-01-01T00:00:01.000Z"
     });
@@ -364,6 +371,7 @@ describe("PeopleView", () => {
       credentialStorage: "available",
       nonPersistenceWarning: null,
       session: {
+        operationScope: null,
         phase: "idle",
         activeProfileId: null,
         detail: null,
@@ -541,6 +549,7 @@ describe("PeopleView", () => {
       credentialStorage: "available",
       nonPersistenceWarning: null,
       session: {
+        operationScope: null,
         phase: "idle",
         activeProfileId: null,
         detail: null,
@@ -577,6 +586,10 @@ describe("PeopleView", () => {
       ],
       activeProfileId: "planweave-local-project-1",
       session: {
+        operationScope: {
+          ...collaborationOperationScopeFixture("planweave-local-project-1", "project-1"),
+          serverBaseUrl: "http://127.0.0.1:56584/"
+        },
         phase: "connected" as const,
         activeProfileId: "planweave-local-project-1",
         detail: null,
