@@ -365,6 +365,7 @@
         "collaborationIpcTrustMatrix.test.ts",
         "collaborationPresence.test.ts",
         "collaborationPresenceTwoClientE2E.test.ts",
+        "collaborationOperationScope.test.ts",
         "collaborationProfileEndpoint.test.ts",
         "collaborationRemoteOperationsProcess.test.ts",
         "collaborationSecurityBoundary.test.ts",

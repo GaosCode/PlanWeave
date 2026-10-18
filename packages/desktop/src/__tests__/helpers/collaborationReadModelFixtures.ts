@@ -1,3 +1,4 @@
+import { collaborationOperationScopeFixture } from "./collaborationOperationScopeFixture";
 import { vi } from "vitest";
 import {
   eligibleHostBatchResponseSchema,
@@ -37,6 +38,7 @@ export function idleStatus(overrides?: Partial<CollaborationStatus>): Collaborat
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: collaborationOperationScopeFixture("profile-demo-001", "project-demo-001"),
       phase: "connected",
       activeProfileId: "profile-demo-001",
       detail: "observer:connected",

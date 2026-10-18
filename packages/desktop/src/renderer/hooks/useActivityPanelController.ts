@@ -86,6 +86,7 @@ export function useActivityPanelController(
 ): UseActivityPanelControllerResult {
   const api = args.api === undefined ? collaborationBridge : args.api;
   const { status } = useCollaborationStatus({ api });
+  const operationScope = status?.session.operationScope;
   const { snapshot, controller } = useCollaborationReadModels({
     api,
     profileId: null,
@@ -125,7 +126,7 @@ export function useActivityPanelController(
 
   const loadPage = useCallback(
     async (mode: "replace" | "append") => {
-      if (!api || !controller || !args.open || !scopeConnected) return;
+      if (!operationScope || !api || !controller || !args.open || !scopeConnected) return;
       if (mode === "append" && (requestRef.current || !cursorRef.current)) return;
       const request: ActivityRequest = {
         generation: generationRef.current,
@@ -146,6 +147,7 @@ export function useActivityPanelController(
         controller.getSnapshot().projectId === snapshot.projectId;
       try {
         const page = await api.listCollaborationActivity({
+          operationScope,
           workItem: args.workItem ?? undefined,
           limit: ACTIVITY_LIST_PAGE_DEFAULT,
           cursor: mode === "append" ? (cursorRef.current ?? undefined) : undefined
@@ -184,7 +186,8 @@ export function useActivityPanelController(
       scopeConnected,
       snapshot.profileId,
       snapshot.projectId,
-      filterActivity
+      filterActivity,
+      operationScope
     ]
   );
 

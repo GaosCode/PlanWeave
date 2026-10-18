@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { waitFor } from "@testing-library/react";
@@ -164,10 +165,12 @@ describe("CollaborationReadModelController bounded refresh", () => {
     );
 
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
 
     const snapshot = controller.getSnapshot();
     expect(snapshot.members.map((item) => item.membershipId)).toEqual([
@@ -191,10 +194,12 @@ describe("CollaborationReadModelController bounded refresh", () => {
   it("keeps the prior snapshots and loses authority when either second page fails", async () => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const prior = controller.getSnapshot();
 
     mock.listMembers
@@ -221,10 +226,12 @@ describe("CollaborationReadModelController bounded refresh", () => {
   ] as const)("marks a %s second-page %s failure non-authoritative", async (resource, kind) => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const failure = { kind, code: `${resource}_${kind}`, message: "page failed", retryable: true };
     if (resource === "members") {
       mock.listMembers
@@ -252,10 +259,12 @@ describe("CollaborationReadModelController bounded refresh", () => {
   ] as const)("preserves the specific %s phase on incomplete pagination", async (kind, phase) => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     mock.listMembers
       .mockResolvedValueOnce({ items: [], nextCursor: 4 })
       .mockRejectedValueOnce({ kind, code: `${kind}_failure`, message: "page failed" });
@@ -268,10 +277,12 @@ describe("CollaborationReadModelController bounded refresh", () => {
   it("keeps the previous assignment snapshot when the second eligibility batch fails", async () => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const previous = controller.getSnapshot().assignmentsByWorkItem;
     const previousHosts = controller.getSnapshot().hosts;
     mock.listAssignments.mockResolvedValueOnce({
@@ -297,10 +308,12 @@ describe("CollaborationReadModelController bounded refresh", () => {
   it("applies concurrent single-assignment refreshes for different keys", async () => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const first = blockAssignment(301);
     const second = blockAssignment(302);
     const firstRead = deferred<{ items: AssignmentDisplayProjection[]; nextCursor: null }>();
@@ -328,10 +341,12 @@ describe("CollaborationReadModelController bounded refresh", () => {
   it("does not advance a superseded same-key cursor and allows retry", async () => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const older = blockAssignment(401);
     const newer = { ...older, revision: 2 };
     const olderRead = deferred<{ items: AssignmentDisplayProjection[]; nextCursor: null }>();
@@ -357,10 +372,12 @@ describe("CollaborationReadModelController bounded refresh", () => {
   it("preserves a single-key update when an older full refresh finishes last", async () => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const stale = blockAssignment(501);
     const latest = { ...stale, revision: 2 };
     const fullRead = deferred<{ items: AssignmentDisplayProjection[]; nextCursor: null }>();
@@ -382,10 +399,12 @@ describe("CollaborationReadModelController bounded refresh", () => {
   it("supersedes an older single-key read when a newer full refresh finishes first", async () => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const stale = blockAssignment(601);
     const latest = { ...stale, revision: 2 };
     const singleRead = deferred<{ items: AssignmentDisplayProjection[]; nextCursor: null }>();

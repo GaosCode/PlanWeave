@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
@@ -206,11 +207,13 @@ describe("collaboration accessibility", () => {
     const api = createConnectedApi();
     trackedApis.push(api);
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "default"
+      })
+    );
 
     render(
       <>
@@ -343,11 +346,13 @@ describe("collaboration accessibility", () => {
     const api = createConnectedApi();
     trackedApis.push(api);
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "default"
+      })
+    );
 
     render(<WorkItemCollaborationPanel workItem={taskItem} open api={api} t={t} />);
 

@@ -1,4 +1,8 @@
 import {
+  collaborationOperationInputSchema,
+  type CollaborationOperationScope
+} from "../../shared/collaborationOperationScope.js";
+import {
   activityListWireQuerySchema,
   commentCreateWireCommandSchema,
   commentEditWireCommandSchema,
@@ -66,7 +70,8 @@ function workItemPayload(input: unknown): { workItem: WorkItemRef } {
  */
 export class CollaborationReadMutationsFacade {
   constructor(
-    private readonly withActiveClient: <T>(
+    private readonly withOperationClient: <T>(
+      scope: CollaborationOperationScope,
       operation: (client: CollaborationClient) => Promise<T>
     ) => Promise<T>,
     private readonly toAuthorityScope: (
@@ -76,37 +81,63 @@ export class CollaborationReadMutationsFacade {
   ) {}
 
   listAssignments(input: unknown = {}): Promise<AssignmentListPage> {
-    return this.withActiveClient((client) =>
-      client.listAssignments(assignmentListQuerySchema.parse(input ?? {}))
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    return this.withOperationClient(operationScope, (client) =>
+      client.listAssignments(assignmentListQuerySchema.parse(payload))
     );
   }
 
   getAssignment(input: unknown): Promise<AssignmentDisplayProjection> {
-    const { workItem } = workItemPayload(input);
-    return this.withActiveClient((client) => client.getAssignment(workItem));
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const { workItem } = workItemPayload(payload);
+    return this.withOperationClient(operationScope, (client) => client.getAssignment(workItem));
   }
 
   listEligibleAssignees(input: unknown): Promise<EligibleAssigneesResponse> {
-    const { workItem } = workItemPayload(input);
-    return this.withActiveClient((client) => client.listEligibleAssignees(workItem));
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const { workItem } = workItemPayload(payload);
+    return this.withOperationClient(operationScope, (client) =>
+      client.listEligibleAssignees(workItem)
+    );
   }
 
   listEligibleHostsBatch(input: unknown): Promise<EligibleHostBatchResponse> {
-    const request = eligibleHostBatchRequestSchema.parse(input);
-    return this.withActiveClient((client) => client.listEligibleHostsBatch(request));
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const request = eligibleHostBatchRequestSchema.parse(payload);
+    return this.withOperationClient(operationScope, (client) =>
+      client.listEligibleHostsBatch(request)
+    );
   }
 
   getWorkAuthority(input: unknown): Promise<WorkAuthorityProjection> {
-    const { workItem } = collaborationWorkAuthorityScopeInputSchema.parse(input);
-    return this.withActiveClient(async (client) => {
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const { workItem } = collaborationWorkAuthorityScopeInputSchema
+      .omit({ operationScope: true })
+      .parse(payload);
+    return this.withOperationClient(operationScope, async (client) => {
       const scope = await this.toAuthorityScope(client, workItem);
       return client.getWorkAuthority(scope);
     });
   }
 
   updateResponsibility(input: unknown): Promise<ResponsibilityReadModel> {
-    const command = collaborationResponsibilityUpdateInputSchema.parse(input);
-    return this.withActiveClient(async (client) => {
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const command = collaborationResponsibilityUpdateInputSchema
+      .omit({ operationScope: true })
+      .parse(payload);
+    return this.withOperationClient(operationScope, async (client) => {
       const scope = await this.toAuthorityScope(client, command.workItem);
       return client.updateResponsibility({
         schemaVersion: "responsibility/v1",
@@ -119,8 +150,13 @@ export class CollaborationReadMutationsFacade {
   }
 
   updateReviewer(input: unknown): Promise<ReviewAssignmentReadModel> {
-    const command = collaborationReviewerUpdateInputSchema.parse(input);
-    return this.withActiveClient(async (client) => {
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const command = collaborationReviewerUpdateInputSchema
+      .omit({ operationScope: true })
+      .parse(payload);
+    return this.withOperationClient(operationScope, async (client) => {
       const scope = await this.toAuthorityScope(client, command.workItem);
       return client.updateReviewer({
         schemaVersion: "review-assignment/v1",
@@ -133,43 +169,71 @@ export class CollaborationReadMutationsFacade {
   }
 
   listComments(input: unknown): Promise<CommentListPage> {
-    const query = commentListWireQuerySchema.parse(input);
-    return this.withActiveClient((client) => client.listComments(query));
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const query = commentListWireQuerySchema.parse(payload);
+    return this.withOperationClient(operationScope, (client) => client.listComments(query));
   }
 
   listActivity(input: unknown = {}): Promise<ActivityListPage> {
-    return this.withActiveClient((client) =>
-      client.listActivity(activityListWireQuerySchema.parse(input ?? {}))
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    return this.withOperationClient(operationScope, (client) =>
+      client.listActivity(activityListWireQuerySchema.parse(payload))
     );
   }
 
   updateAssignment(input: unknown): Promise<AssignmentDisplayProjection> {
-    const command = assignmentUpdateWireCommandSchema.parse(input);
-    return this.withActiveClient((client) => client.updateAssignment(command));
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const command = assignmentUpdateWireCommandSchema.parse(payload);
+    return this.withOperationClient(operationScope, (client) => client.updateAssignment(command));
   }
 
   createComment(input: unknown): Promise<CommentDisplayProjection> {
-    const command = commentCreateWireCommandSchema.parse(input);
-    return this.withActiveClient((client) => client.createComment(command));
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const command = commentCreateWireCommandSchema.parse(payload);
+    return this.withOperationClient(operationScope, (client) => client.createComment(command));
   }
 
   editComment(input: unknown): Promise<CommentDisplayProjection> {
-    const command = commentEditWireCommandSchema.parse(input);
-    return this.withActiveClient((client) => client.editComment(command));
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const command = commentEditWireCommandSchema.parse(payload);
+    return this.withOperationClient(operationScope, (client) => client.editComment(command));
   }
 
   tombstoneComment(input: unknown): Promise<CommentDisplayProjection> {
-    const command = commentTombstoneWireCommandSchema.parse(input);
-    return this.withActiveClient((client) => client.tombstoneComment(command));
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const command = commentTombstoneWireCommandSchema.parse(payload);
+    return this.withOperationClient(operationScope, (client) => client.tombstoneComment(command));
   }
 
   createPendingAttachment(input: unknown): Promise<PendingAttachmentView> {
-    const body = createPendingAttachmentRequestSchema.parse(input);
-    return this.withActiveClient((client) => client.createPendingAttachment(body));
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const body = createPendingAttachmentRequestSchema.parse(payload);
+    return this.withOperationClient(operationScope, (client) =>
+      client.createPendingAttachment(body)
+    );
   }
 
   async uploadPendingAttachment(input: unknown): Promise<PendingAttachmentView> {
-    const body = collaborationUploadPendingAttachmentInputSchema.parse(input);
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const body = collaborationUploadPendingAttachmentInputSchema
+      .omit({ operationScope: true })
+      .parse(payload);
     let bytes: Buffer;
     try {
       bytes = Buffer.from(body.bodyBase64, "base64");
@@ -189,7 +253,7 @@ export class CollaborationReadMutationsFacade {
         retryable: false
       });
     }
-    return this.withActiveClient((client) =>
+    return this.withOperationClient(operationScope, (client) =>
       client.uploadPendingAttachment(body.pendingUploadId, {
         body: bytes,
         mediaType: body.mediaType,
@@ -199,8 +263,13 @@ export class CollaborationReadMutationsFacade {
   }
 
   finalizePendingAttachment(input: unknown): Promise<FinalizePendingAttachmentResponse> {
-    const body = collaborationFinalizePendingAttachmentInputSchema.parse(input);
-    return this.withActiveClient((client) =>
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const body = collaborationFinalizePendingAttachmentInputSchema
+      .omit({ operationScope: true })
+      .parse(payload);
+    return this.withOperationClient(operationScope, (client) =>
       client.finalizePendingAttachment(body.pendingUploadId, {
         expectedDigestSha256: body.expectedDigestSha256
       })
@@ -208,8 +277,13 @@ export class CollaborationReadMutationsFacade {
   }
 
   readPendingAttachment(input: unknown): Promise<CollaborationCommentAttachmentBody> {
-    const body = collaborationReadPendingAttachmentInputSchema.parse(input);
-    return this.withActiveClient(async (client) =>
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const body = collaborationReadPendingAttachmentInputSchema
+      .omit({ operationScope: true })
+      .parse(payload);
+    return this.withOperationClient(operationScope, async (client) =>
       collaborationCommentAttachmentBodySchema.parse(
         await client.readPendingAttachment(body.pendingUploadId, body.digestSha256)
       )
@@ -217,8 +291,13 @@ export class CollaborationReadMutationsFacade {
   }
 
   readCommentAttachment(input: unknown): Promise<CollaborationCommentAttachmentBody> {
-    const body = collaborationReadCommentAttachmentInputSchema.parse(input);
-    return this.withActiveClient(async (client) =>
+    const { operationScope, ...payload } = collaborationOperationInputSchema
+      .passthrough()
+      .parse(input);
+    const body = collaborationReadCommentAttachmentInputSchema
+      .omit({ operationScope: true })
+      .parse(payload);
+    return this.withOperationClient(operationScope, async (client) =>
       collaborationCommentAttachmentBodySchema.parse(
         await client.readCommentAttachment(body.commentId, body.digestSha256)
       )

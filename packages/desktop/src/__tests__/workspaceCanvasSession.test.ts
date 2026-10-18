@@ -488,6 +488,7 @@ describe("WorkspaceCanvasSession", () => {
     const publishStatus = () => serviceWithCache(directory, cache).getStatus();
     const setSession = vi.fn();
     const lifecycle = new CollaborationSessionLifecycle({
+      verifyClient: vi.fn(),
       profiles: new CollaborationProfileStore({ profilesPath: join(directory, "profiles.json") }),
       vault: new CollaborationCredentialVault({
         paths: { credentialsPath: join(directory, "credentials.json") }

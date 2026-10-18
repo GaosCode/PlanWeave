@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { waitFor } from "@testing-library/react";
@@ -111,11 +112,13 @@ describe("collaboration observer queue generation lifecycle", () => {
         ? snapshot.assignmentsByWorkItem[workItemKey(nextItem)]?.revision
         : snapshot.commentsByWorkItem[workItemKey(nextItem)]?.[0]?.revision;
     };
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001",
-      canvasId: "canvas-1"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001",
+        canvasId: "canvas-1"
+      })
+    );
     const oldObserver = mock.signalListeners[0]!;
     let stopObservingSettlement: (() => void) | undefined;
     try {
@@ -139,7 +142,9 @@ describe("collaboration observer queue generation lifecycle", () => {
         await waitFor(() => expect(controller.getSnapshot().syncPhase).toBe("ready"));
       } else {
         if (transition === "clear") controller.clear();
-        await controller.setActiveProject({ profileId, projectId, canvasId: nextItem.canvasId });
+        await controller.setActiveProject(
+          scopedProjectFixture({ profileId, projectId, canvasId: nextItem.canvasId })
+        );
       }
       await controller.trackWorkItemComments(nextItem);
       expect(nextRevision()).toBe(1);
@@ -220,21 +225,25 @@ describe("collaboration observer queue generation lifecycle", () => {
         newActive -= 1;
       }
     });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001",
-      canvasId: "canvas-1"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001",
+        canvasId: "canvas-1"
+      })
+    );
     try {
       for (let cursor = 1; cursor <= 4; cursor += 1) {
         mock.signalListeners[0]!(event(cursor, item("canvas-1", cursor), "comment"));
       }
       expect(oldStarted).toBe(4);
-      await controller.setActiveProject({
-        profileId: "profile-demo-001",
-        projectId: "project-demo-001",
-        canvasId: "canvas-2"
-      });
+      await controller.setActiveProject(
+        scopedProjectFixture({
+          profileId: "profile-demo-001",
+          projectId: "project-demo-001",
+          canvasId: "canvas-2"
+        })
+      );
       for (let cursor = 101; cursor <= 105; cursor += 1) {
         const signal = event(cursor, item("canvas-2", cursor), "attachment");
         mock.signalListeners[0]!(signal);
@@ -280,11 +289,13 @@ describe("collaboration observer queue generation lifecycle", () => {
     const oldRead = deferred<typeof exampleCommentListPage>();
     const newRead = deferred<typeof exampleCommentListPage>();
     const workItem = item("canvas-1");
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001",
-      canvasId: "canvas-1"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001",
+        canvasId: "canvas-1"
+      })
+    );
     mock.listComments
       .mockReturnValueOnce(oldRead.promise)
       .mockResolvedValueOnce(comments(workItem, 1))

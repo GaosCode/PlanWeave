@@ -46,9 +46,12 @@ export function updateCommentDraftStatus(
   if (draftApi !== api) return null;
   const profile = status.profiles.find((item) => item.profileId === status.activeProfileId);
   const scope =
-    status.session.phase === "connected" && profile?.hasDeviceCredential
+    status.session.phase === "connected" &&
+    status.session.operationScope &&
+    profile?.hasDeviceCredential
       ? JSON.stringify([
           apiIds.get(api),
+          status.session.operationScope.sessionId,
           profile.profileId,
           profile.projectId,
           profile.serverBaseUrl,

@@ -1,3 +1,7 @@
+import {
+  scopedProjectFixture,
+  collaborationOperationScopeFixture
+} from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 /**
@@ -61,6 +65,7 @@ function connectedStatus(
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: phase === "connected" ? collaborationOperationScopeFixture() : null,
       phase,
       activeProfileId: phase === "idle" ? null : "profile-1",
       detail: null,
@@ -849,11 +854,13 @@ describe("collaboration integration scenarios", () => {
     });
     trackedApis.push(scenario.api);
     const shell = acquireCollaborationReadModelController(scenario.api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "default"
+      })
+    );
 
     render(<WorkItemCollaborationPanel workItem={taskItem} open api={scenario.api} t={t} />);
 
@@ -908,11 +915,13 @@ describe("collaboration integration scenarios", () => {
     const second = acquireCollaborationReadModelController(scenario.api);
     expect(second.controller).toBe(first.controller);
 
-    await first.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
+    await first.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "default"
+      })
+    );
 
     const listActivity = scenario.api.listCollaborationActivity as ReturnType<typeof vi.fn>;
     const beforeCatchupCalls = listActivity.mock.calls.length;
@@ -948,11 +957,13 @@ describe("collaboration integration scenarios", () => {
     });
     trackedApis.push(scenario.api);
     const shell = acquireCollaborationReadModelController(scenario.api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "default"
+      })
+    );
 
     render(
       <RemoteRunPanel

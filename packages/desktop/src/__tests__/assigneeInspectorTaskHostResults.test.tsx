@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
@@ -199,11 +200,13 @@ function createApi(): AssigneeFieldApi {
 
 async function prepare(api: AssigneeFieldApi) {
   const shell = acquireCollaborationReadModelController(api);
-  await shell.controller.setActiveProject({
-    profileId: "profile-1",
-    projectId: "project-1",
-    canvasId: "canvas-1"
-  });
+  await shell.controller.setActiveProject(
+    scopedProjectFixture({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "canvas-1"
+    })
+  );
   return shell;
 }
 

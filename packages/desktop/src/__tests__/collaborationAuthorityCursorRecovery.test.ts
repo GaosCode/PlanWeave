@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 import { waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -28,10 +29,12 @@ describe("work authority observer cursor recovery", () => {
     });
     const read = vi.mocked(mock.api.getCollaborationWorkAuthority);
     const observer = mock.signalListeners;
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const authority = await controller.ensureWorkAuthority(workItem);
     expect(authority).not.toBeNull();
     if (!authority) throw new Error("Authority fixture is missing");

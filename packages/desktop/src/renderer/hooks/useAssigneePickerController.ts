@@ -123,6 +123,7 @@ export function useAssigneePickerController(
   const authorityRole: AssigneeAuthorityRole = args.authorityRole ?? "responsibility";
   const detailsOpen = args.detailsOpen ?? false;
   const { status } = useCollaborationStatus({ api });
+  const operationScope = status?.session.operationScope;
 
   const activeProfile = useMemo(() => {
     if (!status?.activeProfileId) return null;
@@ -226,7 +227,7 @@ export function useAssigneePickerController(
 
   const loadEligible = useCallback(async () => {
     if (!isCurrentScope()) return;
-    if (!api || !args.workItem || !sessionConnected) {
+    if (!api || !operationScope || !args.workItem || !sessionConnected) {
       setEligible(null);
       return;
     }
@@ -234,7 +235,10 @@ export function useAssigneePickerController(
     const isCurrentRequest = () => isCurrentScope() && request === eligibleRequestRef.current;
     setEligibleLoading(true);
     try {
-      const page = await api.listCollaborationEligibleAssignees({ workItem: args.workItem });
+      const page = await api.listCollaborationEligibleAssignees({
+        operationScope,
+        workItem: args.workItem
+      });
       if (!isCurrentRequest()) return;
       setEligible(filterEligibleForRole(page));
     } catch (error) {
@@ -246,7 +250,7 @@ export function useAssigneePickerController(
         setEligibleLoading(false);
       }
     }
-  }, [api, args.workItem, isCurrentScope, sessionConnected]);
+  }, [api, args.workItem, isCurrentScope, sessionConnected, operationScope]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: workItemKeyValue remounts eligible load
   useEffect(() => {

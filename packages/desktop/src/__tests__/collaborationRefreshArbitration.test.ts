@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { waitFor } from "@testing-library/react";
@@ -146,10 +147,12 @@ describe("CollaborationReadModelController refresh arbitration", () => {
   it("bounds observer invalidation concurrency and queued cursors during a large burst", async () => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     mock.listMembers.mockClear();
 
     const releaseReads = deferred<void>();
@@ -181,10 +184,12 @@ describe("CollaborationReadModelController refresh arbitration", () => {
   it("does not let overflow recovery from before clear retire the reactivated cursor window", async () => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     mock.listMembers.mockClear();
 
     const oldRecovery = deferred<typeof exampleMemberPage>();
@@ -203,10 +208,12 @@ describe("CollaborationReadModelController refresh arbitration", () => {
     await waitFor(() => expect(mock.listMembers).toHaveBeenCalledTimes(1));
 
     controller.clear();
-    const activating = controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    const activating = controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     for (let cursor = 100; cursor < 612; cursor += 1) {
       mock.listeners[0]!({
         ...signal("membership", cursor),
@@ -245,10 +252,12 @@ describe("CollaborationReadModelController refresh arbitration", () => {
   it("keeps an aggregate non-authoritative until the latest member replacement recovers", async () => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const aggregate = deferred<typeof exampleMemberPage>();
     const pending = deferred<typeof exampleMemberPage>();
     mock.listMembers
@@ -283,10 +292,12 @@ describe("CollaborationReadModelController refresh arbitration", () => {
   ] as const)("settles %s ready when the replacement finishes %s", async (resource, order) => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const older = deferred<{ items: AssignmentDisplayProjection[]; nextCursor: null }>();
     const newer = deferred<{ items: AssignmentDisplayProjection[]; nextCursor: null }>();
     const list = resource === "members" ? mock.listMembers : mock.listAssignments;
@@ -323,10 +334,12 @@ describe("CollaborationReadModelController refresh arbitration", () => {
   ] as const)("does not let an old generation release the new %s loading lease", async (mode) => {
     const mock = createApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const oldRead = deferred<typeof exampleMemberPage>();
     const newRead = deferred<typeof exampleMemberPage>();
     mock.listMembers
@@ -335,10 +348,12 @@ describe("CollaborationReadModelController refresh arbitration", () => {
     mock.listeners[0]!(signal("membership", 20));
     await waitFor(() => expect(mock.listMembers).toHaveBeenCalledTimes(2));
     if (mode === "clear") controller.clear();
-    const activating = controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-002"
-    });
+    const activating = controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-002"
+      })
+    );
     await waitFor(() => expect(mock.listMembers).toHaveBeenCalledTimes(3));
     oldRead.resolve(exampleMemberPage);
     await waitFor(() => expect(controller.getSnapshot().loadingKinds).toContain("members"));
@@ -355,10 +370,12 @@ describe("CollaborationReadModelController refresh arbitration", () => {
     const stale = assignment("host-old");
     const mock = createApi(stale);
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const fullRead = deferred<{ items: AssignmentDisplayProjection[]; nextCursor: null }>();
     mock.listAssignments
       .mockImplementationOnce(() => fullRead.promise)

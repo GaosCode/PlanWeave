@@ -31,6 +31,7 @@ type CollaborationSessionLifecycleDependencies = {
   getClient(): CollaborationClient | null;
   getClientProfileId(): string | null;
   setClient(client: CollaborationClient | null, profileId: string | null): void;
+  verifyClient(client: CollaborationClient, profileId: string): void;
   getSessionPhase(): CollaborationSessionPhase;
   setSession(
     phase: CollaborationSessionPhase,
@@ -117,6 +118,7 @@ export class CollaborationSessionLifecycle {
       this.dependencies.setSession("connecting", "http_preflight", null);
       await client.verifyAccess();
       preflightComplete = true;
+      this.dependencies.verifyClient(client, profileId);
       this.dependencies.setSession("connected", "http_ready", null);
       this.armObserverConnectDeadline({ client, profileId, observerGeneration });
       client.startObserver(
@@ -232,6 +234,7 @@ export class CollaborationSessionLifecycle {
     this.observerGeneration += 1;
     this.dependencies.presenceSession.reset();
     this.dependencies.setClient(null, null);
+    this.dependencies.setSession("idle", reason, null);
     let persistenceError: ReturnType<typeof collaborationErrorFromUnknown> | null = null;
     try {
       await this.dependencies.canvasCommands.flushSnapshotCache();
@@ -247,7 +250,6 @@ export class CollaborationSessionLifecycle {
       }
     }
     this.observerStatus = { state: "stopped" };
-    if (!persistenceError) this.dependencies.setSession("idle", reason, null);
     if (client) {
       try {
         client.stopPresence();

@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-protocol/work/authority";
 import {
@@ -139,7 +140,9 @@ function setup(useDefaultMutationIds = false) {
   });
   const activate = async (project = projectA, profile = "profile-A", canvas = "canvas-1") => {
     projectId = project;
-    await controller.setActiveProject({ profileId: profile, projectId: project, canvasId: canvas });
+    await controller.setActiveProject(
+      scopedProjectFixture({ profileId: profile, projectId: project, canvasId: canvas })
+    );
     await controller.trackWorkItemComments(workItem);
     await controller.ensureWorkAuthority(workItem);
   };

@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 import { resolveCollaborationSurfaceReadBinding } from "../renderer/hooks/useCollaborationSurface";
 /* @vitest-environment jsdom */
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -259,7 +260,9 @@ async function observedPeople(
   const readPort = toCollaborationReadBridge(api)!;
   const shell = acquireCollaborationReadModelController(readPort);
   if (!connectionOnly)
-    await shell.controller.setActiveProject({ profileId: "profile-one", projectId: "project-one" });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({ profileId: "profile-one", projectId: "project-one" })
+    );
   if (initialGate) readMembers.mockImplementationOnce(() => initialGate.promise);
   const hook = renderHook(
     ({ nextStatus, open }: { nextStatus: CollaborationStatus; open: boolean }) => {

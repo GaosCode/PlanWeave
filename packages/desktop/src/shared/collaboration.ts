@@ -1,3 +1,5 @@
+import type { CollaborationOperationScope } from "./collaborationOperationScope.js";
+export * from "./collaborationOperationScope.js";
 export * from "./collaborationAttachments.js";
 import type {
   CollaborationCreatePendingAttachmentInput,
@@ -105,7 +107,6 @@ import {
   type AssignmentDisplayProjection,
   type AssignmentListPage,
   type EligibleAssigneesResponse,
-  type EligibleHostBatchRequest,
   type EligibleHostBatchResponse
 } from "@planweave-ai/collaboration-protocol/work/assignment";
 import type { PlanWeaveCollaborationRuntimeAvailabilityApi } from "./collaborationRuntimeAvailability.js";
@@ -124,6 +125,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/loopback";
 import type {
   CollaborationActivityListQueryInput,
+  CollaborationEligibleHostsBatchInput,
   CollaborationAssignmentListQueryInput,
   CollaborationAssignmentUpdateInput,
   CollaborationCommentCreateInput,
@@ -218,6 +220,7 @@ export type CollaborationSessionPhase = "idle" | "ready" | "connecting" | "conne
 
 export type CollaborationSessionView = {
   phase: CollaborationSessionPhase;
+  operationScope: CollaborationOperationScope | null;
   activeProfileId: string | null;
   /** Observer/client lifecycle status for the active session (non-secret). */
   detail: string | null;
@@ -869,7 +872,7 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
   demoteCollaborationOwner: (input: CollaborationHumanPrincipalIdInput) => Promise<void>;
   revokeCollaborationDevice: (input: CollaborationDeviceCredentialIdInput) => Promise<void>;
   listCollaborationAssignments: (
-    input?: CollaborationAssignmentListQueryInput
+    input: CollaborationAssignmentListQueryInput
   ) => Promise<AssignmentListPage>;
   getCollaborationAssignment: (
     input: CollaborationWorkItemInput
@@ -878,7 +881,7 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
     input: CollaborationWorkItemInput
   ) => Promise<EligibleAssigneesResponse>;
   listCollaborationEligibleHostsBatch: (
-    input: EligibleHostBatchRequest
+    input: CollaborationEligibleHostsBatchInput
   ) => Promise<EligibleHostBatchResponse>;
   getCollaborationWorkAuthority: (
     input: CollaborationWorkAuthorityScopeInput
@@ -893,7 +896,7 @@ export type PlanWeaveCollaborationApi = WorkspaceCanvasSharingApi & {
     input: CollaborationCommentListQueryInput
   ) => Promise<CommentListPage>;
   listCollaborationActivity: (
-    input?: CollaborationActivityListQueryInput
+    input: CollaborationActivityListQueryInput
   ) => Promise<ActivityListPage>;
   listCollaborationAuthorizedProjects: (
     input?: CollaborationRegistryPageInput
@@ -981,6 +984,7 @@ export const COLLABORATION_SESSION_ONLY_WARNING =
 
 export type {
   CollaborationActivityListQueryInput,
+  CollaborationEligibleHostsBatchInput,
   CollaborationAssignmentListQueryInput,
   CollaborationAssignmentUpdateInput,
   CollaborationCommentCreateInput,

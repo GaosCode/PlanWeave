@@ -1,3 +1,4 @@
+import { collaborationOperationScopeFixture } from "./collaborationOperationScopeFixture";
 import { vi } from "vitest";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { CollaborationReadBridgePort } from "../../renderer/collaboration/CollaborationReadModelController";
@@ -29,6 +30,7 @@ export function connectedStatus(): CollaborationStatus {
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: collaborationOperationScopeFixture(),
       phase: "connected",
       activeProfileId: "profile-1",
       detail: null,

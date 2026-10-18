@@ -1,3 +1,4 @@
+import { collaborationOperationInputSchema } from "./collaborationOperationScope.js";
 import { z } from "zod";
 import { COMMENT_ATTACHMENT_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 import {
@@ -5,17 +6,17 @@ import {
   commentIdSchema,
   pendingAttachmentUploadIdSchema
 } from "@planweave-ai/collaboration-protocol/core/primitives";
-import {
-  createPendingAttachmentRequestSchema,
-  type CreatePendingAttachmentRequest
-} from "@planweave-ai/collaboration-protocol/activity/attachments";
+import { createPendingAttachmentRequestSchema } from "@planweave-ai/collaboration-protocol/activity/attachments";
 import {
   commentAttachmentMediaTypeSchema,
   commentAttachmentSizeBytesSchema
 } from "@planweave-ai/collaboration-protocol/activity/comments";
 /** Create a staged comment attachment upload (metadata only — no bytes). */
-export const collaborationCreatePendingAttachmentInputSchema = createPendingAttachmentRequestSchema;
-export type CollaborationCreatePendingAttachmentInput = CreatePendingAttachmentRequest;
+export const collaborationCreatePendingAttachmentInputSchema =
+  createPendingAttachmentRequestSchema.extend(collaborationOperationInputSchema.shape);
+export type CollaborationCreatePendingAttachmentInput = z.input<
+  typeof collaborationCreatePendingAttachmentInputSchema
+>;
 
 /**
  * Upload staged attachment bytes over IPC as base64.
@@ -24,6 +25,7 @@ export type CollaborationCreatePendingAttachmentInput = CreatePendingAttachmentR
  */
 export const collaborationUploadPendingAttachmentInputSchema = z
   .object({
+    ...collaborationOperationInputSchema.shape,
     pendingUploadId: pendingAttachmentUploadIdSchema,
     mediaType: z.string().min(1).max(128),
     bodyBase64: z
@@ -43,6 +45,7 @@ export type CollaborationUploadPendingAttachmentInput = z.infer<
 
 export const collaborationFinalizePendingAttachmentInputSchema = z
   .object({
+    ...collaborationOperationInputSchema.shape,
     pendingUploadId: pendingAttachmentUploadIdSchema,
     expectedDigestSha256: commentContentSha256Schema.optional()
   })
@@ -53,6 +56,7 @@ export type CollaborationFinalizePendingAttachmentInput = z.infer<
 
 export const collaborationReadCommentAttachmentInputSchema = z
   .object({
+    ...collaborationOperationInputSchema.shape,
     commentId: commentIdSchema,
     digestSha256: commentContentSha256Schema
   })
@@ -78,6 +82,7 @@ export type CollaborationCommentAttachmentBody = z.infer<
 
 export const collaborationReadPendingAttachmentInputSchema = z
   .object({
+    ...collaborationOperationInputSchema.shape,
     pendingUploadId: pendingAttachmentUploadIdSchema,
     digestSha256: commentContentSha256Schema
   })

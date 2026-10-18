@@ -1,3 +1,4 @@
+import { CollaborationOperationSession } from "./CollaborationOperationSession.js";
 import type { ServerDataIdentitySnapshotResult } from "../../shared/serverDataMigration.js";
 import { resolvePlanweaveHome } from "@planweave-ai/runtime";
 import {
@@ -145,6 +146,7 @@ export class CollaborationService {
   private readonly canvasRealtime: CollaborationCanvasRealtimeFacade;
   private workspaceHydrated = false;
 
+  private readonly operationSession = new CollaborationOperationSession();
   private client: CollaborationClient | null = null;
   private clientProfileId: string | null = null;
   private sessionPhase: CollaborationSessionPhase = "idle";
@@ -227,7 +229,7 @@ export class CollaborationService {
       presence: this.presenceSession
     });
     this.readMutations = new CollaborationReadMutationsFacade(
-      (operation) => this.withActiveClient(operation),
+      (scope, operation) => this.operationSession.run(scope, this.sessionPhase, operation),
       (client, workItem) => this.toAuthorityScope(client, workItem)
     );
     this.workspaceConnection = new CollaborationWorkspaceConnection({
@@ -263,7 +265,9 @@ export class CollaborationService {
       assertOpen: () => this.assertOpen(),
       getClient: () => this.client,
       getClientProfileId: () => this.clientProfileId,
+      verifyClient: (client, profileId) => this.operationSession.verify(client, profileId),
       setClient: (client, profileId) => {
+        this.operationSession.retire();
         if (this.client !== client) {
           this.contentVersions.clearAuthorizedRemoteCanvasCache();
         }
@@ -397,6 +401,7 @@ export class CollaborationService {
       vault: this.vault,
       workspaceConnection: this.workspaceConnection,
       session: {
+        operationScope: this.operationSession.scope(this.sessionPhase),
         phase: this.sessionPhase,
         detail: this.sessionDetail,
         lastErrorCode: this.lastErrorCode,
@@ -481,16 +486,14 @@ export class CollaborationService {
       allowInsecureTransport: stored.allowInsecureTransport,
       endpoint: stored.endpoint
     });
-    if (requireCredential) {
-      const token = await this.vault.getDeviceToken(profileId);
-      if (!token) {
-        throw new Error("Human device credential is not available for this profile.");
-      }
+    const deviceToken = await this.vault.getDeviceToken(profileId);
+    if (requireCredential && !deviceToken) {
+      throw new Error("Human device credential is not available for this profile.");
     }
     const client = this.createClient({
       profile,
       credential: {
-        getDeviceToken: () => this.vault.getDeviceToken(profileId)
+        getDeviceToken: async () => deviceToken
       },
       request: this.request
     });

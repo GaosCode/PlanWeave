@@ -1,3 +1,4 @@
+import { collaborationOperationScopeFixture } from "./helpers/collaborationOperationScopeFixture";
 import { webcrypto } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -77,6 +78,7 @@ describe("staged attachment cooperative cancellation", () => {
     let cancelled = boundary === "start";
     const progress: StagedAttachment[] = [];
     const pending = uploadStagedAttachment({
+      operationScope: collaborationOperationScopeFixture(),
       api,
       staged: created.staged,
       bytes: new Uint8Array([1, 2, 3, 4]),
@@ -130,6 +132,7 @@ describe("staged attachment cooperative cancellation", () => {
     if (!created.ok) throw new Error(created.error);
     const phases: string[] = [];
     const ready = await uploadStagedAttachment({
+      operationScope: collaborationOperationScopeFixture(),
       api,
       staged: created.staged,
       bytes: new Uint8Array([1, 2, 3, 4]),

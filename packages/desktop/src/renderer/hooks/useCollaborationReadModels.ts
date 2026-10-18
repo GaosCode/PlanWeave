@@ -1,3 +1,4 @@
+import type { CollaborationOperationScope } from "../../shared/collaborationOperationScope.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { collaborationBridge } from "../bridge";
 import { toCollaborationReadBridge } from "../collaboration/collaborationReadBridge";
@@ -15,6 +16,7 @@ import type { CollaborationReadModelSnapshot } from "../../shared/collaborationR
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
 
 export type UseCollaborationReadModelsArgs = {
+  operationScope?: CollaborationOperationScope | null;
   profileId: string | null;
   projectId: string | null;
   canvasId?: string | null;
@@ -99,17 +101,25 @@ export function useCollaborationReadModels(
     if (!args.manageActiveProject) return;
     const controller = controllerRef.current;
     if (!controller) return;
-    if (!args.profileId || !args.projectId) {
+    if (!args.profileId || !args.projectId || !args.operationScope) {
       controller.clear();
       return;
     }
     void controller.setActiveProject({
+      operationScope: args.operationScope,
       profileId: args.profileId,
       projectId: args.projectId,
       canvasId: args.canvasId
     });
     // controllerVersion rebinds after hub acquire without capturing the controller instance.
-  }, [args.manageActiveProject, args.profileId, args.projectId, args.canvasId, controllerVersion]);
+  }, [
+    args.operationScope,
+    args.manageActiveProject,
+    args.profileId,
+    args.projectId,
+    args.canvasId,
+    controllerVersion
+  ]);
 
   const controller = controllerRef.current;
   const snapshot = useSyncExternalStore(

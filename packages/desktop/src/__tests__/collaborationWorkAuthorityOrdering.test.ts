@@ -1,4 +1,9 @@
+import {
+  scopedProjectFixture,
+  collaborationOperationScopeFixture
+} from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
+import { useMemo } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -35,11 +40,13 @@ async function fixture() {
   };
   read.mockResolvedValue(authority);
   const controller = new CollaborationReadModelController({ api: f.api });
-  await controller.setActiveProject({
-    profileId: "profile-demo-001",
-    projectId: "project-demo-001",
-    canvasId: "canvas-1"
-  });
+  await controller.setActiveProject(
+    scopedProjectFixture({
+      profileId: "profile-demo-001",
+      projectId: "project-demo-001",
+      canvasId: "canvas-1"
+    })
+  );
   await controller.ensureWorkAuthority(workItem);
   let observerCursor = 0;
   const run = async (entry: string) => {
@@ -113,11 +120,13 @@ describe("work authority request ordering", () => {
       });
       await started.promise;
       next = f.controller
-        .setActiveProject({
-          profileId: "profile-demo-001",
-          projectId: "project-demo-001",
-          canvasId: "canvas-2"
-        })
+        .setActiveProject(
+          scopedProjectFixture({
+            profileId: "profile-demo-001",
+            projectId: "project-demo-001",
+            canvasId: "canvas-2"
+          })
+        )
         .then(() => {
           nextFinished = true;
         });
@@ -528,7 +537,9 @@ describe("work authority request ordering", () => {
         return value;
       });
       f.controller.clear();
-      await f.controller.setActiveProject({ profileId: "profile-new", projectId: "project-new" });
+      await f.controller.setActiveProject(
+        scopedProjectFixture({ profileId: "profile-new", projectId: "project-new" })
+      );
       await vi.waitFor(() => expect(retired).toBe(true));
       expect(await pending).toBeNull();
       if (outcome === "success") gate.resolve(f.authority);
@@ -552,7 +563,18 @@ describe("work authority request ordering", () => {
     const old = deferred<WorkAuthorityProjection>();
     const started = deferred<void>();
     const hook = renderHook(
-      (props) => useCollaborationReadModels({ ...props, api: f.api, manageActiveProject: true }),
+      (props) => {
+        const operationScope = useMemo(
+          () => collaborationOperationScopeFixture(props.profileId, props.projectId),
+          [props.profileId, props.projectId]
+        );
+        return useCollaborationReadModels({
+          ...props,
+          operationScope,
+          api: f.api,
+          manageActiveProject: true
+        });
+      },
       {
         initialProps: {
           profileId: "profile-demo-001",

@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./collaborationOperationScopeFixture";
 import { webcrypto } from "node:crypto";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { expect, vi } from "vitest";
@@ -21,11 +22,13 @@ export function deferred<T>() {
 export async function scopedPanel() {
   const fixture = createApi();
   const shell = acquireCollaborationReadModelController(fixture.api);
-  await shell.controller.setActiveProject({
-    profileId: "profile-1",
-    projectId: "project-1",
-    canvasId: "canvas-1"
-  });
+  await shell.controller.setActiveProject(
+    scopedProjectFixture({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "canvas-1"
+    })
+  );
   const hook = renderHook(
     ({ open, workItem = taskItem }: { open: boolean; workItem?: WorkItemRef }) =>
       useCommentsPanelController({
@@ -41,7 +44,9 @@ export async function scopedPanel() {
   const switchProject = async (projectId: string, profileId = "profile-1") => {
     await act(async () => {
       fixture.changeStatus(projectId, profileId);
-      await shell.controller.setActiveProject({ profileId, projectId, canvasId: "canvas-1" });
+      await shell.controller.setActiveProject(
+        scopedProjectFixture({ profileId, projectId, canvasId: "canvas-1" })
+      );
     });
     await waitFor(() => expect(hook.result.current.loading).toBe(false));
   };

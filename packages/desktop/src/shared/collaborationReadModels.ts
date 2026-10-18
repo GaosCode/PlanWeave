@@ -1,3 +1,4 @@
+import { collaborationOperationInputSchema } from "./collaborationOperationScope.js";
 import {
   workspaceMembersInvalidatedSchema,
   type WorkspaceConnectionMemberView
@@ -16,6 +17,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/activity/comments";
 import {
   assignmentListQuerySchema,
+  eligibleHostBatchRequestSchema,
   assignmentUpdateWireCommandSchema,
   type AssignmentDisplayProjection,
   type AssignmentListPage,
@@ -194,29 +196,38 @@ export type CollaborationInvitationListQueryInput = z.input<
   typeof collaborationInvitationListQueryInputSchema
 >;
 
-export const collaborationAssignmentListQueryInputSchema = assignmentListQuerySchema;
+export const collaborationAssignmentListQueryInputSchema = assignmentListQuerySchema.extend(
+  collaborationOperationInputSchema.shape
+);
 export type CollaborationAssignmentListQueryInput = z.input<
   typeof collaborationAssignmentListQueryInputSchema
 >;
 
 export const collaborationWorkItemInputSchema = z
   .object({
+    ...collaborationOperationInputSchema.shape,
     workItem: workItemRefSchema
   })
   .strict();
 export type CollaborationWorkItemInput = z.infer<typeof collaborationWorkItemInputSchema>;
 
-export const collaborationCommentListQueryInputSchema = commentListWireQuerySchema;
+export const collaborationCommentListQueryInputSchema = commentListWireQuerySchema.extend(
+  collaborationOperationInputSchema.shape
+);
 export type CollaborationCommentListQueryInput = z.input<
   typeof collaborationCommentListQueryInputSchema
 >;
 
-export const collaborationActivityListQueryInputSchema = activityListWireQuerySchema;
+export const collaborationActivityListQueryInputSchema = activityListWireQuerySchema.extend(
+  collaborationOperationInputSchema.shape
+);
 export type CollaborationActivityListQueryInput = z.input<
   typeof collaborationActivityListQueryInputSchema
 >;
 
-export const collaborationAssignmentUpdateInputSchema = assignmentUpdateWireCommandSchema;
+export const collaborationAssignmentUpdateInputSchema = assignmentUpdateWireCommandSchema.extend(
+  collaborationOperationInputSchema.shape
+);
 export type CollaborationAssignmentUpdateInput = z.input<
   typeof collaborationAssignmentUpdateInputSchema
 >;
@@ -227,6 +238,7 @@ export type CollaborationAssignmentUpdateInput = z.input<
  */
 export const collaborationWorkAuthorityScopeInputSchema = z
   .object({
+    ...collaborationOperationInputSchema.shape,
     workItem: workItemRefSchema
   })
   .strict();
@@ -238,6 +250,7 @@ const collaborationReasonInputSchema = z.string().trim().min(1).max(512).optiona
 
 export const collaborationResponsibilityUpdateInputSchema = z
   .object({
+    ...collaborationOperationInputSchema.shape,
     workItem: workItemRefSchema,
     principal: workspaceMemberPrincipalSchema.nullable(),
     expectedRevision: collaborationRevisionSchema,
@@ -250,6 +263,7 @@ export type CollaborationResponsibilityUpdateInput = z.infer<
 
 export const collaborationReviewerUpdateInputSchema = z
   .object({
+    ...collaborationOperationInputSchema.shape,
     workItem: workItemRefSchema,
     principal: workspaceMemberPrincipalSchema.nullable(),
     expectedRevision: collaborationRevisionSchema,
@@ -260,13 +274,19 @@ export type CollaborationReviewerUpdateInput = z.infer<
   typeof collaborationReviewerUpdateInputSchema
 >;
 
-export const collaborationCommentCreateInputSchema = commentCreateWireCommandSchema;
+export const collaborationCommentCreateInputSchema = commentCreateWireCommandSchema.extend(
+  collaborationOperationInputSchema.shape
+);
 export type CollaborationCommentCreateInput = z.input<typeof collaborationCommentCreateInputSchema>;
 
-export const collaborationCommentEditInputSchema = commentEditWireCommandSchema;
+export const collaborationCommentEditInputSchema = commentEditWireCommandSchema.extend(
+  collaborationOperationInputSchema.shape
+);
 export type CollaborationCommentEditInput = z.input<typeof collaborationCommentEditInputSchema>;
 
-export const collaborationCommentTombstoneInputSchema = commentTombstoneWireCommandSchema;
+export const collaborationCommentTombstoneInputSchema = commentTombstoneWireCommandSchema.extend(
+  collaborationOperationInputSchema.shape
+);
 export type CollaborationCommentTombstoneInput = z.input<
   typeof collaborationCommentTombstoneInputSchema
 >;
@@ -436,3 +456,10 @@ export type {
 
 // Re-export observer event schema for main-side validation of fan-out payloads.
 export { humanObserverEventSchema, humanObserverCatchupRequiredSchema };
+
+export const collaborationEligibleHostsBatchInputSchema = eligibleHostBatchRequestSchema.extend(
+  collaborationOperationInputSchema.shape
+);
+export type CollaborationEligibleHostsBatchInput = z.input<
+  typeof collaborationEligibleHostsBatchInputSchema
+>;

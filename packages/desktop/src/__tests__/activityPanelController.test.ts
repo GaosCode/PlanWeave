@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -60,11 +61,13 @@ async function panel(initial?: ReturnType<typeof deferred<ActivityListPage>>) {
   });
   const shell = acquireCollaborationReadModelController(f.api);
   releases.push(shell.release);
-  await shell.controller.setActiveProject({
-    profileId: "profile-1",
-    projectId: "project-1",
-    canvasId: "canvas-1"
-  });
+  await shell.controller.setActiveProject(
+    scopedProjectFixture({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "canvas-1"
+    })
+  );
   const hook = renderHook(
     ({ item, open }: { item: WorkItemRef; open: boolean }) =>
       useActivityPanelController({ workItem: item, open, api: f.api, t: createTranslator("en") }),
@@ -140,11 +143,13 @@ describe("Activity request ownership", () => {
     const fixture = createApi();
     const shell = acquireCollaborationReadModelController(fixture.api);
     releases.push(shell.release);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "canvas-1"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      })
+    );
     const pending = deferred<ActivityListPage>();
     const live = record("live-project", "03", { ...taskItem, taskId: "other" });
     fixture.listActivity
@@ -313,7 +318,9 @@ describe("Activity request ownership", () => {
       });
       await act(async () => {
         f.changeStatus(projectId, profileId);
-        await f.shell.controller.setActiveProject({ profileId, projectId, canvasId: "canvas-1" });
+        await f.shell.controller.setActiveProject(
+          scopedProjectFixture({ profileId, projectId, canvasId: "canvas-1" })
+        );
       });
       await waitFor(() => expect(f.result.current.loading).toBe(false));
     } else if (transition === "close") f.rerender({ item: taskItem, open: false });

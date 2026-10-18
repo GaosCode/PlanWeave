@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { webcrypto } from "node:crypto";
@@ -69,11 +70,13 @@ async function panel(count: number) {
   fixture.listComments.mockImplementation(async (query: Query) => readPage(query));
   const shell = acquireCollaborationReadModelController(fixture.api);
   releases.push(shell.release);
-  await shell.controller.setActiveProject({
-    profileId: "profile-1",
-    projectId: "project-1",
-    canvasId: "canvas-1"
-  });
+  await shell.controller.setActiveProject(
+    scopedProjectFixture({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "canvas-1"
+    })
+  );
   const hook = renderHook(
     ({ item, open }: { item: WorkItemRef; open: boolean }) =>
       useCommentsPanelController({ workItem: item, open, api: fixture.api, t }),
@@ -385,11 +388,13 @@ describe("comments panel paginated revalidation", () => {
       f.setRecords(records(2));
       await act(async () => {
         f.changeStatus("project-1", "profile-2");
-        await f.shell.controller.setActiveProject({
-          profileId: "profile-2",
-          projectId: "project-1",
-          canvasId: "canvas-1"
-        });
+        await f.shell.controller.setActiveProject(
+          scopedProjectFixture({
+            profileId: "profile-2",
+            projectId: "project-1",
+            canvasId: "canvas-1"
+          })
+        );
       });
       await waitFor(() => expect(f.result.current.rows).toHaveLength(2));
       await act(async () => f.result.current.setDraftBody("profile two draft"));

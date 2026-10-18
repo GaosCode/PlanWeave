@@ -130,6 +130,7 @@ export function useCommentsPanelController(
     return status.profiles.find((p) => p.profileId === status.activeProfileId) ?? null;
   }, [status]);
 
+  const operationScope = status?.session.operationScope;
   const sessionConnected = isCollaborationSessionConnected(status);
   const currentMembership = resolveCurrentMembership({
     members: snapshot.members,
@@ -161,6 +162,7 @@ export function useCommentsPanelController(
   const mutationRequestRef = useRef(0);
   const currentScopeRef = useRef<object | null>(null);
   const connectionScopeKey = JSON.stringify([
+    operationScope?.sessionId,
     activeProfile?.serverBaseUrl,
     activeProfile?.credentialRevision,
     activeProfile?.humanPrincipalId,
@@ -183,14 +185,15 @@ export function useCommentsPanelController(
   const isCurrentScope = useCallback(() => currentScopeRef.current === scopeToken, [scopeToken]);
 
   useEffect(() => {
-    if (!controller || !activeProfile || !sessionConnected) return;
+    if (!controller || !activeProfile || !sessionConnected || !operationScope) return;
     const current = controller.getSnapshot();
     if (current.profileId || current.projectId) return;
     void controller.setActiveProject({
+      operationScope,
       profileId: activeProfile.profileId,
       projectId: activeProfile.projectId
     });
-  }, [activeProfile, controller, sessionConnected]);
+  }, [activeProfile, controller, sessionConnected, operationScope]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: workKey remounts draft identity
   const draft = useMemo(() => {
@@ -217,13 +220,14 @@ export function useCommentsPanelController(
     setPagination(emptyCommentPaginationSnapshot());
     setSubmitting(false);
     setActionError(null);
-    if (!args.open || !args.workItem || !sessionConnected || !api) return;
+    if (!args.open || !args.workItem || !sessionConnected || !api || !operationScope) return;
     const generation = generationRef.current;
     const workItem = args.workItem;
     const session = new CommentPaginationSession({
       initialVersion: invalidationVersion ?? 0,
       listPage: (cursor) =>
         api.listCollaborationComments({
+          operationScope,
           workItem,
           limit: COMMENT_LIST_PAGE_DEFAULT,
           includeTombstoned: true,
@@ -479,7 +483,7 @@ export function useCommentsPanelController(
       }>
     ) => {
       if (!isCurrentScope()) return;
-      if (!api || !canMutate) {
+      if (!api || !operationScope || !canMutate) {
         setActionError(args.t("commentsOffline"));
         return;
       }
@@ -511,6 +515,7 @@ export function useCommentsPanelController(
             if (!acceptsProgress()) return;
             await uploadStagedAttachment({
               api,
+              operationScope,
               staged: created.staged,
               bytes: buffer,
               isCancelled: () => !acceptsProgress(),
@@ -539,7 +544,7 @@ export function useCommentsPanelController(
         })();
       }
     },
-    [api, args.t, canMutate, isCurrentScope, updateStagedAttachments]
+    [api, operationScope, args.t, canMutate, isCurrentScope, updateStagedAttachments]
   );
 
   const cancelAttachment = useCallback(
@@ -573,6 +578,7 @@ export function useCommentsPanelController(
   }, []);
   const pendingDownload = usePendingAttachmentDownload({
     api: sessionConnected ? api : null,
+    operationScope: operationScope ?? null,
     stagedAttachments,
     isCurrentScope,
     isCancelled,
@@ -582,12 +588,12 @@ export function useCommentsPanelController(
 
   const readAttachment = useCallback(
     async (commentId: string, digestSha256: string) => {
-      if (!api || !sessionConnected || !isCurrentScope()) {
+      if (!api || !operationScope || !sessionConnected || !isCurrentScope()) {
         throw new Error("collaboration_session_inactive");
       }
-      return api.readCollaborationCommentAttachment({ commentId, digestSha256 });
+      return api.readCollaborationCommentAttachment({ operationScope, commentId, digestSha256 });
     },
-    [api, isCurrentScope, sessionConnected]
+    [api, operationScope, isCurrentScope, sessionConnected]
   );
 
   return {

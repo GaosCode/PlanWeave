@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 /**
@@ -290,11 +291,13 @@ describe("collaboration render / subscription audit", () => {
     const { api, listComments, listActivity, listMembers, listAssignments } = createAuditApi();
     trackedApis.push(api);
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "default"
+      })
+    );
     expect(listMembers).toHaveBeenCalled();
     expect(listAssignments).toHaveBeenCalled();
     expect(listActivity).toHaveBeenCalled();
@@ -306,11 +309,13 @@ describe("collaboration render / subscription audit", () => {
     const { api, listComments, listActivity, observe, replay, listInteractions } = createAuditApi();
     trackedApis.push(api);
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "default"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "default"
+      })
+    );
     listActivity.mockClear();
 
     renderHook(() =>

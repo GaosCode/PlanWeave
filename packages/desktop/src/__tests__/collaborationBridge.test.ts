@@ -318,8 +318,9 @@ describe("CollaborationService IPC trust boundary", () => {
       }),
       workspaceProfileStorePaths: { profilesPath: join(root, "workspace-profiles.json") },
       safeStorage,
-      createClient: () =>
+      createClient: (options) =>
         ({
+          connectionProfile: options.profile,
           verifyAccess: vi.fn().mockResolvedValue(undefined),
           startObserver: vi.fn(),
           stopObserver: vi.fn(),
@@ -942,8 +943,9 @@ describe("CollaborationService IPC trust boundary", () => {
         paths: { credentialsPath: join(root, "credentials.json") },
         safeStorage: mockSafeStorage({ available: true })
       }),
-      createClient: () =>
+      createClient: (options) =>
         ({
+          connectionProfile: options.profile,
           verifyAccess: vi.fn().mockResolvedValue(undefined),
           startObserver: vi.fn(),
           stopObserver,
@@ -1011,8 +1013,9 @@ describe("CollaborationService IPC trust boundary", () => {
         paths: { credentialsPath: join(root, "credentials.json") },
         safeStorage: mockSafeStorage({ available: true })
       }),
-      createClient: () =>
+      createClient: (options) =>
         ({
+          connectionProfile: options.profile,
           verifyAccess: vi.fn().mockResolvedValue(undefined),
           startObserver: vi.fn(),
           stopObserver: vi.fn(),
@@ -1055,8 +1058,9 @@ describe("CollaborationService IPC trust boundary", () => {
         paths: { credentialsPath: join(root, "credentials.json") },
         safeStorage: mockSafeStorage({ available: true })
       }),
-      createClient: () =>
+      createClient: (options) =>
         ({
+          connectionProfile: options.profile,
           verifyAccess: vi.fn().mockResolvedValue(undefined),
           startObserver: (handlers: {
             onStatus?: (status: { state: "connecting"; attempt: number }) => void;
@@ -1105,8 +1109,9 @@ describe("CollaborationService IPC trust boundary", () => {
   it("creates a fresh client when retrying a failed observer session", async () => {
     const root = await tempDir("planweave-collab-observer-failed-retry-");
     const createClient = vi.fn(
-      () =>
+      (options) =>
         ({
+          connectionProfile: options.profile,
           verifyAccess: vi.fn().mockResolvedValue(undefined),
           startObserver: (handlers: {
             onStatus?: (status: { state: "failed"; code: string }) => void;
@@ -1165,8 +1170,9 @@ describe("CollaborationService IPC trust boundary", () => {
         paths: { credentialsPath: join(root, "credentials.json") },
         safeStorage: mockSafeStorage({ available: true })
       }),
-      createClient: () =>
+      createClient: (options) =>
         ({
+          connectionProfile: options.profile,
           verifyAccess: vi.fn().mockRejectedValue(
             new CollaborationClientError({
               kind: "auth",
@@ -1233,8 +1239,9 @@ describe("CollaborationService IPC trust boundary", () => {
         paths: { credentialsPath: join(root, "credentials.json") },
         safeStorage: mockSafeStorage({ available: true })
       }),
-      createClient: () =>
+      createClient: (options) =>
         ({
+          connectionProfile: options.profile,
           verifyAccess: vi.fn().mockResolvedValue(undefined),
           startObserver: (handlers: { onStatus?: typeof onStatus }) => {
             onStatus = handlers.onStatus;
@@ -1301,8 +1308,9 @@ describe("CollaborationService IPC trust boundary", () => {
         paths: { credentialsPath: join(root, "credentials.json") },
         safeStorage: mockSafeStorage({ available: true })
       }),
-      createClient: () =>
+      createClient: (options) =>
         ({
+          connectionProfile: options.profile,
           verifyAccess: vi.fn().mockResolvedValue(undefined),
           startObserver: (
             handlers: {
@@ -1706,6 +1714,7 @@ describe("CollaborationService live Server binding", () => {
       },
       createClient: (options) =>
         ({
+          connectionProfile: options.profile,
           verifyAccess: async () => {
             connectedOrigins.push(options.profile.serverBaseUrl);
           },

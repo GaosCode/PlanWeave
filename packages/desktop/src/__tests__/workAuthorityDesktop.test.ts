@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -302,11 +303,13 @@ describe("desktop work authority wiring (OSS-003#B-003)", () => {
   it("keeps responsibility CAS independent from reviewer and execution target", async () => {
     const { api, updateResponsibility, updateReviewer } = createApi();
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "canvas-1"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      })
+    );
 
     const { result } = renderHook(() =>
       useAssigneePickerController({
@@ -362,11 +365,13 @@ describe("desktop work authority wiring (OSS-003#B-003)", () => {
   it("keeps Host options out of ordinary Block assignment pickers", async () => {
     const { api } = createApi();
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "canvas-1"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      })
+    );
 
     const { result } = renderHook(() =>
       useAssigneePickerController({

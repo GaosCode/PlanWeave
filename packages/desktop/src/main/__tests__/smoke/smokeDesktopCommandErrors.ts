@@ -6,6 +6,8 @@ export function runDesktopCommandErrorsSmoke(window: BrowserWindow): Promise<unk
     (async () => {
       const api = window.planweaveCollaboration;
       if (!api) throw new Error("Collaboration bridge unavailable for failure smoke.");
+      const operationScope = (await api.getCollaborationStatus()).session.operationScope;
+      if (!operationScope) throw new Error("Verified collaboration scope unavailable.");
       const projects = await window.planweave.listProjects();
       const project = projects.find((item) => item.projectId && item.activeCanvasId);
       if (!project) throw new Error("Local smoke canvas unavailable.");
@@ -14,19 +16,19 @@ export function runDesktopCommandErrorsSmoke(window: BrowserWindow): Promise<unk
       const principal = { kind: "human", humanPrincipalId: self.humanPrincipalId };
       const results = [];
       for (const role of ["responsibility", "reviewer"]) {
-        const before = await api.getCollaborationWorkAuthority({ workItem });
+        const before = await api.getCollaborationWorkAuthority({ operationScope, workItem });
         const update = role === "responsibility"
           ? api.updateCollaborationResponsibility
           : api.updateCollaborationReviewer;
         const expectedRevision = before[role].revision;
-        await update({ workItem, principal, expectedRevision });
-        const after = await api.getCollaborationWorkAuthority({ workItem });
+        await update({ operationScope, workItem, principal, expectedRevision });
+        const after = await api.getCollaborationWorkAuthority({ operationScope, workItem });
         if (after[role].revision <= expectedRevision) {
           throw new Error(role + " CAS success did not advance authority.");
         }
         let failure;
         try {
-          await update({ workItem, principal: null, expectedRevision });
+          await update({ operationScope, workItem, principal: null, expectedRevision });
         } catch (error) {
           failure = error;
         }
@@ -35,7 +37,7 @@ export function runDesktopCommandErrorsSmoke(window: BrowserWindow): Promise<unk
             typeof failure.retryable !== "boolean" || typeof failure.message !== "string") {
           throw new Error(role + " contextBridge lost the classified CAS failure.");
         }
-        const rejected = await api.getCollaborationWorkAuthority({ workItem });
+        const rejected = await api.getCollaborationWorkAuthority({ operationScope, workItem });
         if (rejected[role].revision !== after[role].revision ||
             rejected[role].principal?.humanPrincipalId !== principal.humanPrincipalId) {
           throw new Error(role + " stale CAS altered authority.");

@@ -1,3 +1,7 @@
+import {
+  scopedProjectFixture,
+  collaborationOperationScopeFixture
+} from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -35,6 +39,7 @@ function connectedStatus(): CollaborationStatus {
     credentialStorage: "available",
     nonPersistenceWarning: null,
     session: {
+      operationScope: collaborationOperationScopeFixture(),
       phase: "connected",
       activeProfileId: "profile-1",
       detail: null,
@@ -249,11 +254,13 @@ describe("useAssigneePickerController", () => {
   it("hard-rejects Host targets on the responsibility axis without calling Host mutation", async () => {
     const { api, updateResponsibility } = createApi();
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "canvas-1"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      })
+    );
 
     const { result } = renderHook(() =>
       useAssigneePickerController({
@@ -292,11 +299,13 @@ describe("useAssigneePickerController", () => {
   it("does not expose a Host authority axis for Blocks", async () => {
     const { api, updateResponsibility } = createApi();
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "canvas-1"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      })
+    );
 
     const { result } = renderHook(() =>
       useAssigneePickerController({
@@ -338,11 +347,13 @@ const roles = ["responsibility", "reviewer"] as const;
 async function scopedPicker(role: (typeof roles)[number]) {
   const fixture = createApi();
   const shell = acquireCollaborationReadModelController(fixture.api);
-  await shell.controller.setActiveProject({
-    profileId: "profile-1",
-    projectId: "project-1",
-    canvasId: "canvas-1"
-  });
+  await shell.controller.setActiveProject(
+    scopedProjectFixture({
+      profileId: "profile-1",
+      projectId: "project-1",
+      canvasId: "canvas-1"
+    })
+  );
   const onOutcome = vi.fn();
   const hook = renderHook(
     ({
@@ -381,7 +392,10 @@ async function scopedPicker(role: (typeof roles)[number]) {
     await act(async () => {
       fixture.changeStatus(projectId, profileId);
       if (projectId === null) shell.controller.clear();
-      else await shell.controller.setActiveProject({ profileId, projectId, canvasId: "canvas-1" });
+      else
+        await shell.controller.setActiveProject(
+          scopedProjectFixture({ profileId, projectId, canvasId: "canvas-1" })
+        );
     });
     await waitFor(() => expect(hook.result.current.viewModel?.mode).not.toBe("loading"));
   };
@@ -832,11 +846,13 @@ describe("assignee picker retry lifecycle", () => {
       const gate = deferred<typeof initialAuthority>();
       f.getWorkAuthority.mockImplementation(() => gate.promise);
       const shell = acquireCollaborationReadModelController(f.api);
-      await shell.controller.setActiveProject({
-        profileId: "profile-1",
-        projectId: "project-1",
-        canvasId: "canvas-1"
-      });
+      await shell.controller.setActiveProject(
+        scopedProjectFixture({
+          profileId: "profile-1",
+          projectId: "project-1",
+          canvasId: "canvas-1"
+        })
+      );
       const hook = renderHook(() =>
         useAssigneePickerController({ api: f.api, workItem: taskItem, authorityRole: role })
       );

@@ -172,6 +172,7 @@ export function useCollaborationSurface(
 
   // Shell is the sole owner of active project/canvas binding on the shared hub.
   const { snapshot, viewModel, controller } = useCollaborationReadModels({
+    operationScope: status?.session.operationScope,
     api,
     profileId: authorizedReadBinding.profileId,
     projectId: authorizedReadBinding.projectId,

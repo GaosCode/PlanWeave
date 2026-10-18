@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { waitFor } from "@testing-library/react";
@@ -42,7 +43,7 @@ function deferred<T>() {
 async function activeController(mock = createMockApi()) {
   const controller = new CollaborationReadModelController({ api: mock.api });
   controllers.push(controller);
-  await controller.setActiveProject(activeProject);
+  await controller.setActiveProject(scopedProjectFixture(activeProject));
   return { controller, mock };
 }
 
@@ -248,8 +249,10 @@ describe("comment read model invalidation", () => {
     const completion = deferred<typeof exampleCommentListPage>();
     mock.listComments.mockImplementationOnce(() => completion.promise);
     retiredListener(eventSignal(21, workItem));
-    await controller.setActiveProject({ profileId: "profile-other", projectId: "project-other" });
-    await controller.setActiveProject(activeProject);
+    await controller.setActiveProject(
+      scopedProjectFixture({ profileId: "profile-other", projectId: "project-other" })
+    );
+    await controller.setActiveProject(scopedProjectFixture(activeProject));
     await controller.trackWorkItemComments(workItem);
     completion.resolve({
       items: [{ ...exampleCommentProjection, revision: 99, body: "retired scope" }],
@@ -271,7 +274,9 @@ describe("comment read model invalidation", () => {
     const { controller } = await activeController();
     await controller.trackWorkItemComments(workItem);
     await controller.createComment({ workItem, body: "new comment" });
-    await controller.setActiveProject({ ...activeProject, canvasId: "different-canvas" });
+    await controller.setActiveProject(
+      scopedProjectFixture({ ...activeProject, canvasId: "different-canvas" })
+    );
     expect(controller.getSnapshot().commentsByWorkItem).toEqual({});
     expect(controller.getSnapshot().commentInvalidationVersionByWorkItem).toEqual({});
     await controller.trackWorkItemComments(workItem);

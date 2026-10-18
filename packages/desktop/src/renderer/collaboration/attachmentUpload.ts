@@ -1,3 +1,4 @@
+import type { CollaborationOperationScope } from "../../shared/collaborationOperationScope.js";
 import {
   COMMENT_ATTACHMENT_ALLOWED_MEDIA_TYPES,
   COMMENT_ATTACHMENT_MAX_BYTES
@@ -110,6 +111,7 @@ export function createStagedAttachmentFromFile(file: {
  */
 export async function uploadStagedAttachment(input: {
   api: PlanWeaveCollaborationApi;
+  operationScope: CollaborationOperationScope;
   staged: StagedAttachment;
   bytes: Uint8Array;
   isCancelled: () => boolean;
@@ -139,6 +141,7 @@ export async function uploadStagedAttachment(input: {
     }
 
     const pending = await input.api.createCollaborationPendingAttachment({
+      operationScope: input.operationScope,
       expectedSizeBytes: input.bytes.byteLength,
       mediaType: current.mediaType,
       fileName: current.displayName,
@@ -158,6 +161,7 @@ export async function uploadStagedAttachment(input: {
     }
 
     await input.api.uploadCollaborationPendingAttachment({
+      operationScope: input.operationScope,
       pendingUploadId: pending.pendingUploadId,
       mediaType: current.mediaType,
       bodyBase64: bytesToBase64(input.bytes),
@@ -171,6 +175,7 @@ export async function uploadStagedAttachment(input: {
     }
 
     const finalized = await input.api.finalizeCollaborationPendingAttachment({
+      operationScope: input.operationScope,
       pendingUploadId: pending.pendingUploadId,
       expectedDigestSha256: digestSha256
     });

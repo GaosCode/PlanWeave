@@ -1,3 +1,4 @@
+import { scopedProjectFixture } from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
@@ -151,7 +152,9 @@ describe("PeopleView", () => {
     const onOutcome = vi.fn();
     process.on("unhandledRejection", unhandled);
     try {
-      await controller.setActiveProject({ profileId: "profile-1", projectId: "project-1" });
+      await controller.setActiveProject(
+        scopedProjectFixture({ profileId: "profile-1", projectId: "project-1" })
+      );
       await controller.ensureWorkAuthority(workItem);
       render(
         <PeopleView

@@ -882,6 +882,8 @@ async function runLiveCollaborationSmoke(window: BrowserWindow): Promise<Record<
       const workItem = { kind: "block", canvasId: "default", blockRef: "T-001#B-001" };
       const collaboration = window.planweaveCollaboration;
       if (!collaboration) throw new Error("Inspector collaboration bridge is unavailable.");
+      const operationScope = (await collaboration.getCollaborationStatus()).session.operationScope;
+      if (!operationScope) throw new Error("Inspector verified collaboration session is unavailable.");
       let observerEventCount = 0;
       let firstObserverEventAt = null;
       const stopObserving = collaboration.onCollaborationObserverSignal((signal) => {
@@ -895,14 +897,15 @@ async function runLiveCollaborationSmoke(window: BrowserWindow): Promise<Record<
         "Desktop smoke live collaboration burst " + index
       );
       for (const body of bodies) {
-        await collaboration.createCollaborationComment({ workItem, body });
+        await collaboration.createCollaborationComment({ operationScope, workItem, body });
       }
       await waitFor(
         () => observerEventCount > 0,
         "human observer event after comment burst"
       );
-      const comments = await collaboration.listCollaborationComments({ workItem, limit: 50 });
+      const comments = await collaboration.listCollaborationComments({ operationScope, workItem, limit: 50 });
       const activity = await collaboration.listCollaborationActivity({
+        operationScope,
         workItem,
         limit: 50
       });
@@ -1201,6 +1204,8 @@ async function runCollaborationAccessibilitySmoke(
       };
       const collaboration = window.planweaveCollaboration;
       if (!collaboration) throw new Error("Inspector collaboration bridge is unavailable.");
+      const operationScope = (await collaboration.getCollaborationStatus()).session.operationScope;
+      if (!operationScope) throw new Error("Inspector verified collaboration session is unavailable.");
       const workItem = { kind: "block", canvasId: "default", blockRef: "T-001#B-001" };
       const burstSize = 12;
       const marker = "Desktop smoke bounded burst ";
@@ -1216,6 +1221,7 @@ async function runCollaborationAccessibilitySmoke(
       await Promise.all(
         Array.from({ length: burstSize }, (_, index) =>
           collaboration.createCollaborationComment({
+            operationScope,
             workItem,
             body: marker + String(index)
           })
@@ -1237,7 +1243,7 @@ async function runCollaborationAccessibilitySmoke(
         const items = [];
         let cursor;
         for (let pageIndex = 0; pageIndex < 4; pageIndex += 1) {
-          const query = { workItem, limit: 50 };
+          const query = { operationScope, workItem, limit: 50 };
           if (cursor) query.cursor = cursor;
           const page = await collaboration.listCollaborationComments(query);
           items.push(...page.items);
@@ -1248,7 +1254,7 @@ async function runCollaborationAccessibilitySmoke(
       };
       const comments = await readAllComments();
       if (comments.length < burstSize) throw new Error("Authoritative comment count was below burst size.");
-      const activity = await collaboration.listCollaborationActivity({ workItem, limit: 50 });
+      const activity = await collaboration.listCollaborationActivity({ operationScope, workItem, limit: 50 });
       const domRowCount = document.querySelectorAll('[data-testid="comments-item"]').length;
       if (domRowCount === 0 || domRowCount > 50) throw new Error("Comment DOM row bound was violated.");
       stopObserving();

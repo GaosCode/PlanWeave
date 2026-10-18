@@ -96,6 +96,7 @@ describe("Collaboration HTTP error bodies", () => {
     const setSession = vi.fn();
     // Only persistence/session support ports are replaced; preflight fetch and error mapping are real.
     const lifecycle = new CollaborationSessionLifecycle({
+      verifyClient: vi.fn(),
       profiles: { setActiveProfileId: vi.fn(async () => {}) } as Dependencies["profiles"],
       vault: { getDeviceToken: vi.fn(async () => "test-only") } as Dependencies["vault"],
       presenceSession: { reset: vi.fn() } as Dependencies["presenceSession"],

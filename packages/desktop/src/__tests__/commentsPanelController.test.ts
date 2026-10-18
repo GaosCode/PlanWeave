@@ -1,3 +1,7 @@
+import {
+  scopedProjectFixture,
+  collaborationOperationScopeFixture
+} from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { createElement } from "react";
@@ -52,11 +56,13 @@ describe("useCommentsPanelController", () => {
     const t = createTranslator("en");
     const fixture = createApi();
     const shell = acquireCollaborationReadModelController(fixture.api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "canvas-1"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      })
+    );
     const members =
       deferred<Awaited<ReturnType<PlanWeaveCollaborationApi["listCollaborationMembers"]>>>();
     const currentMembers = await fixture.api.listCollaborationMembers();
@@ -136,6 +142,7 @@ describe("useCommentsPanelController", () => {
       await user.click(screen.getByTestId("comments-edit-save"));
       await waitFor(() =>
         expect(fixture.editComment).toHaveBeenLastCalledWith({
+          operationScope: collaborationOperationScopeFixture(),
           commentId: "comment-1",
           body: "unsaved local draft",
           expectedRevision: 1
@@ -183,11 +190,13 @@ describe("useCommentsPanelController", () => {
       readCommentAttachment
     } = createApi();
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "canvas-1"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      })
+    );
 
     const { result } = renderHook(() =>
       useCommentsPanelController({
@@ -216,6 +225,7 @@ describe("useCommentsPanelController", () => {
       }
     );
     expect(readCommentAttachment).toHaveBeenCalledWith({
+      operationScope: collaborationOperationScopeFixture(),
       commentId: "comment-1",
       digestSha256: "a".repeat(64)
     });
@@ -248,6 +258,7 @@ describe("useCommentsPanelController", () => {
       await result.current.editComment("comment-1", "edited", 1);
     });
     expect(editComment).toHaveBeenCalledWith({
+      operationScope: collaborationOperationScopeFixture(),
       commentId: "comment-1",
       body: "edited",
       expectedRevision: 1
@@ -257,6 +268,7 @@ describe("useCommentsPanelController", () => {
       await result.current.tombstoneComment("comment-1", 2);
     });
     expect(tombstoneComment).toHaveBeenCalledWith({
+      operationScope: collaborationOperationScopeFixture(),
       commentId: "comment-1",
       expectedRevision: 2
     });
@@ -271,11 +283,13 @@ describe("useCommentsPanelController", () => {
   it("removes an active row when an observer refresh no longer returns the comment", async () => {
     const { api, listComments } = createApi();
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "canvas-1"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      })
+    );
 
     const { result } = renderHook(() =>
       useCommentsPanelController({
@@ -357,11 +371,13 @@ describe("useActivityPanelController", () => {
   it("loads activity pages and keeps rows non-commandable", async () => {
     const { api, listActivity } = createApi();
     const shell = acquireCollaborationReadModelController(api);
-    await shell.controller.setActiveProject({
-      profileId: "profile-1",
-      projectId: "project-1",
-      canvasId: "canvas-1"
-    });
+    await shell.controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-1",
+        projectId: "project-1",
+        canvasId: "canvas-1"
+      })
+    );
 
     const { result } = renderHook(() =>
       useActivityPanelController({

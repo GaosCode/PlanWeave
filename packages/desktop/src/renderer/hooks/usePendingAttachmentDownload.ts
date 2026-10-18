@@ -1,3 +1,4 @@
+import type { CollaborationOperationScope } from "../../shared/collaborationOperationScope.js";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
 import type { StagedAttachment } from "../collaboration/attachmentUpload";
@@ -6,6 +7,7 @@ import { saveCommentAttachment } from "./saveCommentAttachment";
 /** Downloads remain bound to the ready upload and the live composer scope. */
 export function usePendingAttachmentDownload(args: {
   api: PlanWeaveCollaborationApi | null;
+  operationScope: CollaborationOperationScope | null;
   stagedAttachments: StagedAttachment[];
   isCurrentScope: () => boolean;
   isCancelled: (localId: string) => boolean;
@@ -28,6 +30,7 @@ export function usePendingAttachmentDownload(args: {
       const attachment = attachments.current.find((item) => item.localId === localId);
       if (
         !args.api ||
+        !args.operationScope ||
         !args.isCurrentScope() ||
         args.isCancelled(localId) ||
         !attachment ||
@@ -43,6 +46,7 @@ export function usePendingAttachmentDownload(args: {
       setDownloading([...requests]);
       try {
         const body = await args.api.readCollaborationPendingAttachment({
+          operationScope: args.operationScope,
           pendingUploadId: attachment.pendingUploadId,
           digestSha256: attachment.digestSha256
         });
@@ -61,7 +65,14 @@ export function usePendingAttachmentDownload(args: {
         if (args.isCurrentScope() && pending.current === requests) setDownloading([...requests]);
       }
     },
-    [args.api, args.isCurrentScope, args.isCancelled, args.onStart, args.onError]
+    [
+      args.api,
+      args.operationScope,
+      args.isCurrentScope,
+      args.isCancelled,
+      args.onStart,
+      args.onError
+    ]
   );
   return { download, downloading };
 }

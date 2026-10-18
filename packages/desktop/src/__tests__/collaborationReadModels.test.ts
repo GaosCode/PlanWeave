@@ -1,3 +1,7 @@
+import {
+  scopedProjectFixture,
+  collaborationOperationScopeFixture
+} from "./helpers/collaborationOperationScopeFixture";
 /* @vitest-environment jsdom */
 
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -99,11 +103,13 @@ describe("CollaborationReadModelController", () => {
       clock: { now: () => new Date("2030-01-01T00:00:00.000Z") }
     });
 
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001",
-      canvasId: "canvas-1"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001",
+        canvasId: "canvas-1"
+      })
+    );
 
     const snapshot = controller.getSnapshot();
     expect(snapshot.syncPhase).toBe("ready");
@@ -145,13 +151,16 @@ describe("CollaborationReadModelController", () => {
     );
 
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
 
     expect(mock.listEligibleBatch).toHaveBeenCalledTimes(1);
     expect(mock.listEligibleBatch).toHaveBeenCalledWith({
+      operationScope: collaborationOperationScopeFixture("profile-demo-001", "project-demo-001"),
       workItems: allBlocks.map((block) => block.workItem)
     });
     const hostIds = controller.getSnapshot().hosts.map((host) => host.hostId);
@@ -189,13 +198,16 @@ describe("CollaborationReadModelController", () => {
     );
 
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
 
     expect(mock.listEligibleBatch).toHaveBeenCalledTimes(1);
     expect(mock.listEligibleBatch).toHaveBeenCalledWith({
+      operationScope: collaborationOperationScopeFixture("profile-demo-001", "project-demo-001"),
       workItems: [first.workItem, second.workItem]
     });
     const snapshot = controller.getSnapshot();
@@ -224,10 +236,12 @@ describe("CollaborationReadModelController", () => {
     );
 
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     expect(
       controller.getSnapshot().assignmentsByWorkItem[workItemKey(block.workItem)]
     ).toBeTruthy();
@@ -258,10 +272,12 @@ describe("CollaborationReadModelController", () => {
     });
     const controller = new CollaborationReadModelController({ api: mock.api });
 
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
 
     expect(controller.getSnapshot().syncPhase).toBe("error");
     expect(controller.getSnapshot().lastError).toEqual(
@@ -294,10 +310,12 @@ describe("CollaborationReadModelController", () => {
     );
 
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const initialAssignmentKey = workItemKey(initialBlock.workItem);
     expect(controller.getSnapshot().assignmentsByWorkItem[initialAssignmentKey]).toBeTruthy();
 
@@ -366,18 +384,22 @@ describe("CollaborationReadModelController", () => {
       });
 
       const controller = new CollaborationReadModelController({ api });
-      const first = controller.setActiveProject({
-        profileId: "profile-a",
-        projectId: "project-a"
-      });
+      const first = controller.setActiveProject(
+        scopedProjectFixture({
+          profileId: "profile-a",
+          projectId: "project-a"
+        })
+      );
       await act(async () => {
         await Promise.resolve();
       });
 
-      const second = controller.setActiveProject({
-        profileId: "profile-b",
-        projectId: "project-b"
-      });
+      const second = controller.setActiveProject(
+        scopedProjectFixture({
+          profileId: "profile-b",
+          projectId: "project-b"
+        })
+      );
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60);
@@ -401,10 +423,12 @@ describe("CollaborationReadModelController", () => {
   it("stops subscriptions and clears cache on project switch", async () => {
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     expect(mock.signalListeners).toHaveLength(1);
     const firstListener = mock.signalListeners[0];
     expect(controller.getSnapshot().projectId).toBe("project-demo-001");
@@ -413,10 +437,12 @@ describe("CollaborationReadModelController", () => {
     mock.listMembers.mockResolvedValueOnce({ items: [], nextCursor: null });
     mock.listActivity.mockResolvedValueOnce({ items: [], nextCursor: null });
 
-    await controller.setActiveProject({
-      profileId: "profile-other",
-      projectId: "project-other"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-other",
+        projectId: "project-other"
+      })
+    );
     expect(mock.signalListeners).toHaveLength(1);
     expect(mock.signalListeners[0]).not.toBe(firstListener);
     expect(controller.getSnapshot().profileId).toBe("profile-other");
@@ -429,10 +455,12 @@ describe("CollaborationReadModelController", () => {
   it("dedupes out-of-order and duplicate observer events", async () => {
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     mock.listAssignments.mockClear();
 
     const baseEvent = exampleObserverEvent;
@@ -478,10 +506,12 @@ describe("CollaborationReadModelController", () => {
   it("does not reload members for invitation-only observer bursts", async () => {
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     mock.listMembers.mockClear();
 
     for (let index = 0; index < 64; index += 1) {
@@ -521,10 +551,12 @@ describe("CollaborationReadModelController", () => {
   it("surfaces observer assignment reload failures and retries the failed cursor", async () => {
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const observerListener = mock.signalListeners[0]!;
     const failure = {
       kind: "network",
@@ -573,10 +605,12 @@ describe("CollaborationReadModelController", () => {
     const block = blockAssignment("task-1#B-001", "host-assigned-1");
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const observerListener = mock.signalListeners[0]!;
     const failure = {
       kind: "network",
@@ -615,10 +649,12 @@ describe("CollaborationReadModelController", () => {
   it("does not let a stale observer failure contaminate a new project generation", async () => {
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const staleObserverListener = mock.signalListeners[0]!;
     let rejectStaleReload!: (reason: unknown) => void;
     const staleReload = new Promise<never>((_, reject) => {
@@ -630,10 +666,12 @@ describe("CollaborationReadModelController", () => {
       expect(mock.listAssignments).toHaveBeenCalledTimes(2);
     });
 
-    const switchProject = controller.setActiveProject({
-      profileId: "profile-next",
-      projectId: "project-next"
-    });
+    const switchProject = controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-next",
+        projectId: "project-next"
+      })
+    );
     rejectStaleReload({
       kind: "network",
       code: "stale_assignment_reload_failed",
@@ -651,10 +689,12 @@ describe("CollaborationReadModelController", () => {
   it("performs bounded authoritative refresh on cursor retention gap", async () => {
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     expect(controller.getSnapshot().assignmentsByWorkItem[workKey]).toBeTruthy();
 
     mock.listMembers.mockClear();
@@ -687,10 +727,12 @@ describe("CollaborationReadModelController", () => {
   it("models auth expiry from session status", async () => {
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
 
     controller.handleStatusForTests(
       idleStatus({
@@ -712,10 +754,12 @@ describe("CollaborationReadModelController", () => {
   it("keeps authoritative reads while marking observer-only failures as degraded", async () => {
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     const membersBeforeFailure = controller.getSnapshot().members;
 
     controller.handleStatusForTests(
@@ -739,10 +783,12 @@ describe("CollaborationReadModelController", () => {
   it("treats a prepared session as disconnected until the client connects", async () => {
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
 
     controller.handleStatusForTests(
       idleStatus({
@@ -772,10 +818,12 @@ describe("CollaborationReadModelController", () => {
       api: mock.api,
       createMutationId: () => "mut-offline"
     });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
 
     const result = await controller.updateAssignment({
       workItem,
@@ -808,10 +856,12 @@ describe("CollaborationReadModelController", () => {
       api: mock.api,
       createMutationId: () => "mut-conflict"
     });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
 
     const result = await controller.updateAssignment({
       workItem,
@@ -833,10 +883,12 @@ describe("CollaborationReadModelController", () => {
       api: mock.api,
       createMutationId: () => "mut-ok"
     });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
 
     const result = await controller.updateAssignment({
       workItem,
@@ -871,10 +923,12 @@ describe("CollaborationReadModelController", () => {
     };
     const mock = createMockApi({ activity });
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001"
+      })
+    );
     expect(controller.getSnapshot().remoteRunsByDispatchId["dispatch-001"]?.status).toBe("started");
 
     controller.handleObserverSignalForTests({
@@ -917,11 +971,13 @@ describe("collaboration view models", () => {
   it("keeps server projections separate from local runtime facts", async () => {
     const mock = createMockApi();
     const controller = new CollaborationReadModelController({ api: mock.api });
-    await controller.setActiveProject({
-      profileId: "profile-demo-001",
-      projectId: "project-demo-001",
-      canvasId: "canvas-1"
-    });
+    await controller.setActiveProject(
+      scopedProjectFixture({
+        profileId: "profile-demo-001",
+        projectId: "project-demo-001",
+        canvasId: "canvas-1"
+      })
+    );
 
     const viewModel = buildCollaborationProjectViewModel({
       snapshot: controller.getSnapshot(),
@@ -958,6 +1014,7 @@ describe("useCollaborationReadModels", () => {
         projectId: "project-demo-001",
         canvasId: "canvas-1",
         manageActiveProject: true,
+        operationScope: managingOperationScope,
         api: mock.api
       })
     );
@@ -980,6 +1037,7 @@ describe("useCollaborationReadModels", () => {
           profileId: props.profileId,
           projectId: props.projectId,
           manageActiveProject: true,
+          operationScope: managingOperationScope,
           api: mock.api
         }),
       { initialProps: { profileId: "profile-demo-001", projectId: "project-demo-001" } }
@@ -1004,6 +1062,7 @@ describe("useCollaborationReadModels", () => {
         projectId: "project-demo-001",
         canvasId: "canvas-shell",
         manageActiveProject: true,
+        operationScope: managingOperationScope,
         api: mock.api
       })
     );
@@ -1036,3 +1095,8 @@ describe("useCollaborationReadModels", () => {
     expect(shell.current.snapshot.members).toHaveLength(1);
   });
 });
+
+const managingOperationScope = collaborationOperationScopeFixture(
+  "profile-demo-001",
+  "project-demo-001"
+);

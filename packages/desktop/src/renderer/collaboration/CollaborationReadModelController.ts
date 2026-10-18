@@ -1,3 +1,6 @@
+import { applyCollaborationSessionStatus } from "./collaborationSessionStatus.js";
+import { bindCollaborationReadOperations } from "./scopedReadOperations.js";
+import type { CollaborationOperationScope } from "../../shared/collaborationOperationScope.js";
 import type { AssignmentDisplayProjection } from "@planweave-ai/collaboration-protocol/work/assignment";
 import { WORK_ELIGIBLE_HOST_BATCH_MAX } from "@planweave-ai/collaboration-protocol/core/limits";
 import type { CommentDisplayProjection } from "@planweave-ai/collaboration-protocol/activity/comments";
@@ -24,11 +27,7 @@ import {
   type CollaborationSyncPhase,
   type CollaborationMemberSummary
 } from "../../shared/collaborationReadModels.js";
-import {
-  emptyState,
-  mapSessionPhaseToSync,
-  type InternalState
-} from "./collaborationReadModelState.js";
+import { emptyState, type InternalState } from "./collaborationReadModelState.js";
 import { AuthoritativeRefreshQueue } from "./authoritativeRefreshQueue.js";
 import { readBoundedNumberCursorPages } from "./boundedPagination.js";
 import {
@@ -114,6 +113,8 @@ export type AuthoritativeRefreshResult =
 
 export class CollaborationReadModelController {
   private readonly api: CollaborationReadBridgePort;
+  private operationApi: ReturnType<typeof bindCollaborationReadOperations> | null = null;
+  private operationSessionId: string | null = null;
   private readonly pageLimit: number;
   private readonly clock: { now(): Date };
   private readonly createMutationId: () => string;
@@ -141,7 +142,7 @@ export class CollaborationReadModelController {
     this.api = options.api;
     this.authorityReads = new WorkAuthorityReadArbitrator({
       isCurrentScope: (generation) => !this.disposed && generation === this.state.generation,
-      read: (workItem) => this.api.getCollaborationWorkAuthority({ workItem }),
+      read: (workItem) => this.captureOperationApi().getWorkAuthority({ workItem }),
       acquire: (key) => beginLoading(this.state, `authority:${key}`),
       emit: () => this.emit(),
       apply: (key, workItem, projection) => {
@@ -182,11 +183,16 @@ export class CollaborationReadModelController {
   async setActiveProject(input: {
     profileId: string;
     projectId: string;
+    operationScope: CollaborationOperationScope;
     canvasId?: string | null;
   }): Promise<void> {
     this.assertOpen();
     const sameIdentity =
-      this.state.profileId === input.profileId && this.state.projectId === input.projectId;
+      this.state.profileId === input.profileId &&
+      this.state.projectId === input.projectId &&
+      this.operationSessionId === input.operationScope.sessionId;
+    this.operationApi = bindCollaborationReadOperations(this.api, input.operationScope);
+    this.operationSessionId = input.operationScope.sessionId;
     if (!sameIdentity) {
       this.teardownSubscriptions();
       this.state = {
@@ -217,6 +223,8 @@ export class CollaborationReadModelController {
 
   /** Stop all subscriptions and clear server projections (project switch / logout). */
   clear(): void {
+    this.operationApi = null;
+    this.operationSessionId = null;
     this.teardownSubscriptions();
     this.observerCursorRecovery.clear();
     this.state = {
@@ -333,13 +341,14 @@ export class CollaborationReadModelController {
   }
 
   async updateAssignment(
-    command: CollaborationAssignmentUpdateInput
+    command: Omit<CollaborationAssignmentUpdateInput, "operationScope">
   ): Promise<AssignmentDisplayProjection | null> {
+    const operationApi = this.captureOperationApi();
     return this.runMutation({
       kind: "assignment",
       workItem: command.workItem,
       expectedRevision: command.expectedRevision,
-      execute: () => this.api.updateCollaborationAssignment(command),
+      execute: () => operationApi.updateAssignment(command),
       onConfirmed: (projection) => {
         this.state.assignments.set(workItemKey(projection.workItem), projection);
         ingestAssignmentHost(this.state.hosts, projection);
@@ -348,14 +357,15 @@ export class CollaborationReadModelController {
   }
 
   async updateResponsibility(
-    command: CollaborationResponsibilityUpdateInput
+    command: Omit<CollaborationResponsibilityUpdateInput, "operationScope">
   ): Promise<ResponsibilityReadModel | null> {
+    const operationApi = this.captureOperationApi();
     const isCurrentScope = this.captureMutationScope();
     const result = await this.runMutation({
       kind: "responsibility",
       workItem: command.workItem,
       expectedRevision: command.expectedRevision,
-      execute: () => this.api.updateCollaborationResponsibility(command),
+      execute: () => operationApi.updateResponsibility(command),
       onConfirmed: () => undefined
     });
     if (result && isCurrentScope()) {
@@ -369,14 +379,15 @@ export class CollaborationReadModelController {
   }
 
   async updateReviewer(
-    command: CollaborationReviewerUpdateInput
+    command: Omit<CollaborationReviewerUpdateInput, "operationScope">
   ): Promise<ReviewAssignmentReadModel | null> {
+    const operationApi = this.captureOperationApi();
     const isCurrentScope = this.captureMutationScope();
     const result = await this.runMutation({
       kind: "reviewer",
       workItem: command.workItem,
       expectedRevision: command.expectedRevision,
-      execute: () => this.api.updateCollaborationReviewer(command),
+      execute: () => operationApi.updateReviewer(command),
       onConfirmed: () => undefined
     });
     if (result && isCurrentScope()) {
@@ -401,12 +412,13 @@ export class CollaborationReadModelController {
   }
 
   async createComment(
-    command: CollaborationCommentCreateInput
+    command: Omit<CollaborationCommentCreateInput, "operationScope">
   ): Promise<CommentDisplayProjection | null> {
+    const operationApi = this.captureOperationApi();
     return this.runMutation({
       kind: "comment_create",
       workItem: command.workItem,
-      execute: () => this.api.createCollaborationComment(command),
+      execute: () => operationApi.createComment(command),
       onConfirmed: (projection) => {
         this.upsertComment(projection);
       }
@@ -414,12 +426,13 @@ export class CollaborationReadModelController {
   }
 
   async editComment(
-    command: CollaborationCommentEditInput
+    command: Omit<CollaborationCommentEditInput, "operationScope">
   ): Promise<CommentDisplayProjection | null> {
+    const operationApi = this.captureOperationApi();
     return this.runMutation({
       kind: "comment_edit",
       expectedRevision: command.expectedRevision,
-      execute: () => this.api.editCollaborationComment(command),
+      execute: () => operationApi.editComment(command),
       onConfirmed: (projection) => {
         this.upsertComment(projection);
       }
@@ -427,12 +440,13 @@ export class CollaborationReadModelController {
   }
 
   async tombstoneComment(
-    command: CollaborationCommentTombstoneInput
+    command: Omit<CollaborationCommentTombstoneInput, "operationScope">
   ): Promise<CommentDisplayProjection | null> {
+    const operationApi = this.captureOperationApi();
     return this.runMutation({
       kind: "comment_tombstone",
       expectedRevision: command.expectedRevision,
-      execute: () => this.api.tombstoneCollaborationComment(command),
+      execute: () => operationApi.tombstoneComment(command),
       onConfirmed: (projection) => {
         this.upsertComment(projection);
       }
@@ -455,6 +469,11 @@ export class CollaborationReadModelController {
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
+
+  private captureOperationApi(): ReturnType<typeof bindCollaborationReadOperations> {
+    if (!this.operationApi) throw new Error("collaboration_session_inactive");
+    return this.operationApi;
+  }
 
   private attachSubscriptions(): void {
     const state = this.state;
@@ -511,27 +530,13 @@ export class CollaborationReadModelController {
 
   private handleStatus(status: CollaborationStatus): void {
     if (this.disposed) return;
-    if (this.state.profileId && status.session.activeProfileId) {
-      if (status.session.activeProfileId !== this.state.profileId) {
-        // Active profile switched elsewhere — clear this controller's cache.
-        this.clear();
-        return;
-      }
-    }
-    const nextPhase = mapSessionPhaseToSync(status, this.state.syncPhase);
-    if (nextPhase !== this.state.syncPhase) {
-      this.state.syncPhase = nextPhase;
-      this.state.updatedAt = this.clock.now().toISOString();
-      if (status.session.lastErrorCode) {
-        this.state.lastError = {
-          kind: nextPhase === "auth_expired" ? "auth" : "unknown",
-          code: status.session.lastErrorCode,
-          message: status.session.lastErrorMessage ?? status.session.lastErrorCode,
-          retryable: nextPhase === "reconnecting"
-        };
-      }
-      this.emit();
-    }
+    applyCollaborationSessionStatus({
+      state: this.state,
+      status,
+      now: () => this.clock.now().toISOString(),
+      clear: () => this.clear(),
+      emit: () => this.emit()
+    });
   }
 
   private async handleObserverSignal(signal: CollaborationObserverSignal): Promise<void> {
@@ -778,6 +783,7 @@ export class CollaborationReadModelController {
   }
 
   private async reloadAssignments(generation: number): Promise<AggregateRefreshApplication> {
+    const operationApi = this.captureOperationApi();
     const reloadToken = this.refreshArbitration.next("assignments");
     const changeVersionsAtStart = new Map(this.assignmentChangeVersionByKey);
     const loading = beginLoading(this.state, "assignments");
@@ -794,12 +800,12 @@ export class CollaborationReadModelController {
       const items = await readBoundedNumberCursorPages({
         resource: "assignments",
         readPage: (cursor) => {
-          const query: CollaborationAssignmentListQueryInput = {
+          const query: Omit<CollaborationAssignmentListQueryInput, "operationScope"> = {
             cursor,
             limit: this.pageLimit,
             ...(canvasId ? { canvasId } : {})
           };
-          return this.api.listCollaborationAssignments(query);
+          return operationApi.listAssignments(query);
         }
       });
       if (!isCurrentProject()) {
@@ -810,8 +816,7 @@ export class CollaborationReadModelController {
 
       const projection = await buildAssignmentRefreshProjection({
         items,
-        readEligibleHosts: (workItems) =>
-          this.api.listCollaborationEligibleHostsBatch({ workItems }),
+        readEligibleHosts: (workItems) => operationApi.listEligibleHostsBatch({ workItems }),
         isCurrent: isCurrentProject
       });
       if (!projection) {
@@ -858,6 +863,7 @@ export class CollaborationReadModelController {
     workItem: WorkItemRef,
     generation: number
   ): Promise<RefreshApplication> {
+    const operationApi = this.captureOperationApi();
     const key = workItemKey(workItem);
     const fullReloadSeqAtStart = this.refreshArbitration.latestToken("assignments");
     const reloadToken = (this.assignmentReloadSeqByKey.get(key) ?? 0) + 1;
@@ -869,7 +875,7 @@ export class CollaborationReadModelController {
     const loading = beginLoading(this.state, "assignments");
     this.emit();
     try {
-      const page = await this.api.listCollaborationAssignments({
+      const page = await operationApi.listAssignments({
         cursor: 0,
         limit: 1,
         workItems: [workItem]
@@ -917,16 +923,17 @@ export class CollaborationReadModelController {
   }
 
   private async reloadComments(workItem: WorkItemRef, generation: number): Promise<void> {
+    const operationApi = this.captureOperationApi();
     const key = workItemKey(workItem);
     const loading = beginLoading(this.state, `comments:${key}`);
     this.emit();
     try {
-      const query: CollaborationCommentListQueryInput = {
+      const query: Omit<CollaborationCommentListQueryInput, "operationScope"> = {
         workItem,
         limit: this.pageLimit,
         includeTombstoned: true
       };
-      const page = await this.api.listCollaborationComments(query);
+      const page = await operationApi.listComments(query);
       loading.release();
       if (generation !== this.state.generation) return;
       this.state.comments.set(key, page.items);
@@ -938,13 +945,14 @@ export class CollaborationReadModelController {
   }
 
   private async reloadActivity(generation: number): Promise<void> {
+    const operationApi = this.captureOperationApi();
     const loading = beginLoading(this.state, "activity");
     this.emit();
     try {
-      const query: CollaborationActivityListQueryInput = {
+      const query: Omit<CollaborationActivityListQueryInput, "operationScope"> = {
         limit: this.pageLimit
       };
-      const page = await this.api.listCollaborationActivity(query);
+      const page = await operationApi.listActivity(query);
       loading.release();
       if (generation !== this.state.generation) return;
       this.state.activity = page.items;

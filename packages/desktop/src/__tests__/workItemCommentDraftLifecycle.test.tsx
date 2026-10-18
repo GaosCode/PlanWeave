@@ -249,3 +249,22 @@ it.each([
   expect(composer).toBeEnabled();
   expect(screen.queryByRole("alert")).toBeNull();
 });
+
+it("retires the unmounted draft when only the final same-profile status exposes a new verified session", async () => {
+  const f = createApi();
+  boundary.api = f.api;
+  render(<Shell />);
+  const user = await openAndWrite("hidden reconnect body");
+  await close(user);
+  const next = connectedStatus();
+  if (!next.session.operationScope) throw new Error("connected_scope_missing");
+  next.session.operationScope = {
+    ...next.session.operationScope,
+    sessionId: "00000000-0000-4000-8000-000000000002"
+  };
+  act(() => f.emitStatus(next));
+  expect(getCommentDraft(taskItem).body).toBe("");
+  await user.click(screen.getByTestId("work-item-comments-trigger"));
+  await waitFor(() => expect(screen.getByTestId("comments-body-input")).toBeEnabled());
+  expect(screen.getByTestId("comments-body-input")).toHaveValue("");
+});

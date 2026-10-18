@@ -1,3 +1,4 @@
+import type { CollaborationOperationScope } from "../../shared/collaborationOperationScope.js";
 import {
   COLLABORATION_SESSION_ONLY_WARNING,
   type CollaborationProfileView,
@@ -15,6 +16,7 @@ import type { CollaborationWorkspaceConnection } from "./collaborationWorkspaceC
 
 export type CollaborationStatusSession = {
   phase: CollaborationSessionPhase;
+  operationScope: CollaborationOperationScope | null;
   detail: string | null;
   lastErrorCode: string | null;
   lastErrorMessage: string | null;
@@ -117,6 +119,7 @@ export async function buildCollaborationStatus(
     nonPersistenceWarning,
     session: {
       phase: options.session.phase,
+      operationScope: options.session.operationScope,
       activeProfileId: options.session.clientProfileId ?? activeProfileId,
       detail,
       lastErrorCode: options.session.lastErrorCode,
