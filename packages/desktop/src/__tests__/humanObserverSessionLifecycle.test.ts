@@ -11,7 +11,7 @@ import {
   exampleObserverWelcome
 } from "@planweave-ai/collaboration-protocol/fixtures/collaboration";
 import { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
-import { CollaborationService } from "../main/collaboration/CollaborationService.js";
+import { CollaborationService } from "../main/collaboration/collaborationService.js";
 import { CollaborationCredentialVault } from "../main/collaboration/collaborationCredentialVault.js";
 import { CollaborationProfileStore } from "../main/collaboration/collaborationProfileStore.js";
 import { createApplicationCredentialStorage } from "../main/credentialStorage/applicationCredentialStorage.js";

@@ -18,7 +18,7 @@ import {
 import { encodeCanvasReplicaDocument, parseCanvasReplicaDocument } from "@planweave-ai/runtime";
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { CollaborationClient } from "../main/collaboration/CollaborationClient.js";
-import { CollaborationService } from "../main/collaboration/CollaborationService.js";
+import { CollaborationService } from "../main/collaboration/collaborationService.js";
 import { CollaborationCredentialVault } from "../main/collaboration/collaborationCredentialVault.js";
 import { WorkspaceConnectionProfileStore } from "../main/collaboration/workspaceConnectionProfileStore.js";
 import { WorkspaceAuthoritativeSnapshotCache } from "../main/collaboration/WorkspaceAuthoritativeSnapshotCache.js";

@@ -24,7 +24,7 @@ import { CollaborationPresenceSession } from "../main/collaboration/collaboratio
 import { CollaborationProfileStore } from "../main/collaboration/collaborationProfileStore.js";
 import { CollaborationCredentialVault } from "../main/collaboration/collaborationCredentialVault.js";
 import { ContentVersionFacade } from "../main/collaboration/ContentVersionFacade.js";
-import { createWorkspaceCanvasSnapshotSessionComposition } from "../main/collaboration/workspaceCanvasSnapshotSessionComposition.js";
+import { createWorkspaceCanvasSnapshotSessionComposition } from "../main/collaboration/WorkspaceCanvasSnapshotSessionComposition.js";
 import { parseCollaborationConnectionProfile } from "@planweave-ai/collaboration-protocol/connection";
 import { CollaborationService } from "../main/collaboration/collaborationService.js";
 import { WorkspaceCanvasSession } from "../main/collaboration/WorkspaceCanvasSession.js";
