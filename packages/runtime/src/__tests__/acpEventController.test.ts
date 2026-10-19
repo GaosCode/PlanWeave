@@ -14,6 +14,7 @@ import { createDefaultAcpEventRetentionPolicy } from "../autoRun/acpEventRetenti
 import { RUNNER_EVENT_MAX_ENCODED_BYTES } from "../autoRun/normalizedEventContract.js";
 import { AcpSessionController, type AcpSessionRun } from "../autoRun/acpSessionController.js";
 import { ActiveAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
+import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
 import { acpProfileTestValues } from "./support/acpProfileTestValues.js";
 
 const fixture = fileURLToPath(new URL("./support/acpMockAgent.mjs", import.meta.url));
@@ -351,7 +352,9 @@ describe("ACP event controller durability and producers", () => {
     );
     const input = run(root, "terminal-output");
     input.terminalOutputHandler = () => ({ output: "terminal bytes", truncated: false });
-    await expect(controller.execute(input, { timeoutMs: 500 })).resolves.toMatchObject({
+    await expect(
+      controller.execute(input, { timeoutMs: ACP_MOCK_OPERATION_TIMEOUT_MS })
+    ).resolves.toMatchObject({
       kind: "block"
     });
     const events = await readFile(join(root, "events.ndjson"), "utf8");
