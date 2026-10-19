@@ -285,6 +285,14 @@ export const runtimeNotAttachedInventory = [
     "Canvas command tests stub unattached availability."
   ),
   inventoryEntry(
+    "rna-test-canvasSessionRetirement",
+    "runtime_not_attached",
+    "runtime_attachment",
+    "packages/desktop/src/__tests__/canvasSessionRetirement.test.ts",
+    "reason: runtime_not_attached",
+    "Canvas session retirement tests return unattached execution availability over real HTTP."
+  ),
+  inventoryEntry(
     "rna-test-workspaceCanvasSession",
     "runtime_not_attached",
     "runtime_attachment",
