@@ -46,10 +46,18 @@ class HeldSnapshotCache extends WorkspaceAuthoritativeSnapshotCache {
   readonly writeRelease = deferred();
   readonly flushEntered = deferred();
   watchFlush = false;
+  nextWrite: { entered: ReturnType<typeof deferred>; release: ReturnType<typeof deferred> } | null =
+    null;
 
   override async put(input: Parameters<WorkspaceAuthoritativeSnapshotCache["put"]>[0]) {
     this.writeEntered.resolve();
     await this.writeRelease.promise;
+    const nextWrite = this.nextWrite;
+    this.nextWrite = null;
+    if (nextWrite) {
+      nextWrite.entered.resolve();
+      await nextWrite.release.promise;
+    }
     return super.put(input);
   }
 
@@ -294,7 +302,9 @@ async function connectedCanvasFixture(expectWriteFailure = false) {
     commentRelease.resolve();
     cache.writeRelease.resolve();
     if (expectWriteFailure) {
-      await expect(service.shutdown()).rejects.toMatchObject({ code: "collaboration_unknown" });
+      await service.shutdown().catch((error: unknown) => {
+        expect(error).toMatchObject({ code: "collaboration_unknown" });
+      });
     } else {
       await service.shutdown();
     }
@@ -468,8 +478,28 @@ it.each([
   });
 });
 
-it("exposes captured snapshot write failures after retiring the real Service Canvas", async () => {
+it.each([
+  "forgetRememberedServerConnection",
+  "removeProfile",
+  "clearDeviceCredential",
+  "setActiveProfile"
+] as const)("keeps %s blocked until the retired Service snapshot is really persisted", async (action) => {
   const fixture = await connectedCanvasFixture(true);
+  if (action === "setActiveProfile") {
+    const profile = fixture.client.connectionProfile;
+    await fixture.service.upsertProfile({
+      profileId: "other-profile",
+      displayName: "Other profile",
+      serverBaseUrl: profile.serverBaseUrl,
+      projectId: profile.projectId,
+      endpoint: profile.endpoint,
+      allowInsecureTransport: profile.allowInsecureTransport
+    });
+  }
+  const retry = () =>
+    fixture.service[action]({
+      profileId: action === "setActiveProfile" ? "other-profile" : fixture.profileId
+    });
   const directory = dirname(fixture.cache.pathForKey(fixture.cacheKey));
   await writeFile(directory, "snapshot directory blocked", "utf8");
   fixture.cache.watchFlush = true;
@@ -496,5 +526,52 @@ it("exposes captured snapshot write failures after retiring the real Service Can
   await expect(fixture.comments()).rejects.toMatchObject({
     code: "collaboration_operation_scope_stale"
   });
-  await rm(directory);
+  try {
+    await expect(retry()).rejects.toMatchObject({
+      code: "collaboration_unknown",
+      message: expect.stringContaining("EEXIST")
+    });
+    expect(await fixture.vault.getDeviceToken(fixture.profileId)).toBe(exampleHumanDeviceToken);
+    expect(await fixture.profiles.get(fixture.profileId)).not.toBeNull();
+    const status = await fixture.service.getStatus();
+    expect(status.profiles.some((profile) => profile.profileId === fixture.profileId)).toBe(true);
+    expect(status.activeProfileId).toBe(fixture.profileId);
+    expect(fixture.service.getWorkspaceCanvasProjection()).toBeNull();
+  } finally {
+    await rm(directory);
+  }
+  const retryWrite = { entered: deferred(), release: deferred() };
+  fixture.cache.nextWrite = retryWrite;
+  const recovering = retry();
+  try {
+    await retryWrite.entered.promise;
+    expect(await fixture.vault.getDeviceToken(fixture.profileId)).toBe(exampleHumanDeviceToken);
+    expect(await fixture.profiles.get(fixture.profileId)).not.toBeNull();
+    expect(
+      await new WorkspaceAuthoritativeSnapshotCache(directory).get(fixture.cacheKey)
+    ).toBeNull();
+  } finally {
+    retryWrite.release.resolve();
+  }
+  const status = await recovering;
+  expect(
+    await new WorkspaceAuthoritativeSnapshotCache(directory).get(fixture.cacheKey)
+  ).toMatchObject({
+    contentRevision: 1,
+    contentDigest: fixture.content.canonicalDigest,
+    content: fixture.content
+  });
+  expect(status.session.operationScope).toBeNull();
+  expect(await fixture.vault.getDeviceToken(fixture.profileId)).toBe(
+    action === "setActiveProfile" ? exampleHumanDeviceToken : undefined
+  );
+  if (action === "forgetRememberedServerConnection") {
+    expect(status.session.phase).toBe("idle");
+    expect(status.workspaceConnection.status).toBe("local_only");
+    expect(await fixture.profiles.get(fixture.profileId)).toBeNull();
+  } else if (action === "setActiveProfile") {
+    expect(status.activeProfileId).toBe("other-profile");
+  } else if (action === "removeProfile") {
+    expect(status.profiles.some((profile) => profile.profileId === fixture.profileId)).toBe(false);
+  }
 });

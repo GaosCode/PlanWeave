@@ -35,6 +35,7 @@ type CollaborationProfileLifecycleDependencies = {
   enqueue<T>(operation: () => Promise<T>): Promise<T>;
   assertOpen(): void;
   getClientProfileId(): string | null;
+  getPendingRetirementProfileId(): string | null;
   getSessionPhase(): CollaborationSessionPhase;
   setSession(
     phase: CollaborationSessionPhase,
@@ -75,6 +76,13 @@ function stripAuthHandoff(
 export class CollaborationProfileLifecycle {
   constructor(private readonly dependencies: CollaborationProfileLifecycleDependencies) {}
 
+  private profileNeedsDisposal(profileId: string): boolean {
+    return (
+      this.dependencies.getClientProfileId() === profileId ||
+      this.dependencies.getPendingRetirementProfileId() === profileId
+    );
+  }
+
   async upsertProfile(input: unknown): Promise<CollaborationStatus> {
     return this.dependencies.enqueue(async () => {
       this.dependencies.assertOpen();
@@ -88,10 +96,7 @@ export class CollaborationProfileLifecycle {
         existing.allowInsecureTransport !== profile.allowInsecureTransport ||
         JSON.stringify(existing.endpoint) !== JSON.stringify(profile.endpoint);
       await this.dependencies.profiles.upsert(profile);
-      if (
-        this.dependencies.getClientProfileId() === profile.profileId &&
-        connectionIdentityChanged
-      ) {
+      if (this.profileNeedsDisposal(profile.profileId) && connectionIdentityChanged) {
         await this.dependencies.disposeClient("profile_updated");
       }
       if (
@@ -110,7 +115,7 @@ export class CollaborationProfileLifecycle {
       this.dependencies.assertOpen();
       assertNoSmuggledCollaborationSecrets(input, "removeCollaborationProfile");
       const { profileId } = collaborationProfileIdInputSchema.parse(input);
-      if (this.dependencies.getClientProfileId() === profileId) {
+      if (this.profileNeedsDisposal(profileId)) {
         await this.dependencies.disposeClient("profile_removed");
       } else {
         this.dependencies.clearRememberedObserverCursor(profileId);
@@ -130,7 +135,10 @@ export class CollaborationProfileLifecycle {
       const profile = await this.dependencies.profiles.get(profileId);
       if (!profile) throw new Error(`Unknown collaboration profile: ${profileId}`);
       const clientProfileId = this.dependencies.getClientProfileId();
-      if (clientProfileId && clientProfileId !== profileId) {
+      if (
+        (clientProfileId && clientProfileId !== profileId) ||
+        this.dependencies.getPendingRetirementProfileId() !== null
+      ) {
         await this.dependencies.disposeClient("project_switch");
       }
       await this.dependencies.profiles.setActiveProfileId(profileId);
@@ -185,7 +193,7 @@ export class CollaborationProfileLifecycle {
         deviceCredentialId: parsed.deviceCredentialId ?? null,
         humanPrincipalId: parsed.humanPrincipalId ?? null
       });
-      if (this.dependencies.getClientProfileId() === parsed.profileId) {
+      if (this.profileNeedsDisposal(parsed.profileId)) {
         await this.dependencies.disposeClient("credential_imported");
       }
       return this.dependencies.publishStatus();
@@ -197,7 +205,7 @@ export class CollaborationProfileLifecycle {
       this.dependencies.assertOpen();
       assertNoSmuggledCollaborationSecrets(input, "clearDeviceCredential");
       const { profileId } = collaborationProfileIdInputSchema.parse(input);
-      if (this.dependencies.getClientProfileId() === profileId) {
+      if (this.profileNeedsDisposal(profileId)) {
         await this.dependencies.disposeClient("logout");
       } else {
         this.dependencies.clearRememberedObserverCursor(profileId);

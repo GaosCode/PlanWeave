@@ -241,7 +241,10 @@ export class CollaborationService {
       exportedIdentityPath: options.exportedIdentityPath,
       onObserverSignal: (signal) => this.publishObserverSignal(signal),
       beforeForgetRememberedServer: async (profileId) => {
-        if (this.clientProfileId === profileId) {
+        if (
+          this.clientProfileId === profileId ||
+          this.sessionLifecycle.getPendingRetirementProfileId() === profileId
+        ) {
           await this.sessionLifecycle.dispose("remembered_server_forgotten");
         }
         this.sessionLifecycle.clearRememberedObserverCursor(profileId);
@@ -304,6 +307,7 @@ export class CollaborationService {
         }),
       assertOpen: () => this.assertOpen(),
       getClientProfileId: () => this.clientProfileId,
+      getPendingRetirementProfileId: () => this.sessionLifecycle.getPendingRetirementProfileId(),
       getSessionPhase: () => this.sessionPhase,
       setSession: (phase, detail, error) => this.setSession(phase, detail, error),
       disposeClient: (reason) => this.disposeClient(reason),

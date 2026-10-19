@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { encodeCanvasReplicaDocument, parseCanvasReplicaDocument } from "@planweave-ai/runtime";
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import {
@@ -30,7 +31,7 @@ async function cacheHarness() {
 const key: WorkspaceRemoteAuthorityKey = {
   connectionProfileId: "profile-1",
   serverOrigin: "https://workspace.example.test",
-  workspaceId: "workspace-1",
+  workspaceId: workspaceIdSchema.parse("workspace-1"),
   projectId: "project-1",
   canvasId: "canvas-1"
 };
@@ -66,7 +67,6 @@ function capture(
   const value = content(x);
   cache.capture(authority, {
     scope: {
-      bindingKind: "remote",
       authorityId: workspaceRemoteAuthorityId(authority),
       workspaceId: authority.workspaceId,
       projectId: authority.projectId,
@@ -371,6 +371,10 @@ describe("WorkspaceAuthoritativeSnapshotCache", () => {
     const put = cache.put.bind(cache);
     const writeFailure = new Error("other_write_failed");
     vi.spyOn(cache, "put")
+      .mockImplementation(async (input) => {
+        if (otherFails && input.key.canvasId === "canvas-2") throw writeFailure;
+        return put(input);
+      })
       .mockImplementationOnce(async (input) => {
         await first.promise;
         return put(input);
@@ -435,16 +439,72 @@ describe("WorkspaceAuthoritativeSnapshotCache", () => {
   it("keeps one authority's failure visible across another success and retries the failed key", async () => {
     const { cache } = await cacheHarness();
     const put = cache.put.bind(cache);
-    vi.spyOn(cache, "put").mockRejectedValueOnce(new Error("write_failed")).mockImplementation(put);
+    let blocked = true;
+    vi.spyOn(cache, "put").mockImplementation(async (input) => {
+      if (blocked && input.key.canvasId === key.canvasId) throw new Error("write_failed");
+      return put(input);
+    });
     capture(cache, 1);
     const other = { ...key, canvasId: "canvas-2" };
     capture(cache, 1, 1, other);
     await expect(cache.flush()).rejects.toThrow("write_failed");
     expect((await cache.get(other))?.contentRevision).toBe(1);
     await expect(cache.flush()).rejects.toThrow("write_failed");
-    capture(cache, 1);
+    blocked = false;
     await cache.flush();
     expect((await cache.get(key))?.contentRevision).toBe(1);
+  });
+
+  it("shares a retained-write retry between flushes without consuming a later capture", async () => {
+    const { directory } = await cacheHarness();
+    const cacheDirectory = join(directory, "snapshots");
+    const cache = new WorkspaceAuthoritativeSnapshotCache(cacheDirectory);
+    await writeFile(cacheDirectory, "blocked snapshot directory", "utf8");
+    capture(cache, 1);
+    await expect(cache.flush()).rejects.toMatchObject({ code: "EEXIST" });
+    capture(cache, 2);
+    await expect(cache.flush()).rejects.toMatchObject({ code: "EEXIST" });
+    await rm(cacheDirectory);
+
+    const retryStarted = deferred();
+    const retryRelease = deferred();
+    const laterStarted = deferred();
+    const laterRelease = deferred();
+    const put = cache.put.bind(cache);
+    vi.spyOn(cache, "put")
+      .mockImplementationOnce(async (input) => {
+        retryStarted.resolve();
+        await retryRelease.promise;
+        return put(input);
+      })
+      .mockImplementationOnce(async (input) => {
+        laterStarted.resolve();
+        await laterRelease.promise;
+        return put(input);
+      });
+    const retry = cache.flush();
+    await retryStarted.promise;
+    const overlapping = cache.flush();
+    capture(cache, 3);
+    let laterFinished = false;
+    const later = cache.flush().then(() => {
+      laterFinished = true;
+    });
+    try {
+      retryRelease.resolve();
+      await laterStarted.promise;
+      await Promise.all([retry, overlapping]);
+      expect(laterFinished).toBe(false);
+      const reopened = new WorkspaceAuthoritativeSnapshotCache(cacheDirectory);
+      expect(await reopened.get(key)).toMatchObject({ contentRevision: 2, content: content(2) });
+      laterRelease.resolve();
+      await later;
+      expect(await reopened.get(key)).toMatchObject({ contentRevision: 3, content: content(3) });
+    } finally {
+      retryRelease.resolve();
+      laterRelease.resolve();
+      await Promise.all([retry, overlapping, later]);
+    }
   });
 
   it("retains a persisted revision conflict across newer captures", async () => {
@@ -537,6 +597,11 @@ describe("WorkspaceAuthoritativeSnapshotCache", () => {
         (await new WorkspaceAuthoritativeSnapshotCache(directory).get(key))?.contentRevision
       ).toBe(1);
       await rm(blocked, { recursive: true });
+      await cache.flush();
+      expect(await new WorkspaceAuthoritativeSnapshotCache(directory).get(key)).toMatchObject({
+        contentRevision: 2,
+        content: content(2)
+      });
       capture(cache, 3);
       await cache.flush();
       expect(

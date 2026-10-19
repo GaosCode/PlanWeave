@@ -61,11 +61,16 @@ export class CollaborationSessionLifecycle {
   private lastValidatedObserverProfileId: string | null = null;
   private observerGeneration = 0;
   private observerConnectDeadline: ReturnType<typeof setTimeout> | null = null;
+  private pendingRetirementProfileId: string | null = null;
 
   constructor(private readonly dependencies: CollaborationSessionLifecycleDependencies) {}
 
   getObserverStatus(): CollaborationObserverStatus {
     return this.observerStatus;
+  }
+
+  getPendingRetirementProfileId(): string | null {
+    return this.pendingRetirementProfileId;
   }
 
   clearRememberedObserverCursor(profileId?: string | null): void {
@@ -231,6 +236,8 @@ export class CollaborationSessionLifecycle {
     this.clearObserverConnectDeadline();
     const client = this.dependencies.getClient();
     const profileId = this.dependencies.getClientProfileId();
+    if (profileId !== null) this.pendingRetirementProfileId = profileId;
+    const retiringProfileId = this.pendingRetirementProfileId;
     this.observerGeneration += 1;
     this.dependencies.presenceSession.reset();
     this.dependencies.setClient(null, null);
@@ -264,6 +271,7 @@ export class CollaborationSessionLifecycle {
     let persistenceError: ReturnType<typeof collaborationErrorFromUnknown> | null = null;
     try {
       await this.dependencies.canvasCommands.flushSnapshotCache();
+      this.pendingRetirementProfileId = null;
     } catch (error) {
       persistenceError = collaborationErrorFromUnknown(error);
     }
@@ -275,7 +283,7 @@ export class CollaborationSessionLifecycle {
       }
     }
     if (reason === "logout" || reason === "profile_removed" || reason === "shutdown") {
-      this.clearRememberedObserverCursor(profileId);
+      this.clearRememberedObserverCursor(retiringProfileId);
     }
     if (persistenceError) {
       this.dependencies.setSession("error", "canvas_replica_persistence_failed", {

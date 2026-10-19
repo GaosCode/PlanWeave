@@ -69,6 +69,7 @@ type CaptureState = {
   key: WorkspaceRemoteAuthorityKey;
   pending: CapturedWrite | null;
   inflight: CapturedWrite | null;
+  failed: CapturedWrite | null;
   latest: { revision: number; contentDigest: string } | null;
   submitted: number;
   settled: number;
@@ -210,6 +211,7 @@ export class WorkspaceAuthoritativeSnapshotCache {
         key: parsedKey,
         pending: null,
         inflight: null,
+        failed: null,
         latest: null,
         submitted: 0,
         settled: 0,
@@ -239,16 +241,23 @@ export class WorkspaceAuthoritativeSnapshotCache {
 
   async flush(): Promise<void> {
     const targets = [...this.captures.values()];
+    // Retry only failures from earlier attempts; this barrier must report its own write failures.
+    for (const state of targets) {
+      if (state.failed && !state.pending && !state.inflight && !state.conflict) {
+        state.pending = { snapshot: state.failed.snapshot, sequence: ++state.submitted };
+        this.ready.add(this.pathForKey(state.key));
+      }
+    }
     try {
-      const results = await Promise.allSettled(
-        targets.map(
-          (state) =>
-            new Promise<void>((resolve, reject) => {
-              state.barriers.push({ target: state.submitted, resolve, reject });
-              this.settleBarriers(state);
-            })
-        )
+      const barriers = targets.map(
+        (state) =>
+          new Promise<void>((resolve, reject) => {
+            state.barriers.push({ target: state.submitted, resolve, reject });
+            this.settleBarriers(state);
+          })
       );
+      if (!this.draining) void this.drain();
+      const results = await Promise.allSettled(barriers);
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     } finally {
@@ -301,8 +310,10 @@ export class WorkspaceAuthoritativeSnapshotCache {
             content: write.snapshot.content
           });
           state.error = null;
+          state.failed = null;
         } catch (error) {
           state.error = error;
+          state.failed = write;
           if (
             error instanceof Error &&
             error.message === "workspace_snapshot_cache_revision_digest_conflict"
