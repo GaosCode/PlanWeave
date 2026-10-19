@@ -216,6 +216,7 @@ describe("identity repair connection", () => {
     };
     const facade = new CollaborationWorkspaceConnectionFacade({
       connection,
+      getSessionProfileId: () => null,
       publishStatus: async () => dummyStatus(session),
       setSession: (phase, detail) => {
         session = { phase, detail };

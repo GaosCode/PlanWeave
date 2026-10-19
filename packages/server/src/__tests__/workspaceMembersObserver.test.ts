@@ -141,6 +141,7 @@ async function fixture() {
   connections.push(connection);
   const facade = new CollaborationWorkspaceConnectionFacade({
     connection,
+    getSessionProfileId: () => null,
     publishStatus: async () => {
       throw new Error("read_fixture_cannot_publish_status");
     },

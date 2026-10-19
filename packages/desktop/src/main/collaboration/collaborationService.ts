@@ -240,12 +240,19 @@ export class CollaborationService {
         ),
       exportedIdentityPath: options.exportedIdentityPath,
       onObserverSignal: (signal) => this.publishObserverSignal(signal),
+      beforeForgetRememberedServer: async (profileId) => {
+        if (this.clientProfileId === profileId) {
+          await this.sessionLifecycle.dispose("remembered_server_forgotten");
+        }
+        this.sessionLifecycle.clearRememberedObserverCursor(profileId);
+      },
       vault: this.vault,
       request: options.request,
       clock: options.clock
     });
     this.workspaceConnectionFacade = new CollaborationWorkspaceConnectionFacade({
       connection: this.workspaceConnection,
+      getSessionProfileId: () => this.clientProfileId,
       publishStatus: () => this.publishStatus(),
       setSession: (phase, detail, error) => this.setSession(phase, detail, error)
     });

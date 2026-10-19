@@ -235,13 +235,6 @@ export class CollaborationSessionLifecycle {
     this.dependencies.presenceSession.reset();
     this.dependencies.setClient(null, null);
     this.dependencies.setSession("idle", reason, null);
-    let persistenceError: ReturnType<typeof collaborationErrorFromUnknown> | null = null;
-    try {
-      await this.dependencies.canvasCommands.flushSnapshotCache();
-    } catch (error) {
-      persistenceError = collaborationErrorFromUnknown(error);
-    }
-    this.dependencies.canvasCommands.clearAllSessions();
     if (client && profileId) {
       try {
         this.rememberObserverCursor(profileId, client.lastObserverCursor());
@@ -266,6 +259,15 @@ export class CollaborationSessionLifecycle {
       } catch {
         // Teardown is best-effort after the client has been detached.
       }
+    }
+    let persistenceError: ReturnType<typeof collaborationErrorFromUnknown> | null = null;
+    try {
+      await this.dependencies.canvasCommands.flushSnapshotCache();
+    } catch (error) {
+      persistenceError = collaborationErrorFromUnknown(error);
+    }
+    this.dependencies.canvasCommands.clearAllSessions();
+    if (client) {
       try {
         client.dispose();
       } catch {

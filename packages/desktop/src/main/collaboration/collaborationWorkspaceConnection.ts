@@ -82,6 +82,7 @@ export type CollaborationWorkspaceConnectionOptions = {
   clock?: { now(): Date };
   onChange?: () => void;
   onObserverSignal?: (signal: CollaborationObserverSignal) => void;
+  beforeForgetRememberedServer?: (profileId: string) => Promise<void>;
 };
 
 /**
@@ -1003,6 +1004,11 @@ export class CollaborationWorkspaceConnection {
       });
     }
     const wasActive = this.activeProfileId === profileId;
+    if (wasActive) {
+      this.retireReads();
+      this.stopMembersObserver();
+    }
+    await this.options.beforeForgetRememberedServer?.(profileId);
     await this.vault.clear(profileId);
     await this.store.remove(profileId);
     if (wasActive) {

@@ -25,6 +25,7 @@ type SessionError = { code: string; message: string } | null;
 
 export type CollaborationWorkspaceConnectionFacadeOptions = {
   connection: CollaborationWorkspaceConnection;
+  getSessionProfileId: () => string | null;
   publishStatus: () => Promise<CollaborationStatus>;
   setSession: (
     phase: CollaborationSessionPhase,
@@ -66,11 +67,13 @@ function assertRedeemInputBoundary(input: unknown): void {
  */
 export class CollaborationWorkspaceConnectionFacade {
   private readonly connection: CollaborationWorkspaceConnection;
+  private readonly getSessionProfileId: () => string | null;
   private readonly publishStatus: () => Promise<CollaborationStatus>;
   private readonly setSession: CollaborationWorkspaceConnectionFacadeOptions["setSession"];
 
   constructor(options: CollaborationWorkspaceConnectionFacadeOptions) {
     this.connection = options.connection;
+    this.getSessionProfileId = options.getSessionProfileId;
     this.publishStatus = options.publishStatus;
     this.setSession = options.setSession;
   }
@@ -276,17 +279,22 @@ export class CollaborationWorkspaceConnectionFacade {
     assertNoSmuggledCollaborationSecrets(input, "forgetRememberedServerConnection");
     const { profileId } = collaborationProfileIdInputSchema.parse(input);
     const activeId = this.connection.getActiveProfileId();
+    const sessionProfileId = this.getSessionProfileId();
+    const affectsSession =
+      sessionProfileId === profileId || (sessionProfileId === null && activeId === profileId);
     try {
       await this.connection.forgetRememberedServer(profileId);
-      if (activeId === profileId) {
+      if (affectsSession) {
         this.setSession("idle", "remembered_server_forgotten", null);
       }
     } catch (error) {
       const mapped = collaborationErrorFromUnknown(error);
-      this.setSession("error", "remembered_server_forget_failed", {
-        code: mapped.code,
-        message: mapped.message
-      });
+      if (affectsSession && mapped.kind !== "validation") {
+        this.setSession("error", "remembered_server_forget_failed", {
+          code: mapped.code,
+          message: mapped.message
+        });
+      }
       throw mapped;
     }
     return this.publishStatus();
