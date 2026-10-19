@@ -519,6 +519,7 @@ describe("WorkspaceCanvasSession", () => {
     });
     composition.commands.bindCached({ key: cacheKey, entry: entry(2) });
     await started.promise;
+    composition.commands.bindCached({ key: cacheKey, entry: entry(3) });
     let closed = false;
     const closing = lifecycle.dispose("disconnect").finally(() => {
       closed = true;
@@ -535,14 +536,13 @@ describe("WorkspaceCanvasSession", () => {
       projectId: cacheKey.projectId,
       canvasId: cacheKey.canvasId
     };
-    expect(composition.commands.projectionForBinding(binding)).not.toBeNull();
-    // A delayed baseline still reaches the real store's committed callback during teardown.
-    composition.commands.bindCached({ key: cacheKey, entry: entry(3) });
+    expect(composition.commands.projectionForBinding(binding)).toBeNull();
     release.resolve();
     const error = await outcome;
-    expect(put).toHaveBeenCalledTimes(1);
+    expect(put).toHaveBeenCalledTimes(2);
     expect(composition.commands.projectionForBinding(binding)).toBeNull();
-    for (const stop of cleanup.slice(0, 2)) expect(stop).toHaveBeenCalledTimes(2);
+    expect(cleanup[0]).toHaveBeenCalledTimes(2);
+    expect(cleanup[1]).toHaveBeenCalledTimes(3);
     expect(cleanup[2]).toHaveBeenCalledTimes(1);
     expect(cleanup[3]).toHaveBeenCalledTimes(1);
     expect(cursor).toHaveBeenCalledTimes(1);
@@ -557,7 +557,7 @@ describe("WorkspaceCanvasSession", () => {
       expect(error).toBeNull();
       expect(
         await new WorkspaceAuthoritativeSnapshotCache(cacheDirectory).get(cacheKey)
-      ).toMatchObject({ contentRevision: 2, content });
+      ).toMatchObject({ contentRevision: 3, content });
     }
   });
 

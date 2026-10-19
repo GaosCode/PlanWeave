@@ -353,6 +353,7 @@
         "canvasCommandClient.test.ts",
         "canvasMapLayoutIpcContract.test.ts",
         "canvasReplicaTwoClientLiveE2E.test.ts",
+        "canvasSessionRetirement.test.ts",
         "ciArtifactRedaction.test.ts",
         "ciWorkflowConfig.test.ts",
         "collaborationBridge.test.ts",

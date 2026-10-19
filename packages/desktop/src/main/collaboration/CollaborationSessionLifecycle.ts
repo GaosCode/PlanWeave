@@ -260,13 +260,13 @@ export class CollaborationSessionLifecycle {
         // Teardown is best-effort after the client has been detached.
       }
     }
+    this.dependencies.canvasCommands.clearAllSessions();
     let persistenceError: ReturnType<typeof collaborationErrorFromUnknown> | null = null;
     try {
       await this.dependencies.canvasCommands.flushSnapshotCache();
     } catch (error) {
       persistenceError = collaborationErrorFromUnknown(error);
     }
-    this.dependencies.canvasCommands.clearAllSessions();
     if (client) {
       try {
         client.dispose();
