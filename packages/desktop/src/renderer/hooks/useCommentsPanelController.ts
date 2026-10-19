@@ -594,14 +594,39 @@ export function useCommentsPanelController(
     onError: onDownloadError
   });
 
+  const attachmentProfileId = operationScope?.profileId;
+  const attachmentProjectId = operationScope?.projectId;
+  const attachmentServerBaseUrl = operationScope?.serverBaseUrl;
+  const attachmentSessionId = operationScope?.sessionId;
+  const attachmentScope = useMemo(() => {
+    if (
+      attachmentProfileId === undefined ||
+      attachmentProjectId === undefined ||
+      attachmentServerBaseUrl === undefined ||
+      attachmentSessionId === undefined
+    ) {
+      return null;
+    }
+    return {
+      profileId: attachmentProfileId,
+      projectId: attachmentProjectId,
+      serverBaseUrl: attachmentServerBaseUrl,
+      sessionId: attachmentSessionId
+    };
+  }, [attachmentProfileId, attachmentProjectId, attachmentServerBaseUrl, attachmentSessionId]);
+
   const readAttachment = useCallback(
     async (commentId: string, digestSha256: string) => {
-      if (!api || !operationScope || !sessionConnected || !isCurrentScope()) {
+      if (!api || !attachmentScope || !sessionConnected || !isCurrentScope()) {
         throw new Error("collaboration_session_inactive");
       }
-      return api.readCollaborationCommentAttachment({ operationScope, commentId, digestSha256 });
+      return api.readCollaborationCommentAttachment({
+        operationScope: attachmentScope,
+        commentId,
+        digestSha256
+      });
     },
-    [api, operationScope, isCurrentScope, sessionConnected]
+    [api, attachmentScope, isCurrentScope, sessionConnected]
   );
 
   return {

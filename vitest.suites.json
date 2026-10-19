@@ -143,6 +143,7 @@
         "collaborationSessionState.test.ts",
         "commentViewModels.test.ts",
         "commentsAttachmentLifecycle.test.ts",
+        "commentsAttachmentPreviewScope.test.tsx",
         "commentsPanel.test.tsx",
         "activityPanelController.test.ts",
         "commentsPanelController.test.ts",
