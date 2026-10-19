@@ -266,16 +266,31 @@ describe("managedProcessTree contract (fake adapter)", () => {
     expect(signals).toEqual([]);
   });
 
-  it("surfaces real EPERM from the graceful signal path", async () => {
+  it.each([
+    { rootExited: false, signal: "graceful" },
+    { rootExited: true, signal: "graceful" },
+    { rootExited: false, signal: "force" },
+    { rootExited: true, signal: "force" }
+  ])("surfaces persistent EPERM for $signal with rootExited=$rootExited", async ({
+    rootExited,
+    signal
+  }) => {
     const eperm = Object.assign(new Error("operation not permitted"), { code: "EPERM" });
-    const adapter = createFakeProcessTreeAdapter({
-      isAlive: () => true,
-      onGraceful: () => {
-        throw eperm;
-      }
-    });
+    const adapter: ProcessTreePlatformAdapter = {
+      ...createFakeProcessTreeAdapter({
+        isAlive: () => !rootExited,
+        isTreeAlive: () => true,
+        onGraceful: () => {
+          if (signal === "graceful") throw eperm;
+        },
+        onForce: () => {
+          throw eperm;
+        }
+      }),
+      name: "posix"
+    };
     const child = {
-      exitCode: null,
+      exitCode: rootExited ? 0 : null,
       signalCode: null,
       once() {
         return child;

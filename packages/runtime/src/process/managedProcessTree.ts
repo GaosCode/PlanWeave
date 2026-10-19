@@ -293,6 +293,14 @@ function createManagedProcessTree(options: {
   const awaitTreeExit = (timeoutMs: number): Promise<boolean> =>
     adapter.awaitTreeExit?.(pid, timeoutMs) ?? pollTreeExit(isTreeAlive, timeoutMs);
 
+  const confirmExitAfterPermissionError = (error: unknown, timeoutMs: number): Promise<boolean> => {
+    // Darwin can return EPERM for a group containing only an unreaped zombie.
+    // Keep permission failures authoritative unless the whole group actually disappears.
+    return adapter.name === "posix" && errnoCode(error) === "EPERM"
+      ? awaitTreeExit(timeoutMs)
+      : Promise.resolve(false);
+  };
+
   const waitForChildExitBounded = async (
     step: string,
     timeoutMs: number
@@ -367,6 +375,11 @@ function createManagedProcessTree(options: {
             code: code ?? null,
             error: error instanceof Error ? error.message : String(error)
           });
+          if (await confirmExitAfterPermissionError(error, effectiveGraceMs)) {
+            await waitForChildExitBounded("after-graceful-error", effectiveConfirmMs);
+            logProcessTree("terminate-return", { pid, reason, outcome: "already_exited" });
+            return { outcome: "already_exited", reason };
+          }
           const rootExitedBeforeGraceful = code === "ESRCH" || code === "ECHILD";
           if (!rootExitedBeforeGraceful && adapter.name !== "windows") {
             throw error;
@@ -453,7 +466,10 @@ function createManagedProcessTree(options: {
             code: code ?? null,
             error: error instanceof Error ? error.message : String(error)
           });
-          if (code !== "ESRCH") {
+          if (
+            code !== "ESRCH" &&
+            !(await confirmExitAfterPermissionError(error, effectiveConfirmMs))
+          ) {
             throw error;
           }
         }
