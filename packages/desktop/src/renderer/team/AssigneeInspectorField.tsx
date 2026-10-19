@@ -78,6 +78,7 @@ function SingleAuthorityField({
         <span className="text-[11px] font-medium text-muted-foreground">{roleLabel(role, t)}</span>
       </div>
       <AssigneePicker
+        interactionScope={controller.interactionScope}
         viewModel={controller.viewModel}
         query={controller.query}
         onQueryChange={controller.setQuery}

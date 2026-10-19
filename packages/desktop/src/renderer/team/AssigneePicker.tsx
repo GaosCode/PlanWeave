@@ -1,4 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent
+} from "react";
 import type { AssignmentTarget } from "@planweave-ai/collaboration-protocol/work/assignment";
 import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +22,8 @@ import type {
 import type { createTranslator } from "../i18n";
 
 export type AssigneePickerProps = {
+  /** Session/work-item identity for scoped controllers; unscoped callers only fence unmount. */
+  interactionScope?: object;
   viewModel: AssigneePickerViewModel;
   query: string;
   onQueryChange: (value: string) => void;
@@ -179,6 +189,7 @@ function OptionRow({
  * Machine selection only updates assignment; it never dispatches remote work.
  */
 export function AssigneePicker({
+  interactionScope,
   viewModel,
   query,
   onQueryChange,
@@ -193,6 +204,13 @@ export function AssigneePicker({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const currentInteractionScope = useRef<object | null | undefined>(interactionScope);
+  useLayoutEffect(() => {
+    currentInteractionScope.current = interactionScope;
+    return () => {
+      currentInteractionScope.current = null;
+    };
+  }, [interactionScope]);
   const options = viewModel.filteredOptions;
 
   const setOpenState = (next: boolean) => {
@@ -227,7 +245,7 @@ export function AssigneePicker({
 
   const handleSelect = async (target: AssignmentTarget) => {
     const ok = await onSelect(target);
-    if (ok) {
+    if (ok && currentInteractionScope.current === interactionScope) {
       setOpenState(false);
       onQueryChange("");
     }

@@ -1,5 +1,6 @@
 import { collaborationOperationScopeFixture } from "./collaborationOperationScopeFixture";
 import { vi } from "vitest";
+import { deploymentEndpointSchema } from "@planweave-ai/collaboration-protocol/connection";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { CollaborationReadBridgePort } from "../../renderer/collaboration/CollaborationReadModelController";
 import type {
@@ -22,6 +23,14 @@ export function connectedStatus(): CollaborationStatus {
         hasDeviceCredential: true,
         deviceCredentialPersistence: "persisted",
         deviceCredentialId: "device-1",
+        credentialRevision: null,
+        connectionState: "ready",
+        endpoint: deploymentEndpointSchema.parse({
+          topology: "public_https",
+          serverOrigin: "https://example.test",
+          allowedClientOrigins: ["https://example.test"],
+          tlsTrust: "system_ca"
+        }),
         humanPrincipalId: "human-1",
         updatedAt: "2030-01-01T00:00:00.000Z"
       }
@@ -45,6 +54,7 @@ export function connectedStatus(): CollaborationStatus {
       workspaceId: null,
       workspaceDisplayName: null,
       connectedAt: null,
+      credentialRevision: null,
       error: null
     },
     workspacePicker: { schemaVersion: "workspace-setup/v1", items: [], nextCursor: null }
@@ -192,7 +202,11 @@ export function createApi() {
       status = next;
       for (const listener of statusListeners) listener(status);
     },
-    changeStatus: (projectId: string, profileId = "profile-1", credentialRevision?: string) => {
+    changeStatus: (
+      projectId: string,
+      profileId = "profile-1",
+      credentialRevision: string | null = null
+    ) => {
       status = connectedStatus();
       status.activeProfileId = profileId;
       status.session.activeProfileId = profileId;

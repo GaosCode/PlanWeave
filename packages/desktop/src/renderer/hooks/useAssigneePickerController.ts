@@ -50,6 +50,7 @@ export type UseAssigneePickerControllerArgs = {
 };
 
 export type UseAssigneePickerControllerResult = {
+  interactionScope: object;
   viewModel: AssigneePickerViewModel | null;
   authority: WorkAuthorityProjection | null;
   authorityRole: AssigneeAuthorityRole;
@@ -123,7 +124,17 @@ export function useAssigneePickerController(
   const authorityRole: AssigneeAuthorityRole = args.authorityRole ?? "responsibility";
   const detailsOpen = args.detailsOpen ?? false;
   const { status } = useCollaborationStatus({ api });
-  const operationScope = status?.session.operationScope;
+  const publishedOperationScope = status?.session.operationScope;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the four scope fields define session identity across status snapshots
+  const operationScope = useMemo(
+    () => publishedOperationScope,
+    [
+      publishedOperationScope?.sessionId,
+      publishedOperationScope?.profileId,
+      publishedOperationScope?.projectId,
+      publishedOperationScope?.serverBaseUrl
+    ]
+  );
 
   const activeProfile = useMemo(() => {
     if (!status?.activeProfileId) return null;
@@ -171,6 +182,7 @@ export function useAssigneePickerController(
       controller,
       workItemKeyValue,
       authorityRole,
+      operationScope,
       sessionConnected,
       profileId: snapshot.profileId,
       projectId: snapshot.projectId,
@@ -185,6 +197,7 @@ export function useAssigneePickerController(
       controller,
       workItemKeyValue,
       authorityRole,
+      operationScope,
       sessionConnected,
       snapshot.profileId,
       snapshot.projectId,
@@ -494,6 +507,7 @@ export function useAssigneePickerController(
   ]);
 
   return {
+    interactionScope: scopeToken,
     viewModel: pickerViewModel,
     authority,
     authorityRole,
