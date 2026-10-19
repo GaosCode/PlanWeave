@@ -12,6 +12,7 @@ import { useTaskAgentEndpointSelection } from "./hooks/useTaskAgentEndpointSelec
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
 import { useCollaborationStatus } from "./hooks/useCollaborationStatus";
+import { useCollaborationReadModels } from "./hooks/useCollaborationReadModels";
 
 function supportedLanguage(value: string | null): Language {
   return value === "en" || value === "zh-CN" ? value : "zh-CN";
@@ -99,6 +100,13 @@ export function TaskInspectorWindow() {
   const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
   const { status: collaborationStatus } = useCollaborationStatus();
+  const operationScope = collaborationStatus?.session.operationScope;
+  useCollaborationReadModels({
+    operationScope,
+    profileId: operationScope?.profileId ?? null,
+    projectId: operationScope?.projectId ?? null,
+    manageActiveProject: true
+  });
   const catalogLocator = useMemo(() => {
     if (!graph?.projectId || !canvasId) return null;
     return { projectId: graph.projectId, canvasId };

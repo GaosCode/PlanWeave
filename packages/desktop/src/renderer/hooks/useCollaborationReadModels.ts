@@ -1,5 +1,5 @@
 import type { CollaborationOperationScope } from "../../shared/collaborationOperationScope.js";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { collaborationBridge } from "../bridge";
 import { toCollaborationReadBridge } from "../collaboration/collaborationReadBridge";
 import { acquireCollaborationReadModelController } from "../collaboration/collaborationReadModelHub";
@@ -22,7 +22,7 @@ export type UseCollaborationReadModelsArgs = {
   canvasId?: string | null;
   /**
    * When true, this hook owns hub setActiveProject/clear binding.
-   * Only the project shell (useCollaborationSurface) should enable this so
+   * Only the project shell or an independent Inspector window should enable this so
    * People/Assignee consumers can subscribe without thrashing canvas filter
    * or clearing shared assignment projections.
    * Isolated tests that need binding should pass true explicitly.
@@ -76,7 +76,7 @@ export function useCollaborationReadModels(
   const controllerRef = useRef<CollaborationReadModelController | null>(null);
   const [controllerVersion, setControllerVersion] = useState(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!api) {
       controllerRef.current = null;
       setControllerVersion((value) => value + 1);
@@ -95,9 +95,9 @@ export function useCollaborationReadModels(
     };
   }, [api]);
 
-  // controllerVersion rebinds after hub acquire without capturing the controller instance.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: controllerVersion is the rebind signal
-  useEffect(() => {
+  // Bind before child history effects can start reads with the published session.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scope fields are stable identity; controllerVersion is the acquire signal
+  useLayoutEffect(() => {
     if (!args.manageActiveProject) return;
     const controller = controllerRef.current;
     if (!controller) return;
@@ -113,7 +113,10 @@ export function useCollaborationReadModels(
     });
     // controllerVersion rebinds after hub acquire without capturing the controller instance.
   }, [
-    args.operationScope,
+    args.operationScope?.sessionId,
+    args.operationScope?.profileId,
+    args.operationScope?.projectId,
+    args.operationScope?.serverBaseUrl,
     args.manageActiveProject,
     args.profileId,
     args.projectId,

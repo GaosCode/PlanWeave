@@ -394,6 +394,7 @@
         "humanObserverSessionLifecycle.test.ts",
         "identityRepairConnection.test.ts",
         "importRecoveryNotifications.test.tsx",
+        "inspectorCollaborationReconnect.test.tsx",
         "inspectorEndpointPickerUnification.test.tsx",
         "liveServerBinding.test.ts",
         "liveServerBindingSession.test.ts",
