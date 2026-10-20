@@ -1,7 +1,11 @@
 import { assertExecutionStateCompatible } from "./executionStateBoundary.js";
 import { optionalReadFile, optionalStat } from "../fs/optionalFile.js";
-import { createExecutionGraphSession, drainGraphReadQueue } from "../graph/session.js";
-import { loadPackage } from "../package/loadPackage.js";
+import { createExecutionGraphSessionFromSnapshot, drainGraphReadQueue } from "../graph/session.js";
+import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
+import { createPackageFileSnapshotFromLoadedPackage } from "../package/fileChanges.js";
+import { canonicalPackageFileTarget } from "../package/packageFileConsistency.js";
+import { assertCurrentCanvasWorkspaceIdentity } from "../package/assertCurrentCanvasWorkspace.js";
+import { assertCurrentProjectWorkspace } from "../project.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
 import type {
   CompiledExecutionGraph,
@@ -36,6 +40,34 @@ export async function readOptionalFile(path: string): Promise<string> {
   return (await optionalReadFile(path, "utf8")) ?? "";
 }
 
+async function assertSessionWorkspace(
+  session: ExecutionGraphSession,
+  requested: PackageWorkspaceRef
+): Promise<void> {
+  const workspace = await resolvePackageWorkspace(requested);
+  const captured = session.workspace;
+  const paths = (value: ProjectWorkspace) => [
+    value.projectFile,
+    value.packageDir,
+    value.stateFile,
+    value.resultsDir
+  ];
+  const [requestedPaths, capturedPaths] = await Promise.all([
+    Promise.all(paths(workspace).map(canonicalPackageFileTarget)),
+    Promise.all(paths(captured).map(canonicalPackageFileTarget))
+  ]);
+  if (
+    workspace.id !== captured.id ||
+    workspace.projectCreatedAt !== captured.projectCreatedAt ||
+    workspace.packageStorageIdentity !== captured.packageStorageIdentity ||
+    requestedPaths.some((path, index) => path !== capturedPaths[index])
+  ) {
+    throw new Error("Execution graph session workspace does not match the requested workspace.");
+  }
+  await assertCurrentProjectWorkspace(captured);
+  await assertCurrentCanvasWorkspaceIdentity(captured);
+}
+
 async function loadRuntimeContext(options: RuntimeOptions): Promise<{
   context: RuntimeContext;
   rawState: RuntimeState;
@@ -52,14 +84,21 @@ async function loadRuntimeContext(options: RuntimeOptions): Promise<{
       derivedState
     };
   }
-  const session = options.session ?? (await createExecutionGraphSession(options.projectRoot));
-  const loadedPackage =
-    options.session && typeof options.projectRoot !== "string"
-      ? { workspace: options.projectRoot, manifest: session.fileSnapshot.manifest }
-      : await loadPackage(options.projectRoot);
-  const { workspace, manifest: packageManifest } = loadedPackage;
+  let session = options.session;
+  if (session) {
+    await assertSessionWorkspace(session, options.projectRoot);
+  } else {
+    const loaded = await loadPackage(options.projectRoot);
+    const snapshot = await createPackageFileSnapshotFromLoadedPackage(loaded);
+    session = createExecutionGraphSessionFromSnapshot({
+      projectRoot: options.projectRoot,
+      workspace: loaded.workspace,
+      snapshot
+    });
+  }
   await drainGraphReadQueue(session);
-  const manifest = options.session ? session.fileSnapshot.manifest : packageManifest;
+  const workspace = session.workspace;
+  const manifest = session.fileSnapshot.manifest;
   const graph = session.graph;
   const rawState = await readState(workspace.stateFile);
   const derivedState = ensureStateForManifest(manifest, rawState);

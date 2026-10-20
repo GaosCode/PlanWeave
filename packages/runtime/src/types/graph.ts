@@ -7,7 +7,7 @@ import type {
   ReviewHookDefinition
 } from "./manifest.js";
 import type { PackageFileChange, PackageFileSnapshot } from "./packageFiles.js";
-import type { PackageWorkspaceRef } from "./workspace.js";
+import type { PackageWorkspaceRef, ProjectWorkspace } from "./workspace.js";
 import type { ValidationIssue } from "./validation.js";
 
 export type CompiledExecutionGraph = {
@@ -37,6 +37,7 @@ export type CompiledTaskGraph = CompiledExecutionGraph;
 
 export type ExecutionGraphSession = {
   projectRoot: PackageWorkspaceRef;
+  workspace: ProjectWorkspace;
   projectId: string;
   packageRoot: string;
   graph: CompiledExecutionGraph;

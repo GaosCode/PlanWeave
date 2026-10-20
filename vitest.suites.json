@@ -780,6 +780,7 @@
         "remoteBlockSourceSnapshot.test.ts",
         "remoteOwnershipTransitions.test.ts",
         "resetRuntimeState.test.ts",
+        "runtimeContextSnapshotConsistency.test.ts",
         "resultArtifactMetadata.test.ts",
         "reviewHook.test.ts",
         "reviewRetryConcurrency.test.ts",

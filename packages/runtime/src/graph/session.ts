@@ -38,6 +38,7 @@ export function createExecutionGraphSessionFromSnapshot(input: {
 }): ExecutionGraphSession {
   return {
     projectRoot: input.projectRoot,
+    workspace: input.workspace,
     projectId: input.workspace.id,
     packageRoot: input.workspace.packageDir,
     graph: input.snapshot.graph,
@@ -150,7 +151,12 @@ export async function drainGraphReadQueue(
     }
   }
   if (normalizedChanges.length > 0) {
-    session.fileSnapshot = await createPackageFileSnapshot(session.projectRoot);
+    session.fileSnapshot = await createPackageFileSnapshot(session.workspace);
+    session.graph = session.fileSnapshot.graph;
+    session.diagnostics = [
+      ...session.graph.diagnostics.errors,
+      ...session.graph.diagnostics.warnings
+    ];
   }
   return drainResult(session, session.dirtyPromptRefs.size > 0);
 }
