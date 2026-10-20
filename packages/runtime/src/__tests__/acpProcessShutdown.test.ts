@@ -4,7 +4,8 @@ import { createAcpCleanupDeadline } from "../autoRun/acpExecutionCleanup.js";
 import { shutdownAcpProcess } from "../autoRun/acpProcessShutdown.js";
 import {
   attachManagedProcessTree,
-  createFakeProcessTreeAdapter
+  createFakeProcessTreeAdapter,
+  type ManagedProcessTree
 } from "../process/managedProcessTree.js";
 
 describe("ACP process shutdown sequencing", () => {
@@ -56,5 +57,89 @@ describe("ACP process shutdown sequencing", () => {
     now += 150;
     expect(deadline.remainingMs()).toBe(350);
     await expect(tree.isTreeAlive()).resolves.toBe(false);
+  });
+
+  it("preserves the caller's cutoff across delayed termination and async adapter work", async () => {
+    let now = 0;
+    let descendantAlive = true;
+    const waits: number[] = [];
+    const child = {
+      exitCode: 0,
+      signalCode: null,
+      once() {
+        return child;
+      }
+    } as ChildProcessWithoutNullStreams;
+    const deadline = createAcpCleanupDeadline(300, () => now);
+    const tree = attachManagedProcessTree({
+      child,
+      pid: 70_002,
+      adapter: {
+        ...createFakeProcessTreeAdapter({
+          isAlive: () => false,
+          isTreeAlive: () => descendantAlive,
+          onGraceful: async () => {
+            now += 30;
+            await Promise.resolve();
+            throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+          },
+          awaitTreeExit: async (_pid, timeoutMs) => {
+            waits.push(timeoutMs);
+            descendantAlive = false;
+            return true;
+          }
+        }),
+        name: "posix"
+      }
+    });
+    const delayedTree: ManagedProcessTree = {
+      ...tree,
+      terminate(reason, options) {
+        expect(options?.deadline).toBe(deadline);
+        now += 100;
+        return tree.terminate(reason, options);
+      }
+    };
+
+    await shutdownAcpProcess({
+      policy: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 },
+      deadline,
+      closeInput() {},
+      waitForRootExit: async (timeoutMs) => {
+        now += timeoutMs;
+        return false;
+      },
+      processTree: delayedTree
+    });
+
+    expect(waits).toEqual([145]);
+    expect(deadline.remainingMs()).toBe(145);
+    await expect(tree.isTreeAlive()).resolves.toBe(false);
+  });
+
+  it("reports cleanup failure when the shared cutoff expires during tree confirmation", async () => {
+    let now = 0;
+    const deadline = createAcpCleanupDeadline(300, () => now);
+    const tree: ManagedProcessTree = {
+      pid: 70_003,
+      exited: Promise.resolve(),
+      isAlive: () => false,
+      isTreeAlive: async () => false,
+      awaitTreeExit: async () => true,
+      terminate: async (reason) => {
+        now = 300;
+        return { outcome: "already_exited", reason };
+      }
+    };
+
+    await expect(
+      shutdownAcpProcess({
+        policy: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 },
+        deadline,
+        closeInput() {},
+        waitForRootExit: async () => true,
+        processTree: tree
+      })
+    ).rejects.toThrow("exceeded the configured cleanup deadline");
   });
 });

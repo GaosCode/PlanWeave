@@ -25,7 +25,7 @@ export async function shutdownAcpProcess(options: AcpProcessShutdownOptions): Pr
     Math.max(0, options.deadline.remainingMs() - forceExitConfirmMs)
   );
   const reason = exitedAfterEof ? "acp-dispose-after-eof" : "acp-dispose";
-  const termination = { graceMs, forceExitConfirmMs };
+  const termination = { graceMs, forceExitConfirmMs, deadline: options.deadline };
   const results = await Promise.allSettled([
     options.processTree.terminate(reason, termination),
     options.cleanupExitedProcessTree?.(termination) ?? Promise.resolve()

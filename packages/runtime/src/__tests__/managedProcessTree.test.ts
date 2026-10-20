@@ -1,9 +1,11 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { ChildProcess, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAcpCleanupDeadline } from "../autoRun/acpExecutionCleanup.js";
 import {
   attachManagedProcessTree,
   createFakeProcessTreeAdapter,
@@ -436,6 +438,151 @@ describe("managedProcessTree contract (fake adapter)", () => {
     expect(() => windowsTaskKillArgs(process.pid, false)).toThrow(
       "Refusing to terminate the current PlanWeave process"
     );
+  });
+});
+
+describe("managed process termination confirmation budgets", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  function controlledClock(): void {
+    vi.useFakeTimers();
+    vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+  }
+
+  it.each([
+    0, 2
+  ])("uses remaining confirmation after graceful EPERM with graceMs=%s", async (graceMs) => {
+    controlledClock();
+    const startedAt = performance.now();
+    const deadline = createAcpCleanupDeadline(40);
+    const child = new ChildProcess() as ChildProcessWithoutNullStreams;
+    let alive = true;
+    const waits: number[] = [];
+    const adapter: ProcessTreePlatformAdapter = {
+      ...createFakeProcessTreeAdapter({
+        isAlive: () => alive,
+        isTreeAlive: () => alive,
+        onGraceful: async () => {
+          await sleep(15);
+          throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+        },
+        awaitTreeExit: async (_pid, timeoutMs) => {
+          waits.push(timeoutMs);
+          await sleep(Math.min(10, timeoutMs));
+          if (timeoutMs < 10) return false;
+          alive = false;
+          child.exitCode = 0;
+          child.emit("exit", 0, null);
+          return true;
+        }
+      }),
+      name: "posix"
+    };
+    const tree = attachManagedProcessTree({ child, pid: 88_002, adapter });
+    let settledAt = 0;
+    let remainingAtSettlement = 0;
+    const termination = tree
+      .terminate("dispose", { graceMs, forceExitConfirmMs: 40, deadline })
+      .then((result) => {
+        settledAt = performance.now();
+        remainingAtSettlement = deadline.remainingMs();
+        return result;
+      });
+    const result = expect(termination).resolves.toEqual({
+      outcome: "already_exited",
+      reason: "dispose"
+    });
+
+    await vi.runAllTimersAsync();
+    await result;
+
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBe(25);
+    expect(settledAt - startedAt).toBe(25);
+    expect(remainingAtSettlement).toBe(15);
+  });
+
+  it("shares force confirmation with permission-error confirmation and root reaping", async () => {
+    controlledClock();
+    const startedAt = performance.now();
+    const child = new ChildProcess() as ChildProcessWithoutNullStreams;
+    let forced = false;
+    let alive = true;
+    const adapter: ProcessTreePlatformAdapter = {
+      ...createFakeProcessTreeAdapter({
+        isAlive: () => true,
+        isTreeAlive: () => alive,
+        onForce: async () => {
+          forced = true;
+          await sleep(15);
+          throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+        },
+        awaitTreeExit: async (_pid, timeoutMs) => {
+          if (!forced) {
+            await sleep(timeoutMs);
+            return false;
+          }
+          if (alive) await sleep(Math.min(10, timeoutMs));
+          alive = false;
+          return true;
+        }
+      }),
+      name: "posix"
+    };
+    const tree = attachManagedProcessTree({ child, pid: 88_003, adapter });
+    const termination = tree.terminate("dispose", {
+      graceMs: 5,
+      forceExitConfirmMs: 40,
+      deadline: createAcpCleanupDeadline(100)
+    });
+    const result = expect(termination).resolves.toEqual({ outcome: "forced", reason: "dispose" });
+
+    await vi.runAllTimersAsync();
+    await result;
+
+    expect(performance.now() - startedAt).toBe(45);
+  });
+
+  it.each([
+    { elapsedBeforeTerminateMs: 20, signalMs: 0 },
+    { elapsedBeforeTerminateMs: 0, signalMs: 30 }
+  ])("fails an exhausted shared deadline with prior=$elapsedBeforeTerminateMs and signal=$signalMs", async ({
+    elapsedBeforeTerminateMs,
+    signalMs
+  }) => {
+    controlledClock();
+    const startedAt = performance.now();
+    const deadline = createAcpCleanupDeadline(20);
+    const child = new ChildProcess() as ChildProcessWithoutNullStreams;
+    child.exitCode = 0;
+    let alive = true;
+    let signals = 0;
+    const adapter = createFakeProcessTreeAdapter({
+      isAlive: () => false,
+      isTreeAlive: () => alive,
+      onGraceful: async () => {
+        signals += 1;
+        await sleep(signalMs);
+        alive = false;
+      }
+    });
+    const tree = attachManagedProcessTree({ child, pid: 88_004, adapter });
+    await vi.advanceTimersByTimeAsync(elapsedBeforeTerminateMs);
+    const termination = tree.terminate("dispose", {
+      graceMs: 10,
+      forceExitConfirmMs: 40,
+      deadline
+    });
+    const result = expect(termination).rejects.toThrow("exceeded the termination deadline");
+
+    await vi.runAllTimersAsync();
+    await result;
+
+    expect(signals).toBe(elapsedBeforeTerminateMs > 0 ? 0 : 1);
+    expect(performance.now() - startedAt).toBe(elapsedBeforeTerminateMs + signalMs);
   });
 });
 

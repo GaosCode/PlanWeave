@@ -44,6 +44,11 @@ export type ProcessTerminationResult = {
 export type ProcessTerminationOptions = {
   graceMs?: number;
   forceExitConfirmMs?: number;
+  /** Caller-owned absolute cutoff, shared with any preceding cleanup stages. */
+  deadline?: {
+    readonly expiresAt: number;
+    remainingMs(): number;
+  };
 };
 
 /**
@@ -314,7 +319,7 @@ function createManagedProcessTree(options: {
     return winner;
   };
 
-  const waitForForcedExit = async (reason: string, confirmMs: number): Promise<void> => {
+  const waitForForcedExit = async (reason: string, remainingMs: () => number): Promise<void> => {
     const didNotExitError = (): Error =>
       new Error(
         `Managed process tree pid=${String(pid)} did not exit after force termination (${reason}).`
@@ -324,9 +329,9 @@ function createManagedProcessTree(options: {
       pid,
       adapter: adapter.name,
       step: "force-confirm",
-      timeoutMs: confirmMs
+      timeoutMs: remainingMs()
     });
-    const treeExited = await awaitTreeExit(confirmMs);
+    const treeExited = await awaitTreeExit(remainingMs());
     logProcessTree("await-tree-exit-done", {
       pid,
       adapter: adapter.name,
@@ -334,7 +339,7 @@ function createManagedProcessTree(options: {
       treeExited
     });
     if (!treeExited) throw didNotExitError();
-    await waitForChildExitBounded("force-confirm", confirmMs);
+    await waitForChildExitBounded("force-confirm", remainingMs());
   };
 
   const terminate = (
@@ -345,6 +350,25 @@ function createManagedProcessTree(options: {
       terminationPromise = (async (): Promise<ProcessTerminationResult> => {
         const effectiveGraceMs = terminationOptions.graceMs ?? graceMs;
         const effectiveConfirmMs = terminationOptions.forceExitConfirmMs ?? forceExitConfirmMs;
+        const remainingBudget = (timeoutMs: number): (() => number) => {
+          const expiresAt = performance.now() + timeoutMs;
+          return () =>
+            Math.max(
+              0,
+              Math.min(
+                expiresAt - performance.now(),
+                terminationOptions.deadline?.remainingMs() ?? Number.POSITIVE_INFINITY
+              )
+            );
+        };
+        const assertDeadline = (): void => {
+          if (terminationOptions.deadline && terminationOptions.deadline.remainingMs() <= 0) {
+            throw new Error(
+              `Managed process tree pid=${String(pid)} exceeded the termination deadline (${reason}).`
+            );
+          }
+        };
+        assertDeadline();
         logProcessTree("terminate-begin", {
           pid,
           adapter: adapter.name,
@@ -357,7 +381,8 @@ function createManagedProcessTree(options: {
         logProcessTree("liveness-check-done", { pid, adapter: adapter.name, treeWasAlive });
 
         if (!treeWasAlive) {
-          await waitForChildExitBounded("already-exited", effectiveConfirmMs);
+          await waitForChildExitBounded("already-exited", remainingBudget(effectiveConfirmMs)());
+          assertDeadline();
           logProcessTree("terminate-return", { pid, reason, outcome: "already_exited" });
           return { outcome: "already_exited", reason };
         }
@@ -375,8 +400,10 @@ function createManagedProcessTree(options: {
             code: code ?? null,
             error: error instanceof Error ? error.message : String(error)
           });
-          if (await confirmExitAfterPermissionError(error, effectiveGraceMs)) {
-            await waitForChildExitBounded("after-graceful-error", effectiveConfirmMs);
+          const remainingConfirmation = remainingBudget(effectiveGraceMs + effectiveConfirmMs);
+          if (await confirmExitAfterPermissionError(error, remainingConfirmation())) {
+            await waitForChildExitBounded("after-graceful-error", remainingConfirmation());
+            assertDeadline();
             logProcessTree("terminate-return", { pid, reason, outcome: "already_exited" });
             return { outcome: "already_exited", reason };
           }
@@ -386,6 +413,7 @@ function createManagedProcessTree(options: {
           }
           // A Windows taskkill failure does not invalidate the owner-independent Job.
           // Force through that authoritative owner; any Job termination failure surfaces.
+          const remainingForceConfirmation = remainingBudget(effectiveConfirmMs);
           try {
             logProcessTree("force-start", {
               pid,
@@ -417,7 +445,8 @@ function createManagedProcessTree(options: {
             }
             throw forceError;
           }
-          await waitForForcedExit(reason, effectiveConfirmMs);
+          await waitForForcedExit(reason, remainingForceConfirmation);
+          assertDeadline();
           const outcome = rootExitedBeforeGraceful ? "graceful" : "forced";
           logProcessTree("terminate-return", { pid, reason, outcome });
           return {
@@ -432,7 +461,7 @@ function createManagedProcessTree(options: {
           step: "after-graceful",
           timeoutMs: effectiveGraceMs
         });
-        const exitedAfterGraceful = await awaitTreeExit(effectiveGraceMs);
+        const exitedAfterGraceful = await awaitTreeExit(remainingBudget(effectiveGraceMs)());
         logProcessTree("await-tree-exit-done", {
           pid,
           adapter: adapter.name,
@@ -440,7 +469,8 @@ function createManagedProcessTree(options: {
           treeExited: exitedAfterGraceful
         });
         if (exitedAfterGraceful) {
-          await waitForChildExitBounded("after-graceful", effectiveConfirmMs);
+          await waitForChildExitBounded("after-graceful", remainingBudget(effectiveConfirmMs)());
+          assertDeadline();
           logProcessTree("terminate-return", { pid, reason, outcome: "graceful" });
           return { outcome: "graceful", reason };
         }
@@ -448,6 +478,8 @@ function createManagedProcessTree(options: {
 
         // Always force the managed tree after grace. Root may already be gone while a
         // grandchild that ignored SIGTERM remains in the same process group / OS tree.
+        const remainingForceConfirmation = remainingBudget(effectiveConfirmMs);
+        let forceExitConfirmed = false;
         try {
           logProcessTree("force-start", {
             pid,
@@ -466,15 +498,21 @@ function createManagedProcessTree(options: {
             code: code ?? null,
             error: error instanceof Error ? error.message : String(error)
           });
-          if (
-            code !== "ESRCH" &&
-            !(await confirmExitAfterPermissionError(error, effectiveConfirmMs))
-          ) {
-            throw error;
+          if (code !== "ESRCH") {
+            forceExitConfirmed = await confirmExitAfterPermissionError(
+              error,
+              remainingForceConfirmation()
+            );
+            if (!forceExitConfirmed) throw error;
           }
         }
 
-        await waitForForcedExit(reason, effectiveConfirmMs);
+        if (forceExitConfirmed) {
+          await waitForChildExitBounded("force-confirm", remainingForceConfirmation());
+        } else {
+          await waitForForcedExit(reason, remainingForceConfirmation);
+        }
+        assertDeadline();
         const outcome = rootExitedDuringGrace ? "graceful" : "forced";
         logProcessTree("terminate-return", { pid, reason, outcome });
         return {

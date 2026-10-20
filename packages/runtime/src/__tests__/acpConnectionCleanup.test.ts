@@ -6,6 +6,9 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { createAcpConnection, type AcpConnection } from "../autoRun/acpConnection.js";
+import { createDedicatedAcpConnectionLease } from "../autoRun/acpConnectionLease.js";
+import { AcpCleanupSequencer, createAcpCleanupDeadline } from "../autoRun/acpExecutionCleanup.js";
+import { acpShutdownPolicySchema } from "../acpProfile/schema.js";
 
 const cleanupWaveCount = 3;
 const concurrentConnectionsPerWave = 4;
@@ -44,12 +47,30 @@ describe("ACP connection process cleanup", () => {
     });
   });
 
-  it.runIf(process.platform === "darwin")(
-    "finishes disposal when EOF leaves the owned process group awaiting reap",
-    async () => {
+  it.runIf(process.platform === "darwin").each([
+    { owner: "connection disposal", precedingCleanupMs: 0 },
+    { owner: "dedicated lease release after preceding cleanup", precedingCleanupMs: 100 }
+  ])(
+    "finishes $owner when EOF leaves the owned process group awaiting reap",
+    async ({ precedingCleanupMs }) => {
       const controlDir = await mkdtemp(join(tmpdir(), "planweave-acp-eof-reap-"));
       const releasePath = join(controlDir, "release-exit");
       let observedExitWindow = false;
+      let ownerCleanup: AcpCleanupSequencer | undefined;
+      let terminationObservation:
+        | {
+            graceMs: number | null;
+            confirmMs: number | null;
+            originalRemainingMs: number | null;
+            remainingAtManagedTerminateMs: number | null;
+            expiresAt: number | null;
+          }
+        | undefined;
+      const policy = acpShutdownPolicySchema.parse({
+        eofDrainMs: 25,
+        terminateGraceMs: 25,
+        cleanupDeadlineMs: 300
+      });
       const connection = createAcpConnection({
         launch: {
           trusted: true,
@@ -62,10 +83,23 @@ describe("ACP connection process cleanup", () => {
         cwd: process.cwd(),
         env: environment(),
         clientInfo: { name: "cleanup-integration", version: "1" },
-        shutdown: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 },
+        shutdown: policy,
         decorateProcessTree: (tree) => ({
           ...tree,
           terminate(reason, options) {
+            terminationObservation = {
+              graceMs: options?.graceMs ?? null,
+              confirmMs: options?.forceExitConfirmMs ?? null,
+              originalRemainingMs: options?.deadline?.remainingMs() ?? null,
+              remainingAtManagedTerminateMs: null,
+              expiresAt: options?.deadline?.expiresAt ?? null
+            };
+            expect(options?.deadline?.expiresAt).toBe(ownerCleanup?.deadline.expiresAt);
+            expect(options?.deadline?.remainingMs).toBe(ownerCleanup?.deadline.remainingMs);
+            if (precedingCleanupMs > 0) {
+              expect(options?.graceMs).toBe(0);
+              expect(options?.forceExitConfirmMs).toBeGreaterThan(0);
+            }
             const deadline = performance.now() + 2_000;
             const wait = new Int32Array(new SharedArrayBuffer(4));
             while (!existsSync(join(controlDir, "eof")) && performance.now() < deadline) {
@@ -87,6 +121,8 @@ describe("ACP connection process cleanup", () => {
               Atomics.wait(wait, 0, 0, 1);
             }
             expect(observedExitWindow).toBe(true);
+            terminationObservation.remainingAtManagedTerminateMs =
+              options?.deadline?.remainingMs() ?? null;
             return tree.terminate(reason, options);
           }
         })
@@ -99,7 +135,35 @@ describe("ACP connection process cleanup", () => {
             throw new Error("EOF fixture did not become ready.");
           await new Promise<void>((resolve) => setTimeout(resolve, 5));
         }
-        await expect(connection.dispose()).resolves.toBeUndefined();
+        const cleanup = new AcpCleanupSequencer(createAcpCleanupDeadline(policy.cleanupDeadlineMs));
+        ownerCleanup = cleanup;
+        if (precedingCleanupMs > 0) {
+          // Consume the owner's budget at the real sequencer boundary; this is a timing harness.
+          await cleanup.run("preceding cleanup timing harness", async () => {
+            await new Promise<void>((resolve) => setTimeout(resolve, precedingCleanupMs));
+          });
+          const lease = createDedicatedAcpConnectionLease(connection, process.cwd(), policy);
+          const releaseInput = {
+            terminal: "succeeded" as const,
+            cleanupDeadline: cleanup.deadline
+          };
+          const released = await lease.release(releaseInput);
+          console.info("ACP EOF lease release", {
+            termination: terminationObservation,
+            disposed: released.disposed,
+            failures: released.failures.map((error) =>
+              error instanceof Error ? error.message : String(error)
+            ),
+            remainingMs: cleanup.deadline.remainingMs()
+          });
+          expect(released).toEqual({ closedSession: false, disposed: true, failures: [] });
+          expect(cleanup.deadline.remainingMs()).toBeGreaterThan(0);
+          await expect(lease.release(releaseInput)).resolves.toBe(released);
+        } else {
+          await expect(
+            connection.dispose({ cleanupDeadline: cleanup.deadline })
+          ).resolves.toBeUndefined();
+        }
         expect(observedExitWindow).toBe(true);
         const processId = connection.processId;
         if (processId === null) throw new Error("EOF fixture process id is missing.");
