@@ -16,6 +16,7 @@ import {
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getLatestAutoRunSummaryWithDiagnostics } from "../desktop/runApi.js";
 import { getDesktopProjectSnapshot } from "../desktop/graphApi.js";
 import {
   listPendingImportRecoveries,
@@ -395,7 +396,16 @@ describe("managed package import lifecycle", () => {
     await expect(runImport(true)).rejects.toThrow(`pending transaction '${pending.transactionId}'`);
     expect(await importTransactionIdentityDigest(root)).toBe(before);
     expect(await listPendingImportRecoveries(root)).toEqual([pending]);
+    expect(
+      (await getDesktopProjectSnapshot({ projectRoot: root, canvasId: "default" }))
+        .pendingImportRecoveries
+    ).toEqual([pending]);
+    for (let read = 0; read < 2; read += 1) {
+      expect((await getLatestAutoRunSummaryWithDiagnostics(root, "default")).state).toBeNull();
+    }
+    const afterReads = await importTransactionIdentityDigest(root);
     await rollbackPendingImportRecovery(root, pending.transactionId);
+    expect(afterReads).toBe(before);
     await expect(stat(root)).rejects.toMatchObject({ code: "ENOENT" });
     expect((await runImport()).validation.ok).toBe(true);
   });

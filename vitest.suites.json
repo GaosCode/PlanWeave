@@ -680,6 +680,7 @@
         "desktopAutoRunPersistence.test.ts",
         "desktopAutoRunRetrospective.test.ts",
         "desktopAutoRunTransitionRecovery.test.ts",
+        "desktopAutoRunStorageLockOrder.test.ts",
         "desktopCanvasApi.test.ts",
         "desktopCanvasGraphApi.test.ts",
         "desktopCanvasSummaryModel.test.ts",

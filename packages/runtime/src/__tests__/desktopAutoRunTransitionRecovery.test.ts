@@ -1,4 +1,4 @@
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { appendFile, cp, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -19,6 +19,8 @@ import {
   stopAutoRun
 } from "../desktop/index.js";
 import { readRawPersistedAutoRunState } from "../desktop/runStateRepository.js";
+import { ImportTransaction } from "../package/importTransaction.js";
+import { importTransactionIdentityDigest } from "../package/importTransactionContent.js";
 import { getRunSession } from "../runSessions/index.js";
 import { runDoctor } from "../taskManager/index.js";
 import { createTestWorkspace } from "./promptTestHelpers.js";
@@ -41,7 +43,7 @@ afterEach(async () => {
 });
 
 describe("Auto Run transition coordinator recovery", () => {
-  it("preserves the persisted executor override when default recovery heals the session", async () => {
+  it("defers projection repair during pending import and preserves the executor override afterwards", async () => {
     const { root, init } = await createTestWorkspace(manifestTestBuilder().build());
     const run = await initializeTransitionTestRun(root, init.workspace, {
       executorOverride: "manual"
@@ -52,8 +54,28 @@ describe("Auto Run transition coordinator recovery", () => {
     });
     await writePendingTransitionIntent(init.workspace, intent);
 
-    const recovered = await recoverPendingTransition(init.workspace, run.runId, () => null);
-    expect(recovered.recovered).toBe(true);
+    const staged = join(root, "staged-results");
+    await cp(init.workspace.resultsDir, staged, { recursive: true });
+    const transaction = await ImportTransaction.create({
+      workspaceRoot: init.workspace.workspaceRoot,
+      writeIsolationTargets: [init.workspace.resultsDir]
+    });
+    await transaction.replacePath(init.workspace.resultsDir, staged);
+    const installed = await importTransactionIdentityDigest(init.workspace.resultsDir);
+    for (let read = 0; read < 2; read += 1) {
+      await getLatestAutoRunSummaryWithDiagnostics(root, null);
+    }
+    expect(await readPendingTransitionIntentResult(init.workspace, run.runId)).toMatchObject({
+      status: "ok",
+      intent: { transitionId: intent.transitionId }
+    });
+    expect(await importTransactionIdentityDigest(init.workspace.resultsDir)).toBe(installed);
+    await transaction.commit();
+    await getLatestAutoRunSummaryWithDiagnostics(root, null);
+    expect((await readPendingTransitionIntentResult(init.workspace, run.runId)).status).toBe(
+      "absent"
+    );
+
     await expect(getRunSession(init.workspace, run.runSessionId!)).resolves.toMatchObject({
       session: { autoRun: { executorOverride: "manual" } }
     });
@@ -806,6 +828,18 @@ describe("Auto Run transition coordinator recovery", () => {
     if (pending.status !== "ok") throw new Error("Expected pending transition.");
     const { rm } = await import("node:fs/promises");
     await rm(run.statePath, { force: true });
+
+    const staged = join(root, "staged-authority-results");
+    await cp(init.workspace.resultsDir, staged, { recursive: true });
+    const transaction = await ImportTransaction.create({
+      workspaceRoot: init.workspace.workspaceRoot
+    });
+    await transaction.replacePath(init.workspace.resultsDir, staged);
+    const installed = await importTransactionIdentityDigest(init.workspace.resultsDir);
+    await getLatestAutoRunSummaryWithDiagnostics(root, null);
+    expect(await readRawPersistedAutoRunState(init.workspace, run.runId)).toBeNull();
+    expect(await importTransactionIdentityDigest(init.workspace.resultsDir)).toBe(installed);
+    await transaction.commit();
 
     const recovered = await recoverPendingTransition(init.workspace, run.runId, () => null, {
       buildSessionSummary: sessionSummaryBuilder()

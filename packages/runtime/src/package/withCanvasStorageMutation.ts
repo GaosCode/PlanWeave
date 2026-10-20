@@ -23,20 +23,15 @@ export async function withCanvasStorageMutation<T>(
     withImportTransactionMutationAdmission(
       [workspace.workspaceRoot],
       [...reservedTargets, join(workspace.workspaceRoot, "desktop", "layout.json")],
-      () =>
-        withCanvasLock(
-          dirname(workspace.stateFile),
-          async () => {
-            for (const target of reservedTargets) {
-              await assertNoPendingImportTransactionWrite({
-                workspaceRoot: dirname(workspace.projectFile),
-                target
-              });
-            }
-            return action();
-          },
-          options
-        )
+      async () => {
+        for (const target of reservedTargets) {
+          await assertNoPendingImportTransactionWrite({
+            workspaceRoot: dirname(workspace.projectFile),
+            target
+          });
+        }
+        return withCanvasLock(dirname(workspace.stateFile), action, options);
+      }
     )
   );
 }

@@ -1,4 +1,7 @@
-import { withCurrentRunSessionStorage } from "../runSessions/storageMutation.js";
+import {
+  withCurrentRunSessionStorage,
+  withCurrentRunSessionReadRepair
+} from "../runSessions/storageMutation.js";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -152,23 +155,26 @@ async function withTransitionSeam<T>(
   runId: string,
   fn: () => Promise<T>
 ): Promise<T> {
-  const key = seamKey(workspace, runId);
-  const previous = transitionSeams.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const tail = previous.catch(() => undefined).then(() => gate);
-  transitionSeams.set(key, tail);
-  await previous.catch(() => undefined);
-  try {
-    return await fn();
-  } finally {
-    release();
-    if (transitionSeams.get(key) === tail) {
-      transitionSeams.delete(key);
+  // Start gates already hold storage; every transition must acquire it before its run seam.
+  return withCurrentRunSessionStorage(workspace, async () => {
+    const key = seamKey(workspace, runId);
+    const previous = transitionSeams.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => gate);
+    transitionSeams.set(key, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (transitionSeams.get(key) === tail) {
+        transitionSeams.delete(key);
+      }
     }
-  }
+  });
 }
 
 export function generateTransitionId(): string {
@@ -693,11 +699,48 @@ export async function recoverPendingTransition(
     adapters?: TransitionPersistenceAdapters;
   } = {}
 ): Promise<RecoverPendingTransitionResult> {
-  return withTransitionSeam(workspace, runId, () =>
-    recoverPendingTransitionUnlocked(workspace, runId, {
-      buildSessionSummary: options.buildSessionSummary,
-      adapters: options.adapters
-    })
+  const pending = await readPendingTransitionIntentResult(workspace, runId);
+  if (pending.status === "absent") {
+    return {
+      recovered: false,
+      authorityState: null,
+      applied: [],
+      diagnostics: [],
+      unreadable: false
+    };
+  }
+  return withCurrentRunSessionReadRepair<RecoverPendingTransitionResult>(
+    workspace,
+    () =>
+      withTransitionSeam(workspace, runId, () =>
+        recoverPendingTransitionUnlocked(workspace, runId, {
+          buildSessionSummary: options.buildSessionSummary,
+          adapters: options.adapters
+        })
+      ),
+    async (conflict) => {
+      const read = await readPendingTransitionIntentResult(workspace, runId);
+      return {
+        recovered: false,
+        authorityState: null,
+        applied: [],
+        unreadable: read.status === "unreadable",
+        diagnostics:
+          read.status === "absent"
+            ? []
+            : read.status === "unreadable"
+              ? [read.diagnostic]
+              : [
+                  {
+                    code: "auto_run_transition_recovery_deferred",
+                    message: `Auto Run transition recovery deferred: ${conflict.message}`,
+                    path: pendingTransitionPath(workspace, runId),
+                    runId,
+                    transitionId: read.intent.transitionId
+                  }
+                ]
+      };
+    }
   );
 }
 

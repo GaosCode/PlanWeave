@@ -327,6 +327,8 @@ export async function readImportTransactionRecoveryTargets(options: {
   );
 }
 
+export class PendingImportTransactionConflictError extends Error {}
+
 async function assertNoPendingImportTransactionMutation(options: {
   workspaceRoot: string;
   target: string;
@@ -365,7 +367,7 @@ async function assertNoPendingImportTransactionMutation(options: {
             );
           })
         ) {
-          throw new Error(
+          throw new PendingImportTransactionConflictError(
             `Import transaction ${options.operation} conflict: pending transaction '${recovery.transactionId}' overlaps ${target}`
           );
         }

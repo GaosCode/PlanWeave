@@ -1,3 +1,4 @@
+import { withCurrentRunSessionReadRepair } from "../runSessions/storageMutation.js";
 import type { ProjectWorkspace } from "../types.js";
 import type { DesktopAutoRunState } from "./types.js";
 import { compareRunDirectoriesNewestFirst, highestRunId } from "./autoRunIdReservations.js";
@@ -185,7 +186,7 @@ async function readLatestPersistedAutoRunStateFromPointer(
   };
 }
 
-export async function readLatestPersistedAutoRunState(
+async function readAndRepairLatestPersistedAutoRunState(
   workspace: ProjectWorkspace,
   options: {
     hasActiveLoop?: (runId: string) => boolean;
@@ -242,4 +243,34 @@ export async function readLatestPersistedAutoRunState(
   return rebuildLatestPersistedAutoRunStatePointer(workspace, {
     hasActiveLoop: options.hasActiveLoop
   });
+}
+
+export async function readLatestPersistedAutoRunState(
+  workspace: ProjectWorkspace,
+  options: {
+    hasActiveLoop?: (runId: string) => boolean;
+    matches?: (state: DesktopAutoRunState) => boolean;
+  } = {}
+): Promise<LatestPersistedAutoRunStateResult> {
+  return withCurrentRunSessionReadRepair(
+    workspace,
+    () => readAndRepairLatestPersistedAutoRunState(workspace, options),
+    async (conflict) => {
+      const result = await scanPersistedAutoRunStates(
+        workspace,
+        await listRunDirectories(workspace),
+        options
+      );
+      return {
+        state: result.state,
+        diagnostics: [
+          ...result.diagnostics,
+          {
+            code: "auto_run_pointer_repair_deferred",
+            message: `Auto Run pointer repair deferred: ${conflict.message}`
+          }
+        ]
+      };
+    }
+  );
 }
