@@ -10,8 +10,7 @@ import {
   importTransactionScanRoots,
   withImportTransactionReadAdmission,
   withImportTransactionMutationAdmission,
-  withImportTransactionLock,
-  withImportTransactionWorkspaceLocks
+  withImportTransactionLock
 } from "./importTransactionLock.js";
 
 type ImportTransactionOperationPhase =
@@ -485,20 +484,29 @@ export class ImportTransaction {
       assertWorkspaceTarget(transaction.workspaceRoot, target);
       return resolve(target);
     });
-    await withImportTransactionWorkspaceLocks([transaction.workspaceRoot], () =>
-      withImportTransactionLock(transaction.workspaceRoot, transactionId, async () => {
-        const workspace = await transaction.fs.optionalStat(transaction.workspaceRoot);
-        if (!workspace?.isDirectory()) {
-          throw new Error(
-            `Import transaction workspace '${transaction.workspaceRoot}' does not exist or is not a directory.`
-          );
-        }
-        if (await transaction.fs.optionalStat(transaction.recoveryRoot)) {
-          throw new Error(`Import transaction '${transactionId}' already exists.`);
-        }
-        await transaction.fs.mkdir(transaction.recoveryRoot, { recursive: true });
-        await transaction.writeRecoveryFile();
-      })
+    await withImportTransactionMutationAdmission(
+      [transaction.workspaceRoot],
+      [transaction.recoveryRoot],
+      () =>
+        withImportTransactionLock(transaction.workspaceRoot, transactionId, async () => {
+          const workspace = await transaction.fs.optionalStat(transaction.workspaceRoot);
+          if (!workspace?.isDirectory()) {
+            throw new Error(
+              `Import transaction workspace '${transaction.workspaceRoot}' does not exist or is not a directory.`
+            );
+          }
+          if (await transaction.fs.optionalStat(transaction.recoveryRoot)) {
+            throw new Error(`Import transaction '${transactionId}' already exists.`);
+          }
+          // The journal itself can be inside an ancestor transaction's protected target.
+          await assertNoPendingImportTransactionWrite({
+            workspaceRoot: transaction.workspaceRoot,
+            target: transaction.recoveryRoot,
+            transactionId
+          });
+          await transaction.fs.mkdir(transaction.recoveryRoot, { recursive: true });
+          await transaction.writeRecoveryFile();
+        })
     );
     return transaction;
   }

@@ -157,6 +157,7 @@ export {
 } from "./projectPromptPolicy.js";
 export type { ProjectPromptPolicy } from "./projectPromptPolicy.js";
 export { initManagedWorkspace, initWorkspace } from "./initWorkspace.js";
+export { importManagedPackage } from "./package/managedPackageImport.js";
 export { linkProjectSourceRoot, unlinkProjectSourceRoot } from "./desktop/projectApi.js";
 export {
   manifestNodeSchema,

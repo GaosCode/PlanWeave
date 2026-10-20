@@ -68,6 +68,7 @@ async function initializeWorkspace(
     resetPackage?: boolean;
     resetResults?: boolean;
     projectGraph?: boolean;
+    contentReplicaReservationToken?: string;
   }
 ): Promise<InitWorkspaceResult> {
   if (
@@ -94,8 +95,15 @@ async function initializeWorkspaceLocked(
     resetPackage?: boolean;
     resetResults?: boolean;
     projectGraph?: boolean;
+    contentReplicaReservationToken?: string;
   }
 ): Promise<InitWorkspaceResult> {
+  if (workspace.kind === "managed") {
+    await assertManagedWorkspaceReservation(
+      workspace.workspaceRoot,
+      options.contentReplicaReservationToken
+    );
+  }
   const alreadyExists = await exists(workspace.projectFile);
   if (alreadyExists && options.force) {
     throw new Error(
@@ -259,29 +267,6 @@ export async function initManagedWorkspace(options: {
   const planweaveHome = options.planweaveHome ?? resolvePlanweaveHome();
   const id = createManagedProjectId(projectName);
   const workspaceRoot = join(planweaveHome, "projects", id);
-  const reservationFile = join(workspaceRoot, authoritativeImportReservationFile);
-  try {
-    const reservationToken = (await readFile(reservationFile, "utf8")).trim();
-    if (
-      !options.contentReplicaReservationToken ||
-      options.contentReplicaReservationToken !== reservationToken
-    ) {
-      throw new Error("Managed project is reserved by an authoritative content import.");
-    }
-  } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT" &&
-      options.contentReplicaReservationToken
-    ) {
-      throw new Error("Authoritative content import reservation is missing.");
-    }
-    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") {
-      throw error;
-    }
-  }
   const workspace = projectWorkspacePaths({
     id,
     projectCreatedAt: null,
@@ -301,4 +286,31 @@ export async function initManagedWorkspace(options: {
   };
 
   return initializeWorkspace(workspace, project, projectName, options);
+}
+
+/** @internal Caller holds the project mutation lock through publication. */
+export async function assertManagedWorkspaceReservation(
+  workspaceRoot: string,
+  contentReplicaReservationToken?: string
+): Promise<void> {
+  const reservationFile = join(workspaceRoot, authoritativeImportReservationFile);
+  try {
+    const reservationToken = (await readFile(reservationFile, "utf8")).trim();
+    if (!contentReplicaReservationToken || contentReplicaReservationToken !== reservationToken) {
+      throw new Error("Managed project is reserved by an authoritative content import.");
+    }
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT" &&
+      contentReplicaReservationToken
+    ) {
+      throw new Error("Authoritative content import reservation is missing.");
+    }
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") {
+      throw error;
+    }
+  }
 }

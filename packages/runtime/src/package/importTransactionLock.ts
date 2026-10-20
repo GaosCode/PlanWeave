@@ -56,16 +56,6 @@ export async function withImportTransactionAdmission<T>(
 }
 
 /** Lock order: storage targets, complete workspace admission, then individual journals. */
-export function withImportTransactionWorkspaceLocks<T>(
-  workspaceRoots: readonly string[],
-  action: () => Promise<T>
-): Promise<T> {
-  return withImportTransactionAdmission(
-    { exclusiveRoots: workspaceRoots, sharedRoots: [] },
-    action
-  );
-}
-
 export function withImportTransactionReadAdmission<T>(
   workspaceRoots: readonly string[],
   targets: readonly string[],
@@ -82,10 +72,18 @@ export function withImportTransactionMutationAdmission<T>(
   targets: readonly string[],
   action: () => Promise<T>
 ): Promise<T> {
+  // An admitted mutation may create a journal before publishing its content targets.
+  // Hold that entire branch up front so nested create never extends the lock set.
+  const journalRoots = workspaceRoots.map((root) =>
+    join(root, "desktop", "recovery", "package-import")
+  );
   return withImportTransactionAdmission(
     {
       exclusiveRoots: workspaceRoots,
-      sharedRoots: importTransactionScanRoots(workspaceRoots, targets)
+      sharedRoots: [
+        ...journalRoots,
+        ...importTransactionScanRoots(workspaceRoots, [...targets, ...journalRoots])
+      ]
     },
     action
   );

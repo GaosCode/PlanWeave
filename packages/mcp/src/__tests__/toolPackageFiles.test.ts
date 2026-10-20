@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   readdir,
   rm,
   symlink,
@@ -14,12 +15,14 @@ import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   initManagedWorkspace,
+  createManagedProjectId,
   replacePackageFiles,
   validatePackageDraft,
   type PackageFileEntry,
   type PlanPackageManifest
 } from "@planweave-ai/runtime";
 import { exportCanvasPackage, importPackageFiles } from "../toolPackageFiles.js";
+import { spawnManagedImport } from "./helpers/managedImportProcessFixture.js";
 
 const packageFiles: PackageFileEntry[] = [
   {
@@ -61,7 +64,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  home = await mkdtemp(join(tmpdir(), "planweave-mcp-home-"));
+  home = await realpath(await mkdtemp(join(tmpdir(), "planweave-mcp-home-")));
   const temporaryDirectory = join(home, "tmp");
   await mkdir(temporaryDirectory);
   vi.stubEnv("PLANWEAVE_HOME", home);
@@ -156,6 +159,35 @@ function projectDraftFiles(graphPath: string, rootManifest: string): PackageFile
 }
 
 describe("toolPackageFiles", () => {
+  it("keeps the first successful import unchanged when a second process resumes admission", async () => {
+    const name = "Cross process import";
+    const workers = ["first", "second"].map((fingerprint) =>
+      spawnManagedImport({
+        moduleUrl: new URL("../toolPackageFiles.ts", import.meta.url).href,
+        home,
+        name,
+        files: [...packageFiles, { path: "fingerprint.md", content: fingerprint, encoding: "utf8" }]
+      })
+    );
+    try {
+      await Promise.all(workers.map((worker) => worker.ready));
+      workers[0].resume();
+      expect(await workers[0].outcome).toEqual({ ok: true });
+      const before = await diskSnapshot(join(home, "projects"));
+      workers[1].resume();
+      expect(await workers[1].outcome).toEqual({
+        ok: false,
+        message: expect.stringContaining("Imported project already exists")
+      });
+      expect(await diskSnapshot(join(home, "projects"))).toEqual(before);
+      const exported = await exportCanvasPackage(createManagedProjectId(name));
+      expect(exported.files.find((file) => file.path === "fingerprint.md")?.content).toBe("first");
+      expect(await Promise.all(workers.map((worker) => worker.exited))).toEqual([0, 0]);
+    } finally {
+      await Promise.all(workers.map((worker) => worker.stop()));
+    }
+  });
+
   it("rejects imported package paths that escape the package root", async () => {
     await expect(
       importPackageFiles(

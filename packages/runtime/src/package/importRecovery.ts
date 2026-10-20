@@ -1,5 +1,5 @@
 import { readdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { optionalStat } from "../fs/optionalFile.js";
 import {
   ImportTransaction,
@@ -58,8 +58,19 @@ export async function listImportTransactionRecoveryTargets(
   });
 }
 
+function targetsBelongToProject(targets: readonly string[], projectRoot: string): boolean {
+  return (
+    targets.includes(resolve(projectRoot)) &&
+    targets.every((target) => {
+      const path = relative(resolve(projectRoot), resolve(target));
+      return path === "" || (!path.startsWith("..") && !isAbsolute(path));
+    })
+  );
+}
+
 export async function listPendingImportTransactions(
-  workspaceRoot: string
+  workspaceRoot: string,
+  options?: { targetRoot: string }
 ): Promise<PendingImportTransaction[]> {
   const resolvedWorkspaceRoot = resolve(workspaceRoot);
   const entries = await withImportTransactionReadAdmission(
@@ -78,6 +89,17 @@ export async function listPendingImportTransactions(
               workspaceRoot: resolvedWorkspaceRoot,
               transactionId
             });
+            if (
+              options &&
+              !targetsBelongToProject(
+                await readImportTransactionRecoveryTargets({
+                  workspaceRoot: resolvedWorkspaceRoot,
+                  transactionId
+                }),
+                options.targetRoot
+              )
+            )
+              return null;
             const transaction =
               summary.state === "committed"
                 ? await ImportTransaction.recover({
@@ -119,10 +141,23 @@ export async function listPendingImportTransactions(
 export async function rollbackPendingImportTransaction(options: {
   workspaceRoot: string;
   transactionId: string;
+  targetRoot?: string;
 }): Promise<void> {
-  const transaction = await ImportTransaction.recover({
-    workspaceRoot: options.workspaceRoot,
-    transactionId: options.transactionId
-  });
+  const transaction = await withImportTransactionReadAdmission([options.workspaceRoot], [], () =>
+    withImportTransactionLock(options.workspaceRoot, options.transactionId, async () => {
+      if (
+        options.targetRoot &&
+        !targetsBelongToProject(
+          await readImportTransactionRecoveryTargets(options),
+          options.targetRoot
+        )
+      ) {
+        throw new Error(
+          `Import recovery '${options.transactionId}' does not belong to project '${options.targetRoot}'.`
+        );
+      }
+      return ImportTransaction.recover(options);
+    })
+  );
   await transaction.rollback();
 }
