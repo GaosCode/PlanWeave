@@ -22,6 +22,7 @@ const requiredPlatformTests = [
 ];
 const requiredPerformanceTests = [
   "packages/runtime/src/__tests__/blockRunIndexPerformance.test.ts",
+  "packages/server/src/__tests__/humanObserverRetentionPerformance.test.ts",
   "packages/server/src/__tests__/serverDataArchiveResources.test.ts"
 ];
 const suiteRoots = [
