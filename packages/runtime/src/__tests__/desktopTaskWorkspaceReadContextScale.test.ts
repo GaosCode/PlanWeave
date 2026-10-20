@@ -174,7 +174,8 @@ describe("Task Workspace read-context scaling", () => {
       status: 1,
       planGraph: 1,
       manifestReads: 2,
-      projectGraphReads: 2,
+      // Canvas resolution, registration identity validation before queue drain, and runtime aggregation.
+      projectGraphReads: 3,
       projectAggregation: 1,
       claimGuard: 1
     });
