@@ -752,9 +752,15 @@ function appendResultBodyLimitDiagnostic(
 }
 
 export async function hydrateResultsFileIndexBodies(
-  index: ResultsFileIndex
+  index: ResultsFileIndex,
+  options: { cacheWrites?: boolean } = {}
 ): Promise<ResultsFileIndex> {
-  const cachedIndex = resultsFileIndexCacheByResultsDir.get(index.workspace.resultsDir);
+  const cacheWrites = options.cacheWrites !== false;
+  let cachedIndex = resultsFileIndexCacheByResultsDir.get(index.workspace.resultsDir);
+  if (!cachedIndex && cacheWrites) {
+    cachedIndex = { entriesByRelativePath: new Map(), bodiesByRelativePath: new Map() };
+    resultsFileIndexCacheByResultsDir.set(index.workspace.resultsDir, cachedIndex);
+  }
   const diagnostics: ValidationIssue[] = [...index.diagnostics];
   const entries: ResultsFileIndexEntry[] = [];
   const nextBodiesByRelativePath = new Map<string, CachedResultFileBody>();
@@ -794,10 +800,17 @@ export async function hydrateResultsFileIndexBodies(
     entries.push(hydrated.entry);
   }
 
-  resultsFileIndexCacheByResultsDir.set(index.workspace.resultsDir, {
-    entriesByRelativePath: cachedIndex?.entriesByRelativePath ?? new Map(),
-    bodiesByRelativePath: nextBodiesByRelativePath
-  });
+  // A retired or replaced generation may still finish for its original readers.
+  if (
+    cacheWrites &&
+    cachedIndex &&
+    resultsFileIndexCacheByResultsDir.get(index.workspace.resultsDir) === cachedIndex
+  ) {
+    resultsFileIndexCacheByResultsDir.set(index.workspace.resultsDir, {
+      entriesByRelativePath: cachedIndex.entriesByRelativePath,
+      bodiesByRelativePath: nextBodiesByRelativePath
+    });
+  }
 
   return {
     workspace: index.workspace,

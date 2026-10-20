@@ -80,6 +80,11 @@ export type CanvasProjectionFingerprint = CanvasRuntimeInputFingerprint & {
   blockers: CanvasBlockerFingerprint;
 };
 
+export type CanvasBodySearchIndexBuild = {
+  index: DesktopSearchIndex;
+  diagnostics: ValidationIssue[];
+};
+
 export type CanvasProjectionCacheEntry = {
   version: number;
   fingerprint: CanvasProjectionFingerprint | null;
@@ -88,6 +93,8 @@ export type CanvasProjectionCacheEntry = {
   resultsIndex: ResultsFileIndex;
   searchIndex: DesktopSearchIndex;
   bodySearchIndex: DesktopSearchIndex | null;
+  bodySearchIndexBuild: Promise<CanvasBodySearchIndexBuild> | null;
+  retired: boolean;
 };
 
 export type CachedProjectProjection = {
@@ -167,6 +174,12 @@ export class DesktopProjectProjectionLru<T> {
   }
 }
 
+function retireCanvasProjection(entry: CanvasProjectionCacheEntry): void {
+  entry.retired = true;
+  entry.bodySearchIndex = null;
+  entry.bodySearchIndexBuild = null;
+}
+
 function releaseDesktopProjectProjection(
   cached: CachedProjectProjection,
   replacement?: CachedProjectProjection
@@ -191,6 +204,9 @@ function releaseDesktopProjectProjection(
       clearResultsFileIndexCache({ resultsDir });
       releasedResultsDirectories.add(resultsDir);
     }
+  }
+  for (const entry of cached.canvases.values()) {
+    if (!retainedCanvasEntries.has(entry)) retireCanvasProjection(entry);
   }
   cached.canvases = new Map();
   cached.searchIndex = null;
@@ -280,6 +296,8 @@ export function invalidateDesktopCanvasProjection(
   if (!cached || !cached.canvases.has(canvasId)) {
     return;
   }
+  const entry = cached.canvases.get(canvasId);
+  if (entry) retireCanvasProjection(entry);
   cached.canvases.delete(canvasId);
   cached.searchIndex = null;
   cached.bodySearchIndex = null;
@@ -297,6 +315,7 @@ export function invalidateDesktopProjectProjectionDerived(projectRoot: PackageWo
   if (!cached) {
     return;
   }
+  for (const entry of cached.canvases.values()) retireCanvasProjection(entry);
   cached.canvases.clear();
   cached.searchIndex = null;
   cached.bodySearchIndex = null;

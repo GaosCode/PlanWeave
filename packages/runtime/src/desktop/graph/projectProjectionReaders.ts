@@ -68,26 +68,51 @@ async function buildCanvasBodySearchIndex(input: {
   if (input.entry.bodySearchIndex) {
     return input.entry.bodySearchIndex;
   }
-  const hydratedResultsIndex = await captureProjectionPart(
-    input.diagnostics,
-    "search result body index hydration",
-    input.canvasId,
-    () => hydrateResultsFileIndexBodies(input.entry.resultsIndex)
-  );
-  const bodySearchIndex = await captureProjectionPart(
-    input.diagnostics,
-    "body search index construction",
-    input.canvasId,
-    () =>
-      buildSearchBodyIndexForCanvas({
-        aggregation: input.aggregation,
-        canvasId: input.canvasId,
-        snapshot: input.entry.snapshot,
-        resultIndex: hydratedResultsIndex
-      })
-  );
-  input.entry.bodySearchIndex = bodySearchIndex;
-  return bodySearchIndex;
+  const entry = input.entry;
+  const pending =
+    entry.bodySearchIndexBuild ??
+    Promise.resolve().then(async () => {
+      const diagnostics: ValidationIssue[] = [];
+      const hydratedResultsIndex = await captureProjectionPart(
+        diagnostics,
+        "search result body index hydration",
+        input.canvasId,
+        () => hydrateResultsFileIndexBodies(entry.resultsIndex, { cacheWrites: !entry.retired })
+      );
+      const index = await captureProjectionPart(
+        diagnostics,
+        "body search index construction",
+        input.canvasId,
+        () =>
+          buildSearchBodyIndexForCanvas({
+            aggregation: input.aggregation,
+            canvasId: input.canvasId,
+            snapshot: entry.snapshot,
+            resultIndex: hydratedResultsIndex
+          })
+      );
+      for (const diagnostic of diagnostics) {
+        appendProjectProjectionDiagnostic(index.diagnostics, diagnostic);
+      }
+      // Partial reads remain useful to these waiters but must be retried by the next request.
+      if (
+        !entry.retired &&
+        hydratedResultsIndex.entries.every((result) => result.bodyLoaded || result.bodyTruncated)
+      ) {
+        entry.bodySearchIndex = index;
+      }
+      return { index, diagnostics };
+    });
+  if (!entry.retired) entry.bodySearchIndexBuild = pending;
+  try {
+    const result = await pending;
+    for (const diagnostic of result.diagnostics) {
+      appendProjectProjectionDiagnostic(input.diagnostics, diagnostic);
+    }
+    return result.index;
+  } finally {
+    if (entry.bodySearchIndexBuild === pending) entry.bodySearchIndexBuild = null;
+  }
 }
 
 async function buildProjectSummarySearchIndex(input: {
@@ -152,7 +177,9 @@ async function buildProjectBodySearchIndex(input: {
   for (const diagnostic of input.diagnostics) {
     appendProjectProjectionDiagnostic(bodySearchIndex.diagnostics, diagnostic);
   }
-  input.cached.bodySearchIndex = bodySearchIndex;
+  if ([...input.cached.canvases.values()].every((entry) => entry.bodySearchIndex !== null)) {
+    input.cached.bodySearchIndex = bodySearchIndex;
+  }
   return bodySearchIndex;
 }
 

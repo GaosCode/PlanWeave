@@ -536,7 +536,9 @@ async function buildCanvasCacheEntry(input: {
     snapshot,
     resultsIndex,
     searchIndex,
-    bodySearchIndex: null
+    bodySearchIndex: null,
+    bodySearchIndexBuild: null,
+    retired: false
   };
 }
 
