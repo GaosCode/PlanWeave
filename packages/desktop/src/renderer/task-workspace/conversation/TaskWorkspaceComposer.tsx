@@ -1,13 +1,14 @@
 import { AcpComposerSurface } from "./AcpComposerSurface";
 import { RemoteAcpComposer } from "./RemoteAcpComposer";
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
-import { useState } from "react";
 import type { ReactNode } from "react";
 import { bridge } from "../../bridge";
 import type { createTranslator } from "../../i18n";
-import { useAgentPrompt } from "../../hooks/useAgentPrompt";
+import {
+  useTaskWorkspaceComposerController,
+  type TaskWorkspaceComposerController
+} from "../useTaskWorkspaceComposerController";
 import type { TaskWorkspaceComposerSlotProps } from "../contracts";
-import { samePromptIdentity } from "./actionIdentity";
 import {
   TaskWorkspaceCancelRunAction,
   type TaskWorkspaceCancelRunController,
@@ -34,6 +35,7 @@ export function TaskWorkspaceComposer({
   api = bridge,
   canvasRef = null,
   cancelController,
+  composerController,
   liveStatus,
   refresh,
   remoteConversation = null,
@@ -45,8 +47,15 @@ export function TaskWorkspaceComposer({
   api?: ComposerApi | null;
   canvasRef?: import("@planweave-ai/runtime").DesktopCanvasReference | null;
   cancelController?: TaskWorkspaceCancelRunController;
+  composerController?: TaskWorkspaceComposerController;
   t: ReturnType<typeof createTranslator>;
 }) {
+  const localController = useTaskWorkspaceComposerController({
+    api: composerController || remoteConversation ? null : api,
+    runnerModel: composerController || remoteConversation ? null : runnerModel,
+    selectedRun: composerController || remoteConversation ? null : selectedRun
+  });
+  const controller = composerController ?? localController;
   if (remoteConversation?.continuation)
     return (
       <RemoteAcpComposer
@@ -125,10 +134,9 @@ export function TaskWorkspaceComposer({
     return (
       <AcpComposer
         accessory={actionAccessory}
-        api={api}
         cancelController={cancelController}
+        controller={controller}
         model={runnerModel}
-        selectedRun={selectedRun}
         t={t}
       />
     );
@@ -143,10 +151,9 @@ export function TaskWorkspaceComposer({
       {(localCancelController) => (
         <AcpComposer
           accessory={actionAccessory}
-          api={api}
           cancelController={localCancelController}
+          controller={controller}
           model={runnerModel}
-          selectedRun={selectedRun}
           t={t}
         />
       )}
@@ -156,51 +163,30 @@ export function TaskWorkspaceComposer({
 
 function AcpComposer({
   accessory,
-  api,
   cancelController,
+  controller,
   model,
-  selectedRun,
   t
 }: {
   accessory?: ReactNode;
-  api: ComposerApi | null;
   cancelController: TaskWorkspaceCancelRunController;
+  controller: TaskWorkspaceComposerController;
   model: NonNullable<TaskWorkspaceComposerSlotProps["runnerModel"]>;
-  selectedRun: NonNullable<TaskWorkspaceComposerSlotProps["selectedRun"]>;
   t: ReturnType<typeof createTranslator>;
 }) {
-  const [draft, setDraft] = useState("");
-  const selectedPromptCapability = selectedRun.item.run.capabilities.prompt;
-  const promptIdentity = samePromptIdentity(
-    model.intervention.prompt.identity,
-    selectedPromptCapability.identity
-  )
-    ? model.intervention.prompt.identity
-    : null;
-  const prompt = useAgentPrompt({
-    api,
-    identity: promptIdentity,
-    runtimeInFlight: model.intervention.prompt.inFlight,
-    runtimeVersion: model,
-    completedContinuation: model.terminal
-  });
-
-  const promptAvailable =
-    model.intervention.prompt.available &&
-    selectedPromptCapability.available &&
-    promptIdentity !== null;
-  const disabled = !promptAvailable || prompt.inFlight;
+  const {
+    available: promptAvailable,
+    disabled,
+    draft,
+    identity,
+    prompt,
+    setDraft,
+    submit
+  } = controller;
   const unavailableReason =
-    model.intervention.prompt.available && !promptIdentity
+    model.intervention.prompt.available && !identity
       ? t("taskWorkspacePromptIdentityMismatch")
       : (model.intervention.prompt.reason ?? t("acpPromptUnavailable"));
-  const submit = () => {
-    const text = draft.trim();
-    if (!text || disabled) return;
-    void prompt.send(text).then((sent) => {
-      if (sent) setDraft("");
-    });
-  };
 
   return (
     <AcpComposerSurface

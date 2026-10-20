@@ -7,16 +7,7 @@ export function samePromptIdentity(
   left: DesktopAgentPromptIdentity | null,
   right: DesktopAgentPromptIdentity | null
 ): left is DesktopAgentPromptIdentity {
-  return (
-    left !== null &&
-    right !== null &&
-    left.ref.projectRoot === right.ref.projectRoot &&
-    left.ref.canvasId === right.ref.canvasId &&
-    left.recordId === right.recordId &&
-    left.executorRunId === right.executorRunId &&
-    left.claimRef === right.claimRef &&
-    left.sessionId === right.sessionId
-  );
+  return left !== null && right !== null && promptIdentityKey(left) === promptIdentityKey(right);
 }
 
 export function sameSessionActionIdentity(
@@ -33,4 +24,15 @@ export function sameSessionActionIdentity(
     left.claimRef === right.claimRef &&
     left.sessionId === right.sessionId
   );
+}
+
+export function promptIdentityKey(identity: DesktopAgentPromptIdentity): string {
+  return JSON.stringify([
+    identity.ref.projectRoot,
+    identity.ref.canvasId,
+    identity.recordId,
+    identity.executorRunId,
+    identity.claimRef,
+    identity.sessionId
+  ]);
 }

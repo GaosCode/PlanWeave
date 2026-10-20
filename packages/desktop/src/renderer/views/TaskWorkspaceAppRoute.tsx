@@ -4,6 +4,7 @@ import {
   lookupBlockAssigneeChip,
   lookupTaskAssigneeChip
 } from "../collaboration/assigneeSurfaceViewModels";
+import { useTaskWorkspaceComposerController } from "../task-workspace/useTaskWorkspaceComposerController";
 import { useProjectWorkspace } from "../ProjectWorkspaceProvider";
 import { TaskWorkspaceRepositoryActions } from "../task-workspace/TaskWorkspaceRepositoryActions";
 import { TaskWorkspaceRoute } from "../task-workspace/TaskWorkspaceRoute";
@@ -37,6 +38,21 @@ export function TaskWorkspaceAppRoute() {
   const localCanvasRef = localNavigation
     ? { canvasId: localNavigation.canvasId, projectRoot: localNavigation.projectRoot }
     : null;
+  const composerController = useTaskWorkspaceComposerController({
+    api: bridge,
+    runnerModel: localNavigation ? taskWorkspace.runnerModel : null,
+    selectedRun: localNavigation ? taskWorkspace.selectedRun : null,
+    scopeKey: JSON.stringify(
+      localNavigation
+        ? [
+            shell.selectedProject?.projectId,
+            localNavigation.projectRoot,
+            localNavigation.canvasId,
+            localNavigation.taskId
+          ]
+        : null
+    )
+  });
   const repositoryRoot =
     shell.selectedProject?.sourceRoot ??
     (shell.selectedProject?.kind === "external" ? shell.selectedProject.rootPath : null);
@@ -72,6 +88,7 @@ export function TaskWorkspaceAppRoute() {
                   api={bridge}
                   canvasRef={localCanvasRef}
                   cancelController={cancelController}
+                  composerController={composerController}
                   t={shell.t}
                 />
               ),

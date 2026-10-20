@@ -47,6 +47,88 @@ function retrySelection(runId: string) {
 }
 
 describe("Task Workspace conversation actions", () => {
+  it("keeps cached A/B drafts and newer revisions when A succeeds after selecting B", async () => {
+    const base = readModel();
+    const first = { ...base, terminal: true, cursor: { ...base.cursor, terminal: true } };
+    const identity = first.intervention.prompt.identity!;
+    const second = {
+      ...first,
+      intervention: {
+        ...first.intervention,
+        prompt: {
+          ...first.intervention.prompt,
+          identity: { ...identity, recordId: "B", sessionId: "B" }
+        }
+      }
+    };
+    const pending = deferred<Awaited<ReturnType<DesktopBridgeApi["sendAgentPrompt"]>>>();
+    const sendAgentPrompt = vi.fn<DesktopBridgeApi["sendAgentPrompt"]>(() => pending.promise);
+    const api = { sendAgentPrompt };
+    const props = (model: typeof first | null) => ({
+      api,
+      liveStatus: "live" as const,
+      runnerModel: model,
+      selectedRun: selection({ model, active: false }),
+      t
+    });
+    const view = render(<TaskWorkspaceComposer {...props(first)} />);
+    fireEvent.change(screen.getByLabelText("Message the agent"), { target: { value: "A draft" } });
+    view.rerender(<TaskWorkspaceComposer {...props(second)} />);
+    expect(screen.getByLabelText("Message the agent")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Message the agent"), { target: { value: "B draft" } });
+    view.rerender(<TaskWorkspaceComposer {...props(first)} />);
+    expect(screen.getByLabelText("Message the agent")).toHaveValue("A draft");
+    fireEvent.keyDown(screen.getByLabelText("Message the agent"), { key: "Enter" });
+    fireEvent.change(screen.getByLabelText("Message the agent"), {
+      target: { value: "A newer draft" }
+    });
+    view.rerender(<TaskWorkspaceComposer {...props(second)} />);
+    expect(screen.getByLabelText("Message the agent")).toHaveValue("B draft");
+    const request = sendAgentPrompt.mock.calls[0]![0];
+    await act(async () => pending.resolve(promptState(request.identity)));
+    expect(screen.getByLabelText("Message the agent")).toHaveValue("B draft");
+    view.rerender(<TaskWorkspaceComposer {...props(null)} />);
+    view.rerender(<TaskWorkspaceComposer {...props(first)} />);
+    expect(screen.getByLabelText("Message the agent")).toHaveValue("A newer draft");
+    view.unmount();
+    render(<TaskWorkspaceComposer {...props(first)} />);
+    expect(screen.getByLabelText("Message the agent")).toHaveValue("");
+  });
+
+  it("does not clear B when A's pending send succeeds", async () => {
+    const first = readModel();
+    const second = {
+      ...first,
+      intervention: {
+        ...first.intervention,
+        prompt: {
+          ...first.intervention.prompt,
+          identity: { ...first.intervention.prompt.identity!, sessionId: "B" }
+        }
+      }
+    };
+    const pending = deferred<Awaited<ReturnType<DesktopBridgeApi["sendAgentPrompt"]>>>();
+    const sendAgentPrompt = vi.fn<DesktopBridgeApi["sendAgentPrompt"]>(() => pending.promise);
+    const api = { sendAgentPrompt };
+    const props = (model: typeof first) => ({
+      api,
+      liveStatus: "live" as const,
+      runnerModel: model,
+      selectedRun: selection({ model }),
+      t
+    });
+    const view = render(<TaskWorkspaceComposer {...props(first)} />);
+    fireEvent.change(screen.getByLabelText("Message the agent"), { target: { value: "A send" } });
+    fireEvent.keyDown(screen.getByLabelText("Message the agent"), { key: "Enter" });
+    view.rerender(<TaskWorkspaceComposer {...props(second)} />);
+    fireEvent.change(screen.getByLabelText("Message the agent"), { target: { value: "B unsent" } });
+    const request = sendAgentPrompt.mock.calls[0]![0];
+    await act(async () => pending.resolve(promptState(request.identity)));
+    expect(screen.getByLabelText("Message the agent")).toHaveValue("B unsent");
+    view.rerender(<TaskWorkspaceComposer {...props(first)} />);
+    expect(screen.getByLabelText("Message the agent")).toHaveValue("");
+  });
+
   it("sends and stops only with exact selected session identities and renders no retry or resume action", async () => {
     const model = readModel();
     const selectedRun = selection({ model });

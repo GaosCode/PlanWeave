@@ -344,6 +344,8 @@
         "desktopHomeWatchReplay.test.tsx"
       ],
       "integration": [
+        "taskWorkspaceCachedComposer.test.tsx",
+        "agentPromptBridgeIntegration.test.ts",
         "cliInstallation.test.ts",
         "managedContentHomeLifecycle.test.ts",
         "cliInstallationCard.test.tsx",
