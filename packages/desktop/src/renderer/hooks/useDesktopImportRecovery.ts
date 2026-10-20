@@ -1,8 +1,11 @@
 import { useCallback } from "react";
 import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
+import type { DesktopSelectionReceipt } from "./useDesktopProjectSnapshot";
 
 type UseDesktopImportRecoveryArgs = {
+  captureProjectSelection: () => DesktopSelectionReceipt;
+  refreshProjects: () => Promise<void>;
   refreshProjectDerivedState: (options?: {
     includeLayout?: boolean;
     includePrompt?: boolean;
@@ -22,6 +25,8 @@ function errorMessage(caught: unknown): string {
 }
 
 export function useDesktopImportRecovery({
+  captureProjectSelection,
+  refreshProjects,
   refreshProjectDerivedState,
   selectedProject,
   setError
@@ -34,11 +39,12 @@ export function useDesktopImportRecovery({
           transactionId
         } satisfies DesktopImportRecoveryRollbackResult;
       }
+      const selection = captureProjectSelection();
       try {
         await bridge.rollbackPendingImportRecovery(selectedProject.rootPath, transactionId);
       } catch (caught) {
         const error = errorMessage(caught);
-        setError(error);
+        if (selection.isCurrent()) setError(error);
         return {
           status: "rollbackFailed",
           transactionId,
@@ -46,10 +52,15 @@ export function useDesktopImportRecovery({
         } satisfies DesktopImportRecoveryRollbackResult;
       }
       try {
-        await refreshProjectDerivedState({ includeLayout: true });
+        if (selection.isCurrent()) {
+          await refreshProjects();
+          if (selection.isCurrent()) {
+            await refreshProjectDerivedState({ includeLayout: true });
+          }
+        }
       } catch (caught) {
         const error = errorMessage(caught);
-        setError(error);
+        if (selection.isCurrent()) setError(error);
         return {
           status: "refreshFailed",
           transactionId,
@@ -58,7 +69,13 @@ export function useDesktopImportRecovery({
       }
       return { status: "rolledBack", transactionId } satisfies DesktopImportRecoveryRollbackResult;
     },
-    [refreshProjectDerivedState, selectedProject, setError]
+    [
+      captureProjectSelection,
+      refreshProjectDerivedState,
+      refreshProjects,
+      selectedProject,
+      setError
+    ]
   );
 
   return { rollbackPendingImportRecovery };
