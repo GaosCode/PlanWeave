@@ -38,6 +38,7 @@ const curatedPlatformTests = [
 const curatedPlatformTestSet = new Set(curatedPlatformTests);
 const curatedPerformanceTests = [
   "packages/runtime/src/__tests__/blockRunIndexPerformance.test.ts",
+  "packages/server/src/__tests__/humanObserverRetentionPerformance.test.ts",
   "packages/server/src/__tests__/serverDataArchiveResources.test.ts"
 ];
 const curatedPerformanceTestSet = new Set(curatedPerformanceTests);

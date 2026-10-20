@@ -1,16 +1,23 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { applyMigrationsThroughVersion } from "./support/migrationFixture.js";
 import {
   applyMigrations,
   centralSchemaVersion,
   latestCentralSchemaVersion
 } from "../migrations.js";
 import { HumanObserverJournal } from "../humanObserverJournal.js";
-import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
+import { inWriteTransaction, openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
 const databases: SqliteDatabase[] = [];
+const directories: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const database of databases.splice(0)) database.close();
+  for (const directory of directories.splice(0))
+    await rm(directory, { recursive: true, force: true });
 });
 
 describe("HumanObserverJournal", () => {
@@ -20,22 +27,7 @@ describe("HumanObserverJournal", () => {
   it("upgrades v37 observer rows into a scoped journal and quarantines ambiguous projects", async () => {
     const database = await openServerDatabase(":memory:", 5_000);
     databases.push(database);
-    applyMigrations(database);
-    database.exec(`
-      DROP TABLE human_observer_events_unscoped_legacy;
-      DROP INDEX idx_human_observer_workspace_project_cursor;
-      DROP TABLE human_observer_events;
-      CREATE TABLE human_observer_events (
-        cursor INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id TEXT NOT NULL,
-        previous_cursor INTEGER NOT NULL CHECK(previous_cursor >= 0),
-        event_json TEXT NOT NULL CHECK(json_valid(event_json)),
-        occurred_at TEXT NOT NULL
-      );
-      CREATE INDEX idx_human_observer_project_cursor
-        ON human_observer_events(project_id,cursor);
-    `);
-    database.prepare("DELETE FROM schema_migrations WHERE version=38").run();
+    applyMigrationsThroughVersion(database, 37);
     database.exec(`
       INSERT INTO workspaces(workspace_id,display_name,created_at,archived_at) VALUES
         ('workspace-unique','Workspace unique','2026-01-01T00:00:00.000Z',NULL),
@@ -117,6 +109,179 @@ describe("HumanObserverJournal", () => {
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(observed).toEqual([]);
     expect(journal.head(rollbackScope)).toBe(0);
+  });
+
+  it.each([
+    1, 3
+  ])("keeps cap=%i exact across scopes, journal instances and outer rollback", async (cap) => {
+    const database = await openServerDatabase(":memory:", 5_000);
+    databases.push(database);
+    applyMigrations(database);
+    const journal = new HumanObserverJournal(database, cap);
+    const otherJournal = new HumanObserverJournal(database, cap);
+    const thirdScope = { ...projectA, projectId: "project-other" };
+    const observed: number[] = [];
+    journal.subscribe(projectA, (event) => observed.push(event.cursor));
+    let previous = 0;
+    for (let i = 0; i < cap + 2; i++) {
+      inWriteTransaction(database, () => {
+        const event = (i % 2 ? otherJournal : journal).appendInCallerTransaction(projectA, {
+          kind: "membership"
+        });
+        expect(event.previousCursor).toBe(previous);
+        previous = event.cursor;
+        journal.appendInCallerTransaction(projectB, { kind: "project" });
+        journal.appendInCallerTransaction(thirdScope, { kind: "invitation" });
+      });
+    }
+    const retained = () =>
+      database
+        .prepare(
+          "SELECT workspace_id,project_id,retained_count FROM human_observer_retention ORDER BY workspace_id,project_id"
+        )
+        .all();
+    const expected = [
+      { workspace_id: projectA.workspaceId, project_id: projectA.projectId, retained_count: cap },
+      {
+        workspace_id: thirdScope.workspaceId,
+        project_id: thirdScope.projectId,
+        retained_count: cap
+      },
+      { workspace_id: projectB.workspaceId, project_id: projectB.projectId, retained_count: cap }
+    ];
+    expect(retained()).toEqual(expected);
+    const rowsBefore = database
+      .prepare("SELECT * FROM human_observer_events ORDER BY cursor")
+      .all();
+    expect(rowsBefore).toHaveLength(cap * 3);
+    expect(() =>
+      inWriteTransaction(database, () => {
+        journal.appendInCallerTransaction(projectA, { kind: "comment" });
+        otherJournal.appendInCallerTransaction(projectA, { kind: "activity" });
+        expect(retained()).toEqual(expected);
+        throw new Error("outer_transaction_failed");
+      })
+    ).toThrow("outer_transaction_failed");
+    expect(retained()).toEqual(expected);
+    expect(database.prepare("SELECT * FROM human_observer_events ORDER BY cursor").all()).toEqual(
+      rowsBefore
+    );
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(observed.every((cursor) => rowsBefore.some((row) => row.cursor === cursor))).toBe(true);
+    const next = inWriteTransaction(database, () =>
+      journal.appendInCallerTransaction(projectA, { kind: "assignment" })
+    );
+    expect(next.previousCursor).toBe(previous);
+    expect(retained()).toEqual(expected);
+    const firstRetained = database
+      .prepare(
+        "SELECT previous_cursor FROM human_observer_events WHERE workspace_id=? AND project_id=? ORDER BY cursor LIMIT 1"
+      )
+      .get(projectA.workspaceId, projectA.projectId);
+    expect(journal.replay(projectA, Number(firstRetained?.previous_cursor))).toMatchObject({
+      kind: "events",
+      headCursor: next.cursor
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(observed).toContain(next.cursor);
+  });
+
+  it("migrates nonempty scoped history atomically and keeps counts across delete, restart and connections", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "planweave-observer-retention-"));
+    directories.push(directory);
+    const path = join(directory, "server.sqlite");
+    const database = await openServerDatabase(path, 5_000);
+    databases.push(database);
+    applyMigrationsThroughVersion(database, 74);
+    database.exec(`
+      INSERT INTO human_observer_events(cursor,workspace_id,project_id,previous_cursor,event_json,occurred_at) VALUES
+        (1,'workspace-a','project-a',0,'{"kind":"membership"}','2026-01-01T00:00:00.000Z'),
+        (2,'workspace-b','project-a',0,'{"kind":"project"}','2026-01-01T00:00:00.000Z'),
+        (3,'workspace-a','project-a',1,'{"kind":"activity"}','2026-01-01T00:00:00.000Z');
+      INSERT INTO human_observer_events_unscoped_legacy VALUES
+        (4,'project-a',0,'{"kind":"membership"}','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z');
+      CREATE TRIGGER fail_retention_marker BEFORE INSERT ON schema_migrations WHEN NEW.version=75
+      BEGIN SELECT RAISE(ABORT, 'retention_migration_interrupted'); END;
+    `);
+    expect(() => applyMigrations(database)).toThrow("retention_migration_interrupted");
+    expect(
+      database.prepare("SELECT name FROM sqlite_master WHERE name='human_observer_retention'").get()
+    ).toBeUndefined();
+    expect(database.prepare("SELECT COUNT(*) AS count FROM human_observer_events").get()).toEqual({
+      count: 3
+    });
+    database.exec("DROP TRIGGER fail_retention_marker");
+    applyMigrations(database);
+    expect(
+      database
+        .prepare("SELECT retained_count FROM human_observer_retention ORDER BY workspace_id")
+        .all()
+    ).toEqual([{ retained_count: 2 }, { retained_count: 1 }]);
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM human_observer_events_unscoped_legacy").get()
+    ).toEqual({ count: 1 });
+    const journal = new HumanObserverJournal(database, 1);
+    const appended = inWriteTransaction(database, () =>
+      journal.appendInCallerTransaction(projectA, { kind: "comment" })
+    );
+    expect(appended.previousCursor).toBe(3);
+    expect(
+      database.prepare("SELECT cursor FROM human_observer_events ORDER BY cursor").all()
+    ).toEqual([{ cursor: 2 }, { cursor: appended.cursor }]);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    database.close();
+    databases.splice(databases.indexOf(database), 1);
+    const reopened = await openServerDatabase(path, 5_000);
+    const secondConnection = await openServerDatabase(path, 5_000);
+    databases.push(reopened, secondConnection);
+    applyMigrations(reopened);
+    const next = inWriteTransaction(reopened, () =>
+      new HumanObserverJournal(reopened, 1).appendInCallerTransaction(projectA, {
+        kind: "assignment"
+      })
+    );
+    const latest = inWriteTransaction(secondConnection, () =>
+      new HumanObserverJournal(secondConnection, 1).appendInCallerTransaction(projectA, {
+        kind: "activity"
+      })
+    );
+    expect([next.previousCursor, latest.previousCursor]).toEqual([appended.cursor, next.cursor]);
+    expect(
+      reopened.prepare("SELECT cursor FROM human_observer_events ORDER BY cursor").all()
+    ).toEqual([{ cursor: 2 }, { cursor: latest.cursor }]);
+    expect(() =>
+      inWriteTransaction(reopened, () => {
+        reopened
+          .prepare("DELETE FROM human_observer_events WHERE workspace_id=?")
+          .run(projectB.workspaceId);
+        throw new Error("delete_rolled_back");
+      })
+    ).toThrow("delete_rolled_back");
+    expect(
+      secondConnection
+        .prepare("SELECT retained_count FROM human_observer_retention WHERE workspace_id=?")
+        .get(projectB.workspaceId)
+    ).toEqual({ retained_count: 1 });
+    inWriteTransaction(secondConnection, () =>
+      secondConnection
+        .prepare("DELETE FROM human_observer_events WHERE workspace_id=?")
+        .run(projectB.workspaceId)
+    );
+    expect(
+      reopened
+        .prepare("SELECT retained_count FROM human_observer_retention WHERE workspace_id=?")
+        .get(projectB.workspaceId)
+    ).toEqual({ retained_count: 0 });
+    const replacement = inWriteTransaction(reopened, () =>
+      new HumanObserverJournal(reopened, 1).appendInCallerTransaction(projectB, { kind: "project" })
+    );
+    expect(replacement.previousCursor).toBe(0);
+    expect(
+      reopened
+        .prepare("SELECT retained_count FROM human_observer_retention ORDER BY workspace_id")
+        .all()
+    ).toEqual([{ retained_count: 1 }, { retained_count: 1 }]);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
   });
 
   it("requires authoritative catch-up when replay exceeds event or byte limits", async () => {

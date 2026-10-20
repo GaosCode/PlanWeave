@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   humanObserverEventSchema,
   type HumanObserverEvent
@@ -21,6 +22,8 @@ const journalEventInputSchema = z
     remoteRunStatus: humanObserverEventSchema.shape.remoteRunStatus
   })
   .strict();
+
+const retainedCountSchema = z.object({ retained_count: z.number().int().positive() });
 
 export type HumanObserverJournalEventInput = z.input<typeof journalEventInputSchema>;
 
@@ -70,12 +73,20 @@ export class HumanObserverJournal {
     const scope = humanObserverScopeSchema.parse(rawScope);
     const input = journalEventInputSchema.parse(rawInput);
     const previousCursor = this.head(scope);
+    const deliveryToken = randomUUID();
     const result = this.database
       .prepare(
-        `INSERT INTO human_observer_events(workspace_id,project_id,previous_cursor,event_json,occurred_at)
-         VALUES (?,?,?,?,?)`
+        `INSERT INTO human_observer_events(workspace_id,project_id,previous_cursor,event_json,occurred_at,delivery_token)
+         VALUES (?,?,?,?,?,?)`
       )
-      .run(scope.workspaceId, scope.projectId, previousCursor, JSON.stringify(input), occurredAt);
+      .run(
+        scope.workspaceId,
+        scope.projectId,
+        previousCursor,
+        JSON.stringify(input),
+        occurredAt,
+        deliveryToken
+      );
     const cursor = Number(result.lastInsertRowid);
     const event = humanObserverEventSchema.parse({
       type: "human.observer.event",
@@ -85,27 +96,31 @@ export class HumanObserverJournal {
       occurredAt,
       ...input
     });
-    this.database
-      .prepare(
-        `DELETE FROM human_observer_events
-         WHERE workspace_id=? AND project_id=? AND cursor NOT IN (
-           SELECT cursor FROM human_observer_events
-           WHERE workspace_id=? AND project_id=? ORDER BY cursor DESC LIMIT ?
-         )`
-      )
-      .run(
-        scope.workspaceId,
-        scope.projectId,
-        scope.workspaceId,
-        scope.projectId,
-        this.maxEventsPerProject
-      );
+    const { retained_count: retainedCount } = retainedCountSchema.parse(
+      this.database
+        .prepare(
+          "SELECT retained_count FROM human_observer_retention WHERE workspace_id=? AND project_id=?"
+        )
+        .get(scope.workspaceId, scope.projectId)
+    );
+    const overflow = retainedCount - this.maxEventsPerProject;
+    if (overflow > 0) {
+      const deleted = this.database
+        .prepare(
+          `DELETE FROM human_observer_events WHERE cursor IN (
+             SELECT cursor FROM human_observer_events
+             WHERE workspace_id=? AND project_id=? ORDER BY cursor ASC LIMIT ?
+           )`
+        )
+        .run(scope.workspaceId, scope.projectId, overflow);
+      if (deleted.changes !== overflow) throw new Error("human_observer_retention_count_mismatch");
+    }
     queueMicrotask(() => {
       const committed = this.database
         .prepare(
-          "SELECT 1 FROM human_observer_events WHERE workspace_id=? AND project_id=? AND cursor=?"
+          "SELECT 1 FROM human_observer_events WHERE workspace_id=? AND project_id=? AND cursor=? AND delivery_token=?"
         )
-        .get(scope.workspaceId, scope.projectId, cursor);
+        .get(scope.workspaceId, scope.projectId, cursor, deliveryToken);
       if (!committed) return;
       for (const subscriber of this.subscribers.get(scopeKey(scope)) ?? []) subscriber(event);
     });

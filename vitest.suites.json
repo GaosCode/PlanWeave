@@ -1092,6 +1092,7 @@
         "humanDisplayNameRepository.test.ts",
         "humanDisplayNameService.test.ts",
         "humanObserverJournal.test.ts",
+        "humanObserverCommitBoundary.test.ts",
         "humanObserverWsFrame.test.ts",
         "humanObserverWs.test.ts",
         "humanObserverWsLifecycle.test.ts",
@@ -1219,7 +1220,10 @@
         "localFilesystemSnapshotEvidence.test.ts"
       ],
       "platform": [],
-      "performance": ["serverDataArchiveResources.test.ts"]
+      "performance": [
+        "serverDataArchiveResources.test.ts",
+        "humanObserverRetentionPerformance.test.ts"
+      ]
     }
   ]
 }

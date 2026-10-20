@@ -9,7 +9,9 @@ import {
   restoreServerDataDirectory,
   serverDataDirectoryIsOccupied
 } from "../serverDataArchive.js";
-import { openServerDatabase } from "../sqlite.js";
+import { HumanObserverJournal } from "../humanObserverJournal.js";
+import { applyMigrations } from "../migrations.js";
+import { inWriteTransaction, openServerDatabase } from "../sqlite.js";
 
 const directories: string[] = [];
 
@@ -77,6 +79,21 @@ describe("server data archive", () => {
     const root = await tempDir();
     const dataDirectory = await seedDataDirectory(root);
     const archivePath = join(root, "server-data.tgz");
+    const scope = { workspaceId: "workspace-archive", projectId: "project-archive" };
+    const source = await openServerDatabase(join(dataDirectory, "planweave-server.sqlite"), 1_000);
+    let sourceHead: number;
+    try {
+      applyMigrations(source);
+      const journal = new HumanObserverJournal(source, 2);
+      sourceHead = inWriteTransaction(source, () => {
+        journal.appendInCallerTransaction(scope, { kind: "membership" });
+        journal.appendInCallerTransaction(scope, { kind: "project" });
+        return journal.appendInCallerTransaction(scope, { kind: "activity" }).cursor;
+      });
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+    } finally {
+      source.close();
+    }
     const lockDirectory = join(dataDirectory, "comment-attachments", "lifecycle-locks");
     await mkdir(lockDirectory, { recursive: true });
     const lockDatabase = await openServerDatabase(join(lockDirectory, "coord.sqlite"), 1000);
@@ -118,9 +135,31 @@ describe("server data archive", () => {
       1_000
     );
     try {
+      applyMigrations(restoredDatabase);
       expect(
         restoredDatabase.prepare("SELECT COUNT(*) AS count FROM server_instance_ownership").get()
       ).toEqual({ count: 0 });
+      const restoredJournal = new HumanObserverJournal(restoredDatabase, 2);
+      expect(restoredJournal.head(scope)).toBe(sourceHead);
+      const observed: number[] = [];
+      restoredJournal.subscribe(scope, (event) => observed.push(event.cursor));
+      const next = inWriteTransaction(restoredDatabase, () =>
+        restoredJournal.appendInCallerTransaction(scope, { kind: "assignment" })
+      );
+      expect(next.previousCursor).toBe(sourceHead);
+      expect(restoredJournal.replay(scope, sourceHead)).toEqual({
+        kind: "events",
+        headCursor: next.cursor,
+        events: [next]
+      });
+      expect(
+        restoredDatabase.prepare("SELECT retained_count FROM human_observer_retention").all()
+      ).toEqual([{ retained_count: 2 }]);
+      expect(
+        restoredDatabase.prepare("SELECT cursor FROM human_observer_events ORDER BY cursor").all()
+      ).toEqual([{ cursor: sourceHead }, { cursor: next.cursor }]);
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      expect(observed).toEqual([next.cursor]);
     } finally {
       restoredDatabase.close();
     }

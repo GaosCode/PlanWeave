@@ -405,6 +405,7 @@ class StartupHarness {
       DROP TABLE acp_conversation_actions;
       DROP TABLE acp_conversation_turns;
       DROP TABLE human_observer_events;
+      DROP TABLE human_observer_retention;
       DROP TABLE activity_projection_outbox;
       DROP TABLE activity_records;
       DROP TABLE comments;

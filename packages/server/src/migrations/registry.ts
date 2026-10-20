@@ -18,6 +18,7 @@ import { setupCodeHostEnrollmentOutcomeMigration, setupCodeMigration } from "./s
 import { commentWorkspaceScopeMigration } from "./commentWorkspaceScope.js";
 import { hostReadinessMigration } from "./hostReadiness.js";
 import { assignmentWorkspaceScopeMigration } from "./assignmentWorkspaceScope.js";
+import { observerRetentionMigration } from "./observerRetention.js";
 import { observerWorkspaceScopeMigration } from "./observerWorkspaceScope.js";
 import { attachmentWorkspaceScopeMigration } from "./attachmentWorkspaceScope.js";
 import { remoteWorkspaceScopeMigration } from "./remoteWorkspaceScope.js";
@@ -86,6 +87,7 @@ export const migrationModules: readonly MigrationModule[] = [
   { name: "host-readiness", migrations: [hostReadinessMigration] },
   { name: "assignment-workspace-scope", migrations: [assignmentWorkspaceScopeMigration] },
   { name: "observer-workspace-scope", migrations: [observerWorkspaceScopeMigration] },
+  { name: "observer-retention", migrations: [observerRetentionMigration] },
   { name: "attachment-workspace-scope", migrations: [attachmentWorkspaceScopeMigration] },
   { name: "attachment-binding-provenance", migrations: [attachmentBindingProvenanceMigration] },
   { name: "remote-workspace-scope", migrations: [remoteWorkspaceScopeMigration] },
