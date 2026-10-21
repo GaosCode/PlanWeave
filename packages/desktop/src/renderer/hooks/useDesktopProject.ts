@@ -222,7 +222,7 @@ export function useDesktopProject({
     setError
   ]);
 
-  const { rollbackPendingImportRecovery } = useDesktopImportRecovery({
+  const rollbackPendingImportRecovery = useDesktopImportRecovery({
     captureProjectSelection,
     refreshProjects,
     refreshProjectDerivedState,

@@ -20,10 +20,6 @@ export type DesktopImportRecoveryRollbackResult =
   | { status: "refreshFailed"; transactionId: string; error: string }
   | { status: "unavailable"; transactionId: string };
 
-function errorMessage(caught: unknown): string {
-  return caught instanceof Error ? caught.message : String(caught);
-}
-
 export function useDesktopImportRecovery({
   captureProjectSelection,
   refreshProjects,
@@ -31,7 +27,7 @@ export function useDesktopImportRecovery({
   selectedProject,
   setError
 }: UseDesktopImportRecoveryArgs) {
-  const rollbackPendingImportRecovery = useCallback(
+  return useCallback(
     async (transactionId: string) => {
       if (!bridge || !selectedProject) {
         return {
@@ -40,18 +36,10 @@ export function useDesktopImportRecovery({
         } satisfies DesktopImportRecoveryRollbackResult;
       }
       const selection = captureProjectSelection();
+      let status: "rollbackFailed" | "refreshFailed" = "rollbackFailed";
       try {
         await bridge.rollbackPendingImportRecovery(selectedProject.rootPath, transactionId);
-      } catch (caught) {
-        const error = errorMessage(caught);
-        if (selection.isCurrent()) setError(error);
-        return {
-          status: "rollbackFailed",
-          transactionId,
-          error
-        } satisfies DesktopImportRecoveryRollbackResult;
-      }
-      try {
+        status = "refreshFailed";
         if (selection.isCurrent()) {
           await refreshProjects();
           if (selection.isCurrent()) {
@@ -59,10 +47,10 @@ export function useDesktopImportRecovery({
           }
         }
       } catch (caught) {
-        const error = errorMessage(caught);
+        const error = caught instanceof Error ? caught.message : String(caught);
         if (selection.isCurrent()) setError(error);
         return {
-          status: "refreshFailed",
+          status,
           transactionId,
           error
         } satisfies DesktopImportRecoveryRollbackResult;
@@ -77,6 +65,4 @@ export function useDesktopImportRecovery({
       setError
     ]
   );
-
-  return { rollbackPendingImportRecovery };
 }
