@@ -70,7 +70,8 @@ export async function resolveDefaultCanvasMigrationStorage(
 ): Promise<DefaultCanvasMigrationStorage> {
   const loaded = await loadProjectGraphForWorkspace(workspace);
   const canvas = loaded.manifest.canvases.find((candidate) => candidate.id === "default");
-  const registered = canvas ? projectCanvasWorkspace(loaded.workspace, canvas) : null;
+  // Source and target paths must use the same captured root, including Home aliases.
+  const registered = canvas ? projectCanvasWorkspace(workspace, canvas) : null;
   const canonicalTargets = migrationStorageTargets(canonical).map((path) => resolve(path));
   const canonicalDefault =
     registered &&
@@ -109,7 +110,7 @@ export async function resolveDefaultCanvasMigrationStorage(
   }
   for (const other of loaded.manifest.canvases) {
     if (other.id === "default") continue;
-    const otherPaths = projectCanvasWorkspace(loaded.workspace, other);
+    const otherPaths = projectCanvasWorkspace(workspace, other);
     for (const target of migrationStorageTargets(otherPaths)) {
       for (const owned of [...sourceTargets, ...canonicalTargets]) assertDisjoint(owned, target);
     }

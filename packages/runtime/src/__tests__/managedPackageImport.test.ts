@@ -61,6 +61,29 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
+it("imports through a Home directory alias without inventing an outside migration path", async () => {
+  const alias = `${home}-alias`;
+  await symlink(home, alias, process.platform === "win32" ? "junction" : "dir");
+  try {
+    vi.stubEnv("PLANWEAVE_HOME", alias);
+    const imported = await runImport();
+    expect(imported.validation.ok).toBe(true);
+    const selected = await resolveTaskCanvasWorkspace(imported.workspace.rootPath, "default");
+    expect(await readFile(selected.manifestFile, "utf8")).toBe(
+      await readFile(join(draftRoot, "manifest.json"), "utf8")
+    );
+    const view = await getDesktopProjectSnapshot({
+      projectRoot: imported.workspace.rootPath,
+      canvasId: "default"
+    });
+    expect(view.graph).toEqual(
+      expect.objectContaining({ projectId: imported.workspace.id, tasks: expect.any(Array) })
+    );
+  } finally {
+    await rm(alias, { recursive: true, force: true });
+  }
+});
+
 function runImport(overwrite = false, projectName = name) {
   return importManagedPackage({ name: projectName, draftRoot, overwrite });
 }
