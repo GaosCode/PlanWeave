@@ -8,6 +8,7 @@ const repositoryRoot = process.cwd();
 const classifierPath = join(repositoryRoot, "scripts/check-test-suite-classification.mjs");
 const fixtureRoots: string[] = [];
 const requiredPlatformTests = [
+  "packages/runtime/src/__tests__/advisoryDirectoryLockProcess.test.ts",
   "packages/desktop/src/__tests__/agentToolsWindows.test.ts",
   "packages/desktop/src/__tests__/runtimeStateWatch.test.ts",
   "packages/mcp/src/__tests__/oauth.test.ts",

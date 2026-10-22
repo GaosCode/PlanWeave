@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { optionalStat } from "./optionalFile.js";
@@ -19,6 +19,7 @@ export type LockHolder = {
 
 export type AdvisoryLockFs = {
   mkdir(path: string): Promise<void>;
+  readdir(path: string): Promise<string[]>;
   writeFile(path: string, data: string, encoding: BufferEncoding): Promise<void>;
   readFile(path: string, encoding: BufferEncoding): Promise<string>;
   rename(from: string, to: string): Promise<void>;
@@ -53,6 +54,7 @@ const heldLockPaths = new AsyncLocalStorage<Set<string>>();
 const inProcessTails = new Map<string, Promise<unknown>>();
 
 const defaultFs: AdvisoryLockFs = {
+  readdir: (path) => readdir(path),
   mkdir: async (path) => {
     await mkdir(path);
   },
@@ -103,11 +105,15 @@ function resolveOperation(operation: string): string {
 
 type HolderReadResult =
   | { status: "ok"; holder: LockHolder; identity: string }
+  | { status: "publishing"; pid: number; detail: string; identity: string }
   | { status: "missing"; detail: string; identity: string }
   | { status: "invalid"; detail: string; identity: string }
   | { status: "error"; detail: string; identity: string };
 
-async function readHolder(lockPath: string, fsAdapter: AdvisoryLockFs): Promise<HolderReadResult> {
+async function readHolderMetadata(
+  lockPath: string,
+  fsAdapter: AdvisoryLockFs
+): Promise<HolderReadResult> {
   const holderPath = join(lockPath, HOLDER_FILE_NAME);
   let rawText: string;
   try {
@@ -149,7 +155,7 @@ async function readHolder(lockPath: string, fsAdapter: AdvisoryLockFs): Promise<
   }
 
   const record = raw as Partial<LockHolder>;
-  if (typeof record.pid !== "number" || !Number.isFinite(record.pid)) {
+  if (typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0) {
     return {
       status: "invalid",
       detail: `holder pid missing or invalid at ${holderPath}`,
@@ -188,6 +194,32 @@ async function readHolder(lockPath: string, fsAdapter: AdvisoryLockFs): Promise<
   };
 }
 
+async function readHolder(lockPath: string, fsAdapter: AdvisoryLockFs): Promise<HolderReadResult> {
+  const result = await readHolderMetadata(lockPath, fsAdapter);
+  if (result.status === "ok" || result.status === "publishing") return result;
+  let entries: string[];
+  try {
+    entries = await fsAdapter.readdir(lockPath);
+  } catch (error) {
+    if (isErrno(error, "ENOENT")) return result;
+    const detail = error instanceof Error ? error.message : String(error);
+    return { ...result, detail: `${result.detail}; owner marker unreadable: ${detail}` };
+  }
+  const markers = entries.filter((entry) => entry.startsWith("owner-"));
+  if (markers.length !== 1) return result;
+  const marker =
+    /^owner-([1-9]\d*)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(
+      markers[0]
+    );
+  if (!marker || !Number.isSafeInteger(Number(marker[1]))) return result;
+  return {
+    status: "publishing",
+    pid: Number(marker[1]),
+    identity: `token:${marker[2]}`,
+    detail: `${result.detail}; unpublished holder pid=${marker[1]}`
+  };
+}
+
 async function writeHolder(
   lockPath: string,
   operation: string,
@@ -196,6 +228,8 @@ async function writeHolder(
   clock: AdvisoryLockClock,
   fsAdapter: AdvisoryLockFs
 ): Promise<void> {
+  // mkdir publishes owner identity atomically before an interruptible JSON write.
+  await fsAdapter.mkdir(join(lockPath, `owner-${pid}-${ownerToken}`));
   const holder: LockHolder = {
     pid,
     acquiredAt: new Date(clock.nowMs()).toISOString(),
@@ -272,17 +306,17 @@ async function tryReclaimStaleLock(
   if (!stats) {
     return false;
   }
-  const ageMs = clock.nowMs() - stats.mtimeMs;
-  if (ageMs < staleMs) {
-    return false;
-  }
-
   const holderResult = await readHolder(lockPath, fsAdapter);
-  if (holderResult.status === "ok" && isPidAlive(holderResult.holder.pid)) {
+  if (holderResult.status === "ok") {
+    if (isPidAlive(holderResult.holder.pid)) return false;
+  } else if (holderResult.status === "publishing") {
+    if (isPidAlive(holderResult.pid)) return false;
+  } else if (clock.nowMs() - stats.mtimeMs < staleMs) {
+    // mkdir and holder publication are separate writes; an incomplete holder may be live.
     return false;
   }
 
-  // Stale and holder dead, missing, invalid, or unreadable — reclaim conservatively.
+  // A confirmed dead owner needs no grace period; identity fencing protects replacements.
   return removeLockIfIdentityMatches(lockPath, holderResult.identity, fsAdapter);
 }
 
@@ -347,7 +381,6 @@ async function acquireFileLock(
 ): Promise<string> {
   // Use performance.now() so Vitest fake Date cannot freeze the timeout loop.
   const started = clock.performanceNow();
-  let attemptedStaleReclaim = false;
 
   while (clock.performanceNow() - started < timeoutMs) {
     try {
@@ -356,11 +389,8 @@ async function acquireFileLock(
       if (!isErrno(error, "EEXIST")) {
         throw error;
       }
-      if (!attemptedStaleReclaim) {
-        attemptedStaleReclaim = true;
-        if (await tryReclaimStaleLock(lockPath, staleMs, clock, fsAdapter, isPidAlive)) {
-          continue;
-        }
+      if (await tryReclaimStaleLock(lockPath, staleMs, clock, fsAdapter, isPidAlive)) {
+        continue;
       }
       // Prefer injected delay so Vitest fake timers on the global do not freeze backoff.
       await clock.delay(retryDelayMs);

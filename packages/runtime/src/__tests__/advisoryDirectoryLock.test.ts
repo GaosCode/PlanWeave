@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -54,6 +54,14 @@ function createMemoryFs(seed: Map<string, string | "dir"> = new Map()): {
   };
 
   state.fs = {
+    async readdir(path) {
+      const prefix = `${path.replaceAll("\\", "/")}/`;
+      return [...store.keys()].flatMap((key) => {
+        const normalized = key.replaceAll("\\", "/");
+        const entry = normalized.startsWith(prefix) ? normalized.slice(prefix.length) : "";
+        return entry && !entry.includes("/") ? [entry] : [];
+      });
+    },
     async mkdir(path) {
       state.mkdirCalls.push(path);
       if (store.has(path)) {
@@ -135,6 +143,7 @@ describe("advisory directory lock", () => {
     let writeCount = 0;
 
     const fsAdapter: AdvisoryLockFs = {
+      readdir: (path) => readdir(path),
       mkdir: async (path) => {
         await mkdir(path);
       },
@@ -301,7 +310,7 @@ describe("advisory directory lock", () => {
     expect(mem.rmCalls).toHaveLength(0);
   });
 
-  it("reclaims a stale lock when holder pid is dead", async () => {
+  it.each([0, 120_000])("reclaims a dead holder at lock age %i ms", async (ageMs) => {
     const lockPath = "/virtual/.planweave.lock";
     const holder = {
       pid: 7777,
@@ -316,7 +325,7 @@ describe("advisory directory lock", () => {
     );
     mem.fs.optionalStat = async () => ({ mtimeMs: 1_000_000 });
 
-    let wall = 1_000_000 + 120_000;
+    let wall = 1_000_000 + ageMs;
     const order: string[] = [];
 
     await withAdvisoryDirectoryLock(
@@ -345,6 +354,80 @@ describe("advisory directory lock", () => {
 
     expect(order).toEqual(["critical"]);
     expect(mem.rmCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rechecks a holder that exits while an acquisition is waiting", async () => {
+    const lockPath = "/virtual/exiting-owner.lock";
+    const mem = createMemoryFs(
+      new Map([
+        [lockPath, "dir"],
+        [
+          join(lockPath, "holder.json"),
+          JSON.stringify({
+            pid: 7777,
+            acquiredAt: new Date().toISOString(),
+            operation: "exiting-owner"
+          })
+        ]
+      ])
+    );
+    let elapsed = 0;
+    await expect(
+      withAdvisoryDirectoryLock(
+        {
+          lockPath,
+          operation: "waiting-reader",
+          timeoutMs: 100,
+          retryDelayMs: 1,
+          fs: mem.fs,
+          isPidAlive: () => elapsed === 0,
+          clock: {
+            nowMs: () => Date.now(),
+            performanceNow: () => elapsed,
+            delay: async () => {
+              elapsed += 1;
+            }
+          }
+        },
+        async () => "recovered"
+      )
+    ).resolves.toBe("recovered");
+  });
+
+  it.each([
+    null,
+    "{",
+    JSON.stringify({ pid: 0, acquiredAt: "now", operation: "writer" }),
+    JSON.stringify({ pid: -1, acquiredAt: "now", operation: "writer" }),
+    JSON.stringify({ pid: 1.5, acquiredAt: "now", operation: "writer" })
+  ])("preserves a fresh incomplete or invalid holder: %s", async (raw) => {
+    const lockPath = "/virtual/publishing-owner.lock";
+    const mem = createMemoryFs(new Map([[lockPath, "dir"]]));
+    if (raw !== null) mem.store.set(join(lockPath, "holder.json"), raw);
+    mem.fs.optionalStat = async () => ({ mtimeMs: 1_000_000 });
+    let elapsed = 0;
+    await expect(
+      withAdvisoryDirectoryLock(
+        {
+          lockPath,
+          operation: "contender",
+          timeoutMs: 10,
+          retryDelayMs: 1,
+          fs: mem.fs,
+          isPidAlive: () => false,
+          clock: {
+            nowMs: () => 1_000_000 + elapsed,
+            performanceNow: () => elapsed,
+            delay: async () => {
+              elapsed += 1;
+            }
+          }
+        },
+        async () => "entered"
+      )
+    ).rejects.toThrow("Timed out acquiring directory lock");
+    expect(mem.store.has(lockPath)).toBe(true);
+    expect(mem.rmCalls).toHaveLength(0);
   });
 
   it("reclaims a stale lock when holder is unreadable", async () => {
@@ -600,7 +683,7 @@ describe("advisory directory lock", () => {
           timeoutMs: 80,
           staleMs: 60_000,
           retryDelayMs: 1,
-          isPidAlive: () => false,
+          isPidAlive: (pid) => pid === replacementHolder.pid,
           fs: mem.fs,
           clock: {
             nowMs: () => 1_120_000,

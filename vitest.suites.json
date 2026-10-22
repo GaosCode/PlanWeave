@@ -824,6 +824,7 @@
         "desktopAutoRunEvents.test.ts"
       ],
       "platform": [
+        "advisoryDirectoryLockProcess.test.ts",
         "agentRunControlServer.test.ts",
         "agentRunControlTwoProcess.test.ts",
         "blockRunIndexConcurrency.test.ts",

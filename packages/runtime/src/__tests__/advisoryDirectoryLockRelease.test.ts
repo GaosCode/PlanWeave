@@ -16,6 +16,7 @@ async function fixture(rename: AdvisoryLockFs["rename"]) {
   const root = await fs.mkdtemp(join(tmpdir(), "planweave-lock-release-"));
   directories.push(root);
   const adapter: AdvisoryLockFs = {
+    readdir: (path) => fs.readdir(path),
     mkdir: async (path) => {
       await fs.mkdir(path);
     },
