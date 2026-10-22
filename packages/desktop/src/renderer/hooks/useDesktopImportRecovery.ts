@@ -5,10 +5,11 @@ import type { DesktopSelectionReceipt } from "./useDesktopProjectSnapshot";
 
 type UseDesktopImportRecoveryArgs = {
   captureProjectSelection: () => DesktopSelectionReceipt;
-  refreshProjects: () => Promise<void>;
+  refreshProjects: (options?: { throwOnErrors?: boolean }) => Promise<void>;
   refreshProjectDerivedState: (options?: {
     includeLayout?: boolean;
     includePrompt?: boolean;
+    throwOnErrors?: boolean;
   }) => Promise<void>;
   selectedProject: DesktopProjectSummary | null;
   setError: (message: string | null) => void;
@@ -41,9 +42,9 @@ export function useDesktopImportRecovery({
         await bridge.rollbackPendingImportRecovery(selectedProject.rootPath, transactionId);
         status = "refreshFailed";
         if (selection.isCurrent()) {
-          await refreshProjects();
+          await refreshProjects({ throwOnErrors: true });
           if (selection.isCurrent()) {
-            await refreshProjectDerivedState({ includeLayout: true });
+            await refreshProjectDerivedState({ includeLayout: true, throwOnErrors: true });
           }
         }
       } catch (caught) {

@@ -160,7 +160,8 @@ export function useDesktopProjectLoader({
       project: DesktopProjectSummary,
       requestedCanvasId?: string | null,
       existingSelection?: DesktopSelectionReceipt & { finishLoading: () => void },
-      isOperationCurrent?: () => boolean
+      isOperationCurrent?: () => boolean,
+      throwOnErrors = false
     ) => {
       if (isOperationCurrent && !isOperationCurrent()) return;
       const canvasId = resolveProjectCanvasId(project, requestedCanvasId);
@@ -211,7 +212,10 @@ export function useDesktopProjectLoader({
         }
         if (!isCurrent()) return;
         if (publishSnapshotDiagnostics) errors.push(...publishSnapshotDiagnostics());
-        if (request.isCurrent() && errors.length > 0) setError(errors.join("\n"));
+        if (request.isCurrent() && errors.length > 0) {
+          setError(errors.join("\n"));
+          if (throwOnErrors) throw new Error(errors.join("\n"));
+        }
         updateSettings({ runtimePath: project.workspaceRoot });
       } finally {
         if (loadRequest.isCurrent()) selection.finishLoading();
@@ -445,7 +449,12 @@ export function useDesktopProjectLoader({
 
   const refreshProjects = useCallback(
     async (
-      options: { selectProjectId?: string; selectCanvasId?: string; isCurrent?: () => boolean } = {}
+      options: {
+        selectProjectId?: string;
+        selectCanvasId?: string;
+        isCurrent?: () => boolean;
+        throwOnErrors?: boolean;
+      } = {}
     ) => {
       if (!bridge || (options.isCurrent && !options.isCurrent())) {
         return;
@@ -461,21 +470,25 @@ export function useDesktopProjectLoader({
           ? (nextProjects.find((item) => item.projectId === options.selectProjectId) ?? null)
           : null;
         if (requestedProject) {
-          await loadProject(requestedProject, options.selectCanvasId, undefined, options.isCurrent);
+          await loadProject(
+            requestedProject,
+            options.selectCanvasId,
+            undefined,
+            options.isCurrent,
+            options.throwOnErrors
+          );
           return;
         }
         const currentProject =
           nextProjects.find((item) => item.projectId === selectedProject?.projectId) ??
           nextProjects.find((item) => item.rootPath === selectedProject?.rootPath) ??
           null;
-        if (currentProject) {
+        if (
+          currentProject?.taskCanvases.some(
+            (canvas) => canvas.canvasId === currentCanvasRef.current.canvasId
+          )
+        ) {
           setSelectedProject(currentProject);
-          setSelectedCanvasId((currentCanvasId) =>
-            currentCanvasId &&
-            currentProject.taskCanvases.some((canvas) => canvas.canvasId === currentCanvasId)
-              ? currentCanvasId
-              : resolveProjectCanvasId(currentProject)
-          );
           setExpandedProjectId((currentExpandedProjectId) =>
             currentExpandedProjectId === selectedProject?.projectId
               ? currentProject.projectId
@@ -484,9 +497,15 @@ export function useDesktopProjectLoader({
           setError(null);
           return;
         }
-        const nextProject = nextProjects[0] ?? null;
+        const nextProject = currentProject ?? nextProjects[0];
         if (nextProject) {
-          await loadProject(nextProject, undefined, undefined, options.isCurrent);
+          await loadProject(
+            nextProject,
+            undefined,
+            undefined,
+            options.isCurrent,
+            options.throwOnErrors
+          );
           return;
         }
         setSelectedProject(null);
@@ -496,6 +515,7 @@ export function useDesktopProjectLoader({
         setError(null);
       } catch (caught) {
         if (isCurrent()) setError(errorMessage(caught));
+        if (options.throwOnErrors) throw caught;
       } finally {
         if (request.isCurrent()) setProjectRefreshing(false);
       }
@@ -503,6 +523,7 @@ export function useDesktopProjectLoader({
     [
       captureProjectSelection,
       clearProjectState,
+      currentCanvasRef,
       loadProject,
       selectedProject?.projectId,
       selectedProject?.rootPath,

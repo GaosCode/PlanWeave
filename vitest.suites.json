@@ -387,6 +387,7 @@
         "desktopDevContract.test.ts",
         "desktopDiagnosticsLog.test.ts",
         "desktopImportRecoveryHook.test.tsx",
+        "desktopProjectDraftRecovery.test.tsx",
         "desktopMutationIpcContract.test.ts",
         "desktopReleaseConfig.test.ts",
         "desktopSettingsHandlers.test.ts",
