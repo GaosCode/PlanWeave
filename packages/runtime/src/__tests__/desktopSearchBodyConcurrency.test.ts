@@ -76,7 +76,7 @@ afterEach(async () => {
   for (const path of ownedDirectories.splice(0))
     await fs.rm(path, { recursive: true, force: true });
 });
-async function fixture(home?: string) {
+async function fixture(home?: string, equalResultTimes = false) {
   const workspace = await createTestWorkspace(basicManifest(), { planweaveHome: home });
   ownedDirectories.push(workspace.root);
   if (!home) ownedDirectories.push(workspace.home);
@@ -97,6 +97,10 @@ async function fixture(home?: string) {
     await fs.mkdir(join(review, ".."), { recursive: true });
     await fs.writeFile(report, "concurrent needle report\n");
     await fs.writeFile(review, "concurrent needle review\n");
+    // Search ranking follows file recency; writes can share an mtime on CI filesystems.
+    await fs.utimes(report, 1_700_000_000, 1_700_000_000);
+    const reviewTime = equalResultTimes ? 1_700_000_000 : 1_700_000_002;
+    await fs.utimes(review, reviewTime, reviewTime);
     const prompt = join(canvas.workspace.packageDir, "nodes/T-001/prompt.md");
     await fs.writeFile(prompt, "concurrent needle prompt\n");
     bodies.push([
@@ -173,6 +177,17 @@ async function startSearch(root: string, canvasId?: string) {
 }
 
 describe("concurrent search body entry lifecycle", () => {
+  it("breaks equal result timestamps by path on cold and cached searches", async () => {
+    const f = await fixture(undefined, true);
+    const [prompt, review, report] = expected("default");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await searchProjectWithDiagnostics(f.root, "concurrent needle", {
+        canvasId: "default"
+      });
+      expect(result.results).toEqual([prompt, report, review]);
+    }
+  });
+
   it("shares one selected body batch while summary and other canvases remain independent", async () => {
     const f = await fixture();
     process.env.PLANWEAVE_DESKTOP_PROJECTION_SLOW_DIAGNOSTICS_MS = "0";
