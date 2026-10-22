@@ -4,6 +4,7 @@ export type DesktopBeforeQuitEvent = {
 
 export type DesktopShutdownController = {
   handleBeforeQuit(event: DesktopBeforeQuitEvent): void;
+  requestExit(code: number): void;
 };
 
 export function createDesktopShutdownController(input: {
@@ -11,11 +12,21 @@ export function createDesktopShutdownController(input: {
   cleanupTasks: readonly (() => Promise<void>)[];
   reportError(error: unknown): void;
   requestQuit(): void;
+  exit(code: number): void;
 }): DesktopShutdownController {
   let cleanupStarted = false;
   let cleanupComplete = false;
+  let exitCode: number | undefined;
+  const reportError = (error: unknown) => {
+    if (exitCode !== undefined) exitCode = 1;
+    input.reportError(error);
+  };
 
   return {
+    requestExit(code) {
+      exitCode = Math.max(exitCode ?? 0, code);
+      input.requestQuit();
+    },
     handleBeforeQuit(event) {
       if (cleanupComplete) return;
       event.preventDefault();
@@ -26,18 +37,19 @@ export function createDesktopShutdownController(input: {
         try {
           input.closeRendererWindows();
         } catch (error) {
-          input.reportError(error);
+          reportError(error);
         }
 
         const results = await Promise.allSettled(
           input.cleanupTasks.map((task) => Promise.resolve().then(task))
         );
         for (const result of results) {
-          if (result.status === "rejected") input.reportError(result.reason);
+          if (result.status === "rejected") reportError(result.reason);
         }
 
         cleanupComplete = true;
-        input.requestQuit();
+        if (exitCode === undefined) input.requestQuit();
+        else input.exit(exitCode);
       })();
     }
   };

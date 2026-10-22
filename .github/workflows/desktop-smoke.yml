@@ -69,8 +69,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run packaged desktop smoke
+      - name: Run packaged desktop startup and restart smoke
         run: pnpm --dir packages/desktop verify:packaged:mac
-
-      - name: Run desktop UI smoke
-        run: pnpm --dir packages/desktop smoke:packaged:mac

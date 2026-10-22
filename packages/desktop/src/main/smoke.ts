@@ -1386,7 +1386,7 @@ async function reloadSmokeRenderer(
   `);
 }
 
-export async function runSmokeCheck(window: BrowserWindow): Promise<void> {
+export async function runSmokeCheck(window: BrowserWindow): Promise<number> {
   const localCollaborationOnly = process.env.PLANWEAVE_DESKTOP_SMOKE_LOCAL_COLLABORATION === "1";
   const requiredText = ["Implement a tiny example change", "Task Node"];
   for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -1417,8 +1417,7 @@ export async function runSmokeCheck(window: BrowserWindow): Promise<void> {
               rendererManual
             })
           );
-          app.exit(0);
-          return;
+          return 0;
         }
         workflow = await runSmokeWorkflow(window);
         await reloadSmokeRenderer(window);
@@ -1483,8 +1482,7 @@ export async function runSmokeCheck(window: BrowserWindow): Promise<void> {
               : { projectRoot: process.env.PLANWEAVE_DESKTOP_SMOKE_PROJECT_ROOT })
           })
         );
-        app.exit(1);
-        return;
+        return 1;
       }
       console.log(
         JSON.stringify({
@@ -1497,8 +1495,7 @@ export async function runSmokeCheck(window: BrowserWindow): Promise<void> {
           projectRoot: process.env.PLANWEAVE_DESKTOP_SMOKE_PROJECT_ROOT
         })
       );
-      app.exit(0);
-      return;
+      return 0;
     }
     await wait(100);
   }
@@ -1516,5 +1513,5 @@ export async function runSmokeCheck(window: BrowserWindow): Promise<void> {
         : { projectRoot: process.env.PLANWEAVE_DESKTOP_SMOKE_PROJECT_ROOT })
     })
   );
-  app.exit(1);
+  return 1;
 }

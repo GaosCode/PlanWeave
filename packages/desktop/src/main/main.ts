@@ -31,7 +31,7 @@ import { registerWorkspaceExecutionHandlers } from "./workspaceExecutionHandlers
 import { registerRuntimeStateWatchHandlers } from "./runtimeStateWatch.js";
 import { registerWindowAppearanceHandlers } from "./windowAppearance.js";
 import { createWindow } from "./window.js";
-import { runPackagedStartupSmoke } from "./smoke.js";
+import { runPackagedStartupSmoke, runSmokeCheck } from "./smoke.js";
 import { startSingleInstanceLifecycle } from "./singleInstanceLifecycle.js";
 import { runDesktopAgentHostServiceMode } from "./desktopAgentHostServiceMode.js";
 import { createDesktopShutdownController } from "./appShutdown.js";
@@ -188,6 +188,10 @@ function startDesktopApplication(): void {
           await loadDesktopAgentShellEnvironment();
           await loadFirstLaunchExample();
           const window = await createWindow({ isDev, isSmoke, isStartupSmoke });
+          if (isSmoke) {
+            shutdownController.requestExit(await runSmokeCheck(window));
+            return;
+          }
           if (isStartupSmoke) {
             const result = await runPackagedStartupSmoke(window);
             await writeStartupSmokeReport(result);
@@ -210,7 +214,7 @@ function startDesktopApplication(): void {
             }
           }
           console.error(diagnostic);
-          app.exit(1);
+          shutdownController.requestExit(1);
         });
       });
 
@@ -243,7 +247,8 @@ function startDesktopApplication(): void {
         reportError: (error) => {
           console.error(error instanceof Error ? error.message : String(error));
         },
-        requestQuit: () => app.quit()
+        requestQuit: () => app.quit(),
+        exit: (code) => app.exit(code)
       });
       app.on("before-quit", (event) => shutdownController.handleBeforeQuit(event));
 

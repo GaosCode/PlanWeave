@@ -3,7 +3,6 @@ import { BrowserWindow, shell } from "electron";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Event as ElectronEvent, WebContentsConsoleMessageEventParams } from "electron";
-import { runSmokeCheck } from "./smoke.js";
 import {
   isRendererUncaughtConsoleMessage,
   rendererUncaughtSmokeEvent
@@ -160,9 +159,6 @@ export async function createWindow(options: {
     await window.loadURL(process.env.PLANWEAVE_DESKTOP_DEV_SERVER_URL as string);
   } else {
     await window.loadFile(rendererEntry());
-  }
-  if (options.isSmoke) {
-    await runSmokeCheck(window);
   }
   return window;
 }

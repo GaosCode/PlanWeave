@@ -14,7 +14,8 @@ describe("Desktop shutdown", () => {
         }
       ],
       reportError: vi.fn(),
-      requestQuit
+      requestQuit,
+      exit: vi.fn()
     });
 
     controller.handleBeforeQuit({ preventDefault });
@@ -43,7 +44,8 @@ describe("Desktop shutdown", () => {
       closeRendererWindows: vi.fn(),
       cleanupTasks: [cleanupTask, cleanupTask],
       reportError,
-      requestQuit
+      requestQuit,
+      exit: vi.fn()
     });
 
     controller.handleBeforeQuit({ preventDefault: firstPreventDefault });
@@ -60,4 +62,45 @@ describe("Desktop shutdown", () => {
     controller.handleBeforeQuit({ preventDefault: completedPreventDefault });
     expect(completedPreventDefault).not.toHaveBeenCalled();
   });
+});
+
+it.each([0, 1])("waits for cleanup before exiting smoke with code %i", async (code) => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const exit = vi.fn();
+  const cleanup = vi.fn(() => pending);
+  const controller = createDesktopShutdownController({
+    closeRendererWindows: vi.fn(),
+    cleanupTasks: [cleanup],
+    reportError: vi.fn(),
+    requestQuit: () => controller.handleBeforeQuit({ preventDefault: vi.fn() }),
+    exit
+  });
+  controller.requestExit(code);
+  await vi.waitFor(() => expect(cleanup).toHaveBeenCalledOnce());
+  expect(exit).not.toHaveBeenCalled();
+  release();
+  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(code));
+});
+
+it("fails a successful smoke when shutdown cleanup fails", async () => {
+  const exit = vi.fn();
+  const error = new Error("cleanup failed");
+  const reportError = vi.fn();
+  const controller = createDesktopShutdownController({
+    closeRendererWindows: vi.fn(),
+    cleanupTasks: [
+      async () => {
+        throw error;
+      }
+    ],
+    reportError,
+    requestQuit: () => controller.handleBeforeQuit({ preventDefault: vi.fn() }),
+    exit
+  });
+  controller.requestExit(0);
+  await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
+  expect(reportError).toHaveBeenCalledWith(error);
 });

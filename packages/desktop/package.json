@@ -48,7 +48,7 @@
     "smoke:local-collaboration": "tsx scripts/electron-smoke.ts --local-collaboration",
     "smoke:packaged:mac": "PLANWEAVE_DESKTOP_SMOKE_PACKAGED=1 tsx scripts/electron-smoke.ts",
     "smoke:packaged:win": "node scripts/verify-packaged-app.mjs",
-    "verify:packaged:mac": "pnpm pack:mac && pnpm smoke:packaged:mac && node scripts/verify-packaged-app.mjs",
+    "verify:packaged:mac": "pnpm pack:mac && pnpm smoke:packaged:mac && node scripts/verify-packaged-app.mjs && pnpm smoke:packaged:mac",
     "verify:release-assets": "node scripts/verify-release-assets.mjs"
   },
   "dependencies": {
