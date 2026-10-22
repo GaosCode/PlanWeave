@@ -166,7 +166,9 @@ export default defineConfig({
             },
             {
               name: "graph-actions",
-              test: (id) => id.endsWith("/renderer/hooks/useGraphPaletteActions.ts"),
+              test: (id) =>
+                id.endsWith("/renderer/hooks/useGraphPaletteActions.ts") ||
+                id.endsWith("/renderer/hooks/useGraphDeleteActions.ts"),
               priority: 14
             },
             {
