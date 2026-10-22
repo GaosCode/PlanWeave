@@ -9,5 +9,5 @@ await startVitest("test", [], {
   config,
   run: true,
   maxWorkers: Number(maxWorkers),
-  include: files.map((file) => file.replace(/([*?[\]{}()!+@])/g, "\\$1"))
+  include: files.map((file) => file.replace(/([\\*?[\]{}()!+@])/g, "\\$1"))
 });

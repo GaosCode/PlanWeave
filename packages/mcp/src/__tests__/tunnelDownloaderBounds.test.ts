@@ -84,7 +84,7 @@ it("rejects metadata by consumed bytes, preserves an old install and allows retr
   const saved = join(root, "verification.json");
   await writeFile(saved, verification);
   transport(data, (url) =>
-    url.includes("api.github.com")
+    new URL(url).hostname === "api.github.com"
       ? new Response(" ".repeat(4096) + data.metadata, { headers: { "content-length": "1" } })
       : undefined
   );
@@ -133,7 +133,7 @@ it.each([
   transport(data, (url, init) => {
     const matches =
       stage === "headers" ||
-      (stage === "metadata body" && url.includes("api.github.com")) ||
+      (stage === "metadata body" && new URL(url).hostname === "api.github.com") ||
       (stage === "checksum body" && url.endsWith("/sums")) ||
       (stage === "archive body" && url.endsWith("/zip"));
     if (!matches) return undefined;
@@ -158,15 +158,15 @@ it.each([
 });
 
 it.each([
-  ["metadata", "api.github.com", "metadataBytes"],
-  ["checksum", "/sums", "checksumBytes"],
-  ["archive", "/zip", "zipBytes"]
+  ["metadata", (url: URL) => url.hostname === "api.github.com", "metadataBytes"],
+  ["checksum", (url: URL) => url.pathname === "/sums", "checksumBytes"],
+  ["archive", (url: URL) => url.pathname === "/zip", "zipBytes"]
 ] as const)("bounds chunked %s without trusting Content-Length and cancels readers", async (_label, match, key) => {
   const installed = await oldInstall();
   const cancel = vi.fn();
   let signal: AbortSignal | undefined;
   transport(fixture(), (url, init) => {
-    if (!url.includes(match)) return undefined;
+    if (!match(new URL(url))) return undefined;
     signal = init?.signal ?? undefined;
     return new Response(
       new ReadableStream<Uint8Array>({
@@ -307,7 +307,7 @@ it("uses one remaining deadline across metadata and archive work", async () => {
   });
   const cancelled = vi.fn();
   transport(data, (url) => {
-    if (url.includes("api.github.com"))
+    if (new URL(url).hostname === "api.github.com")
       return new Promise<Response>((resolve) => {
         releaseMetadata = resolve;
       });
@@ -356,7 +356,7 @@ it("downloads through real HTTP streaming and cancels an unbounded archive conne
   if (!address || typeof address === "string") throw new Error("Missing HTTP test address");
   const origin = `http://127.0.0.1:${address.port}`;
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
-    if (url.includes("api.github.com")) return new Response(data.metadata);
+    if (new URL(url).hostname === "api.github.com") return new Response(data.metadata);
     return fetchHttp(`${origin}${new URL(url).pathname}`, init);
   });
   try {
@@ -469,7 +469,7 @@ it("preserves HTTP rate-limit diagnostics without waiting for a failed response 
   const installed = await oldInstall();
   const cancel = vi.fn(() => new Promise<void>(() => undefined));
   transport(fixture(), (url) =>
-    url.includes("api.github.com")
+    new URL(url).hostname === "api.github.com"
       ? new Response(new ReadableStream<Uint8Array>({ cancel }), { status: 403 })
       : undefined
   );

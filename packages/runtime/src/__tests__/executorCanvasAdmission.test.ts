@@ -79,7 +79,9 @@ it.each([
     command: process.execPath,
     args: [
       "-e",
-      `const fs=require('node:fs/promises'); (async()=>{await fs.writeFile(${JSON.stringify(ready)},'ready');for(let i=0;i<300;i++){try{await fs.readFile(${JSON.stringify(finish)});break;}catch(e){if(e.code!=='ENOENT')throw e;}await new Promise(r=>setTimeout(r,20));}console.log(JSON.stringify({reviewBlockRef:'T-001#R-001',taskId:'T-001',verdict:'passed',content:'actual child review'}));})().catch(e=>{console.error(e);process.exitCode=1;});`
+      `const fs=require('node:fs/promises'); (async()=>{await fs.writeFile(process.argv[1],'ready');for(let i=0;i<300;i++){try{await fs.readFile(process.argv[2]);break;}catch(e){if(e.code!=='ENOENT')throw e;}await new Promise(r=>setTimeout(r,20));}console.log(JSON.stringify({reviewBlockRef:'T-001#R-001',taskId:'T-001',verdict:'passed',content:'actual child review'}));})().catch(e=>{console.error(e);process.exitCode=1;});`,
+      ready,
+      finish
     ],
     timeoutMs: 10000
   };

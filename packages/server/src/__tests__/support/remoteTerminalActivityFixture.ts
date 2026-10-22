@@ -168,7 +168,10 @@ export async function setupTerminalActivity(checkpoints?: RemoteCoordinatorCheck
       collaborationScopeAuthority,
       transportAdmission: loopbackHttpTransportAdmission
     }).catch((error) => {
-      response.statusCode = 500;
+      response.writeHead(500, {
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      });
       response.end(String(error));
     });
   });

@@ -76,10 +76,10 @@ describe("Executor results write leases", () => {
     const program = `
       const fs=require('node:fs/promises');
       (async()=>{
-        const {createEmptyState,writeState}=await import(${JSON.stringify(stateSource)});
-        await writeState(${JSON.stringify(workspace.stateFile)},{...createEmptyState(),currentRefs:['T-001#B-001']});
-        await fs.writeFile(${JSON.stringify(ready)},'ready');
-        while(true){try{await fs.readFile(${JSON.stringify(finish)});break;}catch(e){if(e.code!=='ENOENT')throw e;}await new Promise(r=>setTimeout(r,20));}
+        const {createEmptyState,writeState}=await import(process.argv[1]);
+        await writeState(process.argv[2],{...createEmptyState(),currentRefs:['T-001#B-001']});
+        await fs.writeFile(process.argv[3],'ready');
+        while(true){try{await fs.readFile(process.argv[4]);break;}catch(e){if(e.code!=='ENOENT')throw e;}await new Promise(r=>setTimeout(r,20));}
         console.log(JSON.stringify({reviewBlockRef:'T-001#R-001',taskId:'T-001',verdict:'passed',content:'completed'}));
       })().catch(e=>{console.error(e);process.exitCode=1;});
     `;
@@ -92,7 +92,16 @@ describe("Executor results write leases", () => {
       profile: {
         adapter: "local-review",
         command: process.execPath,
-        args: ["--import", import.meta.resolve("tsx"), "-e", program]
+        args: [
+          "--import",
+          import.meta.resolve("tsx"),
+          "-e",
+          program,
+          stateSource,
+          workspace.stateFile,
+          ready,
+          finish
+        ]
       },
       runtime: { tmuxEnabled: false, timeoutMs: 5000, signal: cancellation.signal }
     });
