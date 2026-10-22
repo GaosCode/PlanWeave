@@ -1,4 +1,8 @@
 #!/usr/bin/env sh
 set -e
 
-pnpm verify:push
+printf '%s\n' 'Running quick pre-push checks. Full verification: pnpm verify:push'
+
+pnpm biome:check
+pnpm check:test-suites
+pnpm check:source-import-paths
