@@ -16,7 +16,7 @@
     "check:runtime-browser-boundary": "node scripts/check-runtime-browser-boundary.mjs",
     "check:versions": "node scripts/sync-version-metadata.mjs --check",
     "gate:acp-connection-reuse": "node scripts/acp-connection-reuse-gate.mjs",
-    "lint": "pnpm check:versions && pnpm check:dom-boundaries && pnpm check:runtime-browser-boundary && pnpm check:distributed-package-boundaries && pnpm typecheck",
+    "lint": "pnpm check:source-import-paths && pnpm check:versions && pnpm check:dom-boundaries && pnpm check:runtime-browser-boundary && pnpm check:distributed-package-boundaries && pnpm typecheck",
     "typecheck": "pnpm --filter @planweave-ai/agent-host-protocol typecheck && pnpm --filter @planweave-ai/collaboration-protocol typecheck && pnpm --filter @planweave-ai/runtime typecheck && pnpm --parallel --filter @planweave-ai/mcp --filter @planweave-ai/server --filter @planweave-ai/agent-host typecheck && pnpm --filter @planweave-ai/cli typecheck && pnpm --filter @planweave-ai/desktop typecheck",
     "desktop:build": "pnpm --dir packages/desktop build",
     "desktop:dev": "pnpm --dir packages/desktop dev",
@@ -42,7 +42,7 @@
     "sync:versions": "node scripts/sync-version-metadata.mjs",
     "check:test-suites": "node scripts/check-test-suite-classification.mjs",
     "audit:security": "npx --yes pnpm@11.4.0 audit --prod --audit-level=high",
-    "verify:push": "pnpm audit:security && pnpm biome:check && pnpm check:test-suites && pnpm build && pnpm lint && pnpm test",
+    "verify:push": "pnpm audit:security && pnpm biome:check && pnpm check:test-suites && pnpm build && pnpm lint && pnpm test && pnpm desktop:verify:packaged",
     "test": "pnpm check:test-suites && vitest run --config vitest.unit.config.ts --maxWorkers 2 && vitest run --config vitest.integration-cli.config.ts --maxWorkers 2 && vitest run --config vitest.integration-core.config.ts --maxWorkers 2 && vitest run --config vitest.integration-distributed.config.ts --maxWorkers 1 && vitest run --config vitest.performance.config.ts --maxWorkers 1 && vitest run --config vitest.platform.config.ts --maxWorkers 2",
     "test:file": "node scripts/test-files.mjs",
     "test:integration": "vitest run --config vitest.integration.config.ts",
@@ -51,7 +51,9 @@
     "test:integration:distributed": "vitest run --config vitest.integration-distributed.config.ts",
     "test:performance": "vitest run --config vitest.performance.config.ts",
     "test:platform": "vitest run --config vitest.platform.config.ts",
-    "test:unit": "vitest run --config vitest.unit.config.ts"
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "check:source-import-paths": "node scripts/check-source-import-paths.mjs",
+    "desktop:verify:packaged": "node scripts/verify-packaged-desktop.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",

@@ -59,6 +59,7 @@
         "runSessionCli.test.ts",
         "runStatusObservability.test.ts",
         "skillContract.test.ts",
+        "sourceImportCasing.test.ts",
         "testFileCommand.test.ts",
         "testSuiteClassificationGuard.test.ts"
       ],
