@@ -730,6 +730,7 @@
         "importTransactionApply.test.ts",
         "importTransactionLifecycle.test.ts",
         "managedPackageImport.test.ts",
+        "managedPackageImportInitialization.test.ts",
         "managedProjectRenameStorage.test.ts",
         "managedProjectRenameHomeAdmission.test.ts",
         "projectMetadataMutationLifecycle.test.ts",

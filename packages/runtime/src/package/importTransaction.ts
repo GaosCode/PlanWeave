@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { isNodeFileNotFoundError, optionalStat } from "../fs/optionalFile.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
 import { importTransactionIdentityDigest } from "./importTransactionContent.js";
+import { initializeImportTransaction } from "./importTransactionInitialization.js";
 import {
   importTransactionScanRoots,
   withImportTransactionReadAdmission,
@@ -506,8 +507,11 @@ export class ImportTransaction {
             target: transaction.recoveryRoot,
             transactionId
           });
-          await transaction.fs.mkdir(transaction.recoveryRoot, { recursive: true });
-          await transaction.writeRecoveryFile();
+          await initializeImportTransaction({
+            recoveryRoot: transaction.recoveryRoot,
+            mkdir: transaction.fs.mkdir,
+            publish: () => transaction.writeRecoveryFile()
+          });
         })
     );
     return transaction;
