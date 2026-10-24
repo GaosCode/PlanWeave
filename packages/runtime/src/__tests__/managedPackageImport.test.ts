@@ -121,7 +121,7 @@ async function failNextCommitCheckpoint(): Promise<() => boolean> {
   return () => injected;
 }
 
-/** The barrier fires only when the real advisory mkdir observes a held lock. */
+/** The barrier fires only when publishing the prepared lease observes a held lock. */
 async function whileQueued<T>(options: {
   root: string;
   kind: "project" | "package";
@@ -201,23 +201,24 @@ async function whileQueued<T>(options: {
   const queued = new Promise<void>((resolve) => {
     contended = resolve;
   });
-  vi.mocked(mkdir).mockImplementation(async (...args: Parameters<typeof mkdir>) => {
+  vi.mocked(rename).mockImplementation(async (...args: Parameters<typeof rename>) => {
     try {
-      return await actual.mkdir(...args);
+      return await actual.rename(...args);
     } catch (error) {
       if (
-        args[0] === lockPath &&
+        args[1] === lockPath &&
+        String(args[0]).startsWith(`${lockPath}.prepare-`) &&
         error &&
         typeof error === "object" &&
         "code" in error &&
-        error.code === "EEXIST"
+        ["EEXIST", "ENOTEMPTY", "EPERM", "EBUSY", "ENOTDIR"].includes(String(error.code))
       )
         contended();
       throw error;
     }
   });
   const operation = options.action();
-  void operation.catch(() => undefined);
+  const operationSettled = Promise.allSettled([operation]);
   let deadline: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
@@ -239,15 +240,17 @@ async function whileQueued<T>(options: {
     try {
       if (holder.connected) holder.send("release");
       expect(await exited, stderr).toBe(0);
-      await operation.catch(() => undefined);
+      await operationSettled;
     } finally {
       clearTimeout(holderDeadline);
       if (holder.exitCode === null && holder.signalCode === null) holder.kill("SIGKILL");
       await exited;
-      vi.mocked(mkdir).mockImplementation(actual.mkdir);
+      vi.mocked(rename).mockImplementation(actual.rename);
     }
   }
-  return operation;
+  const [outcome] = await operationSettled;
+  if (outcome.status === "rejected") throw outcome.reason;
+  return outcome.value;
 }
 
 describe("managed package import lifecycle", () => {

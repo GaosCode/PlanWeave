@@ -63,6 +63,24 @@ async function expectUnchanged(previous: string | null): Promise<void> {
   }
 }
 
+async function injectConfigCommitFailure(failure: Error) {
+  const actual = await vi.importActual<typeof fs>("node:fs/promises");
+  let injected = false;
+  vi.mocked(fs.rename).mockImplementation(async (from, to) => {
+    if (
+      !injected &&
+      to === configPath &&
+      String(from).startsWith(`${configPath}.`) &&
+      String(from).endsWith(".tmp")
+    ) {
+      injected = true;
+      throw failure;
+    }
+    return actual.rename(from, to);
+  });
+  return () => expect(injected).toBe(true);
+}
+
 describe("MCP tunnel config atomic replacement", () => {
   it("concurrently commits complete snapshots without colliding or deleting foreign temp files", async () => {
     const foreign = `${configPath}.tmp`;
@@ -90,8 +108,9 @@ describe("MCP tunnel config atomic replacement", () => {
       if (existing) await writeTunnelClientConfig(first, { configPath });
       const previous = existing ? await fs.readFile(configPath, "utf8") : null;
       const failure = new Error(`injected ${stage} failure`);
+      let assertInjected: (() => void) | undefined;
       if (stage === "rename") {
-        vi.mocked(fs.rename).mockRejectedValueOnce(failure);
+        assertInjected = await injectConfigCommitFailure(failure);
       } else {
         const realOpen = (await vi.importActual<typeof fs>("node:fs/promises")).open;
         vi.mocked(fs.open).mockImplementationOnce(async (...args) => {
@@ -107,6 +126,7 @@ describe("MCP tunnel config atomic replacement", () => {
         });
       }
       await expect(writeTunnelClientConfig(second, { configPath })).rejects.toBe(failure);
+      assertInjected?.();
       await expectUnchanged(previous);
       expect(await fs.readdir(root)).toEqual(existing ? ["config.json"] : []);
       await writeTunnelClientConfig(second, { configPath });
@@ -120,29 +140,58 @@ describe("MCP tunnel config atomic replacement", () => {
     const previous = await fs.readFile(configPath, "utf8");
     const failure = new Error("injected rename failure");
     const cleanupFailure = new Error("injected cleanup failure");
-    vi.mocked(fs.rename).mockRejectedValueOnce(failure);
-    vi.mocked(fs.unlink).mockRejectedValueOnce(cleanupFailure);
+    const assertInjected = await injectConfigCommitFailure(failure);
+    const actual = await vi.importActual<typeof fs>("node:fs/promises");
+    const foreign = `${configPath}.foreign.tmp`;
+    await fs.writeFile(foreign, "another writer");
+    let cleanupInjected = false;
+    vi.mocked(fs.unlink).mockImplementation(async (path) => {
+      if (
+        path !== foreign &&
+        String(path).startsWith(`${configPath}.`) &&
+        String(path).endsWith(".tmp")
+      ) {
+        cleanupInjected = true;
+        throw cleanupFailure;
+      }
+      return actual.unlink(path);
+    });
     const rejected = await writeTunnelClientConfig(second, { configPath }).catch(
       (error: unknown) => error
     );
+    assertInjected();
+    expect(cleanupInjected).toBe(true);
+    expect(await fs.readFile(foreign, "utf8")).toBe("another writer");
     expect(rejected).toBeInstanceOf(AggregateError);
     if (!(rejected instanceof AggregateError)) throw new Error("Expected combined failure");
     expect(rejected.errors).toEqual([failure, cleanupFailure]);
     await expectUnchanged(previous);
-    const leftovers = (await fs.readdir(root)).filter((name) => name !== "config.json");
+    const leftovers = (await fs.readdir(root)).filter(
+      (name) => name !== "config.json" && name !== "config.json.foreign.tmp"
+    );
     expect(leftovers).toHaveLength(1);
     await writeTunnelClientConfig(second, { configPath });
     expect(await readTunnelClientConfig({ configPath })).toEqual(second);
     expect(await fs.readdir(root)).toContain(leftovers[0]);
+    expect(await fs.readFile(foreign, "utf8")).toBe("another writer");
   });
 
   it("does no fallible permission work after committing the replacement", async () => {
     const realRename = (await vi.importActual<typeof fs>("node:fs/promises")).rename;
-    vi.mocked(fs.rename).mockImplementationOnce(async (...args) => {
-      await realRename(...args);
-      vi.mocked(fs.stat).mockRejectedValueOnce(new Error("post-commit permissions unavailable"));
+    let injected = false;
+    vi.mocked(fs.rename).mockImplementation(async (from, to) => {
+      await realRename(from, to);
+      if (
+        to === configPath &&
+        String(from).startsWith(`${configPath}.`) &&
+        String(from).endsWith(".tmp")
+      ) {
+        injected = true;
+        vi.mocked(fs.stat).mockRejectedValueOnce(new Error("post-commit permissions unavailable"));
+      }
     });
     await expect(writeTunnelClientConfig(second, { configPath })).resolves.toBeUndefined();
+    expect(injected).toBe(true);
     expect(await readTunnelClientConfig({ configPath })).toEqual(second);
   });
 

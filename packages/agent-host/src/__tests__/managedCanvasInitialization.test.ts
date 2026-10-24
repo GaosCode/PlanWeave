@@ -1,6 +1,6 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, readFile, readdir, rm, utimes, writeFile, symlink } from "node:fs/promises";
+import { lstat, readFile, readdir, rm, writeFile, symlink } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -160,15 +160,15 @@ describe("managed Canvas initialization across processes", () => {
       "project-locks",
       createHash("sha256").update(projectRoot).digest("hex")
     );
-    expect(JSON.parse(await readFile(join(lockPath, "holder.json"), "utf8")).pid).toBe(
-      crashed.child.pid
-    );
+    const [ownerName, ...otherOwners] = await readdir(lockPath);
+    expect(otherOwners).toEqual([]);
+    const holder = JSON.parse(await readFile(join(lockPath, ownerName, "holder.json"), "utf8"));
+    expect(holder).toMatchObject({ version: 2, pid: crashed.child.pid });
+    expect(ownerName).toBe(`lease-v2-${crashed.child.pid}-${holder.ownerToken}`);
+    expect(holder.ownerToken).toMatch(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
     const exited = new Promise<void>((resolve) => crashed.child.once("exit", () => resolve()));
     crashed.child.kill("SIGKILL");
     await exited;
-    // Advance only this fixture's real lock mtime past the production stale threshold.
-    const stale = new Date(Date.now() - 120_000);
-    await utimes(lockPath, stale, stale);
     const retry = worker();
     await retry.wait("ready");
     retry.child.send({ type: "start", config, scope });

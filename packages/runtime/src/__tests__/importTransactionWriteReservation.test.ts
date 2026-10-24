@@ -54,6 +54,10 @@ describe("Import transaction write reservations", () => {
     } finally {
       writer.child.kill("SIGTERM");
       await writer.done;
+      expect((await writer.settled).map((result) => result.status)).toEqual([
+        "fulfilled",
+        "fulfilled"
+      ]);
     }
     expect(await readFile(workspace.stateFile, "utf8")).toBe(original);
     const transaction = await ImportTransaction.create({
@@ -160,34 +164,44 @@ describe("Import transaction write reservations", () => {
             await transaction.commit();
             return transaction;
           });
-    await paused;
+    const lifecycleSettled = Promise.allSettled([lifecycle]);
     let completed = false;
-    const actor = kind === "process" ? spawnImportStorageWriter(workspace, "state") : null;
-    const reader = (
-      actor
-        ? actor.done.then(({ code, stderr }) => {
-            if (code !== 0) throw new Error(stderr);
-          })
-        : kind === "write"
-          ? writeState(workspace.stateFile, createEmptyState())
-          : listPendingImportTransactions(workspaceRoot)
-    )
-      .then(
-        (result) => ({ result }),
-        (error: unknown) => ({ error })
-      )
-      .finally(() => {
-        completed = true;
-      });
+    let actor: ReturnType<typeof spawnImportStorageWriter> | null = null;
+    let reader: Promise<unknown> | undefined;
     try {
-      if (actor) await actor.ready;
-      else await delay(40);
+      await Promise.race([
+        paused,
+        lifecycle.then(() => {
+          throw new Error("Lifecycle completed before admission barrier");
+        })
+      ]);
+      actor = kind === "process" ? spawnImportStorageWriter(workspace, "state") : null;
+      reader = (
+        actor
+          ? actor.done.then(({ code, stderr }) => {
+              if (code !== 0) throw new Error(stderr);
+            })
+          : kind === "write"
+            ? writeState(workspace.stateFile, createEmptyState())
+            : listPendingImportTransactions(workspaceRoot)
+      )
+        .then(
+          (result) => ({ result }),
+          (error: unknown) => ({ error })
+        )
+        .finally(() => {
+          completed = true;
+        });
+      if (actor) {
+        await actor.ready;
+        expect(actor.observedContention).toBe(true);
+      } else await delay(40);
       expect(completed).toBe(false);
       const unrelated = await tempWorkspace();
       directories.push(unrelated);
       await writeState(join(unrelated, "state.json"), createEmptyState());
       release();
-      const transaction = await lifecycle;
+      await lifecycle;
       expect(await reader).not.toHaveProperty("error");
       if (kind === "write")
         expect(await readState(workspace.stateFile)).toEqual(createEmptyState());
@@ -197,11 +211,22 @@ describe("Import transaction write reservations", () => {
         expect(await reader).toMatchObject({
           result: phase === "publish" ? [{ transactionId: "journal-admission" }] : []
         });
-      if (phase === "publish") await transaction.rollback();
     } finally {
       release();
-      await lifecycle;
-      await reader;
+      const [[outcome], readOutcome, actorOutcomes] = await Promise.all([
+        lifecycleSettled,
+        reader,
+        actor?.settled
+      ]);
+      if (outcome.status === "fulfilled" && phase === "publish") await outcome.value.rollback();
+      expect([outcome]).toEqual([expect.objectContaining({ status: "fulfilled" })]);
+      if (reader) expect(readOutcome).not.toHaveProperty("error");
+      if (actor) {
+        expect(actorOutcomes).toEqual([
+          expect.objectContaining({ status: "fulfilled" }),
+          { status: "fulfilled", value: { code: 0, stderr: "" } }
+        ]);
+      }
     }
   });
 
@@ -491,48 +516,54 @@ describe("Import recovery and native storage writers", () => {
       }
       return value;
     });
-    const rollback = tx.rollback();
-    await inspected.promise;
-    if (childProcess) {
-      const actor = spawnImportStorageWriter(workspace, kind);
-      let contended = false;
-      try {
+    const rollback = Promise.allSettled([tx.rollback()]);
+    let actor: ReturnType<typeof spawnImportStorageWriter> | undefined;
+    let writer: Promise<PromiseSettledResult<unknown>[]> | undefined;
+    try {
+      await Promise.race([
+        inspected.promise,
+        rollback.then(() => {
+          throw new Error("Rollback completed before preflight barrier");
+        })
+      ]);
+      if (childProcess) {
+        actor = spawnImportStorageWriter(workspace, kind);
         await actor.ready;
-        contended = actor.observedContention;
-      } finally {
-        resume.release();
+        expect(actor.observedContention).toBe(true);
+      } else {
+        const entered = barrier();
+        const acquire = consistency.withPackageFileConsistency;
+        vi.spyOn(consistency, "withPackageFileConsistency").mockImplementation(
+          async (roots, action) => {
+            entered.release();
+            return acquire(roots, action);
+          }
+        );
+        const pending =
+          kind === "state"
+            ? writeState(target, { ...createEmptyState(), currentRefs: ["T-001#B-001"] })
+            : updateTaskIndex(workspace, "T-001", (index) => ({
+                ...index,
+                counts: { ...index.counts, runs: 2 }
+              }));
+        writer = Promise.allSettled([pending]);
+        expect(
+          await Promise.race([
+            entered.promise.then(() => "requested"),
+            writer.then(() => "finished")
+          ])
+        ).toBe("requested");
       }
-      await rollback;
-      expect(await actor.done).toEqual({ code: 0, stderr: "" });
-      expect(contended).toBe(true);
-    } else {
-      const entered = barrier();
-      const acquire = consistency.withPackageFileConsistency;
-      vi.spyOn(consistency, "withPackageFileConsistency").mockImplementation(
-        async (roots, action) => {
-          entered.release();
-          return acquire(roots, action);
-        }
-      );
-      const writer =
-        kind === "state"
-          ? writeState(target, { ...createEmptyState(), currentRefs: ["T-001#B-001"] })
-          : updateTaskIndex(workspace, "T-001", (index) => ({
-              ...index,
-              counts: { ...index.counts, runs: 2 }
-            }));
-      let observed = "";
-      try {
-        observed = await Promise.race([
-          entered.promise.then(() => "requested"),
-          writer.then(() => "finished")
+    } finally {
+      resume.release();
+      const [rolledBack, written, child] = await Promise.all([rollback, writer, actor?.settled]);
+      expect(rolledBack).toEqual([expect.objectContaining({ status: "fulfilled" })]);
+      if (written) expect(written).toEqual([expect.objectContaining({ status: "fulfilled" })]);
+      if (child)
+        expect(child).toEqual([
+          expect.objectContaining({ status: "fulfilled" }),
+          { status: "fulfilled", value: { code: 0, stderr: "" } }
         ]);
-      } finally {
-        resume.release();
-      }
-      await rollback;
-      await writer;
-      expect(observed).toBe("requested");
     }
     if (kind === "state")
       expect((await readState(workspace.stateFile)).currentRefs).toEqual(["T-001#B-001"]);

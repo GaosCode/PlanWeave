@@ -9,14 +9,9 @@ const hooks = vi.hoisted(() => ({
   close: undefined as undefined | (() => Promise<void>),
   publish: undefined as undefined | ((from: string, to: string) => Promise<void>),
   cleanup: undefined as undefined | ((path: string) => Promise<void>),
-  uuid: undefined as undefined | (() => string),
   opened: undefined as undefined | ((path: string) => Promise<void>),
   opens: 0
 }));
-vi.mock("node:crypto", async (original) => {
-  const crypto = await original<typeof import("node:crypto")>();
-  return { ...crypto, randomUUID: () => hooks.uuid?.() ?? crypto.randomUUID() };
-});
 vi.mock("node:fs/promises", async (original) => {
   const fs = await original<typeof import("node:fs/promises")>();
   return {
@@ -55,7 +50,7 @@ vi.mock("node:fs/promises", async (original) => {
 
 const roots: string[] = [];
 afterEach(async () => {
-  hooks.write = hooks.close = hooks.publish = hooks.cleanup = hooks.uuid = undefined;
+  hooks.write = hooks.close = hooks.publish = hooks.cleanup = undefined;
   hooks.opened = undefined;
   hooks.writeName = undefined;
   hooks.opens = 0;
@@ -242,27 +237,45 @@ describe("managed runtime publication failures on real files", () => {
 
   it("retries a colliding temporary name without removing another owner's bytes", async () => {
     const { resolver, scope, projectRoot, paths } = await setup();
-    hooks.uuid = () => (hooks.opens === 0 ? "collision" : `fresh-${hooks.opens}`);
     // The resolver creates the directory before the publisher attempts its first open.
     const fs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
     await fs.mkdir(projectRoot, { recursive: true });
-    const other = join(projectRoot, `.${basename(paths[0])}.tmp-collision`);
-    await writeFile(other, "owned by another publisher");
+    let other: string | undefined;
+    hooks.opened = async (path) => {
+      if (!other && basename(path).startsWith(`.${basename(paths[0])}.tmp-`)) {
+        other = path;
+        await writeFile(other, "owned by another publisher", { flag: "wx" });
+      }
+    };
     await resolver.resolve(scope);
+    expect(other).toBeDefined();
+    if (!other) throw new Error("Expected a real publisher collision");
+    expect(hooks.opens).toBeGreaterThan(1);
     expect(await readFile(other, "utf8")).toBe("owned by another publisher");
     expect(JSON.parse(await readFile(paths[0], "utf8")).id).toBe(scope.projectId);
   });
 
   it("bounds repeated temporary-name collisions and returns EEXIST without cleanup", async () => {
     const { resolver, scope, projectRoot, paths } = await setup();
-    hooks.uuid = () => "collision";
     const fs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
     await fs.mkdir(projectRoot, { recursive: true });
-    const other = join(projectRoot, `.${basename(paths[0])}.tmp-collision`);
-    await writeFile(other, "owned by another publisher");
+    const others: string[] = [];
+    hooks.opened = async (path) => {
+      if (basename(path).startsWith(`.${basename(paths[0])}.tmp-`)) {
+        await writeFile(path, "owned by another publisher", { flag: "wx" });
+        others.push(path);
+      }
+    };
+    hooks.cleanup = async () => {
+      throw new Error("Must not clean an unowned temporary path");
+    };
     await expect(resolver.resolve(scope)).rejects.toMatchObject({ code: "EEXIST" });
     expect(hooks.opens).toBeGreaterThan(1);
     expect(hooks.opens).toBeLessThanOrEqual(5);
-    expect(await readFile(other, "utf8")).toBe("owned by another publisher");
+    expect(others).toHaveLength(hooks.opens);
+    for (const other of others) {
+      expect(await readFile(other, "utf8")).toBe("owned by another publisher");
+    }
+    await expect(lstat(paths[0])).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

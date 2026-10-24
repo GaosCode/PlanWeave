@@ -12,7 +12,7 @@ process.on("message", async (message) => {
   if (message.type !== "start" || started) return;
   started = true;
   const link = fs.link.bind(fs);
-  const mkdir = fs.mkdir.bind(fs);
+  const rename = fs.rename.bind(fs);
   fs.link = async (from, to) => {
     if (basename(to) === message.pauseAt) {
       await new Promise((resolve) => {
@@ -22,12 +22,16 @@ process.on("message", async (message) => {
     }
     return link(from, to);
   };
-  fs.mkdir = async (...args) => {
+  fs.rename = async (...args) => {
     try {
-      return await mkdir(...args);
+      return await rename(...args);
     } catch (error) {
-      if (error?.code === "EEXIST" && String(args[0]).includes("project-locks")) {
-        process.send?.({ type: "contended", path: String(args[0]) });
+      if (
+        ["EEXIST", "ENOTEMPTY", "EPERM", "EBUSY", "ENOTDIR"].includes(error?.code) &&
+        String(args[0]).startsWith(`${args[1]}.prepare-`) &&
+        String(args[1]).split(/[\\/]/).includes("project-locks")
+      ) {
+        process.send?.({ type: "contended", path: String(args[1]) });
       }
       throw error;
     }

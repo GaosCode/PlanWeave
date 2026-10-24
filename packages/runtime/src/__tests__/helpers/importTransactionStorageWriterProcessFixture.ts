@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ProjectWorkspace } from "../../types.js";
 
-/** Observe the native writer's own package-lock mkdir, without acquiring a fixture lock. */
+/** Observe the native writer's prepared lease publication, without acquiring a fixture lock. */
 export function spawnImportStorageWriter(
   workspace: ProjectWorkspace,
   kind: "state" | "results",
@@ -17,11 +17,13 @@ export function spawnImportStorageWriter(
       `
     import fs from 'node:fs/promises';
     import { syncBuiltinESMExports } from 'node:module';
-    const mkdir = fs.mkdir;
-    fs.mkdir = async (...args) => {
-      try { return await mkdir(...args); }
+    const publish = fs.rename;
+    fs.rename = async (...args) => {
+      try { return await publish(...args); }
       catch(error) {
-        if(error.code==='EEXIST' && (String(args[0]).includes('/package-locks/') || String(args[0]).includes('/import-transaction-locks/'))) process.stdout.write('contended\\n');
+        if(['EEXIST','ENOTEMPTY','EPERM','EBUSY','ENOTDIR'].includes(error.code) &&
+          String(args[0]).startsWith(String(args[1])+'.prepare-') &&
+          String(args[1]).split(/[\\\\/]/).some(part=>part==='package-locks'||part==='import-transaction-locks')) process.stdout.write('contended\\n');
         throw error;
       }
     };
@@ -61,15 +63,20 @@ export function spawnImportStorageWriter(
   let resolveReady!: () => void;
   let rejectReady!: (error: Error) => void;
   const ready = new Promise<void>((resolve, reject) => {
-    resolveReady = resolve;
-    rejectReady = reject;
+    resolveReady = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    rejectReady = (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    };
   });
   const timeout = setTimeout(
     () => rejectReady(new Error("Import storage writer barrier timed out.")),
     10_000
   );
   timeout.unref();
-  void ready.finally(() => clearTimeout(timeout)).catch(() => undefined);
   child.stdout.on("data", (value) => {
     const output = String(value);
     if (output.includes("contended\n")) {
@@ -86,17 +93,17 @@ export function spawnImportStorageWriter(
       rejectReady(error);
       reject(error);
     });
-    child.once("exit", (code) => {
+    child.once("close", (code) => {
       if (code !== 0) rejectReady(new Error(stderr));
       resolve({ code, stderr });
     });
   });
-  void ready.catch(() => undefined);
-  void done.catch(() => undefined);
+  const settled = Promise.allSettled([ready, done]);
   return {
     child,
     ready,
     done,
+    settled,
     get observedContention() {
       return observedContention;
     }

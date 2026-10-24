@@ -1,5 +1,7 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import * as fs from "node:fs/promises";
-import { access, mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { access, readFile, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -25,7 +27,7 @@ import {
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...actual, mkdir: vi.fn(actual.mkdir), writeFile: vi.fn(actual.writeFile) };
+  return { ...actual, rename: vi.fn(actual.rename), writeFile: vi.fn(actual.writeFile) };
 });
 
 async function completeImplementation(root: string): Promise<void> {
@@ -332,38 +334,88 @@ describe("submitReviewResult max feedback cycles", () => {
     expect((await readState(init.workspace.stateFile)).blocks["T-002#B-001"]).toBeUndefined();
 
     const lockPath = join(dirname(init.workspace.stateFile), ".planweave.lock");
-    await mkdir(lockPath);
-    let notifyLockAttempt!: () => void;
-    const lockAttempted = new Promise<void>((resolve) => {
-      notifyLockAttempt = resolve;
+    const holder = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `const {withAdvisoryDirectoryLock} = await import(process.argv[1]);
+       await withAdvisoryDirectoryLock({lockPath:process.argv[2], operation:'retry-review-holder'}, async()=>{
+         const released = new Promise(resolve=>process.once('message',resolve));
+         process.send('held'); await released;
+       }); process.disconnect();`,
+        new URL("../fs/advisoryDirectoryLock.ts", import.meta.url).href,
+        lockPath
+      ],
+      { stdio: ["ignore", "ignore", "pipe", "ipc"] }
+    );
+    let stderr = "";
+    holder.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
     });
-    const { mkdir: originalMkdir } =
-      await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-    const mkdirSpy = vi
-      .spyOn(fs, "mkdir")
-      .mockImplementation((...args: Parameters<typeof fs.mkdir>) => {
-        if (args[0] === lockPath) notifyLockAttempt();
-        return Reflect.apply(originalMkdir, fs, args);
-      });
-    const retry = retryReview({
-      projectRoot: root,
-      ref: "T-001#R-001",
-      maxFeedbackCycles: 3
-    });
+    const exited = once(holder, "close");
+    const holderSettled = Promise.allSettled([exited]);
+    let retry: ReturnType<typeof retryReview> | undefined;
+    let retrySettled:
+      | Promise<PromiseSettledResult<Awaited<ReturnType<typeof retryReview>>>[]>
+      | undefined;
+    let restoreRename: (() => void) | undefined;
     try {
-      await lockAttempted;
-      const manifestWhileLocked = await readJsonFile<PlanPackageManifest>(
-        init.workspace.manifestFile
+      expect(
+        (
+          await Promise.race([
+            once(holder, "message"),
+            exited.then(() => {
+              throw new Error(`Holder exited before ready: ${stderr}`);
+            })
+          ])
+        )[0]
+      ).toBe("held");
+      let notifyLockAttempt!: () => void;
+      const lockAttempted = new Promise<void>((resolve) => {
+        notifyLockAttempt = resolve;
+      });
+      const actual = await vi.importActual<typeof fs>("node:fs/promises");
+      restoreRename = () => vi.mocked(fs.rename).mockImplementation(actual.rename);
+      vi.mocked(fs.rename).mockImplementation(async (from, to) => {
+        try {
+          await actual.rename(from, to);
+        } catch (error) {
+          if (
+            to === lockPath &&
+            String(from).startsWith(`${lockPath}.prepare-`) &&
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            ["EEXIST", "ENOTEMPTY", "EPERM", "EBUSY", "ENOTDIR"].includes(String(error.code))
+          )
+            notifyLockAttempt();
+          throw error;
+        }
+      });
+      retry = retryReview({ projectRoot: root, ref: "T-001#R-001", maxFeedbackCycles: 3 });
+      retrySettled = Promise.allSettled([retry]);
+      await Promise.race([
+        lockAttempted,
+        retry.then(() => {
+          throw new Error("Retry completed while independent holder was live");
+        })
+      ]);
+      expect(holder.exitCode).toBeNull();
+      expect(await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile)).toEqual(
+        expandedManifest
       );
-      expect(manifestWhileLocked).toEqual(expandedManifest);
-
-      const stateWhileLocked = await readState(init.workspace.stateFile);
-      expect(stateWhileLocked.blocks["T-002#B-001"]).toBeUndefined();
+      expect((await readState(init.workspace.stateFile)).blocks["T-002#B-001"]).toBeUndefined();
     } finally {
-      mkdirSpy.mockRestore();
-      await rm(lockPath, { recursive: true, force: true });
+      if (holder.connected) holder.send("release");
+      const [closed, retried] = await Promise.all([holderSettled, retrySettled]);
+      restoreRename?.();
+      expect(closed).toEqual([{ status: "fulfilled", value: [0, null] }]);
+      expect(stderr).toBe("");
+      if (retried) expect(retried).toEqual([expect.objectContaining({ status: "fulfilled" })]);
     }
-
     await expect(retry).resolves.toMatchObject({
       ref: "T-001#R-001",
       status: "ready",

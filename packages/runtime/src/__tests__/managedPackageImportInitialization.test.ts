@@ -186,8 +186,20 @@ it.each([
 
 it("reports both initial publication and directory cleanup failures", async () => {
   const failedPath = await failFirstJournal();
-  vi.mocked(rmdir).mockRejectedValueOnce(new Error("initial directory cleanup EACCES"));
+  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  let cleanupInjected = false;
+  vi.mocked(rmdir).mockImplementation(async (path) => {
+    if (
+      dirname(String(path)) === join(home, "desktop", "recovery", "package-import") &&
+      path === dirname(failedPath())
+    ) {
+      cleanupInjected = true;
+      throw new Error("initial directory cleanup EACCES");
+    }
+    return actual.rmdir(path);
+  });
   const error = await runImport("Cleanup failure").catch((failure: unknown) => failure);
+  expect(cleanupInjected).toBe(true);
   expect(error).toBeInstanceOf(AggregateError);
   if (!(error instanceof AggregateError)) throw new Error("Expected initialization AggregateError");
   expect(error.message).toContain("initial journal rename EIO");

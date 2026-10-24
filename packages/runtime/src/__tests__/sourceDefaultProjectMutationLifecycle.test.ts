@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rename, rm, rmdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -16,7 +16,7 @@ import { createManagedProjectId } from "../projectId.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...actual, rename: vi.fn(actual.rename) };
+  return { ...actual, rename: vi.fn(actual.rename), rmdir: vi.fn(actual.rmdir) };
 });
 
 const owners: string[] = [];
@@ -183,19 +183,14 @@ describe("source default project mutation lifecycle", () => {
     const indexLockPath = join(f.home, "locks", "source-defaults.lock");
     const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
     let injected = false;
-    vi.mocked(rename).mockImplementation(async (from, to) => {
-      if (
-        !injected &&
-        from === indexLockPath &&
-        typeof to === "string" &&
-        to.startsWith(`${indexLockPath}.release-`)
-      ) {
+    vi.mocked(rmdir).mockImplementation(async (path) => {
+      if (!injected && path === indexLockPath) {
         injected = true;
         throw Object.assign(new Error("simulated source default lock release failure"), {
           code: "EIO"
         });
       }
-      return actual.rename(from, to);
+      return actual.rmdir(path);
     });
 
     await expect(renameProject(f.first.project.id, nextName)).rejects.toThrow(

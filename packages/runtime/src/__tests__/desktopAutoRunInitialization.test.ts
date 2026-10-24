@@ -1,6 +1,6 @@
 import type { PathLike } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const fsObservations = vi.hoisted(() => ({
@@ -12,16 +12,11 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
-    mkdir: async (path: PathLike, ...args: unknown[]) => {
-      if (path.toString().endsWith("/.planweave.lock")) {
+    rename: async (from: PathLike, to: PathLike) => {
+      await actual.rename(from, to);
+      if (basename(to.toString()) === ".planweave.lock") {
         fsObservations.canvasLockAcquisitions += 1;
       }
-      return actual.mkdir(
-        path,
-        ...(args as Parameters<typeof actual.mkdir> extends [PathLike, ...infer Rest]
-          ? Rest
-          : never)
-      );
     },
     appendFile: async (path: PathLike, ...args: unknown[]) => {
       if (
