@@ -1,9 +1,17 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { Profiler } from "react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TaskWorkspaceConversation } from "../renderer/task-workspace/conversation";
+import { acpToolTimelineFixture } from "./helpers/acpToolTimelineFixture";
+import {
+  conversationProps,
+  readModel,
+  selection
+} from "./helpers/taskWorkspaceConversationFixture";
 import { createTranslator } from "../renderer/i18n";
 import { taskWorkspaceTimelineLabels } from "../renderer/task-workspace/labels";
 import { TaskWorkspaceTimeline } from "../renderer/task-workspace/timeline";
@@ -514,5 +522,178 @@ describe("TaskWorkspaceTimeline", () => {
     );
     expect(screen.getByText("No timeline runs")).toBeInTheDocument();
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+});
+
+describe("Task Workspace tool timeline lazy details", () => {
+  const t = createTranslator("en");
+
+  it("mounts only expanded details and uses current streamed data after collapse and conversation changes", async () => {
+    const timeline = acpToolTimelineFixture(3, 200);
+    let model = readModel({ timeline });
+    let selected = selection({ model, active: false });
+    const props = () => conversationProps(selected, model, { getRunScrollTop: () => 120 });
+    const { rerender, container } = render(
+      <TaskWorkspaceConversation {...props()} api={null} t={t} />
+    );
+    const user = userEvent.setup();
+    const viewport = screen.getByTestId("task-workspace-conversation-viewport");
+    expect(viewport.scrollTop).toBe(120);
+    expect(container.querySelectorAll("[data-diff-line]")).toHaveLength(0);
+    expect(screen.queryByTestId("acp-tool-diff")).not.toBeInTheDocument();
+    expect(screen.queryByText(/unique body/)).not.toBeInTheDocument();
+    const first = screen.getByRole("button", { name: /Edit fixture 0/ });
+    await user.click(first);
+    expect(first).toHaveFocus();
+    expect(first).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("workspace-tool-details")).toHaveAttribute("aria-hidden", "false");
+    expect(container.querySelectorAll("[data-diff-line]")).toHaveLength(200);
+    expect(screen.getByTestId("acp-tool-diff")).toHaveTextContent("unique body 0:199");
+    expect(viewport.scrollTop).toBe(120);
+    await user.keyboard("{Enter}");
+    expect(first).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelectorAll("[data-diff-line]")).toHaveLength(0);
+    expect(screen.queryByTestId("workspace-tool-details")).not.toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByRole("button", { name: /Edit fixture 1/ })).toHaveFocus();
+    await user.keyboard(" ");
+    expect(screen.getByTestId("acp-tool-diff")).toHaveTextContent("unique body 1:199");
+    const updated = timeline.map((item) =>
+      item.kind === "tool"
+        ? {
+            ...item,
+            output: JSON.stringify({
+              type: "diff",
+              path: `/fixture/tool-${item.sequence - 1}.ts`,
+              newText: `const latest_${item.sequence} = true;`
+            })
+          }
+        : item
+    );
+    model = readModel({ timeline: updated, afterSequence: 4 });
+    rerender(<TaskWorkspaceConversation {...props()} api={null} t={t} />);
+    expect(screen.getByTestId("acp-tool-diff")).toHaveTextContent("latest_2");
+    expect(container).not.toHaveTextContent("latest_1");
+    await user.click(first);
+    expect(screen.getAllByTestId("acp-tool-diff")).toHaveLength(2);
+    expect(
+      within(screen.getAllByTestId("workspace-tool-event")[0]!).getByTestId("acp-tool-diff")
+    ).toHaveTextContent("latest_1");
+    expect(viewport.scrollTop).toBe(120);
+    selected = structuredClone(selected);
+    selected.item.run.record.recordId = "T-001#B-001::OTHER-RUN";
+    const switched = {
+      ...props(),
+      selectedRecord: { ...props().selectedRecord!, recordId: selected.item.run.record.recordId }
+    };
+    rerender(<TaskWorkspaceConversation {...switched} api={null} t={t} />);
+    expect(screen.queryByTestId("acp-tool-diff")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit fixture 0/ })).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+  });
+
+  it("profiles a 200-tool history without parsing or mounting unopened 200-line diffs", () => {
+    const timeline = acpToolTimelineFixture();
+    const payloads = new Set(
+      timeline.flatMap((item) => (item.kind === "tool" ? [item.input, item.output] : []))
+    );
+    const model = readModel({ timeline });
+    const props = conversationProps(selection({ model, active: false }), model);
+    const samples: {
+      initialMs: number;
+      initialCommitMs: number;
+      firstExpandMs: number;
+      expandCommitMs: number;
+      initialNodes: number;
+      expandedNodes: number;
+    }[] = [];
+    for (let sample = 0; sample < 5; sample += 1) {
+      const commits: number[] = [];
+      const parse = vi.spyOn(JSON, "parse");
+      const start = performance.now();
+      const view = render(
+        <Profiler
+          id="long-tool-timeline"
+          onRender={(_id, _phase, actualDuration) => {
+            commits.push(actualDuration);
+          }}
+        >
+          <TaskWorkspaceConversation {...props} api={null} t={t} />
+        </Profiler>
+      );
+      const initialMs = performance.now() - start;
+      expect(parse.mock.calls.filter(([value]) => payloads.has(value))).toHaveLength(0);
+      expect(view.container.querySelectorAll("[data-diff-line]")).toHaveLength(0);
+      const initialNodes = view.container.querySelectorAll("*").length;
+      const initialCommitMs = commits.reduce((total, value) => total + value, 0);
+      commits.length = 0;
+      parse.mockClear();
+      const trigger = screen.getByRole("button", { name: /Edit fixture 0/ });
+      const expandStart = performance.now();
+      fireEvent.click(trigger);
+      const firstExpandMs = performance.now() - expandStart;
+      expect(parse.mock.calls.filter(([value]) => payloads.has(value))).toHaveLength(1);
+      expect(view.container.querySelectorAll("[data-diff-line]")).toHaveLength(200);
+      expect(screen.getAllByTestId("acp-tool-diff")).toHaveLength(1);
+      samples.push({
+        initialMs,
+        initialCommitMs,
+        firstExpandMs,
+        expandCommitMs: commits.reduce((total, value) => total + value, 0),
+        initialNodes,
+        expandedNodes: view.container.querySelectorAll("*").length
+      });
+      parse.mockRestore();
+      view.unmount();
+    }
+    console.info(
+      "tool-timeline-profile",
+      JSON.stringify({
+        environment: {
+          node: process.version,
+          platform: process.platform,
+          arch: process.arch,
+          dom: "jsdom",
+          react: "development Profiler"
+        },
+        tools: 200,
+        diffLinesPerTool: 200,
+        samples
+      })
+    );
+  });
+
+  it.each([
+    "",
+    '""',
+    "{}",
+    "[]",
+    '{"type":"diff","path":"broken.ts","newText":42}'
+  ])("keeps non-null payload %s expandable and readable", async (payload) => {
+    const tool = acpToolTimelineFixture(1, 1)[0]!;
+    if (tool.kind !== "tool") throw new Error("Expected tool fixture");
+    const model = readModel({ timeline: [{ ...tool, input: null, output: payload }] });
+    render(
+      <TaskWorkspaceConversation
+        {...conversationProps(selection({ model }), model)}
+        api={null}
+        t={t}
+      />
+    );
+    const trigger = screen.getByRole("button", { name: /Edit fixture 0/ });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("workspace-tool-details")).not.toBeInTheDocument();
+    await userEvent.click(trigger);
+    const details = screen.getByTestId("workspace-tool-details");
+    expect(details).toHaveTextContent(
+      payload === "" || payload === '""'
+        ? "Empty string"
+        : payload.startsWith('{"type"')
+          ? "newText: 42"
+          : payload
+    );
+    expect(screen.queryByTestId("acp-tool-diff")).not.toBeInTheDocument();
   });
 });

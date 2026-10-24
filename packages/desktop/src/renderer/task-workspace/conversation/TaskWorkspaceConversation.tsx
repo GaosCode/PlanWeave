@@ -44,7 +44,13 @@ export function TaskWorkspaceConversation(
   const { canvasRef } = props;
 
   if (props.remoteConversation) {
-    return <RemoteAcpRunConversation conversation={props.remoteConversation} t={t} />;
+    return (
+      <RemoteAcpRunConversation
+        key={`${props.remoteConversation.operationId}:${props.remoteConversation.executionAttemptId}`}
+        conversation={props.remoteConversation}
+        t={t}
+      />
+    );
   }
 
   if (!canvasRef) {
@@ -311,6 +317,7 @@ function AcpRunConversation({
             data-testid="task-workspace-conversation-content"
           >
             <AcpConversationItems
+              key={`${canvasRef.projectRoot}:${canvasRef.canvasId}:${recordId}`}
               presentation="workspace"
               renderArtifact={({ artifact, sequence }) => (
                 <ArtifactFileLink

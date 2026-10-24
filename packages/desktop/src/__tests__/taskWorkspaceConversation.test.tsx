@@ -579,21 +579,13 @@ describe("Task Workspace conversation", () => {
 
     const tool = screen.getAllByTestId("workspace-tool-event")[0];
     const trigger = screen.getByRole("button", { name: /Inspect empty structures/ });
-    const details = screen.getAllByTestId("workspace-tool-details")[0];
     expect(tool).not.toHaveClass("rounded-lg", "border", "shadow-sm");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(details).toHaveClass("grid-rows-[0fr]", "opacity-0");
-    expect(screen.getByText("Inspect empty structures")).toHaveClass(
-      "group-hover/tool:text-foreground"
-    );
-    expect(tool.querySelector(".lucide-chevron-right")).toHaveClass(
-      "opacity-0",
-      "group-hover/tool:opacity-100"
-    );
+    expect(screen.queryByTestId("workspace-tool-details")).not.toBeInTheDocument();
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
-    expect(details).toHaveClass("grid-rows-[1fr]", "opacity-100");
-    expect(tool.querySelector(".lucide-chevron-right")).toHaveClass("rotate-90");
+    expect(screen.getByTestId("workspace-tool-details")).toHaveAttribute("aria-hidden", "false");
+    fireEvent.click(screen.getByRole("button", { name: /Inspect empty string/ }));
 
     expect(screen.getByText("{}")).toBeInTheDocument();
     expect(screen.getByText("[]")).toBeInTheDocument();

@@ -274,11 +274,8 @@ const ToolCard = memo(
     tool: Extract<AcpTimelineItem, { kind: "tool" }>;
     t: ReturnType<typeof createTranslator>;
   }) {
-    const input = readablePayload(tool.input);
-    const output = readablePayload(tool.output);
-    const diff = parseAcpToolDiff(tool.output) ?? parseAcpToolDiff(tool.input);
     if (presentation === "workspace") {
-      return <WorkspaceToolRow diff={diff} input={input} output={output} tool={tool} t={t} />;
+      return <WorkspaceToolRow tool={tool} t={t} />;
     }
     return (
       <details className="group ml-10 rounded-lg border bg-background shadow-sm">
@@ -289,16 +286,9 @@ const ToolCard = memo(
             {tool.status ?? t("acpToolPending")}
           </Badge>
         </summary>
-        {diff || input || output ? (
+        {tool.input !== null || tool.output !== null ? (
           <div className="space-y-3 border-t px-3 py-3 text-xs">
-            {diff ? (
-              <AcpToolDiff diffs={diff} />
-            ) : (
-              <>
-                {input ? <ToolPayload label={t("acpToolInput")} value={input} /> : null}
-                {output ? <ToolPayload label={t("acpToolOutput")} value={output} /> : null}
-              </>
-            )}
+            <ToolDetails presentation="inspector" tool={tool} t={t} />
           </div>
         ) : null}
       </details>
@@ -315,20 +305,14 @@ const ToolCard = memo(
 );
 
 function WorkspaceToolRow({
-  diff,
-  input,
-  output,
   tool,
   t
 }: {
-  diff: ReturnType<typeof parseAcpToolDiff>;
-  input: string | null;
-  output: string | null;
   tool: Extract<AcpTimelineItem, { kind: "tool" }>;
   t: ReturnType<typeof createTranslator>;
 }) {
   const [open, setOpen] = useState(false);
-  const expandable = Boolean(diff || input || output);
+  const expandable = tool.input !== null || tool.output !== null;
   const status = tool.status ?? t("acpToolPending");
 
   return (
@@ -354,35 +338,41 @@ function WorkspaceToolRow({
           />
         ) : null}
       </button>
-      {expandable ? (
-        <div
-          aria-hidden={!open}
-          className={`grid transition-[grid-template-rows,opacity] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-emphasized)] motion-reduce:transition-none ${open ? "grid-rows-[1fr] opacity-100" : "pointer-events-none grid-rows-[0fr] opacity-0"}`}
-          data-testid="workspace-tool-details"
-        >
+      {expandable && open ? (
+        <div aria-hidden={false} className="grid" data-testid="workspace-tool-details">
           <div className="min-h-0 overflow-hidden">
             <div className="ml-1.5 mt-1 space-y-3 border-l border-border/80 py-1 pl-4">
-              {diff ? (
-                <AcpToolDiff diffs={diff} />
-              ) : (
-                <>
-                  {input ? (
-                    <ToolPayload label={t("acpToolInput")} presentation="workspace" value={input} />
-                  ) : null}
-                  {output ? (
-                    <ToolPayload
-                      label={t("acpToolOutput")}
-                      presentation="workspace"
-                      value={output}
-                    />
-                  ) : null}
-                </>
-              )}
+              <ToolDetails presentation="workspace" tool={tool} t={t} />
             </div>
           </div>
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ToolDetails({
+  presentation,
+  tool,
+  t
+}: {
+  presentation: AcpConversationPresentation;
+  tool: Extract<AcpTimelineItem, { kind: "tool" }>;
+  t: ReturnType<typeof createTranslator>;
+}) {
+  const diff = parseAcpToolDiff(tool.output) ?? parseAcpToolDiff(tool.input);
+  if (diff) return <AcpToolDiff diffs={diff} />;
+  const input = readablePayload(tool.input);
+  const output = readablePayload(tool.output);
+  return (
+    <>
+      {input !== null ? (
+        <ToolPayload label={t("acpToolInput")} presentation={presentation} value={input} />
+      ) : null}
+      {output !== null ? (
+        <ToolPayload label={t("acpToolOutput")} presentation={presentation} value={output} />
+      ) : null}
+    </>
   );
 }
 
