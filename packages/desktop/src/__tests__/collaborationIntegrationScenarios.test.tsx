@@ -20,6 +20,7 @@ import {
   resetCollaborationReadModelHubForTests
 } from "../renderer/collaboration/collaborationReadModelHub";
 import type { CollaborationReadBridgePort } from "../renderer/collaboration/CollaborationReadModelController";
+import { toCollaborationReadBridge } from "../renderer/collaboration/collaborationReadBridge";
 import { createTranslator } from "../renderer/i18n";
 import { CollaborationConnectForm } from "../renderer/team/CollaborationConnectForm";
 import { serializeCollaborationInvitationHandoff } from "../renderer/team/collaborationInvitationHandoff";
@@ -855,8 +856,9 @@ describe("collaboration integration scenarios", () => {
         }
       ]
     });
-    trackedApis.push(scenario.api);
-    const shell = acquireCollaborationReadModelController(scenario.api);
+    const readBridge = toCollaborationReadBridge(scenario.api);
+    trackedApis.push(readBridge);
+    const shell = acquireCollaborationReadModelController(readBridge);
     await shell.controller.setActiveProject(
       scopedProjectFixture({
         profileId: "profile-1",
@@ -865,7 +867,9 @@ describe("collaboration integration scenarios", () => {
       })
     );
 
-    render(<WorkItemCollaborationPanel workItem={taskItem} open api={scenario.api} t={t} />);
+    const view = render(
+      <WorkItemCollaborationPanel workItem={taskItem} open api={scenario.api} t={t} />
+    );
 
     expect(screen.getByTestId("work-item-collaboration-panel")).toHaveAttribute(
       "data-work-item-kind",
@@ -898,6 +902,8 @@ describe("collaboration integration scenarios", () => {
     const composer = screen.getByTestId("comments-panel");
     // Compose is present on human comments only — never as agent conversation.
     expect(within(composer).queryByTestId("task-workspace-acp-conversation")).toBeNull();
+    view.unmount();
+    shell.release();
   });
 
   it("handles observer catch-up after network interruption without per-node subscriptions", async () => {

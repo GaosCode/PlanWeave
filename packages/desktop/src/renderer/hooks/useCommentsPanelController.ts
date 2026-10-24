@@ -56,6 +56,8 @@ import { isCollaborationSessionConnected } from "../collaboration/sessionState";
 
 export type UseCommentsPanelControllerArgs = {
   workItem: WorkItemRef | null;
+  /** Whether the host has an authorized project binding. Keeps API and draft identity stable. */
+  enabled?: boolean;
   /** Lazy-load histories only while the surface is open. */
   open: boolean;
   api?: PlanWeaveCollaborationApi | null;
@@ -141,7 +143,7 @@ export function useCommentsPanelController(
   }, [status]);
 
   const operationScope = status?.session.operationScope;
-  const sessionConnected = isCollaborationSessionConnected(status);
+  const sessionConnected = args.enabled !== false && isCollaborationSessionConnected(status);
   const currentMembership = resolveCurrentMembership({
     members: snapshot.members,
     status
@@ -171,6 +173,7 @@ export function useCommentsPanelController(
   const mutationRequestRef = useRef(0);
   const currentScopeRef = useRef<object | null>(null);
   const connectionScopeKey = JSON.stringify([
+    args.enabled !== false,
     operationScope?.sessionId,
     activeProfile?.serverBaseUrl,
     activeProfile?.credentialRevision,
@@ -279,6 +282,7 @@ export function useCommentsPanelController(
 
   useEffect(() => {
     if (
+      !sessionConnected ||
       snapshot.profileId !== activeProfile?.profileId ||
       snapshot.projectId !== activeProfile?.projectId ||
       !isCurrentScope()
@@ -291,6 +295,7 @@ export function useCommentsPanelController(
     activeProfile?.projectId,
     invalidationVersion,
     isCurrentScope,
+    sessionConnected,
     snapshot.profileId,
     snapshot.projectId
   ]);
@@ -338,12 +343,12 @@ export function useCommentsPanelController(
   );
 
   const refresh = useCallback(async () => {
-    if (isCurrentScope()) await paginationRef.current?.refresh();
-  }, [isCurrentScope]);
+    if (sessionConnected && isCurrentScope()) await paginationRef.current?.refresh();
+  }, [isCurrentScope, sessionConnected]);
 
   const loadMore = useCallback(async () => {
-    if (isCurrentScope()) await paginationRef.current?.loadMore();
-  }, [isCurrentScope]);
+    if (sessionConnected && isCurrentScope()) await paginationRef.current?.loadMore();
+  }, [isCurrentScope, sessionConnected]);
 
   const submitComment = useCallback(async () => {
     if (!api || !args.workItem || !controller || !canMutate || !isCurrentScope()) return false;

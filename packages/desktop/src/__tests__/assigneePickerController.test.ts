@@ -32,6 +32,7 @@ describe("useAssigneePickerController", () => {
 
     const { result } = renderHook(() =>
       useAssigneePickerController({
+        localProjectId: "project-1",
         workItem: taskItem,
         authorityRole: "responsibility",
         api,
@@ -77,6 +78,7 @@ describe("useAssigneePickerController", () => {
 
     const { result } = renderHook(() =>
       useAssigneePickerController({
+        localProjectId: "project-1",
         workItem: blockItem,
         api,
         detailsOpen: true,
@@ -126,19 +128,24 @@ async function scopedPicker(role: (typeof roles)[number], workItem: WorkItemRef 
   const hook = renderHook(
     ({
       workItem,
-      authorityRole
+      authorityRole,
+      localProjectId = "project-1"
     }: {
       workItem: WorkItemRef;
       authorityRole: (typeof roles)[number];
+      localProjectId?: string | null;
     }) =>
       useAssigneePickerController({
+        localProjectId,
         api: fixture.api,
         workItem,
         authorityRole,
         detailsOpen: true,
         onAssignmentOutcome: onOutcome
       }),
-    { initialProps: { workItem, authorityRole: role } }
+    {
+      initialProps: { workItem, authorityRole: role, localProjectId: "project-1" as string | null }
+    }
   );
   await waitFor(() => expect(hook.result.current.authority).not.toBeNull());
   await waitFor(() => expect(hook.result.current.viewModel?.mode).not.toBe("loading"));
@@ -159,6 +166,7 @@ async function scopedPicker(role: (typeof roles)[number], workItem: WorkItemRef 
   const transition = async (projectId: string | null, profileId = "profile-1") => {
     await act(async () => {
       fixture.changeStatus(projectId, profileId);
+      hook.rerender({ workItem, authorityRole: role, localProjectId: projectId });
       if (projectId === null) shell.controller.clear();
       else
         await shell.controller.setActiveProject(
@@ -622,7 +630,12 @@ describe("assignee picker retry lifecycle", () => {
         })
       );
       const hook = renderHook(() =>
-        useAssigneePickerController({ api: f.api, workItem: taskItem, authorityRole: role })
+        useAssigneePickerController({
+          localProjectId: "project-1",
+          api: f.api,
+          workItem: taskItem,
+          authorityRole: role
+        })
       );
       await waitFor(() => expect(hook.result.current.viewModel).not.toBeNull());
       await act(async () => {
@@ -861,6 +874,7 @@ describe("assignee picker scoped member display", () => {
           let switched!: Promise<void>;
           act(() => {
             f.changeStatus(projectId, profileId);
+            f.rerender({ workItem: taskItem, authorityRole: role, localProjectId: projectId });
             switched = f.shell.controller.setActiveProject(
               scopedProjectFixture({ profileId, projectId, canvasId: "canvas-1" })
             );
@@ -889,4 +903,43 @@ describe("assignee picker scoped member display", () => {
       }
     });
   }
+});
+
+describe("local work-item project admission", () => {
+  it.each([
+    ["responsibility", taskItem],
+    ["reviewer", taskItem],
+    ["responsibility", blockItem],
+    ["reviewer", blockItem]
+  ] as const)("rejects %s selection, refresh and retry when the local %s context is unmatched", async (role, workItem) => {
+    const f = await scopedPicker(role, workItem);
+    try {
+      f.mutation.mockRejectedValueOnce(new Error("assignment failed"));
+      await act(async () => {
+        expect(await f.result.current.selectTarget(chosenTarget)).toBe(false);
+      });
+      const retired = f.result.current;
+      act(() =>
+        f.rerender({ workItem, authorityRole: role, localProjectId: "other-local-project" })
+      );
+      expect(f.result.current.authority).toBeNull();
+      expect(f.result.current.viewModel?.mode).toBe("disconnected");
+      const mutations = f.mutation.mock.calls.length;
+      const authorityReads = f.getWorkAuthority.mock.calls.length;
+      const eligibleReads = f.listEligibleAssignees.mock.calls.length;
+      await act(async () => {
+        for (const picker of [retired, f.result.current]) {
+          expect(await picker.selectTarget(chosenTarget)).toBe(false);
+          expect(await picker.retryLastTarget()).toBe(false);
+          await picker.refresh();
+        }
+      });
+      expect(f.mutation).toHaveBeenCalledTimes(mutations);
+      expect(f.getWorkAuthority).toHaveBeenCalledTimes(authorityReads);
+      expect(f.listEligibleAssignees).toHaveBeenCalledTimes(eligibleReads);
+    } finally {
+      f.unmount();
+      f.shell.release();
+    }
+  });
 });

@@ -29,6 +29,7 @@ import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
 import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpointCatalog";
 import { useCollaborationStatus } from "./hooks/useCollaborationStatus";
+import { resolveLocalCollaborationOperationScope } from "./collaboration/workspaceCollaborationScope";
 import { useCollaborationReadModels } from "./hooks/useCollaborationReadModels";
 import type { RemoteRunExecutionLocator } from "./hooks/useRemoteRunPanelController";
 
@@ -61,7 +62,20 @@ export function BlockInspectorWindow() {
   const [blockRef, setBlockRef] = useState(initialBlockRef);
   const [selectedBlock, setSelectedBlock] = useState<DesktopBlockDetail | null>(null);
   const [selectedRunRecord, setSelectedRunRecord] = useState<DesktopRunRecord | null>(null);
-  const [graph, setGraph] = useState<DesktopGraphViewModel | null>(null);
+  const graphScopeKey = JSON.stringify([projectRoot, canvasId]);
+  const [loadedGraph, setLoadedGraph] = useState<{
+    scopeKey: string;
+    value: DesktopGraphViewModel;
+  } | null>(null);
+  const graph = loadedGraph?.scopeKey === graphScopeKey ? loadedGraph.value : null;
+  const loadRequestRef = useRef(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: changing local canvas retires pending graph loads
+  useEffect(
+    () => () => {
+      loadRequestRef.current += 1;
+    },
+    [projectRoot, canvasId]
+  );
   const [blockRunRecords, setBlockRunRecords] = useState<DesktopBlockRunRecordSummary[]>([]);
   const [blockReviewAttempts, setBlockReviewAttempts] = useState<DesktopReviewAttemptSummary[]>([]);
   const [blockFeedbackRecords, setBlockFeedbackRecords] = useState<DesktopFeedbackRecord[]>([]);
@@ -161,6 +175,7 @@ export function BlockInspectorWindow() {
       if (!bridge || !projectRoot || !ref) {
         return;
       }
+      const request = ++loadRequestRef.current;
       const canvas = { projectRoot, canvasId };
       try {
         const [nextGraph, block, runRecords, reviewAttempts, feedbackRecords] = await Promise.all([
@@ -170,10 +185,11 @@ export function BlockInspectorWindow() {
           bridge.getReviewAttempts(canvas, ref),
           bridge.getFeedbackRecords(canvas, ref)
         ]);
+        if (request !== loadRequestRef.current) return;
         if (options.skipCommitWhenDirty && draftDirtyRef.current) {
           return;
         }
-        setGraph(nextGraph);
+        setLoadedGraph({ scopeKey: graphScopeKey, value: nextGraph });
         setSelectedBlock(block);
         setBlockRunRecords(runRecords);
         setBlockReviewAttempts(reviewAttempts);
@@ -183,10 +199,12 @@ export function BlockInspectorWindow() {
         }
         setError(null);
       } catch (caught) {
+        if (request !== loadRequestRef.current) return;
+        setLoadedGraph(null);
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [canvasId, projectRoot]
+    [canvasId, graphScopeKey, projectRoot]
   );
 
   useEffect(() => {
@@ -200,7 +218,10 @@ export function BlockInspectorWindow() {
   const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
   const { status: collaborationStatus } = useCollaborationStatus();
-  const operationScope = collaborationStatus?.session.operationScope;
+  const operationScope = resolveLocalCollaborationOperationScope(
+    collaborationStatus,
+    graph?.projectId ?? null
+  );
   useCollaborationReadModels({
     operationScope,
     profileId: operationScope?.profileId ?? null,

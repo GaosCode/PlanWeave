@@ -241,10 +241,12 @@ export function createApi() {
         status.activeProfileId = null;
         status.session.activeProfileId = null;
         status.session.phase = "idle";
+        status.session.operationScope = null;
       } else {
         status.activeProfileId = profileId;
         status.session.activeProfileId = profileId;
         status.profiles[0] = { ...status.profiles[0]!, projectId, profileId };
+        status.session.operationScope = collaborationOperationScopeFixture(profileId, projectId);
       }
       for (const listener of statusListeners) listener(status);
     }

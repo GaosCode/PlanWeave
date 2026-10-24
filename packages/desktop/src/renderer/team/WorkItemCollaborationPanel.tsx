@@ -6,11 +6,17 @@ import type { createTranslator } from "../i18n";
 import { useActivityPanelController } from "../hooks/useActivityPanelController";
 import { useCommentsPanelController } from "../hooks/useCommentsPanelController";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
+import { collaborationBridge } from "../bridge";
+import { useCollaborationStatus } from "../hooks/useCollaborationStatus";
+import { useCollaborationReadModels } from "../hooks/useCollaborationReadModels";
+import { resolveLocalCollaborationOperationScope } from "../collaboration/workspaceCollaborationScope";
 import { ActivityPanel } from "./ActivityPanel";
 import { CommentsPanel } from "./CommentsPanel";
 
 export type WorkItemCollaborationPanelProps = {
   workItem: WorkItemRef | null;
+  /** Inspector package identity; other surfaces use their shell's existing hub binding. */
+  localProjectId?: string | null;
   t: ReturnType<typeof createTranslator>;
   api?: PlanWeaveCollaborationApi | null;
   className?: string;
@@ -29,6 +35,7 @@ type TabId = "comments" | "activity";
  */
 export function WorkItemCollaborationPanel({
   workItem,
+  localProjectId,
   t,
   api,
   className,
@@ -36,20 +43,38 @@ export function WorkItemCollaborationPanel({
   commentsOnly = false,
   autoFocusComposer = false
 }: WorkItemCollaborationPanelProps) {
+  const sourceApi = api === undefined ? collaborationBridge : api;
+  const { status } = useCollaborationStatus({ api: sourceApi });
+  const { snapshot } = useCollaborationReadModels({
+    api: sourceApi,
+    profileId: null,
+    projectId: null,
+    manageActiveProject: false
+  });
+  const operationScope = resolveLocalCollaborationOperationScope(
+    status,
+    localProjectId === undefined ? snapshot.projectId : localProjectId
+  );
+  const contextBound = Boolean(
+    operationScope &&
+      snapshot.profileId === operationScope.profileId &&
+      snapshot.projectId === operationScope.projectId
+  );
   const [tab, setTab] = useState<TabId>("comments");
   const commentsOpen = open && tab === "comments";
   const activityOpen = open && !commentsOnly && tab === "activity";
 
   const comments = useCommentsPanelController({
     workItem,
-    open: commentsOpen,
-    api,
+    open: commentsOpen && contextBound,
+    enabled: contextBound,
+    api: sourceApi,
     t
   });
   const activity = useActivityPanelController({
     workItem,
-    open: activityOpen,
-    api,
+    open: activityOpen && contextBound,
+    api: sourceApi,
     t
   });
 

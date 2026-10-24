@@ -72,8 +72,16 @@ async function fixture(workItem: WorkItemRef, role: (typeof roles)[number], late
   await shell.controller.setActiveProject(
     scopedProjectFixture({ profileId: "profile-1", projectId: "project-1", canvasId: "canvas-1" })
   );
-  const hook = renderHook(() =>
-    useAssigneePickerController({ api: f.api, workItem, authorityRole: role, detailsOpen: true })
+  const hook = renderHook(
+    ({ localProjectId }) =>
+      useAssigneePickerController({
+        api: f.api,
+        localProjectId,
+        workItem,
+        authorityRole: role,
+        detailsOpen: true
+      }),
+    { initialProps: { localProjectId: "project-1" } }
   );
   await waitFor(() => expect(hook.result.current.viewModel?.current.label).toBe("Grace Hopper"));
   if (!lateEligible) await waitFor(() => expect(hook.result.current.viewModel?.mode).toBe("ready"));
@@ -287,8 +295,10 @@ describe("assignee membership observer invalidation", () => {
         nextHostCursor: null
       });
       await act(async () => {
-        if (scope === "project") f.changeStatus(projectId);
-        else f.changeConnection("server");
+        if (scope === "project") {
+          f.changeStatus(projectId);
+          f.rerender({ localProjectId: projectId });
+        } else f.changeConnection("server");
         await f.shell.controller.setActiveProject({
           profileId: "profile-1",
           projectId,

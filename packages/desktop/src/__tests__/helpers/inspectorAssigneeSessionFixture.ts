@@ -66,20 +66,24 @@ export const inspectorBlock: DesktopBlockDetail = {
   remoteExecution: null
 };
 
-export function inspectorAuthority(workItem: WorkItemRef, name: string): WorkAuthorityProjection {
+export function inspectorAuthority(
+  workItem: WorkItemRef,
+  name: string,
+  projectId = "project-1"
+): WorkAuthorityProjection {
   const scope =
     workItem.kind === "task"
       ? {
           kind: "task",
           workspaceId: "workspace-1",
-          projectId: "project-1",
+          projectId,
           canvasId: workItem.canvasId,
           taskId: workItem.taskId
         }
       : {
           kind: "block",
           workspaceId: "workspace-1",
-          projectId: "project-1",
+          projectId,
           canvasId: workItem.canvasId,
           blockRef: workItem.blockRef
         };
@@ -120,11 +124,15 @@ export function inspectorAuthority(workItem: WorkItemRef, name: string): WorkAut
   });
 }
 
-export function inspectorEligible(workItem: WorkItemRef, name: string): EligibleAssigneesResponse {
+export function inspectorEligible(
+  workItem: WorkItemRef,
+  name: string,
+  projectId = "project-1"
+): EligibleAssigneesResponse {
   return eligibleAssigneesResponseSchema.parse({
     workItem,
     humans: ["owner", "reviewer"].map((role) => ({
-      projectId: "project-1",
+      projectId,
       humanPrincipalId: `next-${role}-${name}`,
       membershipActive: true,
       displayName: `Next ${role} ${name}`
@@ -145,22 +153,25 @@ export function createInspectorAssigneeFixture(kind: "task" | "block") {
     kind === "task"
       ? { kind: "task", canvasId: "canvas-1", taskId: "T-1" }
       : { kind: "block", canvasId: "canvas-1", blockRef: "T-1#B-1" };
-  const client = new CollaborationClient({
-    profile: collaborationConnectionProfileSchema.parse({
-      profileId: "profile-1",
-      displayName: "Inspector",
-      projectId: "project-1",
-      serverBaseUrl: "https://example.test",
-      allowInsecureTransport: false,
-      endpoint: {
-        topology: "public_https",
-        serverOrigin: "https://example.test",
-        allowedClientOrigins: ["https://example.test"],
-        tlsTrust: "system_ca"
-      }
-    }),
-    credential: { getDeviceToken: () => undefined }
-  });
+  const createClient = (projectId: string) =>
+    new CollaborationClient({
+      profile: collaborationConnectionProfileSchema.parse({
+        profileId: "profile-1",
+        displayName: "Inspector",
+        projectId,
+        serverBaseUrl: "https://example.test",
+        allowInsecureTransport: false,
+        endpoint: {
+          topology: "public_https",
+          serverOrigin: "https://example.test",
+          allowedClientOrigins: ["https://example.test"],
+          tlsTrust: "system_ca"
+        }
+      }),
+      credential: { getDeviceToken: () => undefined }
+    });
+  const clients = [createClient("project-1")];
+  const client = clients[0]!;
   const session = new CollaborationOperationSession();
   session.verify(client, "profile-1");
   let status = connectedStatus();
@@ -257,10 +268,26 @@ export function createInspectorAssigneeFixture(kind: "task" | "block") {
       fixture.emitStatus(status);
       return nextScope;
     },
+    switchProject: (projectId: string, name: string) => {
+      session.retire();
+      const nextClient = createClient(projectId);
+      clients.push(nextClient);
+      session.verify(nextClient, "profile-1");
+      const nextScope = session.scope("connected")!;
+      authorities.set(nextScope.sessionId, inspectorAuthority(workItem, name, projectId));
+      eligiblePages.set(nextScope.sessionId, inspectorEligible(workItem, name, projectId));
+      status = {
+        ...status,
+        profiles: status.profiles.map((profile) => ({ ...profile, projectId })),
+        session: { ...status.session, operationScope: nextScope }
+      };
+      fixture.emitStatus(status);
+      return nextScope;
+    },
     emitClone: () => fixture.emitStatus(structuredClone(status)),
     dispose: () => {
       session.retire();
-      client.dispose();
+      for (const item of clients) item.dispose();
     }
   };
 }

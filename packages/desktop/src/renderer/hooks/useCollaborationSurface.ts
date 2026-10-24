@@ -19,6 +19,7 @@ import {
 } from "../../shared/collaboration.js";
 import { useCollaborationReadModels } from "./useCollaborationReadModels";
 import { useCollaborationStatus } from "./useCollaborationStatus";
+import { resolveCollaborationSurfaceReadBinding } from "../collaboration/workspaceCollaborationScope";
 import { isCollaborationSessionConnected } from "../collaboration/sessionState";
 
 export type UseCollaborationSurfaceArgs = {
@@ -55,25 +56,7 @@ export function canUseLocalOwnerDirectWrites(
   );
 }
 
-export function resolveCollaborationSurfaceReadBinding(input: {
-  sessionConnected: boolean;
-  profileId: string | null;
-  profileProjectId: string | null;
-  localProjectId: string | null;
-  canvasId: string | null;
-}): { profileId: string | null; projectId: string | null; canvasId: string | null } {
-  if (!input.sessionConnected || !input.profileId || !input.profileProjectId) {
-    return { profileId: null, projectId: null, canvasId: null };
-  }
-  if (!input.localProjectId || input.localProjectId !== input.profileProjectId) {
-    return { profileId: null, projectId: null, canvasId: null };
-  }
-  return {
-    profileId: input.profileId,
-    projectId: input.profileProjectId,
-    canvasId: input.canvasId
-  };
-}
+export { resolveCollaborationSurfaceReadBinding } from "../collaboration/workspaceCollaborationScope";
 
 type CollaborationCanvasReadResolution = {
   localProjectId: string;
@@ -179,6 +162,31 @@ export function useCollaborationSurface(
     canvasId: authorizedReadBinding.canvasId,
     manageActiveProject: true
   });
+
+  useEffect(() => {
+    if (
+      !controller ||
+      snapshot.profileId ||
+      controller.getSnapshot().profileId ||
+      !authorizedReadBinding.profileId ||
+      !authorizedReadBinding.projectId ||
+      !status?.session.operationScope
+    )
+      return;
+    void controller.setActiveProject({
+      profileId: authorizedReadBinding.profileId,
+      projectId: authorizedReadBinding.projectId,
+      canvasId: authorizedReadBinding.canvasId,
+      operationScope: status.session.operationScope
+    });
+  }, [
+    authorizedReadBinding.profileId,
+    authorizedReadBinding.projectId,
+    authorizedReadBinding.canvasId,
+    controller,
+    snapshot.profileId,
+    status?.session.operationScope
+  ]);
 
   const assigneeLabels = useMemo(() => assigneeDisplayLabelsFromTranslator(args.t), [args.t]);
 

@@ -317,6 +317,7 @@ describe("desktop work authority wiring (OSS-003#B-003)", () => {
 
     const { result } = renderHook(() =>
       useAssigneePickerController({
+        localProjectId: "project-1",
         workItem: blockItem,
         authorityRole: "responsibility",
         api,
@@ -379,6 +380,7 @@ describe("desktop work authority wiring (OSS-003#B-003)", () => {
 
     const { result } = renderHook(() =>
       useAssigneePickerController({
+        localProjectId: "project-1",
         workItem: blockItem,
         api,
         detailsOpen: true,

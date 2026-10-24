@@ -419,6 +419,7 @@ export function BlockInspector({
         ) : selectedBlock ? (
           <div data-testid="block-inspector-content" className="flex flex-col gap-5">
             <AssigneeInspectorField
+              localProjectId={graph?.projectId ?? null}
               workItem={
                 selectedBlock
                   ? {
@@ -458,6 +459,7 @@ export function BlockInspector({
               t={t}
             />
             <WorkItemCollaborationPanel
+              localProjectId={graph?.projectId ?? null}
               workItem={
                 selectedBlock
                   ? {

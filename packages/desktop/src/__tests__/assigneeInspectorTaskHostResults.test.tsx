@@ -227,6 +227,7 @@ describe("AssigneeInspectorField human authority axes", () => {
 
     const view = render(
       <AssigneeInspectorField
+        localProjectId="project-1"
         workItem={taskItem}
         roles={["responsibility", "reviewer"]}
         api={api as PlanWeaveCollaborationApi}
@@ -240,6 +241,7 @@ describe("AssigneeInspectorField human authority axes", () => {
 
     view.rerender(
       <AssigneeInspectorField
+        localProjectId="project-1"
         workItem={firstBlock}
         roles={["responsibility", "reviewer"]}
         api={api as PlanWeaveCollaborationApi}

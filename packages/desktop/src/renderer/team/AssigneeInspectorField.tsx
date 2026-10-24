@@ -12,6 +12,7 @@ import { AssigneePicker } from "./AssigneePicker";
 
 export type AssigneeInspectorFieldProps = {
   workItem: WorkItemRef | null;
+  localProjectId: string | null;
   t: ReturnType<typeof createTranslator>;
   api?: PlanWeaveCollaborationApi | null;
   className?: string;
@@ -41,6 +42,7 @@ function roleLabel(role: AssigneeAuthorityRole, t: ReturnType<typeof createTrans
 
 function SingleAuthorityField({
   workItem,
+  localProjectId,
   role,
   t,
   api,
@@ -48,6 +50,7 @@ function SingleAuthorityField({
   onAssignmentOutcome
 }: {
   workItem: WorkItemRef;
+  localProjectId: string | null;
   role: AssigneeAuthorityRole;
   t: ReturnType<typeof createTranslator>;
   api?: PlanWeaveCollaborationApi | null;
@@ -57,6 +60,7 @@ function SingleAuthorityField({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const controller = useAssigneePickerController({
     workItem,
+    localProjectId,
     authorityRole: role,
     api,
     detailsOpen,
@@ -99,6 +103,7 @@ function SingleAuthorityField({
  */
 export function AssigneeInspectorField({
   workItem,
+  localProjectId,
   t,
   api,
   className,
@@ -128,6 +133,7 @@ export function AssigneeInspectorField({
         <SingleAuthorityField
           key={role}
           workItem={stableWorkItem}
+          localProjectId={localProjectId}
           role={role}
           t={t}
           api={api}

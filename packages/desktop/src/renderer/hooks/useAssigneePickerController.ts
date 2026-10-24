@@ -20,7 +20,7 @@ import { workItemKey } from "../../shared/collaborationReadModels.js";
 import type { createTranslator } from "../i18n";
 import { useCollaborationReadModels } from "./useCollaborationReadModels";
 import { useCollaborationStatus } from "./useCollaborationStatus";
-import { isCollaborationSessionConnected } from "../collaboration/sessionState";
+import { resolveLocalCollaborationOperationScope } from "../collaboration/workspaceCollaborationScope";
 import type { PlanWeaveCollaborationApi } from "../../shared/collaboration.js";
 
 /** Human responsibility and reviewer authorities shown in ordinary inspectors. */
@@ -28,6 +28,7 @@ export type AssigneeAuthorityRole = "responsibility" | "reviewer";
 
 export type UseAssigneePickerControllerArgs = {
   workItem: WorkItemRef | null;
+  localProjectId: string | null;
   /**
    * Which independent authority this picker mutates.
    * Defaults to responsibility (human owner). Reviewer never changes execution target.
@@ -124,7 +125,10 @@ export function useAssigneePickerController(
   const authorityRole: AssigneeAuthorityRole = args.authorityRole ?? "responsibility";
   const detailsOpen = args.detailsOpen ?? false;
   const { status } = useCollaborationStatus({ api });
-  const publishedOperationScope = status?.session.operationScope;
+  const publishedOperationScope = resolveLocalCollaborationOperationScope(
+    status,
+    args.localProjectId
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: the four scope fields define session identity across status snapshots
   const operationScope = useMemo(
     () => publishedOperationScope,
@@ -141,7 +145,7 @@ export function useAssigneePickerController(
     return status.profiles.find((profile) => profile.profileId === status.activeProfileId) ?? null;
   }, [status]);
 
-  const sessionConnected = isCollaborationSessionConnected(status);
+  const sessionConnected = operationScope !== null;
 
   // Subscribe only — project/canvas binding is owned by useCollaborationSurface.
   const {
@@ -150,11 +154,17 @@ export function useAssigneePickerController(
     controller
   } = useCollaborationReadModels({
     api,
-    profileId: sessionConnected ? (activeProfile?.profileId ?? null) : null,
-    projectId: sessionConnected ? (activeProfile?.projectId ?? null) : null,
+    profileId: operationScope?.profileId ?? null,
+    projectId: operationScope?.projectId ?? null,
     canvasId: args.workItem?.canvasId ?? null,
     manageActiveProject: false
   });
+
+  const contextBound = Boolean(
+    operationScope &&
+      snapshot.profileId === operationScope.profileId &&
+      snapshot.projectId === operationScope.projectId
+  );
 
   const labels = useMemo((): AssigneeDisplayLabels => {
     if (args.labels) return args.labels;
@@ -181,6 +191,7 @@ export function useAssigneePickerController(
       api,
       controller,
       workItemKeyValue,
+      localProjectId: args.localProjectId,
       authorityRole,
       operationScope,
       sessionConnected,
@@ -196,6 +207,7 @@ export function useAssigneePickerController(
       api,
       controller,
       workItemKeyValue,
+      args.localProjectId,
       authorityRole,
       operationScope,
       sessionConnected,
@@ -234,13 +246,13 @@ export function useAssigneePickerController(
 
   // Load independent authority projection for the selected work item.
   useEffect(() => {
-    if (!controller || !args.workItem || !sessionConnected || !isCurrentScope()) return;
+    if (!controller || !args.workItem || !contextBound || !isCurrentScope()) return;
     void controller.ensureWorkAuthority(args.workItem).catch(() => undefined);
-  }, [args.workItem, controller, isCurrentScope, sessionConnected]);
+  }, [args.workItem, contextBound, controller, isCurrentScope]);
 
   const loadEligible = useCallback(async () => {
     if (!isCurrentScope()) return;
-    if (!api || !operationScope || !args.workItem || !sessionConnected) {
+    if (!api || !operationScope || !args.workItem || !contextBound) {
       setEligible(null);
       return;
     }
@@ -263,20 +275,20 @@ export function useAssigneePickerController(
         setEligibleLoading(false);
       }
     }
-  }, [api, args.workItem, isCurrentScope, sessionConnected, operationScope]);
+  }, [api, args.workItem, contextBound, isCurrentScope, operationScope]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: workItemKeyValue remounts eligible load
   useEffect(() => {
-    if (!detailsOpen || !sessionConnected || !args.workItem) return;
+    if (!detailsOpen || !contextBound || !args.workItem) return;
     void loadEligible();
-  }, [args.workItem, authorityRole, detailsOpen, loadEligible, sessionConnected, workItemKeyValue]);
+  }, [args.workItem, authorityRole, contextBound, detailsOpen, loadEligible, workItemKeyValue]);
 
   const authority: WorkAuthorityProjection | null = useMemo(() => {
-    if (!args.workItem) return null;
+    if (!args.workItem || !contextBound) return null;
     return snapshot.workAuthorityByWorkItem[workItemKey(args.workItem)] ?? null;
-  }, [args.workItem, snapshot.workAuthorityByWorkItem]);
+  }, [args.workItem, contextBound, snapshot.workAuthorityByWorkItem]);
 
-  const projectId = activeProfile?.projectId ?? snapshot.projectId ?? "unknown";
+  const projectId = args.localProjectId ?? "unknown";
 
   const assignment: AssignmentDisplayProjection | null = useMemo(() => {
     if (!args.workItem) return null;
@@ -289,7 +301,7 @@ export function useAssigneePickerController(
   }, [args.workItem, authority, authorityRole, projectId]);
 
   const refreshForSelection = useCallback(async (): Promise<boolean> => {
-    if (!isCurrentScope()) return false;
+    if (!contextBound || !isCurrentScope()) return false;
     try {
       if (controller && args.workItem) {
         await controller.ensureWorkAuthority(args.workItem);
@@ -315,7 +327,15 @@ export function useAssigneePickerController(
       if (isCurrentScope()) setActionError(collaborationErrorMessage(error));
       return false;
     }
-  }, [args.workItem, controller, detailsOpen, isCurrentScope, loadEligible, snapshot.syncPhase]);
+  }, [
+    args.workItem,
+    contextBound,
+    controller,
+    detailsOpen,
+    isCurrentScope,
+    loadEligible,
+    snapshot.syncPhase
+  ]);
 
   const refresh = useCallback(async (): Promise<void> => {
     await refreshForSelection();
@@ -323,8 +343,7 @@ export function useAssigneePickerController(
 
   const performSelection = useCallback(
     async (target: AssignmentTarget, refreshBeforeSelection = false): Promise<boolean> => {
-      if (!api || !args.workItem || !controller || !sessionConnected || !isCurrentScope())
-        return false;
+      if (!api || !args.workItem || !controller || !contextBound || !isCurrentScope()) return false;
       if (pendingRef.current) return false;
 
       if (target.kind === "exact_host" || target.kind === "automatic_host") {
@@ -355,8 +374,8 @@ export function useAssigneePickerController(
         }
         const latestSnapshot = controller.getSnapshot();
         if (
-          latestSnapshot.profileId !== snapshot.profileId ||
-          latestSnapshot.projectId !== snapshot.projectId
+          latestSnapshot.profileId !== operationScope?.profileId ||
+          latestSnapshot.projectId !== operationScope?.projectId
         )
           return false;
         const current = assignmentProjectionFromAuthority({
@@ -446,10 +465,9 @@ export function useAssigneePickerController(
       loadEligible,
       projectId,
       refreshForSelection,
-      snapshot.profileId,
-      snapshot.projectId,
-      isCurrentScope,
-      sessionConnected
+      operationScope,
+      contextBound,
+      isCurrentScope
     ]
   );
 
@@ -475,14 +493,15 @@ export function useAssigneePickerController(
     return buildAssigneePickerViewModel({
       workItem: args.workItem,
       assignment,
-      members: projectView.members,
-      eligible,
-      status,
-      syncPhase: snapshot.syncPhase,
-      loading,
-      pending,
-      staleConflict: localStaleConflict || snapshot.syncPhase === "stale_conflict",
-      lastError: actionError ?? snapshot.lastError,
+      members: contextBound ? projectView.members : [],
+      eligible: contextBound ? eligible : null,
+      status: contextBound ? status : null,
+      syncPhase: contextBound ? snapshot.syncPhase : "idle",
+      loading: contextBound && loading,
+      pending: contextBound && pending,
+      staleConflict:
+        contextBound && (localStaleConflict || snapshot.syncPhase === "stale_conflict"),
+      lastError: contextBound ? (actionError ?? snapshot.lastError) : null,
       query,
       labels,
       authorityRole
@@ -492,6 +511,7 @@ export function useAssigneePickerController(
     args.workItem,
     assignment,
     authorityRole,
+    contextBound,
     detailsOpen,
     eligible,
     eligibleLoading,

@@ -210,6 +210,7 @@ export function createApi() {
       status = connectedStatus();
       status.activeProfileId = profileId;
       status.session.activeProfileId = profileId;
+      status.session.operationScope = collaborationOperationScopeFixture(profileId, projectId);
       status.profiles[0] = { ...status.profiles[0]!, projectId, profileId, credentialRevision };
       for (const listener of statusListeners) listener(status);
     }

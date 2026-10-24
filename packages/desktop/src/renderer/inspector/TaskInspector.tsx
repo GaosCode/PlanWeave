@@ -276,6 +276,7 @@ export function TaskInspector({
               </div>
             </div>
             <AssigneeInspectorField
+              localProjectId={graph?.projectId ?? null}
               workItem={
                 selectedTask
                   ? {
@@ -331,6 +332,7 @@ export function TaskInspector({
               />
             </section>
             <WorkItemCollaborationPanel
+              localProjectId={graph?.projectId ?? null}
               workItem={{
                 kind: "task",
                 canvasId: canvasRef?.canvasId ?? "default",
