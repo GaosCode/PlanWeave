@@ -86,6 +86,40 @@ export class WorkAuthorityReadArbitrator {
     return results;
   }
 
+  startBatch(workItems: readonly WorkItemRef[], generation: number) {
+    const requests = new Map<number, WorkAuthorityReadRequest>();
+    const completion = Promise.allSettled(
+      workItems.map((workItem, index) =>
+        this.read(workItem, generation, (request) => requests.set(index, request))
+      )
+    );
+    return {
+      wait: async () => {
+        await completion;
+        return this.waitForAggregate(requests, generation);
+      }
+    };
+  }
+
+  async readForObserver(
+    workItem: WorkItemRef,
+    generation: number
+  ): Promise<"applied" | "superseded"> {
+    let request: WorkAuthorityReadRequest | undefined;
+    try {
+      const applied = await this.read(workItem, generation, (started) => {
+        request = started;
+      });
+      if (applied === "applied" || !request) return applied;
+      return (await this.waitForCurrent(request)).outcome.status === "applied"
+        ? "applied"
+        : "superseded";
+    } catch {
+      // A failed event read remains retryable even if a subscriber starts a successful successor.
+      return "superseded";
+    }
+  }
+
   async read(
     workItem: WorkItemRef,
     generation: number,

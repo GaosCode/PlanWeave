@@ -85,6 +85,7 @@
         "assigneeInspectorTaskHostResults.test.tsx",
         "assigneePicker.test.tsx",
         "assigneePickerController.test.ts",
+        "assigneeMembershipInvalidation.test.ts",
         "assigneeSurfaceViewModels.test.ts",
         "assignmentViewModels.test.ts",
         "attachmentUpload.test.ts",

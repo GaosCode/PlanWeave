@@ -438,18 +438,26 @@ export function buildAssigneeSections(input: {
     );
   }
 
-  // Current human assignment may no longer be in membership/eligible lists.
-  if (selected.kind === "human" && !humanById.has(selected.humanPrincipalId)) {
-    humanById.set(
-      selected.humanPrincipalId,
-      evaluateHumanOption({
-        humanPrincipalId: selected.humanPrincipalId,
-        displayName: resolveHumanDisplay(selected.humanPrincipalId, input.assignment?.human),
-        membershipActive: input.assignment?.human?.membershipActive ?? false,
-        selected: true,
-        labels
-      })
-    );
+  // Current authority can become inactive without changing revision or an open eligible list.
+  if (selected.kind === "human") {
+    const current = humanById.get(selected.humanPrincipalId);
+    const inactive = input.assignment?.availability.reason === "human_membership_inactive";
+    if (!current || inactive) {
+      humanById.set(
+        selected.humanPrincipalId,
+        evaluateHumanOption({
+          humanPrincipalId: selected.humanPrincipalId,
+          displayName: resolveHumanDisplay(
+            selected.humanPrincipalId,
+            input.members.find((member) => member.humanPrincipalId === selected.humanPrincipalId) ??
+              input.assignment?.human
+          ),
+          membershipActive: !inactive && (input.assignment?.human?.membershipActive ?? false),
+          selected: true,
+          labels
+        })
+      );
+    }
   }
 
   const people = [...humanById.values()].sort((left, right) =>

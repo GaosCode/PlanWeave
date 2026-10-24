@@ -55,10 +55,7 @@ import {
   AuthoritativeRefreshArbitrator,
   type AggregateRefreshApplication
 } from "./refreshArbitration.js";
-import {
-  WorkAuthorityReadArbitrator,
-  type WorkAuthorityReadRequest
-} from "./workAuthorityReadArbitration.js";
+import { WorkAuthorityReadArbitrator } from "./workAuthorityReadArbitration.js";
 import { applyObserverRemoteRun, ingestActivityRemoteRun } from "./remoteRunProjection.js";
 
 export type CollaborationReadBridgePort = Pick<
@@ -277,36 +274,22 @@ export class CollaborationReadModelController {
       this.emit();
 
       const trackedComments = [...this.state.trackedCommentWorkItems.values()];
-      const authorityRequests = new Map<number, WorkAuthorityReadRequest>();
+      const authorityRefresh = this.authorityReads.startBatch(
+        [...this.state.trackedAuthorityWorkItems.values()],
+        generation
+      );
       const results = await Promise.allSettled([
         this.reloadMembers(generation),
         this.reloadAssignments(generation),
         this.reloadActivity(generation),
-        ...trackedComments.map((workItem) => this.reloadComments(workItem, generation)),
-        ...[...this.state.trackedAuthorityWorkItems.values()].map((workItem, index) => {
-          return this.authorityReads.read(workItem, generation, (request) =>
-            authorityRequests.set(3 + trackedComments.length + index, request)
-          );
-        })
+        ...trackedComments.map((workItem) => this.reloadComments(workItem, generation))
       ]);
-
-      let authorities = authorityRequests.size
-        ? await this.authorityReads.waitForAggregate(authorityRequests, generation)
-        : [];
-      while (
-        !this.disposed &&
-        generation === this.state.generation &&
-        authorities.some(({ request }) => !this.authorityReads.isCurrent(request))
-      ) {
-        authorities = await this.authorityReads.waitForAggregate(authorityRequests, generation);
-      }
+      const authorities = await authorityRefresh.wait();
       snapshotLoading.release();
       if (this.disposed || generation !== this.state.generation) return { status: "retired" };
 
-      const failures = results.flatMap((result, index) =>
-        result.status === "rejected" && !authorityRequests.has(index)
-          ? [{ reason: result.reason }]
-          : []
+      const failures = results.flatMap((result) =>
+        result.status === "rejected" ? [{ reason: result.reason }] : []
       );
       const authorityFailures = authorities.flatMap(({ outcome }) =>
         outcome.status === "failed" ? [outcome] : []
@@ -693,8 +676,16 @@ export class CollaborationReadModelController {
 
     switch (kind) {
       case "membership":
-      case "project":
-        return (await this.reloadMembers(generation)).application;
+      case "project": {
+        const authorities = [...this.state.trackedAuthorityWorkItems.values()].map((workItem) =>
+          this.authorityReads.readForObserver(workItem, generation)
+        );
+        const members = await this.reloadMembers(generation);
+        const results = await Promise.all(authorities);
+        return members.application === "applied" && results.every((result) => result === "applied")
+          ? "applied"
+          : "superseded";
+      }
       case "invitation":
         // Invitations are owned by the on-demand People details projection.
         // They do not invalidate membership and must not fan out member reads.
@@ -907,19 +898,7 @@ export class CollaborationReadModelController {
     }
     // Keep independent authorities in sync when assignment events fire.
     this.state.trackedAuthorityWorkItems.set(key, workItem);
-    let request: WorkAuthorityReadRequest | undefined;
-    try {
-      const applied = await this.authorityReads.read(workItem, generation, (started) => {
-        request = started;
-      });
-      if (applied === "applied" || !request) return applied;
-      return (await this.authorityReads.waitForCurrent(request)).outcome.status === "applied"
-        ? "applied"
-        : "superseded";
-    } catch {
-      // The authority owner published this failure; retain the cursor for retry without remapping.
-      return "superseded";
-    }
+    return this.authorityReads.readForObserver(workItem, generation);
   }
 
   private async reloadComments(workItem: WorkItemRef, generation: number): Promise<void> {
