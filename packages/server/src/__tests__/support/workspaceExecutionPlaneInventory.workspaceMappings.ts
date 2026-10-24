@@ -82,6 +82,14 @@ export const workspaceMappingsInventory = [
     "Adversarial Host transport tests report empty mapping observations."
   ),
   inventoryEntry(
+    "wm-agentHostOutboxFailureHarness",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/support/agentHostOutboxFailureHarness.ts",
+    "readiness.workspaceMappings: []",
+    "Outbox failure transport harness reports empty Host mapping observations."
+  ),
+  inventoryEntry(
     "wm-acpConversationDelivery-test",
     "workspaceMappings",
     "endpoint_readiness",

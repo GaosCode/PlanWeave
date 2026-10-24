@@ -1,4 +1,4 @@
-import { AgentHostOutboxDrain } from "./agentHostOutboxDrain.js";
+import { AgentHostOutboxDataError, AgentHostOutboxDrain } from "./agentHostOutboxDrain.js";
 import { HostConnectionWatchdog } from "./hostConnectionWatchdog.js";
 import { classifyRemoteRunnerHttpFailure } from "./remoteRunnerHttpFailure.js";
 import type { RemoteAcpConversationService } from "../execution/remoteAcpConversationService.js";
@@ -212,14 +212,20 @@ export class AgentHostClient implements HostTransport {
       this.clock,
       this.limits,
       (error) => {
-        this.transition({ state: "degraded", reason: "outbox_delivery_failed" });
+        if (error instanceof AgentHostOutboxDataError) {
+          const stopping = this.stop();
+          this.transition({ state: "reconciliation-required", reason: error.message });
+          void stopping.catch(() => this.failExecutionProtection("outbox_shutdown_failed"));
+        } else {
+          this.transition({ state: "degraded", reason: "outbox_delivery_failed" });
+          this.socket?.close(1011, "outbox delivery failed");
+        }
         this.options.logger?.log({
           level: "warn",
           event: "host_outbox_delivery_failed",
           state: this.currentStatus.state,
           reason: error instanceof Error ? error.message : "outbox_delivery_failed"
         });
-        this.socket?.close(1011, "outbox delivery failed");
       },
       () => this.rejectPermissionCompatibility("historical_permission_replay_unsupported")
     );

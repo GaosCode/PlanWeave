@@ -917,6 +917,7 @@
         "agentHostInteractionClock.test.ts",
         "agentHostUpgradeRetry.test.ts",
         "agentHostClientAdversarial.test.ts",
+        "agentHostOutboxFailure.test.ts",
         "agentHostClientLoad.test.ts",
         "agentHostConfig.test.ts",
         "credentialRenewal.test.ts",

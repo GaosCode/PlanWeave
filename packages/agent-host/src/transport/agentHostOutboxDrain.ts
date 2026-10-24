@@ -1,5 +1,6 @@
 import { historicalPermissionHostReplaySchema } from "@planweave-ai/agent-host-protocol";
 import { WebSocket } from "ws";
+import { ZodError } from "zod";
 import { serializeAgentHostEvent, type HistoricalHostEvent } from "../protocol.js";
 import type { AgentHostStateRepository } from "../state/agentHostStateContract.js";
 import type { HostTransportClock, HostTransportLimits } from "./hostTransport.js";
@@ -8,6 +9,27 @@ type OutboxState = Pick<
   AgentHostStateRepository,
   "subscribeOutboxReady" | "pendingEvents" | "historicalPermissionEventJson"
 >;
+
+export class AgentHostOutboxDataError extends Error {}
+
+function readOutbox<T>(read: () => T): T {
+  try {
+    return read();
+  } catch (error) {
+    if (
+      error instanceof SyntaxError ||
+      error instanceof ZodError ||
+      (error instanceof Error &&
+        ["historical_permission_event_not_pending", "host_event_identity_conflict"].includes(
+          error.message
+        ))
+    ) {
+      throw new AgentHostOutboxDataError("agent_host_outbox_record_invalid", { cause: error });
+    }
+    // Unclassified read failures, including temporary SQLite busy/I/O, remain retryable.
+    throw error;
+  }
+}
 
 /** Hints schedule reads; the durable outbox and Server ACKs own delivery state. */
 export class AgentHostOutboxDrain {
@@ -55,13 +77,18 @@ export class AgentHostOutboxDrain {
   }
 
   welcome(socket: WebSocket, historicalReplay: boolean): boolean {
-    if (
-      !historicalReplay &&
-      this.state
-        .pendingEvents()
-        .some((event) => event.type === "interaction.permission_requested" && !("options" in event))
-    ) {
-      this.rejectHistoricalReplay();
+    try {
+      if (
+        !historicalReplay &&
+        readOutbox(() => this.state.pendingEvents()).some(
+          (event) => event.type === "interaction.permission_requested" && !("options" in event)
+        )
+      ) {
+        this.rejectHistoricalReplay();
+        return false;
+      }
+    } catch (error) {
+      this.onError(error);
       return false;
     }
     this.disconnect();
@@ -117,7 +144,7 @@ export class AgentHostOutboxDrain {
     const windowSize = Math.min(this.limits.maxOutboundBatch, responseSafeWindow);
     let available = windowSize - this.inFlight.size;
     if (available <= 0) return;
-    for (const event of this.state.pendingEvents(this.limits.maxOutboundBatch)) {
+    for (const event of readOutbox(() => this.state.pendingEvents(this.limits.maxOutboundBatch))) {
       if (available <= 0) return;
       if (this.inFlight.has(event.messageId)) continue;
       if (!this.send(socket, event)) return;
@@ -132,18 +159,26 @@ export class AgentHostOutboxDrain {
       this.rejectHistoricalReplay();
       return false;
     }
-    const payload = historical
-      ? JSON.stringify(
-          historicalPermissionHostReplaySchema.parse({
-            type: "host.permission_history",
-            protocolVersion: 1,
-            eventJson: this.state.historicalPermissionEventJson(event.messageId)
-          })
-        )
-      : serializeAgentHostEvent(event);
+    const eventJson = historical
+      ? readOutbox(() => this.state.historicalPermissionEventJson(event.messageId))
+      : undefined;
+    let payload: string;
+    try {
+      payload = historical
+        ? JSON.stringify(
+            historicalPermissionHostReplaySchema.parse({
+              type: "host.permission_history",
+              protocolVersion: 1,
+              eventJson
+            })
+          )
+        : serializeAgentHostEvent(event);
+    } catch (error) {
+      throw new AgentHostOutboxDataError("agent_host_outbox_encoding_failed", { cause: error });
+    }
     const bytes = Buffer.byteLength(payload);
     if (bytes > this.limits.maxPayloadBytes)
-      throw new Error("agent_host_outbound_payload_too_large");
+      throw new AgentHostOutboxDataError("agent_host_outbound_payload_too_large");
     if (socket.bufferedAmount + bytes > this.limits.maxBufferedBytes) {
       this.retry();
       return false;
