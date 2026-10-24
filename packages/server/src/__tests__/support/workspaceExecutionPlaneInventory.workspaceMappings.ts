@@ -74,6 +74,22 @@ export const workspaceMappingsInventory = [
     "Agent Host client tests report empty mapping observations."
   ),
   inventoryEntry(
+    "wm-agentHostClientAdversarial-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/agentHostClientAdversarial.test.ts",
+    "readiness.workspaceMappings: []",
+    "Adversarial Host transport tests report empty mapping observations."
+  ),
+  inventoryEntry(
+    "wm-acpConversationDelivery-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/distributed-integration/src/__tests__/acpConversationDelivery.test.ts",
+    "readiness.workspaceMappings: []",
+    "ACP conversation delivery tests report empty Host mapping observations."
+  ),
+  inventoryEntry(
     "wm-agentHostInteractionClock-test",
     "workspaceMappings",
     "endpoint_readiness",
