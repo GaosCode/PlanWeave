@@ -2,6 +2,7 @@ import type { CanvasRuntimeStatusProjection } from "@planweave-ai/collaboration-
 import type { PlanPackageManifest } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
+import { createInvalidatingCanvasRuntimeStatusRepository } from "../canvas/runtimeStatusInvalidation.js";
 import { CanvasRuntimeStatusRepository } from "../canvas/runtimeStatusRepository.js";
 import { HumanObserverJournal } from "../humanObserverJournal.js";
 import { applyMigrations } from "../migrations.js";
@@ -9,6 +10,7 @@ import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
 const databases: SqliteDatabase[] = [];
 const scope = { workspaceId: "w", projectId: "p", canvasId: "default" } as const;
+const observerScope = { workspaceId: scope.workspaceId, projectId: scope.projectId };
 const fingerprint = `pkg-${"a".repeat(64)}`;
 
 afterEach(() => {
@@ -80,24 +82,156 @@ describe("CanvasRuntimeStatusRepository", () => {
     expect(statuses.replaceFromExecution(third)).toEqual({ runtimeRevision: 3, status: third });
   });
 
-  it("rolls back both status and invalidation when the commit listener fails", async () => {
+  it.each([
+    "initialize",
+    "replace",
+    "merge"
+  ] as const)("rolls back %s and invalidation when the commit listener fails", async (operation) => {
     const database = await openServerDatabase(":memory:", 5_000);
     databases.push(database);
     applyMigrations(database);
     const journal = new HumanObserverJournal(database, 10);
+    let failCommit = false;
     const statuses = new CanvasRuntimeStatusRepository(database, undefined, (snapshot) => {
       journal.appendInCallerTransaction(
         { workspaceId: scope.workspaceId, projectId: scope.projectId },
         { kind: "runtime", canvasId: scope.canvasId, runtimeRevision: snapshot.runtimeRevision }
       );
-      throw new Error("simulated_invalidation_failure");
+      if (failCommit) throw new Error("simulated_invalidation_failure");
     });
+    const manifest = implementationCandidatesManifest();
+    const initial = {
+      ...status("2026-08-20T00:00:00.000Z"),
+      tasks: [{ taskId: "T-001", status: "in_progress" as const, openFeedbackCount: 0 }],
+      blocks: manifest.nodes[0].blocks.map((block) =>
+        projectedBlock(`T-001#${block.id}`, "ready", true)
+      )
+    } satisfies CanvasRuntimeStatusProjection;
+    const before = operation === "initialize" ? null : statuses.replaceFromExecution(initial);
+    const head = journal.head(observerScope);
+    failCommit = true;
+    const incoming = { ...initial, capturedAt: "2026-08-21T00:00:00.000Z" };
+    incoming.blocks = initial.blocks.map((block) => ({ ...block, status: "completed" }));
 
-    expect(() => statuses.replaceFromExecution(status("2026-08-20T00:00:00.000Z"))).toThrow(
-      "simulated_invalidation_failure"
+    expect(() =>
+      operation === "merge"
+        ? statuses.mergeRemoteMutationFromExecution(incoming, "T-001#B-IMPLEMENT", manifest)
+        : statuses.replaceFromExecution(incoming)
+    ).toThrow("simulated_invalidation_failure");
+    expect(statuses.read(scope)).toEqual(before);
+    expect(journal.head(observerScope)).toBe(head);
+  });
+
+  const identityChanges: Array<{
+    name: string;
+    mutate(status: CanvasRuntimeStatusProjection): void;
+  }> = [
+    {
+      name: "replaced task",
+      mutate: (value) => {
+        value.tasks[1].taskId = "T-003";
+      }
+    },
+    {
+      name: "missing task",
+      mutate: (value) => {
+        value.tasks.pop();
+      }
+    },
+    {
+      name: "extra task",
+      mutate: (value) => {
+        value.tasks.push({ ...value.tasks[1], taskId: "T-003" });
+      }
+    },
+    {
+      name: "replaced block",
+      mutate: (value) => {
+        value.blocks[1].ref = "T-002#B-002";
+      }
+    },
+    {
+      name: "missing block",
+      mutate: (value) => {
+        value.blocks.pop();
+      }
+    },
+    {
+      name: "extra block",
+      mutate: (value) => {
+        value.blocks.push({ ...value.blocks[1], ref: "T-002#B-002" });
+      }
+    }
+  ];
+  it.each(
+    identityChanges.flatMap((change) => [
+      { ...change, authority: "current", error: "canvas_runtime_status_identity_mismatch" },
+      { ...change, authority: "graph", error: "canvas_runtime_status_graph_identity_mismatch" }
+    ])
+  )("rejects $name against $authority without advancing status or journal", async ({
+    mutate,
+    authority,
+    error
+  }) => {
+    const database = await openServerDatabase(":memory:", 5_000);
+    databases.push(database);
+    applyMigrations(database);
+    const journal = new HumanObserverJournal(database, 10);
+    const statuses = createInvalidatingCanvasRuntimeStatusRepository({
+      database,
+      observerJournal: journal
+    });
+    const manifest = basicManifest({ includeSecondTask: true });
+    const current = {
+      ...status("2026-08-20T00:00:00.000Z"),
+      tasks: manifest.nodes.map((task) => ({
+        taskId: task.id,
+        status: "ready" as const,
+        openFeedbackCount: 0
+      })),
+      blocks: manifest.nodes.flatMap((task) =>
+        task.blocks.map((block) => projectedBlock(`${task.id}#${block.id}`, "ready", true))
+      )
+    } satisfies CanvasRuntimeStatusProjection;
+    const incoming = structuredClone(current);
+    mutate(incoming);
+    if (authority === "graph") mutate(current);
+    const before = statuses.replaceFromExecution(current);
+    const head = journal.head(observerScope);
+    expect(() =>
+      statuses.mergeRemoteMutationFromExecution(incoming, "T-001#B-001", manifest)
+    ).toThrow(error);
+    expect(statuses.read(scope)).toEqual(before);
+    expect(journal.head(observerScope)).toBe(head);
+  });
+
+  it.each([
+    "fingerprint",
+    "target task",
+    "target block"
+  ] as const)("rejects a mismatched %s without advancing revision", async (invalid) => {
+    const statuses = await repository();
+    const manifest = implementationCandidatesManifest();
+    const current = {
+      ...status("2026-08-20T00:00:00.000Z"),
+      tasks: [{ taskId: "T-001", status: "ready" as const, openFeedbackCount: 0 }],
+      blocks: manifest.nodes[0].blocks.map((block) =>
+        projectedBlock(`T-001#${block.id}`, "ready", true)
+      )
+    } satisfies CanvasRuntimeStatusProjection;
+    const before = statuses.replaceFromExecution(current);
+    const incoming = structuredClone(current);
+    if (invalid === "fingerprint") incoming.packageFingerprint = `pkg-${"b".repeat(64)}`;
+    if (invalid === "target task") incoming.tasks = [];
+    if (invalid === "target block") incoming.blocks.shift();
+    expect(() =>
+      statuses.mergeRemoteMutationFromExecution(incoming, "T-001#B-IMPLEMENT", manifest)
+    ).toThrow(
+      invalid === "fingerprint"
+        ? "canvas_runtime_status_fingerprint_mismatch"
+        : "canvas_runtime_status_mutation_target_missing"
     );
-    expect(statuses.read(scope)).toBeNull();
-    expect(journal.head({ workspaceId: scope.workspaceId, projectId: scope.projectId })).toBe(0);
+    expect(statuses.read(scope)).toEqual(before);
   });
 
   it("recomputes a stable ready candidate after the target mutation releases capacity", async () => {
@@ -123,6 +257,7 @@ describe("CanvasRuntimeStatusRepository", () => {
         projectedBlock("T-001#B-DECOY", "planned", true)
       ]
     } satisfies CanvasRuntimeStatusProjection;
+    incoming.blocks.reverse();
     const merged = statuses.mergeRemoteMutationFromExecution(
       incoming,
       "T-001#B-IMPLEMENT",
@@ -219,6 +354,8 @@ describe("CanvasRuntimeStatusRepository", () => {
         }
       ]
     } satisfies CanvasRuntimeStatusProjection;
+    feedbackOpened.tasks.reverse();
+    feedbackOpened.blocks.reverse();
     const afterFeedback = statuses.mergeRemoteMutationFromExecution(
       feedbackOpened,
       "T-001#R-001",

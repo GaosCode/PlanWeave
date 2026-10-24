@@ -20,6 +20,10 @@ import {
 import { inWriteTransaction, type SqliteDatabase } from "../sqlite.js";
 
 type CanvasRuntimeStatusCommittedListener = (snapshot: CanvasRuntimeStatusSnapshot) => void;
+type RuntimeStatusIdentityIndex = {
+  tasksById: ReadonlyMap<string, CanvasRuntimeStatusProjection["tasks"][number]>;
+  blocksByRef: ReadonlyMap<string, CanvasRuntimeStatusProjection["blocks"][number]>;
+};
 
 function sameScope(left: CanvasScopeRef, right: CanvasScopeRef): boolean {
   return (
@@ -38,26 +42,22 @@ function parseSnapshot(
 
 function assertSameIdentityUniverse(
   current: CanvasRuntimeStatusProjection,
-  incoming: CanvasRuntimeStatusProjection
+  incoming: CanvasRuntimeStatusProjection,
+  identities: RuntimeStatusIdentityIndex
 ): void {
-  const currentTaskIds = new Set(current.tasks.map((task) => task.taskId));
-  const currentBlockRefs = new Set(current.blocks.map((block) => block.ref));
   if (
-    currentTaskIds.size !== incoming.tasks.length ||
-    incoming.tasks.some((task) => !currentTaskIds.has(task.taskId)) ||
-    currentBlockRefs.size !== incoming.blocks.length ||
-    incoming.blocks.some((block) => !currentBlockRefs.has(block.ref))
+    current.tasks.length !== incoming.tasks.length ||
+    current.tasks.some((task) => !identities.tasksById.has(task.taskId)) ||
+    current.blocks.length !== incoming.blocks.length ||
+    current.blocks.some((block) => !identities.blocksByRef.has(block.ref))
   ) {
     throw new Error("canvas_runtime_status_identity_mismatch");
   }
 }
 
-function requireMutationTarget(status: CanvasRuntimeStatusProjection, blockRef: string): string {
+function requireMutationTarget(identities: RuntimeStatusIdentityIndex, blockRef: string): string {
   const { taskId } = parseBlockRef(blockRef);
-  if (
-    !status.tasks.some((task) => task.taskId === taskId) ||
-    !status.blocks.some((block) => block.ref === blockRef)
-  ) {
+  if (!identities.tasksById.has(taskId) || !identities.blocksByRef.has(blockRef)) {
     throw new Error("canvas_runtime_status_mutation_target_missing");
   }
   return taskId;
@@ -72,33 +72,29 @@ function mergeRemoteMutationStatus(
   current: CanvasRuntimeStatusProjection,
   incoming: CanvasRuntimeStatusProjection,
   blockRef: string,
-  manifest: PlanPackageManifest
+  manifest: PlanPackageManifest,
+  identities: RuntimeStatusIdentityIndex
 ): CanvasRuntimeStatusProjection {
   if (current.packageFingerprint !== incoming.packageFingerprint) {
     throw new Error("canvas_runtime_status_fingerprint_mismatch");
   }
-  assertSameIdentityUniverse(current, incoming);
-  const taskId = requireMutationTarget(incoming, blockRef);
+  assertSameIdentityUniverse(current, incoming, identities);
+  const taskId = requireMutationTarget(identities, blockRef);
   const graph = compileTaskGraph(manifest);
   if (graph.diagnostics.errors.length > 0) {
     throw new Error("canvas_runtime_status_graph_invalid");
   }
   if (
     graph.taskNodesInManifestOrder.length !== incoming.tasks.length ||
-    graph.taskNodesInManifestOrder.some(
-      (candidate) => !incoming.tasks.some((task) => task.taskId === candidate)
-    ) ||
+    graph.taskNodesInManifestOrder.some((candidate) => !identities.tasksById.has(candidate)) ||
     graph.blockRefsInManifestOrder.length !== incoming.blocks.length ||
-    graph.blockRefsInManifestOrder.some(
-      (candidate) => !incoming.blocks.some((block) => block.ref === candidate)
-    )
+    graph.blockRefsInManifestOrder.some((candidate) => !identities.blocksByRef.has(candidate))
   ) {
     throw new Error("canvas_runtime_status_graph_identity_mismatch");
   }
   const currentTasks = new Map(current.tasks.map((task) => [task.taskId, task]));
-  const incomingBlocks = new Map(incoming.blocks.map((block) => [block.ref, block]));
   const selectedBlocks = current.blocks.map((block) => {
-    if (block.ref === blockRef) return requireCurrentEntry(incomingBlocks.get(block.ref));
+    if (block.ref === blockRef) return requireCurrentEntry(identities.blocksByRef.get(block.ref));
     return block;
   });
   const targetBlock = requireCurrentEntry(graph.blocksByRef.get(blockRef));
@@ -108,7 +104,7 @@ function mergeRemoteMutationStatus(
   if (targetBlock.type === "review") {
     feedbackCounts.set(
       taskId,
-      requireCurrentEntry(incoming.tasks.find((task) => task.taskId === taskId)).openFeedbackCount
+      requireCurrentEntry(identities.tasksById.get(taskId)).openFeedbackCount
     );
   }
   const feedbackTaskIds = new Set(
@@ -240,11 +236,15 @@ export class CanvasRuntimeStatusRepository {
     manifest: PlanPackageManifest
   ): CanvasRuntimeStatusSnapshot {
     const incoming = canvasRuntimeStatusProjectionSchema.parse(rawStatus);
-    requireMutationTarget(incoming, blockRef);
+    const identities: RuntimeStatusIdentityIndex = {
+      tasksById: new Map(incoming.tasks.map((task) => [task.taskId, task])),
+      blocksByRef: new Map(incoming.blocks.map((block) => [block.ref, block]))
+    };
+    requireMutationTarget(identities, blockRef);
     return inWriteTransaction(this.database, () => {
       const existing = this.read(incoming.scope);
       const status = existing
-        ? mergeRemoteMutationStatus(existing.status, incoming, blockRef, manifest)
+        ? mergeRemoteMutationStatus(existing.status, incoming, blockRef, manifest, identities)
         : incoming;
       const runtimeRevision = existing ? existing.runtimeRevision + 1 : 1;
       this.write(status, runtimeRevision);
