@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { cp, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 
 const desktopRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const repositoryRoot = resolve(desktopRoot, "../..");
@@ -59,7 +60,13 @@ const buildServer = pnpmInvocation(["--filter", "@planweave-ai/server", "build"]
 await run(buildServer.command, buildServer.args);
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(imageRoot, { recursive: true });
+const storeParent = process.env.PLANWEAVE_BUILD_STORE_DIR;
+const deployStore = await mkdtemp(resolve(storeParent ?? tmpdir(), "planweave-deploy-store-"));
 const deploy = pnpmInvocation([
+  "--store-dir",
+  deployStore,
+  "--use-store-server=false",
+  "--use-running-store-server=false",
   "--config.node-linker=hoisted",
   "--config.inject-workspace-packages=true",
   "--filter",

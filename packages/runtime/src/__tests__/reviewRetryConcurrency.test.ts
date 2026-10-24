@@ -34,7 +34,12 @@ import { spawnReviewRetryActor } from "./helpers/reviewRetryProcessFixture.js";
 
 vi.mock("node:fs/promises", async (original) => {
   const actual = await original<typeof fs>();
-  return { ...actual, mkdir: vi.fn(actual.mkdir), writeFile: vi.fn(actual.writeFile) };
+  return {
+    ...actual,
+    mkdir: vi.fn(actual.mkdir),
+    rename: vi.fn(actual.rename),
+    writeFile: vi.fn(actual.writeFile)
+  };
 });
 vi.mock("../package/packageFileConsistency.js", async (original) => {
   const actual = await original<typeof import("../package/packageFileConsistency.js")>();
@@ -325,15 +330,15 @@ it("waits for a real child writer holding the package lock, then retains both su
   await actor.ready;
   const actualFs = await vi.importActual<typeof fs>("node:fs/promises");
   const attempted = deferred();
-  vi.mocked(fs.mkdir).mockImplementation(async (...args: Parameters<typeof fs.mkdir>) => {
+  vi.mocked(fs.rename).mockImplementation(async (...args: Parameters<typeof fs.rename>) => {
     try {
-      return await Reflect.apply(actualFs.mkdir, actualFs, args);
+      return await Reflect.apply(actualFs.rename, actualFs, args);
     } catch (error) {
       if (
         String(args[0]).includes("package-locks/") &&
         error instanceof Error &&
         "code" in error &&
-        error.code === "EEXIST"
+        ["EEXIST", "ENOTEMPTY", "EPERM", "EBUSY"].includes(String(error.code))
       )
         attempted.resolve();
       throw error;

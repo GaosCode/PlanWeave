@@ -1,45 +1,25 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { optionalStat } from "./optionalFile.js";
+import { type AdvisoryLockScope, createLockWriterScope } from "../process/lockWriterGroup.js";
+import { type AdvisoryLockClock, acquireDirectoryLockLease } from "./advisoryLockLease.js";
+import {
+  type AdvisoryLockFs,
+  defaultLockFs,
+  isErrno,
+  removeExactLockOwner
+} from "./advisoryLockOwner.js";
+export type { AdvisoryLockClock } from "./advisoryLockLease.js";
+export type { AdvisoryLockFs, LockHolder } from "./advisoryLockOwner.js";
+export type { AdvisoryLockScope } from "../process/lockWriterGroup.js";
 
-const HOLDER_FILE_NAME = "holder.json";
 const DEFAULT_ACQUIRE_TIMEOUT_MS = 10_000;
-const DEFAULT_STALE_LOCK_MS = 60_000;
 const DEFAULT_RETRY_DELAY_MS = 25;
-
-export type LockHolder = {
-  pid: number;
-  acquiredAt: string;
-  operation: string;
-  ownerToken?: string;
-};
-
-export type AdvisoryLockFs = {
-  mkdir(path: string): Promise<void>;
-  readdir(path: string): Promise<string[]>;
-  writeFile(path: string, data: string, encoding: BufferEncoding): Promise<void>;
-  readFile(path: string, encoding: BufferEncoding): Promise<string>;
-  rename(from: string, to: string): Promise<void>;
-  rm(path: string, options: { recursive: boolean; force: boolean }): Promise<void>;
-  optionalStat(path: string): Promise<{ mtimeMs: number } | null>;
-};
-
-export type AdvisoryLockClock = {
-  /** Wall clock for lock age / holder age diagnostics (Date.now semantics). */
-  nowMs(): number;
-  /** Monotonic clock for acquire timeout loops (performance.now semantics). */
-  performanceNow(): number;
-  delay(ms: number): Promise<void>;
-};
-
 export type WithAdvisoryDirectoryLockOptions = {
   lockPath: string;
   /** Non-empty operation name recorded on the holder and timeout diagnostics. */
   operation: string;
   timeoutMs?: number;
+  /** Retained for caller compatibility; age never authorizes reclaiming an unknown/live lease. */
   staleMs?: number;
   retryDelayMs?: number;
   pid?: number;
@@ -48,46 +28,14 @@ export type WithAdvisoryDirectoryLockOptions = {
   clock?: AdvisoryLockClock;
 };
 
-const heldLockPaths = new AsyncLocalStorage<Set<string>>();
-
-/** Same-process waiters for a lock path — avoids contending on the file lock under fake timers. */
+const heldLockPaths = new AsyncLocalStorage<Map<string, AdvisoryLockScope>>();
 const inProcessTails = new Map<string, Promise<unknown>>();
-
-const defaultFs: AdvisoryLockFs = {
-  readdir: (path) => readdir(path),
-  mkdir: async (path) => {
-    await mkdir(path);
-  },
-  writeFile: async (path, data, encoding) => {
-    await writeFile(path, data, encoding);
-  },
-  readFile: async (path, encoding) => readFile(path, encoding),
-  rename: async (from, to) => rename(from, to),
-  rm: async (path, options) => {
-    await rm(path, options);
-  },
-  optionalStat
-};
-
 const defaultClock: AdvisoryLockClock = {
   nowMs: () => Date.now(),
   performanceNow: () => performance.now(),
   delay: (ms) => delay(ms)
 };
-
-function isErrno(error: unknown, code: string): boolean {
-  return Boolean(
-    error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as { code?: unknown }).code === code
-  );
-}
-
 function defaultIsPidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return false;
-  }
   try {
     process.kill(pid, 0);
     return true;
@@ -95,350 +43,32 @@ function defaultIsPidAlive(pid: number): boolean {
     return !isErrno(error, "ESRCH");
   }
 }
-
 function resolveOperation(operation: string): string {
-  if (typeof operation !== "string" || operation.trim() === "") {
+  if (typeof operation !== "string" || operation.trim() === "")
     throw new Error("Advisory directory lock operation must be a non-empty string");
-  }
   return operation.trim();
 }
-
-type HolderReadResult =
-  | { status: "ok"; holder: LockHolder; identity: string }
-  | { status: "publishing"; pid: number; detail: string; identity: string }
-  | { status: "missing"; detail: string; identity: string }
-  | { status: "invalid"; detail: string; identity: string }
-  | { status: "error"; detail: string; identity: string };
-
-async function readHolderMetadata(
-  lockPath: string,
-  fsAdapter: AdvisoryLockFs
-): Promise<HolderReadResult> {
-  const holderPath = join(lockPath, HOLDER_FILE_NAME);
-  let rawText: string;
-  try {
-    rawText = await fsAdapter.readFile(holderPath, "utf8");
-  } catch (error) {
-    if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR")) {
-      return {
-        status: "missing",
-        detail: `holder file missing at ${holderPath}`,
-        identity: "missing"
-      };
-    }
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      status: "error",
-      detail: `holder file unreadable at ${holderPath}: ${message}`,
-      identity: `error:${message}`
-    };
-  }
-
-  let raw: unknown;
-  try {
-    raw = JSON.parse(rawText);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      status: "invalid",
-      detail: `holder JSON invalid at ${holderPath}: ${message}`,
-      identity: `raw:${rawText}`
-    };
-  }
-
-  if (!raw || typeof raw !== "object") {
-    return {
-      status: "invalid",
-      detail: `holder JSON is not an object at ${holderPath}`,
-      identity: `raw:${rawText}`
-    };
-  }
-
-  const record = raw as Partial<LockHolder>;
-  if (typeof record.pid !== "number" || !Number.isInteger(record.pid) || record.pid <= 0) {
-    return {
-      status: "invalid",
-      detail: `holder pid missing or invalid at ${holderPath}`,
-      identity: `raw:${rawText}`
-    };
-  }
-  if (typeof record.acquiredAt !== "string" || record.acquiredAt.trim() === "") {
-    return {
-      status: "invalid",
-      detail: `holder acquiredAt missing or invalid at ${holderPath}`,
-      identity: `raw:${rawText}`
-    };
-  }
-  if (typeof record.operation !== "string" || record.operation.trim() === "") {
-    return {
-      status: "invalid",
-      detail: `holder operation missing or invalid at ${holderPath}`,
-      identity: `raw:${rawText}`
-    };
-  }
-
-  return {
-    status: "ok",
-    identity:
-      typeof record.ownerToken === "string" && record.ownerToken !== ""
-        ? `token:${record.ownerToken}`
-        : `raw:${rawText}`,
-    holder: {
-      pid: record.pid,
-      acquiredAt: record.acquiredAt,
-      operation: record.operation.trim(),
-      ...(typeof record.ownerToken === "string" && record.ownerToken !== ""
-        ? { ownerToken: record.ownerToken }
-        : {})
-    }
-  };
-}
-
-async function readHolder(lockPath: string, fsAdapter: AdvisoryLockFs): Promise<HolderReadResult> {
-  const result = await readHolderMetadata(lockPath, fsAdapter);
-  if (result.status === "ok" || result.status === "publishing") return result;
-  let entries: string[];
-  try {
-    entries = await fsAdapter.readdir(lockPath);
-  } catch (error) {
-    if (isErrno(error, "ENOENT")) return result;
-    const detail = error instanceof Error ? error.message : String(error);
-    return { ...result, detail: `${result.detail}; owner marker unreadable: ${detail}` };
-  }
-  const markers = entries.filter((entry) => entry.startsWith("owner-"));
-  if (markers.length !== 1) return result;
-  const marker =
-    /^owner-([1-9]\d*)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(
-      markers[0]
-    );
-  if (!marker || !Number.isSafeInteger(Number(marker[1]))) return result;
-  return {
-    status: "publishing",
-    pid: Number(marker[1]),
-    identity: `token:${marker[2]}`,
-    detail: `${result.detail}; unpublished holder pid=${marker[1]}`
-  };
-}
-
-async function writeHolder(
-  lockPath: string,
-  operation: string,
-  pid: number,
-  ownerToken: string,
-  clock: AdvisoryLockClock,
-  fsAdapter: AdvisoryLockFs
-): Promise<void> {
-  // mkdir publishes owner identity atomically before an interruptible JSON write.
-  await fsAdapter.mkdir(join(lockPath, `owner-${pid}-${ownerToken}`));
-  const holder: LockHolder = {
-    pid,
-    acquiredAt: new Date(clock.nowMs()).toISOString(),
-    operation,
-    ownerToken
-  };
-  await fsAdapter.writeFile(
-    join(lockPath, HOLDER_FILE_NAME),
-    `${JSON.stringify(holder, null, 2)}\n`,
-    "utf8"
-  );
-}
-
-async function removeLockIfIdentityMatches(
-  lockPath: string,
-  expectedIdentity: string,
-  fsAdapter: AdvisoryLockFs
-): Promise<boolean> {
-  const current = await readHolder(lockPath, fsAdapter);
-  if (current.identity !== expectedIdentity) return false;
-  const tombstonePath = `${lockPath}.release-${randomUUID()}`;
-  try {
-    // Atomic rename is the fencing point: cleanup never recursively removes the
-    // shared lock path after a separately observed identity comparison.
-    await fsAdapter.rename(lockPath, tombstonePath);
-  } catch (error) {
-    if (isErrno(error, "ENOENT")) return false;
-    throw error;
-  }
-  const moved = await readHolder(tombstonePath, fsAdapter);
-  if (moved.identity !== expectedIdentity) {
-    try {
-      await fsAdapter.rename(tombstonePath, lockPath);
-    } catch (restoreError) {
-      throw new AggregateError(
-        [restoreError],
-        `Lock ownership changed while fencing '${lockPath}'; replacement preserved at '${tombstonePath}'`
-      );
-    }
-    return false;
-  }
-  await fsAdapter.rm(tombstonePath, { recursive: true, force: true });
-  return true;
-}
-
 /**
- * Only the caller that successfully created `lockPath` via mkdir may clean it up
- * when subsequent holder write fails. Other waiters never remove a lock they did not create.
- */
-async function cleanupOwnLockAfterHolderWriteFailure(
-  lockPath: string,
-  writeError: unknown,
-  fsAdapter: AdvisoryLockFs
-): Promise<never> {
-  try {
-    await fsAdapter.rm(lockPath, { recursive: true, force: true });
-  } catch (cleanupError) {
-    throw new AggregateError(
-      [writeError, cleanupError],
-      `Failed to write lock holder at ${lockPath}; cleanup of newly created lock also failed`
-    );
-  }
-  throw writeError;
-}
-
-async function tryReclaimStaleLock(
-  lockPath: string,
-  staleMs: number,
-  clock: AdvisoryLockClock,
-  fsAdapter: AdvisoryLockFs,
-  isPidAlive: (pid: number) => boolean
-): Promise<boolean> {
-  const stats = await fsAdapter.optionalStat(lockPath);
-  if (!stats) {
-    return false;
-  }
-  const holderResult = await readHolder(lockPath, fsAdapter);
-  if (holderResult.status === "ok") {
-    if (isPidAlive(holderResult.holder.pid)) return false;
-  } else if (holderResult.status === "publishing") {
-    if (isPidAlive(holderResult.pid)) return false;
-  } else if (clock.nowMs() - stats.mtimeMs < staleMs) {
-    // mkdir and holder publication are separate writes; an incomplete holder may be live.
-    return false;
-  }
-
-  // A confirmed dead owner needs no grace period; identity fencing protects replacements.
-  return removeLockIfIdentityMatches(lockPath, holderResult.identity, fsAdapter);
-}
-
-function formatAgeMs(ageMs: number | null): string {
-  if (ageMs === null || !Number.isFinite(ageMs)) {
-    return "unknown";
-  }
-  return `${Math.max(0, Math.round(ageMs))}ms`;
-}
-
-async function buildTimeoutError(
-  lockPath: string,
-  operation: string,
-  waitedMs: number,
-  clock: AdvisoryLockClock,
-  fsAdapter: AdvisoryLockFs,
-  isPidAlive: (pid: number) => boolean
-): Promise<Error> {
-  const stats = await fsAdapter.optionalStat(lockPath);
-  const lockAgeMs = stats ? clock.nowMs() - stats.mtimeMs : null;
-  const holderResult = await readHolder(lockPath, fsAdapter);
-
-  const parts = [
-    `Timed out acquiring directory lock at ${lockPath}`,
-    `after ${Math.round(waitedMs)}ms`,
-    `requested operation=${operation}`
-  ];
-
-  if (holderResult.status === "ok") {
-    const holder = holderResult.holder;
-    const acquiredAtMs = Date.parse(holder.acquiredAt);
-    const holderAgeMs = Number.isFinite(acquiredAtMs) ? clock.nowMs() - acquiredAtMs : null;
-    const alive = isPidAlive(holder.pid);
-    parts.push(
-      `holder pid=${holder.pid}`,
-      `holder operation=${holder.operation}`,
-      `holder acquiredAt=${holder.acquiredAt}`,
-      `holder age=${formatAgeMs(holderAgeMs)}`,
-      `holder pidAlive=${alive}`,
-      `lock age=${formatAgeMs(lockAgeMs)}`
-    );
-  } else {
-    parts.push(
-      `holder unreadable (${holderResult.status}: ${holderResult.detail})`,
-      `lock age=${formatAgeMs(lockAgeMs)}`
-    );
-  }
-
-  return new Error(parts.join("; "));
-}
-
-async function acquireFileLock(
-  lockPath: string,
-  operation: string,
-  timeoutMs: number,
-  staleMs: number,
-  retryDelayMs: number,
-  pid: number,
-  isPidAlive: (pid: number) => boolean,
-  fsAdapter: AdvisoryLockFs,
-  clock: AdvisoryLockClock
-): Promise<string> {
-  // Use performance.now() so Vitest fake Date cannot freeze the timeout loop.
-  const started = clock.performanceNow();
-
-  while (clock.performanceNow() - started < timeoutMs) {
-    try {
-      await fsAdapter.mkdir(lockPath);
-    } catch (error) {
-      if (!isErrno(error, "EEXIST")) {
-        throw error;
-      }
-      if (await tryReclaimStaleLock(lockPath, staleMs, clock, fsAdapter, isPidAlive)) {
-        continue;
-      }
-      // Prefer injected delay so Vitest fake timers on the global do not freeze backoff.
-      await clock.delay(retryDelayMs);
-      continue;
-    }
-
-    // mkdir succeeded: this caller owns the lock directory until release or cleanup.
-    const ownerToken = randomUUID();
-    try {
-      await writeHolder(lockPath, operation, pid, ownerToken, clock, fsAdapter);
-      return ownerToken;
-    } catch (writeError) {
-      await cleanupOwnLockAfterHolderWriteFailure(lockPath, writeError, fsAdapter);
-    }
-  }
-
-  throw await buildTimeoutError(
-    lockPath,
-    operation,
-    clock.performanceNow() - started,
-    clock,
-    fsAdapter,
-    isPidAlive
-  );
-}
-
-/**
- * Serialize critical sections with an advisory mkdir-based directory lock.
+ * Serialize critical sections with an advisory atomically published directory lease.
  * Nested calls for the same lock path in the same async context reenter without blocking.
  * Same-process waiters are queued in memory; the file lock still serializes across processes.
  */
 export async function withAdvisoryDirectoryLock<T>(
   options: WithAdvisoryDirectoryLockOptions,
-  fn: () => Promise<T>
+  fn: (scope: AdvisoryLockScope) => Promise<T>
 ): Promise<T> {
   const lockPath = options.lockPath;
   const operation = resolveOperation(options.operation);
   const timeoutMs = options.timeoutMs ?? DEFAULT_ACQUIRE_TIMEOUT_MS;
-  const staleMs = options.staleMs ?? DEFAULT_STALE_LOCK_MS;
   const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const pid = options.pid ?? process.pid;
   const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
-  const fsAdapter = options.fs ?? defaultFs;
+  const fsAdapter = options.fs ?? defaultLockFs;
   const clock = options.clock ?? defaultClock;
 
   const existing = heldLockPaths.getStore();
   if (existing?.has(lockPath)) {
-    return fn();
+    return fn(existing.get(lockPath)!);
   }
 
   const previous = inProcessTails.get(lockPath) ?? Promise.resolve();
@@ -451,33 +81,58 @@ export async function withAdvisoryDirectoryLock<T>(
 
   await previous.catch(() => undefined);
 
-  const nextHeld = new Set(existing ?? []);
-  nextHeld.add(lockPath);
+  const nextHeld = new Map(existing ?? []);
   try {
-    const ownerToken = await acquireFileLock(
+    const lease = await acquireDirectoryLockLease({
       lockPath,
       operation,
       timeoutMs,
-      staleMs,
       retryDelayMs,
       pid,
       isPidAlive,
-      fsAdapter,
+      fs: fsAdapter,
       clock
-    );
+    });
+    const writer = createLockWriterScope(lease.ownerPath, fsAdapter);
+    nextHeld.set(lockPath, writer.scope);
     let result: { ok: true; value: T } | { ok: false; error: unknown };
     try {
-      result = { ok: true, value: await heldLockPaths.run(nextHeld, fn) };
+      result = { ok: true, value: await heldLockPaths.run(nextHeld, () => fn(writer.scope)) };
     } catch (error) {
       result = { ok: false, error };
     }
+    // Callback failure cannot skip writer drainage; failure retains the token.
+    let drainState: { ok: true } | { ok: false; error: unknown } = { ok: true };
     try {
-      await removeLockIfIdentityMatches(lockPath, `token:${ownerToken}`, fsAdapter);
+      const drained = await writer.drain();
+      if (drained) {
+        if (result.ok) result = { ok: false, error: drained.commandError };
+        else if (result.error !== drained.commandError)
+          result = {
+            ok: false,
+            error: new AggregateError(
+              [result.error, drained.commandError],
+              "Callback and managed command failed"
+            )
+          };
+      }
+    } catch (error) {
+      drainState = { ok: false, error };
+    }
+    if (!drainState.ok) {
+      if (!result.ok && result.error !== drainState.error)
+        throw new AggregateError(
+          [result.error, drainState.error],
+          `Directory lock writer drain failed at '${lockPath}'`
+        );
+      throw drainState.error;
+    }
+    try {
+      await removeExactLockOwner(lockPath, lease.name, fsAdapter);
     } catch (releaseError) {
       const failures = result.ok ? [releaseError] : [result.error, releaseError];
       try {
-        // Recheck ownership before retrying a failed fence; a successor may now own the path.
-        await removeLockIfIdentityMatches(lockPath, `token:${ownerToken}`, fsAdapter);
+        await removeExactLockOwner(lockPath, lease.name, fsAdapter);
       } catch (retryError) {
         failures.push(retryError);
       }

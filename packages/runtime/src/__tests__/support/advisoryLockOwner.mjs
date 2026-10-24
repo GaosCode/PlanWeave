@@ -13,16 +13,14 @@ const adapter = {
       throw error;
     }
   },
-  writeFile: async (path, data, encoding) => {
-    if (mode !== "held" && path.endsWith("holder.json")) {
-      if (mode === "partial") await fs.writeFile(path, "{", encoding);
-      process.send({ event: "publishing", pid: process.pid });
-      await new Promise(() => {});
-    }
-    await fs.writeFile(path, data, encoding);
-  }
+  lstat: fs.lstat,
+  rmdir: fs.rmdir
 };
 await withAdvisoryDirectoryLock({ lockPath, operation: "child-owner", fs: adapter }, async () => {
-  process.send({ event: "held", pid: process.pid });
+  const name = (await fs.readdir(lockPath))[0];
+  const holderPath = `${lockPath}/${name}/holder.json`;
+  if (mode === "partial") await fs.writeFile(holderPath, "{");
+  if (mode === "missing") await fs.unlink(holderPath);
+  process.send({ event: mode === "held" ? "held" : "publishing", pid: process.pid });
   await new Promise(() => {});
 });

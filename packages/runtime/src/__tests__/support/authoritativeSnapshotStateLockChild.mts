@@ -8,11 +8,14 @@ import assert from "node:assert/strict";
 const home = process.env.PW_AUTHORITY_LOCK_TEST_HOME;
 const mode = process.env.PW_AUTHORITY_LOCK_TEST_MODE;
 if (!home || !mode) throw new Error("Expected isolated child environment.");
+let stateStarted = false;
 const oldRename = fs.rename;
 fs.rename = async (...args) => {
   if (mode === "rollback" && String(args[0]).endsWith(".layout.json"))
     throw new Error("controlled_layout_install_failure");
-  return Reflect.apply(oldRename, fs, args);
+  const result = await Reflect.apply(oldRename, fs, args);
+  if (stateStarted && String(args[1]) === packageLock) held();
+  return result;
 };
 const oldUserInfo = os.userInfo;
 os.userInfo = (...args) => ({ ...oldUserInfo(...args), homedir: home });
@@ -82,10 +85,13 @@ const requested = new Promise<void>((resolve) => {
 const packageHeld = new Promise<void>((resolve) => {
   held = resolve;
 });
+async function readLockHolder(path: string) {
+  const owner = (await fs.readdir(path))[0];
+  return JSON.parse(await fs.readFile(join(path, owner, "holder.json"), "utf8"));
+}
 const oldWrite = fs.writeFile;
 const oldReal = fs.realpath;
 let paused = false;
-let stateStarted = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let blocker: ReturnType<typeof setInterval> | undefined;
 try {
@@ -97,7 +103,6 @@ try {
       enter();
       await resume;
     }
-    if (stateStarted && path === join(packageLock, "holder.json")) held();
   };
   fs.realpath = async (...args) => {
     const path = await Reflect.apply(oldReal, fs, args);
@@ -115,7 +120,7 @@ try {
   await entered;
   let initialPackageHolder: unknown;
   try {
-    initialPackageHolder = JSON.parse(await fs.readFile(join(packageLock, "holder.json"), "utf8"));
+    initialPackageHolder = await readLockHolder(packageLock);
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
@@ -153,10 +158,8 @@ try {
   ]);
   clearTimeout(timer);
   if (!results) {
-    const canvas = JSON.parse(
-      await fs.readFile(join(dirname(w.stateFile), ".planweave.lock", "holder.json"), "utf8")
-    );
-    const pkg = JSON.parse(await fs.readFile(join(packageLock, "holder.json"), "utf8"));
+    const canvas = await readLockHolder(join(dirname(w.stateFile), ".planweave.lock"));
+    const pkg = await readLockHolder(packageLock);
     process.stdout.write(
       `${JSON.stringify({ kind: "pending", canvasOperation: canvas.operation, packageOperation: pkg.operation })}\n`
     );

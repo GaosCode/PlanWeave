@@ -44,7 +44,7 @@ export async function observeAutoRunStorageLockOrder(withSession: boolean) {
     await tr.writePendingTransitionIntent(w,{version:2,transitionId:'lock-order-proof',runId:run.runId,previousPhase:'running',nextPhase:'stopped',eventType:'run_stopped',previousAuthority:tr.buildExpectedAuthority(run),expectedAuthority:tr.buildExpectedAuthority(stopped),data:{},createdAt:new Date().toISOString()});
     const pending=tr.pendingTransitionPath(w,run.runId), autoRuns=join(w.resultsDir,'auto-runs');
     const context=new AsyncLocalStorage(),locks=new Set();
-    const originalRead=fs.readFile,originalDir=fs.readdir,originalWrite=fs.writeFile;
+    const originalRead=fs.readFile,originalDir=fs.readdir,originalRename=fs.rename;
     let readSeen,release,startSeen;
     const seen=new Promise(r=>readSeen=r),gate=new Promise(r=>release=r),scanned=new Promise(r=>startSeen=r);
     let heldRead=false,recoveryDone=false,startDone=false,startPendingReads=0,recoveryError=null,startError=null;
@@ -60,11 +60,11 @@ export async function observeAutoRunStorageLockOrder(withSession: boolean) {
       if(context.getStore()==='start'&&String(args[0])===autoRuns)startSeen();
       return result;
     };
-    fs.writeFile=async(...args)=>{
-      const result=await originalWrite(...args);
-      if(String(args[0]).endsWith('/holder.json')){
-        const holder=JSON.parse(String(args[1]));
-        if(holder.pid===process.pid)locks.add(dirname(String(args[0])));
+    fs.rename=async(...args)=>{
+      const result=await originalRename(...args);
+      if(String(args[0]).includes('.prepare-')) {
+        const name=(await originalDir(args[1]))[0];
+        locks.add(join(String(args[1]),name));
       }
       return result;
     };

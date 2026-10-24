@@ -5,6 +5,7 @@ import {
   createWindowsProcessTreeAdapter,
   resolveWindowsCommand,
   type WindowsJobLaunchStrategy,
+  type WindowsJobOwnership,
   windowsLauncherArgs,
   windowsPowerShellPath
 } from "./windowsManagedProcess.js";
@@ -88,6 +89,8 @@ export type SpawnManagedProcessOptions = {
   adapter?: ProcessTreePlatformAdapter;
   /** Windows-only Job launch behavior. Default: suspended target with explicit Job assignment. */
   windowsJobLaunchStrategy?: WindowsJobLaunchStrategy;
+  /** Internal build lease: global Job identity and durable ready-before-resume record. */
+  windowsBuildJob?: WindowsJobOwnership;
 };
 
 export type ProcessTreePlatformAdapter = {
@@ -557,8 +560,10 @@ export function spawnManagedProcess(options: SpawnManagedProcessOptions): Manage
   let args = [...options.args];
   if (!options.adapter && adapter.name === "windows") {
     const target = resolveWindowsCommand(options);
+    if (!target && options.windowsBuildJob)
+      throw new Error(`Cannot resolve managed build command: ${options.command}`);
     if (target) {
-      const job = createWindowsJobOwnership();
+      const job = options.windowsBuildJob ?? createWindowsJobOwnership();
       adapter = createWindowsProcessTreeAdapter({ job });
       command = windowsPowerShellPath();
       args = windowsLauncherArgs(job, target, options.args, options.windowsJobLaunchStrategy);

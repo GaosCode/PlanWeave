@@ -1,7 +1,10 @@
-import { spawn } from "node:child_process";
+import { readFile, realpath } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { withAdvisoryDirectoryLock } from "../packages/runtime/src/fs/advisoryDirectoryLock.js";
+import {
+  type AdvisoryLockScope,
+  withAdvisoryDirectoryLock
+} from "../packages/runtime/src/fs/advisoryDirectoryLock.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const buildLockPath = join(repoRoot, ".planweave-workspace-consumer-build.lock");
@@ -28,26 +31,36 @@ function resolveTarget(value: string | undefined): BuildTarget {
   throw new Error("Workspace consumer build target must be 'cli' or 'desktop'.");
 }
 
-async function runPackageScript(buildTarget: BuildTarget): Promise<void> {
+async function runPackageScript(buildTarget: BuildTarget, scope: AdvisoryLockScope): Promise<void> {
   const definition = targets[buildTarget];
-  const child = spawn("pnpm", ["run", definition.script], {
-    cwd: definition.cwd,
-    shell: process.platform === "win32",
-    stdio: "inherit"
-  });
-  const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-    (resolveResult, reject) => {
-      child.once("error", reject);
-      child.once("close", (code, signal) => resolveResult({ code, signal }));
-    }
+  const pnpmPath = process.env.npm_execpath;
+  if (!pnpmPath) throw new Error("Workspace consumer builds must be invoked through pnpm 10.32.1.");
+  const executable = await realpath(pnpmPath);
+  const manifest: unknown = JSON.parse(
+    await readFile(resolve(dirname(executable), "../package.json"), "utf8")
   );
-  if (result.code !== 0) {
-    let detail = `exit code ${String(result.code)}`;
-    if (result.signal) {
-      detail = `signal ${result.signal}`;
-    }
-    throw new Error(`${buildTarget} workspace build failed with ${detail}.`);
+  if (
+    !manifest ||
+    typeof manifest !== "object" ||
+    !("name" in manifest) ||
+    manifest.name !== "pnpm" ||
+    !("version" in manifest) ||
+    manifest.version !== "10.32.1"
+  ) {
+    throw new Error("Managed workspace builds require the audited pnpm 10.32.1 toolchain.");
   }
+  if (process.platform === "win32" && !process.env.SystemRoot)
+    throw new Error("Managed build requires SystemRoot for the audited command interpreter.");
+  const scriptShell =
+    process.platform === "win32"
+      ? join(String(process.env.SystemRoot), "System32", "cmd.exe")
+      : "/bin/sh";
+  await scope.runManagedCommand({
+    command: process.execPath,
+    args: [executable, `--config.script-shell=${scriptShell}`, "run", definition.script],
+    cwd: definition.cwd,
+    env: { ...process.env, npm_config_script_shell: scriptShell }
+  });
 }
 
 const selectedTarget = resolveTarget(process.argv[2]);
@@ -58,5 +71,5 @@ await withAdvisoryDirectoryLock(
     timeoutMs: BUILD_LOCK_TIMEOUT_MS,
     staleMs: STALE_BUILD_LOCK_MS
   },
-  async () => runPackageScript(selectedTarget)
+  async (scope) => runPackageScript(selectedTarget, scope)
 );

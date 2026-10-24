@@ -15,6 +15,7 @@ export type WindowsJobOwnership = {
   name: string;
   markerPath: string;
   helperPath: string;
+  readyPath?: string;
 };
 
 export type TaskKillSpawnFn = (
@@ -295,6 +296,26 @@ export function createWindowsJobOwnership(): WindowsJobOwnership {
   };
 }
 
+export function createWindowsBuildJobOwnership(readyPath: string): WindowsJobOwnership {
+  const job = createWindowsJobOwnership();
+  return { ...job, name: `Global\\PlanWeaveBuild-${randomUUID()}`, readyPath };
+}
+
+/** A persistent descriptor is queried by name, independently of launcher/marker lifetime. */
+export function probeWindowsBuildJob(name: string): Promise<boolean> {
+  if (
+    !/^Global\\PlanWeaveBuild-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+      name
+    )
+  )
+    throw new Error("Invalid persistent build Job identity");
+  return probeWindowsJob({
+    name,
+    markerPath: "unused-build-query",
+    helperPath: windowsJobHelperPath()
+  });
+}
+
 function environmentValue(env: NodeJS.ProcessEnv | undefined, name: string): string | undefined {
   const configured = env
     ? Object.entries(env).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1]
@@ -458,7 +479,8 @@ export function windowsLauncherArgs(
     "-Payload",
     payload,
     "-ParentPid",
-    String(process.pid)
+    String(process.pid),
+    ...(job.readyPath ? ["-ReadyPath", job.readyPath] : [])
   ];
 }
 

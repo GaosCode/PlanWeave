@@ -52,8 +52,8 @@ export function spawnReviewRetryActor(
           const result=await edit(); if('ok' in result && !result.ok)throw new Error(JSON.stringify(result.diagnostics));
           return;
         }
-        await withAdvisoryDirectoryLock({lockPath:join(userInfo().homedir,'.cache','planweave','package-locks',keys[index]),operation:'review-retry-child-edit',fs:{...fs,optionalStat,mkdir:async(path)=>{
-          try { await fs.mkdir(path); } catch(error) { if(error.code==='EEXIST')process.stdout.write('contended\\n'); throw error; }
+        await withAdvisoryDirectoryLock({lockPath:join(userInfo().homedir,'.cache','planweave','package-locks',keys[index]),operation:'review-retry-child-edit',fs:{...fs,optionalStat,rename:async(from,to)=>{
+          try { await fs.rename(from,to); } catch(error) { if(['EEXIST','ENOTEMPTY','EPERM','EBUSY'].includes(error.code))process.stdout.write('contended\\n'); throw error; }
         }}},()=>acquire(index+1));
       };
       await acquire(0);

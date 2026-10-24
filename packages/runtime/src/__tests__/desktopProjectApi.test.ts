@@ -349,19 +349,21 @@ describe("desktop project API", () => {
     const workspace = await resolveProjectWorkspace(project.workspaceRoot);
     const oldLockPath = canvasMapLayoutDiskLockPath(workspace);
     await mkdir(dirname(oldLockPath), { recursive: true });
-    const holderScript = [
-      "const fs=require('node:fs');",
-      "const path=process.argv[1];",
-      "fs.mkdirSync(path);",
-      "fs.writeFileSync(path + '/holder.json', JSON.stringify({pid:process.pid,acquiredAt:new Date().toISOString(),operation:'external-layout-owner'}));",
-      "const release=()=>{fs.rmSync(path,{recursive:true,force:true});process.exit(0)};",
-      "process.on('SIGTERM',release);",
-      "process.stdout.write('locked\\n');",
-      "setInterval(()=>{},1000);"
-    ].join("");
-    const holder = spawn(process.execPath, ["-e", holderScript, oldLockPath], {
-      stdio: ["ignore", "pipe", "inherit"]
-    });
+    const holderScript = `
+      const {withAdvisoryDirectoryLock}=await import(${JSON.stringify(new URL("../fs/advisoryDirectoryLock.ts", import.meta.url).href)});
+      await withAdvisoryDirectoryLock({lockPath:process.argv[1],operation:'external-layout-owner'},async()=>{
+        process.stdout.write('locked\\n');
+        setInterval(()=>{},1000);
+        await new Promise(()=>{});
+      });
+    `;
+    const holder = spawn(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", holderScript, oldLockPath],
+      {
+        stdio: ["ignore", "pipe", "inherit"]
+      }
+    );
     await once(holder.stdout, "data");
     expect(holder.exitCode).toBeNull();
     await expect(access(oldLockPath)).resolves.toBeUndefined();

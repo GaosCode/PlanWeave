@@ -137,7 +137,16 @@ it("releases an unsubmitted candidate on lock timeout without deleting the live 
     acquiredAt: new Date().toISOString(),
     operation: "other writer"
   });
-  await fs.writeFile(join(lockPath, "holder.json"), holder);
+  const ownerPath = join(lockPath, `lease-v2-${process.pid}-11111111-1111-4111-8111-111111111111`);
+  await fs.mkdir(ownerPath);
+  await fs.writeFile(
+    join(ownerPath, "holder.json"),
+    JSON.stringify({
+      ...JSON.parse(holder),
+      version: 2,
+      ownerToken: "11111111-1111-4111-8111-111111111111"
+    })
+  );
   const clock = vi
     .spyOn(performance, "now")
     .mockReturnValueOnce(0)
@@ -157,7 +166,9 @@ it("releases an unsubmitted candidate on lock timeout without deleting the live 
   }
   expect(write).not.toHaveBeenCalled();
   await expect(fs.stat(dirname(result.binaryPath))).rejects.toMatchObject({ code: "ENOENT" });
-  expect(await fs.readFile(join(lockPath, "holder.json"), "utf8")).toBe(holder);
+  expect(JSON.parse(await fs.readFile(join(ownerPath, "holder.json"), "utf8"))).toMatchObject(
+    JSON.parse(holder)
+  );
 });
 
 it("reports a pre-write release failure once across nested ownership scopes and fences reuse", async () => {

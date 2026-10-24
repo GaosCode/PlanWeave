@@ -12,7 +12,7 @@ afterEach(async () => {
   );
 });
 
-async function fixture(rename: AdvisoryLockFs["rename"]) {
+async function fixture(remove: AdvisoryLockFs["rm"]) {
   const root = await fs.mkdtemp(join(tmpdir(), "planweave-lock-release-"));
   directories.push(root);
   const adapter: AdvisoryLockFs = {
@@ -22,8 +22,10 @@ async function fixture(rename: AdvisoryLockFs["rename"]) {
     },
     writeFile: (path, data, encoding) => fs.writeFile(path, data, encoding),
     readFile: (path, encoding) => fs.readFile(path, encoding),
-    rename,
-    rm: (path, options) => fs.rm(path, options),
+    rename: fs.rename,
+    lstat: fs.lstat,
+    rmdir: fs.rmdir,
+    rm: remove,
     optionalStat
   };
   return { lockPath: join(root, "lock"), operation: "release-recovery", fs: adapter };
@@ -36,12 +38,12 @@ it.each([
   const releaseError = Object.assign(new Error("release EIO"), { code: "EIO" });
   const operationError = new Error("operation failed");
   let failed = false;
-  const options = await fixture(async (from, to) => {
+  const options = await fixture(async (path, removal) => {
     if (!failed) {
       failed = true;
       throw releaseError;
     }
-    await fs.rename(from, to);
+    await fs.rm(path, removal);
   });
   const result = withAdvisoryDirectoryLock(options, async () => {
     if (operationFails) throw operationError;
@@ -56,20 +58,25 @@ it.each([
 
 it("preserves a replacement owner when retrying failed release", async () => {
   const releaseError = Object.assign(new Error("release EIO"), { code: "EIO" });
-  let holderPath = "";
-  const replacement = {
-    pid: process.pid,
-    acquiredAt: new Date().toISOString(),
-    operation: "replacement",
-    ownerToken: "replacement-owner"
-  };
-  const options = await fixture(async () => {
-    await fs.writeFile(holderPath, JSON.stringify(replacement));
-    throw releaseError;
+  let replacementName = "";
+  let options: Awaited<ReturnType<typeof fixture>>;
+  options = await fixture(async (path, removal) => {
+    await fs.rm(path, removal);
+    if (!replacementName) {
+      const { randomUUID } = await import("node:crypto");
+      replacementName = `lease-v2-${process.pid}-${randomUUID()}`;
+      await fs.mkdir(join(options.lockPath, replacementName));
+      await fs.writeFile(
+        join(options.lockPath, replacementName, "holder.json"),
+        "replacement evidence"
+      );
+      throw releaseError;
+    }
   });
-  holderPath = join(options.lockPath, "holder.json");
   await expect(withAdvisoryDirectoryLock(options, async () => "first")).rejects.toBe(releaseError);
-  expect(JSON.parse(await fs.readFile(holderPath, "utf8"))).toEqual(replacement);
+  expect(await fs.readFile(join(options.lockPath, replacementName, "holder.json"), "utf8")).toBe(
+    "replacement evidence"
+  );
 });
 
 it("reports both failed release attempts while preserving the owned lock", async () => {
@@ -82,6 +89,35 @@ it("reports both failed release attempts while preserving the owned lock", async
     errors: failures
   });
   expect(
-    JSON.parse(await fs.readFile(join(options.lockPath, "holder.json"), "utf8"))
+    JSON.parse(
+      await fs.readFile(
+        join(options.lockPath, (await fs.readdir(options.lockPath))[0], "holder.json"),
+        "utf8"
+      )
+    )
   ).toMatchObject({ pid: process.pid, operation: options.operation });
+});
+
+it("rejects legacy nonempty locks without deleting them even when their pid is dead", async () => {
+  const options = await fixture(fs.rm);
+  await fs.mkdir(options.lockPath);
+  const legacy = JSON.stringify({ pid: 99999999, operation: "legacy", acquiredAt: "2000-01-01" });
+  await fs.writeFile(join(options.lockPath, "holder.json"), legacy);
+  await expect(
+    withAdvisoryDirectoryLock({ ...options, isPidAlive: () => false }, async () => "entered")
+  ).rejects.toThrow("LOCK_FORMAT_UNSUPPORTED");
+  expect(await fs.readFile(join(options.lockPath, "holder.json"), "utf8")).toBe(legacy);
+});
+
+it("does not remove the shared holder when private metadata publication fails", async () => {
+  const options = await fixture(fs.rm);
+  await fs.mkdir(options.lockPath);
+  await fs.writeFile(join(options.lockPath, "evidence"), "preserve");
+  options.fs.writeFile = async () => {
+    throw new Error("private metadata failure");
+  };
+  await expect(
+    withAdvisoryDirectoryLock({ ...options, timeoutMs: 100 }, async () => "entered")
+  ).rejects.toThrow("private metadata failure");
+  expect(await fs.readFile(join(options.lockPath, "evidence"), "utf8")).toBe("preserve");
 });

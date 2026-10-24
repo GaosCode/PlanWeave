@@ -7,6 +7,7 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$MarkerPath,
   [string]$Payload,
+  [string]$ReadyPath,
   [int]$ParentPid,
   [int]$TimeoutMs = 0
 )
@@ -121,6 +122,19 @@ public static class PlanWeaveWindowsJob
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr CreateJobObject(IntPtr securityAttributes, string name);
 
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool ConvertStringSecurityDescriptorToSecurityDescriptor(string descriptor, uint revision, out IntPtr securityDescriptor, out uint size);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr pointer);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SECURITY_ATTRIBUTES {
+        public int Length;
+        public IntPtr SecurityDescriptor;
+        [MarshalAs(UnmanagedType.Bool)] public bool InheritHandle;
+    }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr OpenJobObject(uint desiredAccess, bool inheritHandle, string name);
 
@@ -213,8 +227,30 @@ public static class PlanWeaveWindowsJob
 
     public static IntPtr CreateOwnedJob(string name, bool assignCurrentProcess)
     {
-        IntPtr job = CreateJobObject(IntPtr.Zero, name);
-        if (job == IntPtr.Zero) throw Error("CreateJobObject");
+        IntPtr security = IntPtr.Zero;
+        IntPtr attributes = IntPtr.Zero;
+        IntPtr job;
+        try {
+            if (name.StartsWith("Global\\PlanWeaveBuild-", StringComparison.Ordinal)) {
+                string sid = System.Security.Principal.WindowsIdentity.GetCurrent().User.Value;
+                uint securityDescriptorSize;
+                if (!ConvertStringSecurityDescriptorToSecurityDescriptor("D:P(A;;GA;;;" + sid + ")", 1, out security, out securityDescriptorSize))
+                    throw Error("Build Job security descriptor");
+                var value = new SECURITY_ATTRIBUTES { Length = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)), SecurityDescriptor = security, InheritHandle = false };
+                attributes = Marshal.AllocHGlobal(value.Length);
+                Marshal.StructureToPtr(value, attributes, false);
+            }
+            job = CreateJobObject(attributes, name);
+            int createError = Marshal.GetLastWin32Error();
+            if (job == IntPtr.Zero) throw Error("CreateJobObject");
+            if (attributes != IntPtr.Zero && createError == 183) {
+                CloseHandle(job);
+                throw new InvalidOperationException("Persistent build Job identity already exists.");
+            }
+        } finally {
+            if (attributes != IntPtr.Zero) Marshal.FreeHGlobal(attributes);
+            if (security != IntPtr.Zero) LocalFree(security);
+        }
 
         var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -715,6 +751,11 @@ try {
     throw "launch payload requires a supported jobLaunchStrategy"
   }
   $launcherJobInheritance = $jobLaunchStrategy -eq "launcher-job-inheritance"
+  if (-not [string]::IsNullOrWhiteSpace($ReadyPath)) {
+    if ($launcherJobInheritance -or $JobName -notmatch '^Global\\PlanWeaveBuild-[0-9a-f-]{36}$') {
+      throw "Persistent build leases require a unique Global Job and suspended target assignment"
+    }
+  }
   $arguments = @($request.args | ForEach-Object { [string]$_ })
   $job = [PlanWeaveWindowsJob]::CreateOwnedJob($JobName, $launcherJobInheritance)
   $parent = [PlanWeaveWindowsJob]::OpenParent([uint32]$ParentPid)
@@ -739,6 +780,12 @@ try {
         $job
       )
       Start-JobKeeper -Job $job -Parent $parent
+      if (-not [string]::IsNullOrWhiteSpace($ReadyPath)) {
+        $descriptor = @{ version = 1; kind = "windows"; name = $JobName } | ConvertTo-Json -Compress
+        $temporaryReady = "$ReadyPath.$([Guid]::NewGuid().ToString('N')).tmp"
+        [IO.File]::WriteAllText($temporaryReady, $descriptor, [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($temporaryReady, $ReadyPath)
+      }
       $exitCode = [PlanWeaveWindowsJob]::StartAndWaitTarget($target, $parent, $job)
       $target = $null
     }

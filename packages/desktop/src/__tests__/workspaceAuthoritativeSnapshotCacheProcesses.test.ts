@@ -126,7 +126,11 @@ describe("workspace authoritative snapshot cache processes", () => {
     const first = runWriter(cacheDirectory, firstEntry.path, true);
     await first.message("read");
     const lockPath = `${cache.pathForKey(key)}.write.lock`;
-    expect(JSON.parse(await readFile(join(lockPath, "holder.json"), "utf8"))).toMatchObject({
+    expect(
+      JSON.parse(
+        await readFile(join(lockPath, (await readdir(lockPath))[0], "holder.json"), "utf8")
+      )
+    ).toMatchObject({
       pid: first.child.pid
     });
     const second = runWriter(cacheDirectory, secondEntry.path);

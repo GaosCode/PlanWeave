@@ -1,391 +1,192 @@
-import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  rmdir,
+  symlink,
+  writeFile
+} from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  type AdvisoryLockClock,
-  type AdvisoryLockFs,
-  withAdvisoryDirectoryLock
-} from "../fs/advisoryDirectoryLock.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { type AdvisoryLockFs, withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
 import { DEFAULT_CANVAS_LOCK_OPERATION, withCanvasLock } from "../fs/withCanvasLock.js";
 import { optionalStat } from "../fs/optionalFile.js";
 
-const tempDirs: string[] = [];
-
+const roots: string[] = [];
 afterEach(async () => {
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir) {
-      await rm(dir, { recursive: true, force: true });
-    }
-  }
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
-
-async function tempLockRoot(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "planweave-advisory-lock-"));
-  tempDirs.push(dir);
-  return dir;
-}
-
-function nodeFileError(code: string, message = `${code} failure`): NodeJS.ErrnoException {
-  const error = new Error(message) as NodeJS.ErrnoException;
-  error.code = code;
-  return error;
-}
-
-function createMemoryFs(seed: Map<string, string | "dir"> = new Map()): {
-  store: Map<string, string | "dir">;
-  fs: AdvisoryLockFs;
-  failWriteHolder: boolean;
-  failCleanup: boolean;
-  writeHolderCalls: number;
-  mkdirCalls: string[];
-  rmCalls: string[];
-} {
-  const store = new Map(seed);
-  const state = {
-    store,
-    failWriteHolder: false,
-    failCleanup: false,
-    writeHolderCalls: 0,
-    mkdirCalls: [] as string[],
-    rmCalls: [] as string[],
-    fs: null as unknown as AdvisoryLockFs
+async function fixture() {
+  const root = await mkdtemp(join(tmpdir(), "planweave-advisory-lock-"));
+  roots.push(root);
+  const fs: AdvisoryLockFs = {
+    mkdir: async (path) => {
+      await mkdir(path);
+    },
+    readdir,
+    lstat,
+    readFile: (path, encoding) => readFile(path, encoding),
+    writeFile,
+    rename,
+    rm,
+    rmdir,
+    optionalStat
   };
-
-  state.fs = {
-    async readdir(path) {
-      const prefix = `${path.replaceAll("\\", "/")}/`;
-      return [...store.keys()].flatMap((key) => {
-        const normalized = key.replaceAll("\\", "/");
-        const entry = normalized.startsWith(prefix) ? normalized.slice(prefix.length) : "";
-        return entry && !entry.includes("/") ? [entry] : [];
-      });
-    },
-    async mkdir(path) {
-      state.mkdirCalls.push(path);
-      if (store.has(path)) {
-        throw nodeFileError("EEXIST");
-      }
-      store.set(path, "dir");
-    },
-    async writeFile(path, data) {
-      if (path.endsWith("/holder.json") || path.endsWith("\\holder.json")) {
-        state.writeHolderCalls += 1;
-        if (state.failWriteHolder) {
-          throw new Error("injected holder write failure");
-        }
-      }
-      const parent = path.replace(/[/\\][^/\\]+$/, "");
-      if (!store.has(parent) || store.get(parent) !== "dir") {
-        throw nodeFileError("ENOENT", `parent missing for ${path}`);
-      }
-      store.set(path, data);
-    },
-    async readFile(path) {
-      const value = store.get(path);
-      if (value === undefined || value === "dir") {
-        throw nodeFileError("ENOENT");
-      }
-      return value;
-    },
-    async rename(from, to) {
-      if (!store.has(from) || store.has(to))
-        throw nodeFileError(store.has(to) ? "EEXIST" : "ENOENT");
-      const moved = [...store.entries()].filter(
-        ([key]) => key === from || key.startsWith(`${from}/`) || key.startsWith(`${from}\\`)
-      );
-      for (const [key] of moved) store.delete(key);
-      for (const [key, value] of moved) store.set(`${to}${key.slice(from.length)}`, value);
-    },
-    async rm(path) {
-      state.rmCalls.push(path);
-      if (state.failCleanup) {
-        throw new Error("injected cleanup failure");
-      }
-      for (const key of [...store.keys()]) {
-        if (key === path || key.startsWith(`${path}/`) || key.startsWith(`${path}\\`)) {
-          store.delete(key);
-        }
-      }
-    },
-    async optionalStat(path) {
-      if (!store.has(path)) {
-        return null;
-      }
-      return { mtimeMs: Date.now() };
-    }
-  };
-
-  return state;
-}
-
-function fastClock(overrides: Partial<AdvisoryLockClock> = {}): AdvisoryLockClock {
-  let perf = 0;
-  const wall = 1_000_000;
   return {
-    nowMs: () => wall,
-    performanceNow: () => {
-      perf += 5;
-      return perf;
-    },
-    delay: async () => {
-      perf += 20;
-    },
-    ...overrides
+    root,
+    lockPath: join(root, "lock"),
+    operation: "test-lock",
+    fs,
+    timeoutMs: 80,
+    retryDelayMs: 1
   };
+}
+async function seed(
+  options: Awaited<ReturnType<typeof fixture>>,
+  pid: number,
+  holder: string | null = "valid"
+) {
+  const token = randomUUID(),
+    name = `lease-v2-${pid}-${token}`;
+  await mkdir(options.lockPath);
+  await mkdir(join(options.lockPath, name));
+  if (holder !== null)
+    await writeFile(
+      join(options.lockPath, name, "holder.json"),
+      holder === "valid"
+        ? JSON.stringify({
+            version: 2,
+            pid,
+            ownerToken: token,
+            operation: "holder-work",
+            acquiredAt: new Date().toISOString()
+          })
+        : holder
+    );
+  return name;
+}
+async function holderAt(lockPath: string) {
+  return join(lockPath, (await readdir(lockPath))[0], "holder.json");
 }
 
 describe("advisory directory lock", () => {
-  it("rolls back the lock directory when holder write fails after mkdir", async () => {
-    const root = await tempLockRoot();
-    const lockPath = join(root, ".planweave.lock");
-    let writeCount = 0;
-
-    const fsAdapter: AdvisoryLockFs = {
-      readdir: (path) => readdir(path),
-      mkdir: async (path) => {
-        await mkdir(path);
-      },
-      writeFile: async (path, data, encoding) => {
-        if (path.endsWith("holder.json")) {
-          writeCount += 1;
-          throw new Error("injected holder write failure");
-        }
-        await writeFile(path, data, encoding);
-      },
-      readFile: async (path, encoding) => readFile(path, encoding),
-      rename: async (from, to) => {
-        const { rename } = await import("node:fs/promises");
-        await rename(from, to);
-      },
-      rm: async (path, options) => {
-        await rm(path, options);
-      },
-      optionalStat
+  it("prepares holder privately and cleans only its private candidate on a write failure", async () => {
+    const options = await fixture();
+    options.fs.writeFile = async (path) => {
+      expect(path.startsWith(`${options.lockPath}.prepare-`)).toBe(true);
+      await expect(access(options.lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+      await writeFile(path, "{");
+      throw new Error("holder write failed");
     };
-
+    await expect(withAdvisoryDirectoryLock(options, async () => "entered")).rejects.toThrow(
+      "holder write failed"
+    );
+    expect(await readdir(options.root)).toEqual([]);
+  });
+  it("cleans its published token if rename completes but reports an uncertain failure", async () => {
+    const options = await fixture();
+    const failure = Object.assign(new Error("publication EIO"), { code: "EIO" });
+    let entered = false;
+    options.fs.rename = async (from, to) => {
+      await rename(from, to);
+      expect(await readdir(to)).toHaveLength(1);
+      throw failure;
+    };
     await expect(
-      withAdvisoryDirectoryLock(
-        {
-          lockPath,
-          operation: "test-holder-write-fail",
-          timeoutMs: 100,
-          retryDelayMs: 1,
-          fs: fsAdapter,
-          clock: fastClock()
-        },
-        async () => "should-not-run"
-      )
-    ).rejects.toThrow("injected holder write failure");
-
-    expect(writeCount).toBe(1);
-    await expect(access(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+      withAdvisoryDirectoryLock(options, async () => {
+        entered = true;
+      })
+    ).rejects.toBe(failure);
+    expect(entered).toBe(false);
+    expect(await readdir(options.root)).toEqual([]);
   });
-
-  it("preserves both holder write failure and cleanup failure as AggregateError", async () => {
-    const mem = createMemoryFs();
-    mem.failWriteHolder = true;
-    mem.failCleanup = true;
-    const lockPath = "/virtual/.planweave.lock";
-
-    let error: unknown;
-    try {
-      await withAdvisoryDirectoryLock(
-        {
-          lockPath,
-          operation: "test-double-failure",
-          timeoutMs: 50,
-          retryDelayMs: 1,
-          fs: mem.fs,
-          clock: fastClock()
-        },
-        async () => "should-not-run"
-      );
-    } catch (caught) {
-      error = caught;
-    }
-
-    expect(error).toBeInstanceOf(AggregateError);
-    const aggregate = error as AggregateError;
-    expect(aggregate.message).toContain("cleanup of newly created lock also failed");
-    expect(aggregate.errors).toHaveLength(2);
-    expect(String(aggregate.errors[0])).toContain("injected holder write failure");
-    expect(String(aggregate.errors[1])).toContain("injected cleanup failure");
-    // Lock directory remains because cleanup failed — evidence for operators.
-    expect(mem.store.has(lockPath)).toBe(true);
-  });
-
-  it("records non-empty operation on holder and uses canvas default when omitted", async () => {
-    const root = await tempLockRoot();
-    let holderRaw = "";
-
-    await withCanvasLock(root, async () => {
-      holderRaw = await readFile(join(root, ".planweave.lock", "holder.json"), "utf8");
+  it("preserves holder and cleanup failures", async () => {
+    const options = await fixture();
+    const writeError = new Error("holder write failed"),
+      cleanupError = new Error("cleanup failed");
+    options.fs.writeFile = async () => {
+      throw writeError;
+    };
+    options.fs.rm = async () => {
+      throw cleanupError;
+    };
+    await expect(withAdvisoryDirectoryLock(options, async () => "entered")).rejects.toMatchObject({
+      errors: [writeError, cleanupError]
     });
-
-    const holder = JSON.parse(holderRaw) as {
-      pid: number;
-      acquiredAt: string;
-      operation: string;
-    };
-    expect(holder.pid).toBe(process.pid);
-    expect(typeof holder.acquiredAt).toBe("string");
-    expect(holder.operation).toBe(DEFAULT_CANVAS_LOCK_OPERATION);
-
-    await withCanvasLock(
-      root,
-      async () => {
-        holderRaw = await readFile(join(root, ".planweave.lock", "holder.json"), "utf8");
-      },
-      { operation: "claim-next" }
+    expect((await readdir(options.root)).every((entry) => entry.startsWith("lock.prepare-"))).toBe(
+      true
     );
-    expect(JSON.parse(holderRaw).operation).toBe("claim-next");
-
-    await withCanvasLock(
-      root,
-      async () => {
-        holderRaw = await readFile(join(root, ".planweave.lock", "holder.json"), "utf8");
-      },
-      { operation: "   " }
-    );
-    expect(JSON.parse(holderRaw).operation).toBe(DEFAULT_CANVAS_LOCK_OPERATION);
   });
-
-  it("rejects empty operation on the primitive", async () => {
-    await expect(
-      withAdvisoryDirectoryLock(
-        { lockPath: "/virtual/lock", operation: "  " },
-        async () => undefined
-      )
-    ).rejects.toThrow(/non-empty string/);
-  });
-
-  it("does not reclaim a fresh lock held by a live pid", async () => {
-    const lockPath = "/virtual/.planweave.lock";
-    const holder = {
-      pid: 4242,
-      acquiredAt: new Date(1_000_000).toISOString(),
-      operation: "holder-work"
-    };
-    const mem = createMemoryFs(
-      new Map([
-        [lockPath, "dir"],
-        [join(lockPath, "holder.json"), `${JSON.stringify(holder, null, 2)}\n`]
-      ])
-    );
-
-    let perf = 0;
-    const clock: AdvisoryLockClock = {
-      nowMs: () => 1_000_000 + 1_000,
-      performanceNow: () => {
-        const value = perf;
-        perf += 30;
-        return value;
-      },
-      delay: async () => {
-        perf += 30;
-      }
-    };
-
-    await expect(
-      withAdvisoryDirectoryLock(
-        {
-          lockPath,
-          operation: "waiter",
-          timeoutMs: 90,
-          staleMs: 60_000,
-          retryDelayMs: 1,
-          pid: 99,
-          isPidAlive: (pid) => pid === 4242,
-          fs: mem.fs,
-          clock
+  it("records operation diagnostics and retains the canvas default", async () => {
+    const options = await fixture();
+    for (const operation of [undefined, "claim-next", "   "]) {
+      await withCanvasLock(
+        options.root,
+        async () => {
+          const holder = JSON.parse(
+            await readFile(await holderAt(join(options.root, ".planweave.lock")), "utf8")
+          );
+          expect(holder).toMatchObject({
+            version: 2,
+            pid: process.pid,
+            operation: operation?.trim() || DEFAULT_CANVAS_LOCK_OPERATION
+          });
         },
-        async () => "should-not-run"
-      )
-    ).rejects.toThrow(/Timed out acquiring directory lock/);
-
-    // Active holder lock was not reclaimed.
-    expect(mem.store.has(lockPath)).toBe(true);
-    expect(mem.rmCalls).toHaveLength(0);
+        { operation }
+      );
+    }
   });
-
-  it.each([0, 120_000])("reclaims a dead holder at lock age %i ms", async (ageMs) => {
-    const lockPath = "/virtual/.planweave.lock";
-    const holder = {
-      pid: 7777,
-      acquiredAt: new Date(1_000_000).toISOString(),
-      operation: "dead-holder"
-    };
-    const mem = createMemoryFs(
-      new Map([
-        [lockPath, "dir"],
-        [join(lockPath, "holder.json"), `${JSON.stringify(holder, null, 2)}\n`]
-      ])
-    );
-    mem.fs.optionalStat = async () => ({ mtimeMs: 1_000_000 });
-
-    let wall = 1_000_000 + ageMs;
-    const order: string[] = [];
-
-    await withAdvisoryDirectoryLock(
-      {
-        lockPath,
-        operation: "reclaimer",
-        timeoutMs: 200,
-        staleMs: 60_000,
-        retryDelayMs: 1,
-        pid: 11,
-        isPidAlive: () => false,
-        fs: mem.fs,
-        clock: {
-          nowMs: () => wall,
-          performanceNow: () => wall,
-          delay: async () => {
-            wall += 1;
-          }
-        }
-      },
-      async () => {
-        order.push("critical");
-        return "ok";
-      }
-    );
-
-    expect(order).toEqual(["critical"]);
-    expect(mem.rmCalls.length).toBeGreaterThanOrEqual(1);
+  it("rejects empty primitive operations", async () => {
+    const options = await fixture();
+    await expect(
+      withAdvisoryDirectoryLock({ ...options, operation: " " }, async () => undefined)
+    ).rejects.toThrow("non-empty string");
   });
-
-  it("rechecks a holder that exits while an acquisition is waiting", async () => {
-    const lockPath = "/virtual/exiting-owner.lock";
-    const mem = createMemoryFs(
-      new Map([
-        [lockPath, "dir"],
-        [
-          join(lockPath, "holder.json"),
-          JSON.stringify({
-            pid: 7777,
-            acquiredAt: new Date().toISOString(),
-            operation: "exiting-owner"
-          })
-        ]
-      ])
-    );
-    let elapsed = 0;
+  it.each([
+    "valid",
+    "{",
+    null
+  ])("preserves a live owner regardless of holder diagnostics: %s", async (raw) => {
+    const options = await fixture();
+    const name = await seed(options, process.pid, raw);
+    await expect(
+      withAdvisoryDirectoryLock({ ...options, staleMs: 0 }, async () => "entered")
+    ).rejects.toThrow("Timed out acquiring directory lock");
+    expect(await readdir(options.lockPath)).toEqual([name]);
+  });
+  it.each([
+    "valid",
+    "{",
+    null
+  ])("recovers a confirmed dead owner immediately with metadata %s", async (raw) => {
+    const options = await fixture();
+    await seed(options, 99999999, raw);
+    await expect(
+      withAdvisoryDirectoryLock({ ...options, isPidAlive: () => false }, async () => "recovered")
+    ).resolves.toBe("recovered");
+    await expect(access(options.lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+  it("rechecks a live owner after it exits during acquisition", async () => {
+    const options = await fixture();
+    await seed(options, 7777);
+    let alive = true;
     await expect(
       withAdvisoryDirectoryLock(
         {
-          lockPath,
-          operation: "waiting-reader",
-          timeoutMs: 100,
-          retryDelayMs: 1,
-          fs: mem.fs,
-          isPidAlive: () => elapsed === 0,
+          ...options,
+          isPidAlive: () => alive,
           clock: {
-            nowMs: () => Date.now(),
-            performanceNow: () => elapsed,
+            nowMs: Date.now,
+            performanceNow: () => performance.now(),
             delay: async () => {
-              elapsed += 1;
+              alive = false;
             }
           }
         },
@@ -393,314 +194,147 @@ describe("advisory directory lock", () => {
       )
     ).resolves.toBe("recovered");
   });
-
+  it("preserves a new owner published before a delayed stale-owner cleanup", async () => {
+    const options = await fixture();
+    const oldName = await seed(options, 7777);
+    let replacementName = "";
+    options.fs.rm = async (path, removal) => {
+      if (path === join(options.lockPath, oldName) && !replacementName) {
+        await rm(path, removal);
+        await rmdir(options.lockPath);
+        replacementName = await seed(options, process.pid);
+      }
+      await rm(path, removal);
+    };
+    await expect(
+      withAdvisoryDirectoryLock(
+        { ...options, isPidAlive: (pid) => pid === process.pid },
+        async () => "entered"
+      )
+    ).rejects.toThrow("Timed out acquiring directory lock");
+    expect(replacementName).not.toBe("");
+    expect(await readdir(options.lockPath)).toEqual([replacementName]);
+    expect(JSON.parse(await readFile(await holderAt(options.lockPath), "utf8"))).toMatchObject({
+      pid: process.pid,
+      operation: "holder-work"
+    });
+  });
+  it("removes an empty released root without an age threshold", async () => {
+    const options = await fixture();
+    await mkdir(options.lockPath);
+    await expect(withAdvisoryDirectoryLock(options, async () => "recovered")).resolves.toBe(
+      "recovered"
+    );
+  });
   it.each([
-    null,
-    "{",
-    JSON.stringify({ pid: 0, acquiredAt: "now", operation: "writer" }),
-    JSON.stringify({ pid: -1, acquiredAt: "now", operation: "writer" }),
-    JSON.stringify({ pid: 1.5, acquiredAt: "now", operation: "writer" })
-  ])("preserves a fresh incomplete or invalid holder: %s", async (raw) => {
-    const lockPath = "/virtual/publishing-owner.lock";
-    const mem = createMemoryFs(new Map([[lockPath, "dir"]]));
-    if (raw !== null) mem.store.set(join(lockPath, "holder.json"), raw);
-    mem.fs.optionalStat = async () => ({ mtimeMs: 1_000_000 });
-    let elapsed = 0;
+    "holder.json",
+    "owner-77-old",
+    "unknown-version"
+  ])("rejects unknown nonempty format %s without changing shared data", async (entry) => {
+    const options = await fixture();
+    await mkdir(options.lockPath);
+    await writeFile(join(options.lockPath, entry), "evidence");
+    await expect(
+      withAdvisoryDirectoryLock(
+        { ...options, isPidAlive: () => false, staleMs: 0 },
+        async () => "entered"
+      )
+    ).rejects.toThrow("LOCK_FORMAT_UNSUPPORTED");
+    expect(await readFile(join(options.lockPath, entry), "utf8")).toBe("evidence");
+  });
+  it("rejects symlink roots without following them", async () => {
+    const options = await fixture();
+    const target = join(options.root, "target");
+    await mkdir(target);
+    await writeFile(join(target, "evidence"), "evidence");
+    await symlink(target, options.lockPath, "dir");
+    await expect(withAdvisoryDirectoryLock(options, async () => "entered")).rejects.toThrow(
+      "LOCK_FORMAT_UNSUPPORTED"
+    );
+    expect(await readFile(join(target, "evidence"), "utf8")).toBe("evidence");
+  });
+  it("propagates uncertain liveness rather than reclaiming", async () => {
+    const options = await fixture();
+    const name = await seed(options, 7777);
     await expect(
       withAdvisoryDirectoryLock(
         {
-          lockPath,
-          operation: "contender",
-          timeoutMs: 10,
-          retryDelayMs: 1,
-          fs: mem.fs,
-          isPidAlive: () => false,
-          clock: {
-            nowMs: () => 1_000_000 + elapsed,
-            performanceNow: () => elapsed,
-            delay: async () => {
-              elapsed += 1;
-            }
+          ...options,
+          isPidAlive: () => {
+            throw new Error("liveness unavailable");
           }
         },
         async () => "entered"
       )
-    ).rejects.toThrow("Timed out acquiring directory lock");
-    expect(mem.store.has(lockPath)).toBe(true);
-    expect(mem.rmCalls).toHaveLength(0);
+    ).rejects.toThrow("liveness unavailable");
+    expect(await readdir(options.lockPath)).toEqual([name]);
   });
-
-  it("reclaims a stale lock when holder is unreadable", async () => {
-    const lockPath = "/virtual/.planweave.lock";
-    const mem = createMemoryFs(new Map([[lockPath, "dir"]]));
-    // No holder.json at all.
-    mem.fs.optionalStat = async () => ({ mtimeMs: 1_000_000 });
-    let wall = 1_000_000 + 120_000;
-
+  it.each([
+    null,
+    "{",
+    JSON.stringify({ version: 1, kind: "posix", pgid: 0 }),
+    JSON.stringify({ version: 1, kind: "future", pgid: 7777 })
+  ])("retains dead owners with unregistered or invalid writers: %s", async (descriptor) => {
+    const options = await fixture();
+    const name = await seed(options, 7777);
+    const pending = join(options.lockPath, name, "external-writers-pending");
+    await mkdir(pending);
+    if (descriptor !== null) await writeFile(join(pending, "group-ready.json"), descriptor);
     await expect(
-      withAdvisoryDirectoryLock(
-        {
-          lockPath,
-          operation: "reclaim-missing-holder",
-          timeoutMs: 200,
-          staleMs: 60_000,
-          retryDelayMs: 1,
-          fs: mem.fs,
-          clock: {
-            nowMs: () => wall,
-            performanceNow: () => wall,
-            delay: async () => {
-              wall += 1;
-            }
-          }
-        },
-        async () => "reclaimed"
-      )
-    ).resolves.toBe("reclaimed");
+      withAdvisoryDirectoryLock({ ...options, isPidAlive: () => false }, async () => "entered")
+    ).rejects.toThrow("WRITER_GROUP_UNREGISTERED");
+    expect(await readdir(options.lockPath)).toEqual([name]);
   });
-
-  it("includes holder diagnostics in timeout errors", async () => {
-    const lockPath = "/virtual/.planweave.lock";
-    const acquiredAt = new Date(1_000_000).toISOString();
-    const holder = {
-      pid: 5555,
-      acquiredAt,
-      operation: "long-running-mutation"
-    };
-    const mem = createMemoryFs(
-      new Map([
-        [lockPath, "dir"],
-        [join(lockPath, "holder.json"), `${JSON.stringify(holder, null, 2)}\n`]
-      ])
-    );
-    mem.fs.optionalStat = async () => ({ mtimeMs: 1_000_000 });
-
-    let perf = 0;
-    await expect(
-      withAdvisoryDirectoryLock(
-        {
-          lockPath,
-          operation: "status-read",
-          timeoutMs: 80,
-          staleMs: 60_000,
-          retryDelayMs: 1,
-          isPidAlive: (pid) => pid === 5555,
-          fs: mem.fs,
-          clock: {
-            nowMs: () => 1_000_000 + 5_000,
-            performanceNow: () => {
-              const value = perf;
-              perf += 40;
-              return value;
-            },
-            delay: async () => {
-              perf += 40;
-            }
-          }
-        },
-        async () => undefined
-      )
-    ).rejects.toThrow(
-      /Timed out acquiring directory lock at \/virtual\/\.planweave\.lock; after \d+ms; requested operation=status-read; holder pid=5555; holder operation=long-running-mutation; holder acquiredAt=.*; holder age=5000ms; holder pidAlive=true; lock age=5000ms/
+  it("retains timeout holder and operation diagnostics", async () => {
+    const options = await fixture();
+    await seed(options, process.pid);
+    await expect(withAdvisoryDirectoryLock(options, async () => undefined)).rejects.toThrow(
+      /requested operation=test-lock; holder pid=\d+; holder operation=holder-work; holder acquiredAt=.*; holder age=\d+ms; holder pidAlive=true; lock age=\d+ms/
     );
   });
-
-  it("states clearly when timeout cannot read holder", async () => {
-    const lockPath = "/virtual/.planweave.lock";
-    const mem = createMemoryFs(new Map([[lockPath, "dir"]]));
-    mem.fs.optionalStat = async () => ({ mtimeMs: 1_000_000 });
-    // Corrupt holder content.
-    mem.store.set(join(lockPath, "holder.json"), "{not-json");
-
-    let perf = 0;
-    let message = "";
-    try {
-      await withAdvisoryDirectoryLock(
-        {
-          lockPath,
-          operation: "diagnose",
-          timeoutMs: 60,
-          staleMs: 60_000,
-          retryDelayMs: 1,
-          fs: mem.fs,
-          clock: {
-            nowMs: () => 1_000_000 + 2_000,
-            performanceNow: () => {
-              const value = perf;
-              perf += 40;
-              return value;
-            },
-            delay: async () => {
-              perf += 40;
-            }
-          }
-        },
-        async () => undefined
-      );
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error);
-    }
-
-    expect(message).toContain("requested operation=diagnose");
-    expect(message).toContain("holder unreadable");
-    expect(message).toMatch(/invalid|JSON/i);
-    expect(message).toContain("lock age=2000ms");
+  it("identifies unreadable holder diagnostics on timeout while retaining its live identity", async () => {
+    const options = await fixture();
+    const name = await seed(options, process.pid, null);
+    await expect(withAdvisoryDirectoryLock(options, async () => "entered")).rejects.toThrow(
+      /holder unreadable \(holder missing\); lock age=\d+ms/
+    );
+    expect(await readdir(options.lockPath)).toEqual([name]);
   });
-
-  it("allows nested reentry in the same async context", async () => {
-    const root = await tempLockRoot();
-    const order: string[] = [];
-
-    await withCanvasLock(root, async () => {
-      order.push("outer-enter");
-      await withCanvasLock(root, async () => {
-        order.push("inner");
-      });
-      order.push("outer-exit");
-    });
-
-    expect(order).toEqual(["outer-enter", "inner", "outer-exit"]);
+  it("reenters in the same async context and preserves callback values", async () => {
+    const options = await fixture();
+    await expect(
+      withAdvisoryDirectoryLock(options, async () =>
+        withAdvisoryDirectoryLock(options, async () => 42)
+      )
+    ).resolves.toBe(42);
   });
-
-  it("serializes same-process waiters for one lock path", async () => {
-    const root = await tempLockRoot();
+  it("serializes waiters and does not poison the queue after callback failure", async () => {
+    const options = await fixture();
     const order: string[] = [];
-    let releaseFirst!: () => void;
-    const firstGate = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
+    let enter!: () => void, release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
     });
-
-    const first = withCanvasLock(root, async () => {
-      order.push("first-enter");
-      await firstGate;
-      order.push("first-exit");
-      return 1;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
     });
-
-    // Wait until first holds the lock, then queue second waiter.
-    await vi.waitFor(() => {
-      expect(order).toContain("first-enter");
+    const error = new Error("callback failed");
+    const first = withAdvisoryDirectoryLock(options, async () => {
+      order.push("first");
+      enter();
+      await gate;
+      throw error;
     });
-
-    const second = withCanvasLock(root, async () => {
+    const observed = expect(first).rejects.toBe(error);
+    await entered;
+    const second = withAdvisoryDirectoryLock(options, async () => {
       order.push("second");
       return 2;
     });
-
-    // Second must not have entered while first still holds.
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(order).toEqual(["first-enter"]);
-
-    releaseFirst();
-    await expect(Promise.all([first, second])).resolves.toEqual([1, 2]);
-    expect(order).toEqual(["first-enter", "first-exit", "second"]);
-  });
-
-  it("does not let a non-owner mkdir failure clean up an existing lock", async () => {
-    const lockPath = "/virtual/.planweave.lock";
-    const holder = {
-      pid: 9,
-      acquiredAt: new Date().toISOString(),
-      operation: "owner"
-    };
-    const mem = createMemoryFs(
-      new Map([
-        [lockPath, "dir"],
-        [join(lockPath, "holder.json"), `${JSON.stringify(holder, null, 2)}\n`]
-      ])
-    );
-
-    let perf = 0;
-    await expect(
-      withAdvisoryDirectoryLock(
-        {
-          lockPath,
-          operation: "contender",
-          timeoutMs: 50,
-          staleMs: 60_000,
-          retryDelayMs: 1,
-          isPidAlive: () => true,
-          fs: mem.fs,
-          clock: {
-            nowMs: () => Date.now(),
-            performanceNow: () => {
-              const value = perf;
-              perf += 30;
-              return value;
-            },
-            delay: async () => {
-              perf += 30;
-            }
-          }
-        },
-        async () => undefined
-      )
-    ).rejects.toThrow(/Timed out/);
-
-    // Contender never created the dir; must not have removed the owner's lock.
-    expect(mem.store.has(lockPath)).toBe(true);
-    expect(mem.rmCalls).toHaveLength(0);
-  });
-
-  it("does not delete a replacement owner after a stale-lock ABA", async () => {
-    const lockPath = "/virtual/.planweave.lock";
-    const holderPath = join(lockPath, "holder.json");
-    const staleHolder = {
-      pid: 7,
-      acquiredAt: new Date(1_000_000).toISOString(),
-      operation: "stale-owner",
-      ownerToken: "stale-token"
-    };
-    const replacementHolder = {
-      pid: 8,
-      acquiredAt: new Date(1_120_000).toISOString(),
-      operation: "replacement-owner",
-      ownerToken: "replacement-token"
-    };
-    const mem = createMemoryFs(
-      new Map([
-        [lockPath, "dir"],
-        [holderPath, `${JSON.stringify(staleHolder)}\n`]
-      ])
-    );
-    mem.fs.optionalStat = async () => ({ mtimeMs: 1_000_000 });
-    const originalRename = mem.fs.rename;
-    let replacedBeforeFence = false;
-    mem.fs.rename = async (from, to) => {
-      if (from === lockPath && !replacedBeforeFence) {
-        replacedBeforeFence = true;
-        mem.store.set(holderPath, `${JSON.stringify(replacementHolder)}\n`);
-      }
-      await originalRename(from, to);
-    };
-
-    let perf = 0;
-    await expect(
-      withAdvisoryDirectoryLock(
-        {
-          lockPath,
-          operation: "stale-reclaimer",
-          timeoutMs: 80,
-          staleMs: 60_000,
-          retryDelayMs: 1,
-          isPidAlive: (pid) => pid === replacementHolder.pid,
-          fs: mem.fs,
-          clock: {
-            nowMs: () => 1_120_000,
-            performanceNow: () => (perf += 30),
-            delay: async () => {
-              perf += 30;
-            }
-          }
-        },
-        async () => undefined
-      )
-    ).rejects.toThrow(/Timed out/);
-
-    expect(JSON.parse(mem.store.get(holderPath) as string)).toMatchObject({
-      ownerToken: "replacement-token"
-    });
-    expect(replacedBeforeFence).toBe(true);
-    expect(mem.rmCalls).toHaveLength(0);
+    expect(order).toEqual(["first"]);
+    release();
+    await observed;
+    await expect(second).resolves.toBe(2);
+    expect(order).toEqual(["first", "second"]);
   });
 });
