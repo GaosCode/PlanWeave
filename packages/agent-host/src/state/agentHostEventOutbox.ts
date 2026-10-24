@@ -8,7 +8,7 @@ import {
   type HostEvent
 } from "../protocol.js";
 import { outboxRowSchema } from "./agentHostStateRecords.js";
-import type { SqliteDatabase } from "./sqliteDatabase.js";
+import { notifyOutboxAfterCommit, type SqliteDatabase } from "./sqliteDatabase.js";
 import type { AgentHostRemoteExecutionIdentity } from "../execution/remoteAcpPorts.js";
 
 function sameEventPayload(left: HistoricalHostEvent, right: HistoricalHostEvent): boolean {
@@ -18,6 +18,30 @@ function sameEventPayload(left: HistoricalHostEvent, right: HistoricalHostEvent)
 }
 
 export class AgentHostEventOutbox {
+  private readonly listeners = new Set<() => void>();
+  private readonly notifyReady = (): void => {
+    for (const listener of this.listeners) {
+      try {
+        listener();
+      } catch (error) {
+        process.emitWarning(error instanceof Error ? error.message : String(error), {
+          code: "agent_host_outbox_listener_failed"
+        });
+      }
+    }
+  };
+
+  subscribeReady(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  close(): void {
+    this.listeners.clear();
+  }
+
   constructor(
     private readonly database: SqliteDatabase,
     private readonly maxPendingEvents: number
@@ -111,6 +135,7 @@ export class AgentHostEventOutbox {
          VALUES(?,?,?,?)`
       )
       .run(event.messageId, eventKey, JSON.stringify(event), new Date().toISOString());
+    notifyOutboxAfterCommit(this.database, this.notifyReady);
     return event;
   }
 

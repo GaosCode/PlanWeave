@@ -1,25 +1,29 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { HostReservationRepository } from "../../hostReservations.js";
 import { AgentHostRepository } from "../../hosts.js";
 import { WorkspaceIdentityRepository } from "../../identity/workspaceRepository.js";
 import { startPlanweaveServer } from "../../lifecycle.js";
 import { RemoteOperationRepository } from "../../remoteOperations.js";
 
-export async function createRemoteAcpEventV2Fixture() {
+export async function createRemoteAcpEventV2Fixture(
+  clock: () => Date = () => new Date("2030-01-01T00:00:00.000Z")
+) {
   const directory = await mkdtemp(join(tmpdir(), "planweave-remote-acp-v2-"));
-  const clock = () => new Date("2030-01-01T00:00:00.000Z");
   const server = await startPlanweaveServer({
     dataDirectory: directory,
     databasePath: join(directory, "server.sqlite"),
     busyTimeoutMs: 5_000
   });
   const hosts = new AgentHostRepository(server.database, clock);
-  const host = hosts.register("Remote ACP v2 Host").host;
-  const workspaceId = new WorkspaceIdentityRepository(
-    server.database
-  ).ensureWorkspaceForLegacyProject("project-remote-acp-v2");
+  const { host, token } = hosts.register("Remote ACP v2 Host");
+  const workspaceId = workspaceIdSchema.parse(
+    new WorkspaceIdentityRepository(server.database).ensureWorkspaceForLegacyProject(
+      "project-remote-acp-v2"
+    )
+  );
   hosts.bindToWorkspace(host.id, workspaceId);
   hosts.reportOnline(host.id, ["linux", "acp.codex"], 2, {
     workspaceMappings: [{ workspaceId, status: "ready" }],
@@ -88,7 +92,7 @@ export async function createRemoteAcpEventV2Fixture() {
     status: "running"
   });
   operation = operations.getRequired(operation.id);
-  return { directory, server, host, operation, reservation, clock };
+  return { directory, server, host, token, operation, reservation, clock };
 }
 
 export function remoteAcpV2Batch(

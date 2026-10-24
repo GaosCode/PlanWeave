@@ -49,6 +49,7 @@ export const DEFAULT_AGENT_HOST_STATE_LIMITS: AgentHostStateLimits = {
 export interface AgentHostStateRepository {
   setRemoteRunnerEventProtocolVersion(version: 2): void;
   close(): void;
+  subscribeOutboxReady(listener: () => void): () => void;
   // deadlineNow uses the same clock domain as persisted interaction action deadlines.
   receive(input: ServerEvent, deadlineNow?: Date): { stored: boolean; acknowledgement: HostEvent };
   lastAcknowledgedSequence(): number;

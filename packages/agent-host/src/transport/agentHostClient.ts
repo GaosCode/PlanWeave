@@ -1,3 +1,4 @@
+import { AgentHostOutboxDrain } from "./agentHostOutboxDrain.js";
 import { HostConnectionWatchdog } from "./hostConnectionWatchdog.js";
 import { classifyRemoteRunnerHttpFailure } from "./remoteRunnerHttpFailure.js";
 import type { RemoteAcpConversationService } from "../execution/remoteAcpConversationService.js";
@@ -6,7 +7,6 @@ import {
   CANVAS_RUNTIME_CAPABILITY,
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
   HISTORICAL_PERMISSION_REPLAY_VERSION_HEADER,
-  historicalPermissionHostReplaySchema,
   requireExactPermissionOptionsVersion,
   ACP_CONVERSATION_CAPABILITY,
   type HostReadinessObservation
@@ -15,8 +15,6 @@ import {
   parseAgentHostCapabilities,
   parseAgentHostDispatchResult,
   parseAgentHostServerEvent,
-  serializeAgentHostEvent,
-  type HistoricalHostEvent,
   serializeAgentHostHello,
   type ServerEvent
 } from "../protocol.js";
@@ -168,7 +166,7 @@ export class AgentHostClient implements HostTransport {
   private readonly limits: HostTransportLimits;
   private readonly reconnect: ReconnectBackoffOptions;
   private readonly listeners = new Set<HostTransportStatusListener>();
-  private readonly inFlightEventIds = new Set<string>();
+  private readonly outbox: AgentHostOutboxDrain;
   private heartbeatTimer?: unknown;
   private connectionWatchdog?: HostConnectionWatchdog;
   private reconnectTimer?: unknown;
@@ -177,7 +175,6 @@ export class AgentHostClient implements HostTransport {
   private queuedMessages = 0;
   private processing = Promise.resolve();
   private welcomed = false;
-  private historicalPermissionReplaySupported = false;
   private compatibilityShutdown?: Promise<void>;
   private stopped = true;
   private startupAbort?: AbortController;
@@ -210,9 +207,25 @@ export class AgentHostClient implements HostTransport {
     this.clock = options.clock ?? systemHostTransportClock;
     this.serverClock = options.serverClock ?? new CalibratedServerClock(this.clock);
     this.limits = parseHostTransportLimits(options.limits);
+    this.outbox = new AgentHostOutboxDrain(
+      options.state,
+      this.clock,
+      this.limits,
+      (error) => {
+        this.transition({ state: "degraded", reason: "outbox_delivery_failed" });
+        this.options.logger?.log({
+          level: "warn",
+          event: "host_outbox_delivery_failed",
+          state: this.currentStatus.state,
+          reason: error instanceof Error ? error.message : "outbox_delivery_failed"
+        });
+        this.socket?.close(1011, "outbox delivery failed");
+      },
+      () => this.rejectPermissionCompatibility("historical_permission_replay_unsupported")
+    );
     this.leaseDeadline = new ExecutionLeaseDeadline(this.clock, () => {
       this.checkExecutionLeases();
-      this.flushEvents();
+      this.outbox.request();
     });
     this.reconnect = parseReconnectBackoffOptions(options.reconnect);
     this.capabilities = parseAgentHostCapabilities(options.capabilities);
@@ -252,6 +265,7 @@ export class AgentHostClient implements HostTransport {
     this.connectionWatchdog?.stop();
     const generation = ++this.lifecycleGeneration;
     this.stopped = false;
+    this.outbox.start();
     this.leaseProtectionActive = true;
     this.leaseProtectionFailed = false;
     this.leasePersistenceFailed = false;
@@ -398,6 +412,7 @@ export class AgentHostClient implements HostTransport {
   }
 
   private async stopTransport(): Promise<void> {
+    this.outbox.stop();
     this.credentialRenewalAbort?.abort();
     const credentialRenewal = this.credentialRenewalInFlight;
     if (this.stopped && this.currentStatus.state === "stopped" && !this.startup) {
@@ -415,7 +430,7 @@ export class AgentHostClient implements HostTransport {
     this.startupAbort?.abort();
     this.startupAbort = undefined;
     this.welcomed = false;
-    this.inFlightEventIds.clear();
+    this.outbox.disconnect();
     if (this.reconnectTimer !== undefined) this.clock.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
@@ -450,7 +465,6 @@ export class AgentHostClient implements HostTransport {
 
   private connect(): void {
     if (this.stopped) return;
-    this.inFlightEventIds.clear();
     const generation = this.lifecycleGeneration;
     this.transition({ state: "connecting", attempt: this.reconnectAttempt + 1 });
     if (this.stopped || this.lifecycleGeneration !== generation) return;
@@ -526,12 +540,12 @@ export class AgentHostClient implements HostTransport {
         .catch((error: unknown) => {
           if (this.socket !== socket || this.stopped) return;
           const reason = error instanceof Error ? error.message : "";
+          this.stopped = true;
           this.transition(
             reason === "mailbox_message_retention_horizon_exceeded"
               ? { state: "reconciliation-required", reason }
               : { state: "degraded", reason: "invalid_server_event" }
           );
-          this.stopped = true;
           socket.close(4003, "server event rejected");
         })
         .finally(() => this.queuedMessages--);
@@ -564,7 +578,7 @@ export class AgentHostClient implements HostTransport {
       if (this.socket !== socket) return;
       this.socket = undefined;
       this.welcomed = false;
-      this.inFlightEventIds.clear();
+      this.outbox.disconnect();
       this.options.canvasRuntime?.disconnect();
       if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
       if (!this.stopped && code === 4001) {
@@ -612,19 +626,11 @@ export class AgentHostClient implements HostTransport {
           this.rejectPermissionCompatibility();
           return;
         }
-        this.historicalPermissionReplaySupported = event.historicalPermissionReplayVersion === 1;
         if (
-          !this.historicalPermissionReplaySupported &&
-          this.options.state
-            .pendingEvents()
-            .some(
-              (pending) =>
-                pending.type === "interaction.permission_requested" && !("options" in pending)
-            )
-        ) {
-          this.rejectPermissionCompatibility("historical_permission_replay_unsupported");
+          !this.socket ||
+          !this.outbox.welcome(this.socket, event.historicalPermissionReplayVersion === 1)
+        )
           return;
-        }
         this.welcomed = true;
         this.reconnectAttempt = 0;
         this.transition({ state: "connected", connectedAt: this.clock.now().toISOString() });
@@ -633,7 +639,7 @@ export class AgentHostClient implements HostTransport {
         if (this.recoveredGeneration !== this.lifecycleGeneration) {
           this.recoveredGeneration = this.lifecycleGeneration;
           void this.options.canvasRuntime?.recover().then(
-            () => this.flushEvents(),
+            () => this.outbox.request(),
             () => this.failCanvasRuntimePersistence()
           );
           this.options.conversations?.recover();
@@ -641,11 +647,10 @@ export class AgentHostClient implements HostTransport {
         this.checkExecutionLeases();
         this.startHeartbeat(event.heartbeatIntervalMs);
         this.checkCredentialRenewal();
-        this.flushEvents();
         this.pump();
         return;
       case "mailbox.permission_history":
-        if (!this.historicalPermissionReplaySupported)
+        if (!this.outbox.supportsHistoricalReplay())
           throw new Error("historical_permission_replay_unsupported");
         this.options.state.receive(event, this.serverClock.now());
         this.pump();
@@ -669,7 +674,7 @@ export class AgentHostClient implements HostTransport {
           this.canvasRuns.add(run);
           const onSettled = () => {
             this.canvasRuns.delete(run);
-            this.flushEvents();
+            this.outbox.request();
           };
           void run.then(onSettled, () => {
             onSettled();
@@ -691,13 +696,12 @@ export class AgentHostClient implements HostTransport {
           }
         }
         this.checkExecutionLeases();
-        this.flushEvents();
+        this.outbox.request();
         this.pump();
         return;
       case "host.event_ack":
         this.options.state.acknowledgeEvent(event.messageId);
-        this.inFlightEventIds.delete(event.messageId);
-        this.flushEvents();
+        this.outbox.acknowledge(event.messageId);
         return;
       case "lease.renewed":
         this.options.state.renewLease(
@@ -725,7 +729,7 @@ export class AgentHostClient implements HostTransport {
   private rejectPermissionCompatibility(reason = "exact_permission_options_unsupported"): void {
     this.stopped = true;
     this.welcomed = false;
-    this.inFlightEventIds.clear();
+    this.outbox.disconnect();
     if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
     if (this.reconnectTimer) this.clock.clearTimeout(this.reconnectTimer);
     const socket = this.socket;
@@ -763,50 +767,11 @@ export class AgentHostClient implements HostTransport {
       if (this.stopped || !this.welcomed) return;
       if (!this.checkExecutionLeases()) return;
       this.options.state.queueHeartbeat(this.options.state.activeLeases(), this.options.readiness);
-      this.flushEvents();
+      this.outbox.request();
       this.checkCredentialRenewal();
       this.heartbeatTimer = this.clock.setTimeout(send, intervalMs);
     };
     this.heartbeatTimer = this.clock.setTimeout(send, 0);
-  }
-
-  private flushEvents(): void {
-    if (this.stopped || !this.welcomed) return;
-    const responseSafeWindow = Math.max(1, Math.floor((this.limits.maxQueuedMessages - 4) / 2));
-    const windowSize = Math.min(this.limits.maxOutboundBatch, responseSafeWindow);
-    let available = windowSize - this.inFlightEventIds.size;
-    if (available <= 0) return;
-    for (const event of this.options.state.pendingEvents(this.limits.maxOutboundBatch)) {
-      if (available <= 0) return;
-      if (this.inFlightEventIds.has(event.messageId)) continue;
-      if (!this.send(event)) return;
-      this.inFlightEventIds.add(event.messageId);
-      available -= 1;
-    }
-  }
-
-  private send(event: HistoricalHostEvent): boolean {
-    if (this.stopped || !this.welcomed || this.socket?.readyState !== WebSocket.OPEN) return false;
-    const historical = event.type === "interaction.permission_requested" && !("options" in event);
-    if (historical && !this.historicalPermissionReplaySupported) {
-      this.rejectPermissionCompatibility("historical_permission_replay_unsupported");
-      return false;
-    }
-    const payload = historical
-      ? JSON.stringify(
-          historicalPermissionHostReplaySchema.parse({
-            type: "host.permission_history",
-            protocolVersion: 1,
-            eventJson: this.options.state.historicalPermissionEventJson(event.messageId)
-          })
-        )
-      : serializeAgentHostEvent(event);
-    if (Buffer.byteLength(payload) > this.limits.maxPayloadBytes)
-      throw new Error("agent_host_outbound_payload_too_large");
-    if (this.socket.bufferedAmount + Buffer.byteLength(payload) > this.limits.maxBufferedBytes)
-      return false;
-    this.socket.send(payload);
-    return true;
   }
 
   private pump(): void {
@@ -826,7 +791,7 @@ export class AgentHostClient implements HostTransport {
         }
       }
     }
-    this.flushEvents();
+    this.outbox.request();
 
     // `capacity` is advertised for the Server's collaboration reservation policy.
     // Commands delivered here have already passed the authoritative scheduler, so
@@ -885,7 +850,7 @@ export class AgentHostClient implements HostTransport {
       },
       { once: true }
     );
-    this.flushEvents();
+    this.outbox.request();
     const run = this.run(active);
     this.runs.add(run);
     void run.then(
@@ -1030,12 +995,13 @@ export class AgentHostClient implements HostTransport {
         this.active.delete(execution.sequence);
       }
       this.checkExecutionLeases();
-      this.flushEvents();
+      this.outbox.request();
       this.pump();
     }
   }
 
   private transition(status: HostTransportStatus): void {
+    if (this.stopped) this.outbox.stop();
     this.currentStatus = status;
     this.options.logger?.log({
       level:

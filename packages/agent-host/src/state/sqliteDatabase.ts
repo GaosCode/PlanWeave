@@ -46,14 +46,29 @@ export function openReadonlyAgentHostDatabase(path: string, busyTimeoutMs: numbe
   return database;
 }
 
+// Only the transaction owner can release an outbox hint after a durable commit.
+const pendingOutboxNotifications = new WeakMap<SqliteDatabase, Set<() => void>>();
+
+export function notifyOutboxAfterCommit(database: SqliteDatabase, notify: () => void): void {
+  const pending = pendingOutboxNotifications.get(database);
+  if (pending) pending.add(notify);
+  else notify();
+}
+
 export function inWriteTransaction<T>(database: SqliteDatabase, action: () => T): T {
   database.exec("BEGIN IMMEDIATE");
+  const notifications = new Set<() => void>();
+  pendingOutboxNotifications.set(database, notifications);
+  let result: T;
   try {
-    const result = action();
+    result = action();
     database.exec("COMMIT");
-    return result;
   } catch (error) {
     database.exec("ROLLBACK");
     throw error;
+  } finally {
+    pendingOutboxNotifications.delete(database);
   }
+  for (const notify of notifications) notify();
+  return result;
 }

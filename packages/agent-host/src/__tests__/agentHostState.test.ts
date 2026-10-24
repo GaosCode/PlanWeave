@@ -1,12 +1,18 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   agentHostProtocolGoldenFixtures,
   exampleExecuteDelivery
 } from "@planweave-ai/agent-host-protocol";
 import { canvasRuntimeContentTargetSchema } from "@planweave-ai/collaboration-protocol/content/version";
+import { AgentHostEventOutbox } from "../state/agentHostEventOutbox.js";
+import { openAgentHostDatabase, openReadonlyAgentHostDatabase } from "../state/sqliteDatabase.js";
+import {
+  acpConversationPromptCommandSchema,
+  exampleExecutionEnvelopeInput
+} from "@planweave-ai/agent-host-protocol";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
 
 const directories: string[] = [];
@@ -98,6 +104,124 @@ function canvasRuntimeMessage(sequence = 1) {
 }
 
 describe("durable Agent Host state", () => {
+  it("notifies only after durable commit and discards rolled-back conversation events", async () => {
+    const { directory, state } = await setup();
+    const command = acpConversationPromptCommandSchema.parse({
+      type: "acp_conversation.prompt",
+      protocolVersion: 1,
+      operationId: "notify-op",
+      turnId: "notify-turn",
+      executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
+      sessionId: "notify-session",
+      text: "Continue",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceEnvelope: { ...exampleExecutionEnvelopeInput, requiredCapabilities: [] }
+    });
+    state.conversations.accept(command);
+    const reader = openReadonlyAgentHostDatabase(join(directory, "host.sqlite"), 5_000);
+    const writer = await openAgentHostDatabase(join(directory, "host.sqlite"), 5_000);
+    const snapshots: Array<{ sequence: number; count: number }> = [];
+    const unsubscribe = state.subscribeOutboxReady(() => {
+      snapshots.push({
+        sequence: Number(
+          reader
+            .prepare("SELECT last_sequence FROM agent_host_conversation_turns WHERE turn_id=?")
+            .get(command.turnId)?.last_sequence
+        ),
+        count: Number(
+          reader.prepare("SELECT COUNT(*) AS count FROM agent_host_outbox").get()?.count
+        )
+      });
+    });
+    try {
+      state.conversations.start(command.turnId);
+      expect(snapshots).toEqual([{ sequence: 1, count: 1 }]);
+      writer.exec(`CREATE TRIGGER fail_conversation_write BEFORE UPDATE ON agent_host_conversation_turns
+        BEGIN SELECT RAISE(ABORT, 'forced_conversation_rollback'); END`);
+      expect(() =>
+        state.conversations.append(command.turnId, {
+          kind: "status",
+          status: "running",
+          error: null
+        })
+      ).toThrow("forced_conversation_rollback");
+      expect(snapshots).toEqual([{ sequence: 1, count: 1 }]);
+      expect(state.pendingEvents()).toHaveLength(1);
+      writer.exec("DROP TRIGGER fail_conversation_write");
+      state.conversations.append(command.turnId, {
+        kind: "status",
+        status: "completed",
+        error: null
+      });
+      expect(snapshots).toEqual([
+        { sequence: 1, count: 1 },
+        { sequence: 2, count: 2 }
+      ]);
+    } finally {
+      unsubscribe();
+      reader.close();
+      writer.close();
+    }
+  });
+
+  it("notifies standalone outbox writes after SQLite autocommit", async () => {
+    const { directory } = await setup();
+    const database = await openAgentHostDatabase(join(directory, "host.sqlite"), 5_000);
+    const reader = openReadonlyAgentHostDatabase(join(directory, "host.sqlite"), 5_000);
+    const outbox = new AgentHostEventOutbox(database, 10);
+    const committedCounts: number[] = [];
+    const unsubscribe = outbox.subscribeReady(() => {
+      committedCounts.push(
+        Number(reader.prepare("SELECT COUNT(*) AS count FROM agent_host_outbox").get()?.count)
+      );
+    });
+    try {
+      const event = outbox.queue("standalone-heartbeat", {
+        type: "host.heartbeat",
+        protocolVersion: 1,
+        messageId: "standalone-message",
+        activeLeases: []
+      });
+      expect(committedCounts).toEqual([1]);
+      expect(outbox.queue("standalone-heartbeat", event)).toEqual(event);
+      expect(committedCounts).toEqual([1]);
+    } finally {
+      unsubscribe();
+      outbox.close();
+      reader.close();
+      database.close();
+    }
+  });
+
+  it("isolates a failing listener, diagnoses it, and suppresses duplicate enqueue hints", async () => {
+    const { state } = await setup();
+    const warning = vi.spyOn(process, "emitWarning").mockImplementation(() => {});
+    const observed = vi.fn();
+    const detach = state.subscribeOutboxReady(() => {
+      throw new Error("broken_outbox_listener");
+    });
+    const unsubscribe = state.subscribeOutboxReady(observed);
+    try {
+      const first = state.queueHeartbeat([]);
+      expect(state.pendingEvents()).toEqual([first]);
+      expect(warning).toHaveBeenCalledWith("broken_outbox_listener", {
+        code: "agent_host_outbox_listener_failed"
+      });
+      expect(observed).toHaveBeenCalledTimes(1);
+      expect(state.queueHeartbeat([])).toEqual(first);
+      expect(observed).toHaveBeenCalledTimes(1);
+      detach();
+      unsubscribe();
+      state.acknowledgeEvent(first.messageId);
+      state.queueHeartbeat([]);
+      expect(observed).toHaveBeenCalledTimes(1);
+    } finally {
+      detach();
+      unsubscribe();
+      warning.mockRestore();
+    }
+  });
+
   it("persists Canvas Runtime receipts independently and replays terminal responses after restart", async () => {
     const { directory, state } = await setup();
     const message = canvasRuntimeMessage();

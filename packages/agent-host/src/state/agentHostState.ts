@@ -139,7 +139,12 @@ export class AgentHostState implements AgentHostStateRepository {
     this.terminalCompaction.compact();
   }
 
+  subscribeOutboxReady(listener: () => void): () => void {
+    return this.events.subscribeReady(listener);
+  }
+
   close(): void {
+    this.events.close();
     this.database.close();
   }
 
