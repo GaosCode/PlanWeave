@@ -205,6 +205,38 @@ afterEach(() => {
 });
 
 describe("AssigneePicker", () => {
+  it("uses roster names for the current avatar and accessible label while selecting same-name principals by ID", async () => {
+    stubSelectLayoutApis();
+    const user = userEvent.setup();
+    const model = taskViewModel({
+      assignment: {
+        projectId: "project-1",
+        workItem: taskItem,
+        target: { kind: "human", humanPrincipalId: "human-1" },
+        revision: 4,
+        human: { humanPrincipalId: "human-1", displayName: "human-1", membershipActive: true },
+        availability: { status: "ready", reason: "ready" }
+      },
+      members: [
+        member({ humanPrincipalId: "human-1", displayName: "Alex Morgan", role: "owner" }),
+        member({ humanPrincipalId: "human-2", displayName: "Alex Morgan", role: "member" })
+      ]
+    });
+    const { onSelect } = renderPicker(model);
+    const trigger = screen.getByRole("button", { name: "Alex Morgan" });
+    expect(trigger).toHaveTextContent("AM");
+    expect(screen.getByTestId("assignee-current-label")).toHaveTextContent("Alex Morgan");
+    await user.click(trigger);
+    const options = screen.getAllByRole("option", { name: /^Alex Morgan/ });
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveAttribute("data-option-id", "human:human-1");
+    expect(options[0]).toHaveAttribute("aria-selected", "true");
+    expect(options[1]).toHaveAttribute("data-option-id", "human:human-2");
+    expect(options[1]).toHaveAttribute("aria-selected", "false");
+    await user.click(options[1]!);
+    expect(onSelect).toHaveBeenCalledWith({ kind: "human", humanPrincipalId: "human-2" });
+  });
+
   it("supports keyboard typeahead focus and Task people selection", async () => {
     stubSelectLayoutApis();
     const user = userEvent.setup();

@@ -344,7 +344,7 @@ function deferred<T>() {
 const chosenTarget = { kind: "human", humanPrincipalId: "human-new" } as const;
 const roles = ["responsibility", "reviewer"] as const;
 
-async function scopedPicker(role: (typeof roles)[number]) {
+async function scopedPicker(role: (typeof roles)[number], workItem: WorkItemRef = taskItem) {
   const fixture = createApi();
   const shell = acquireCollaborationReadModelController(fixture.api);
   await shell.controller.setActiveProject(
@@ -370,7 +370,7 @@ async function scopedPicker(role: (typeof roles)[number]) {
         detailsOpen: true,
         onAssignmentOutcome: onOutcome
       }),
-    { initialProps: { workItem: taskItem, authorityRole: role } }
+    { initialProps: { workItem, authorityRole: role } }
   );
   await waitFor(() => expect(hook.result.current.authority).not.toBeNull());
   await waitFor(() => expect(hook.result.current.viewModel?.mode).not.toBe("loading"));
@@ -958,6 +958,167 @@ describe("assignee picker retry lifecycle", () => {
       expect(f.mutation).toHaveBeenCalledTimes(3);
       f.unmount();
       f.shell.release();
+    });
+  }
+});
+
+describe("assignee picker scoped member display", () => {
+  for (const role of roles) {
+    it.each([
+      taskItem,
+      blockItem
+    ])(`${role}: follows roster arrival, rename and removal ($kind)`, async (workItem) => {
+      const f = await scopedPicker(role, workItem);
+      const members = vi.mocked(f.api.listCollaborationMembers);
+      const page = await members({});
+      const authority = f.result.current.authority!;
+      let current: typeof authority = {
+        ...authority,
+        [role]: {
+          ...authority[role],
+          principal: { kind: "human" as const, humanPrincipalId: "human-1" },
+          availability: "active" as const,
+          revision: 7
+        }
+      };
+      f.getWorkAuthority.mockImplementation(async () => current);
+      const reload = async () => {
+        await act(async () => {
+          await f.result.current.refresh();
+        });
+      };
+      const expectName = (name: string, initials: string) => {
+        const model = f.result.current.viewModel!;
+        expect(model.current).toMatchObject({
+          label: name,
+          initials,
+          humanPrincipalId: "human-1",
+          revision: 7
+        });
+        expect(model.filteredOptions.find((option) => option.id === "human:human-1")?.label).toBe(
+          name
+        );
+      };
+      try {
+        await reload();
+        expectName("Ada", "AD");
+        members.mockResolvedValue({ items: [], nextCursor: null });
+        await reload();
+        expectName("human-1", "HU");
+        const arrival = deferred<typeof page>();
+        members.mockReturnValueOnce(arrival.promise);
+        let loading!: Promise<unknown>;
+        act(() => {
+          loading = f.shell.controller.refreshAuthoritative({ reason: "member_arrival" });
+        });
+        expectName("human-1", "HU");
+        await act(async () => {
+          arrival.resolve(page);
+          await loading;
+        });
+        expectName("Ada", "AD");
+        members.mockResolvedValue({
+          ...page,
+          items: page.items.map((member) => ({ ...member, displayName: "Grace Hopper" }))
+        });
+        await reload();
+        expectName("Grace Hopper", "GH");
+        current = { ...current, [role]: { ...current[role], availability: "inactive" as const } };
+        await reload();
+        expectName("Grace Hopper", "GH");
+        expect(f.result.current.viewModel?.current).toMatchObject({
+          availabilityStatus: "invalid",
+          issueReason: "human_membership_inactive"
+        });
+        members.mockResolvedValue({ items: [], nextCursor: null });
+        await reload();
+        expectName("human-1", "HU");
+        current = {
+          ...current,
+          [role]: { ...current[role], principal: null, availability: "unassigned" as const }
+        };
+        await reload();
+        expect(f.result.current.viewModel?.current).toMatchObject({
+          label: "Unassigned",
+          initials: null,
+          humanPrincipalId: null
+        });
+      } finally {
+        f.unmount();
+        f.shell.release();
+      }
+    });
+
+    it.each([
+      taskItem,
+      blockItem
+    ])(`${role}: discards late roster after project and connection switches ($kind)`, async (workItem) => {
+      const f = await scopedPicker(role, workItem);
+      const members = vi.mocked(f.api.listCollaborationMembers);
+      const page = await members({});
+      const original = f.result.current.authority!;
+      f.getWorkAuthority.mockImplementation(async () => ({
+        ...original,
+        [role]: {
+          ...original[role],
+          principal: { kind: "human" as const, humanPrincipalId: "human-1" },
+          availability: "active"
+        }
+      }));
+      try {
+        for (const transition of ["project", "connection"] as const) {
+          const old = deferred<typeof page>();
+          const started = deferred<void>();
+          members.mockImplementationOnce(() => {
+            started.resolve();
+            return old.promise;
+          });
+          let pending!: Promise<unknown>;
+          act(() => {
+            pending = f.shell.controller.refreshAuthoritative({ reason: "old_roster" });
+          });
+          await act(async () => {
+            await started.promise;
+          });
+          const projectId = "project-B";
+          const profileId = transition === "project" ? "profile-1" : "profile-B";
+          members.mockResolvedValue({
+            ...page,
+            items: page.items.map((member) => ({
+              ...member,
+              projectId,
+              displayName: `${transition} member`
+            }))
+          });
+          let switched!: Promise<void>;
+          act(() => {
+            f.changeStatus(projectId, profileId);
+            switched = f.shell.controller.setActiveProject(
+              scopedProjectFixture({ profileId, projectId, canvasId: "canvas-1" })
+            );
+          });
+          const labels: string[] = [];
+          const unsubscribe = f.shell.controller.subscribe(() => {
+            labels.push(f.shell.controller.getSnapshot().members[0]?.displayName ?? "empty");
+          });
+          try {
+            await act(async () => {
+              old.resolve(page);
+              await pending;
+              await switched;
+            });
+            await waitFor(() =>
+              expect(f.result.current.viewModel?.current.label).toBe(`${transition} member`)
+            );
+            expect(labels).not.toContain("Ada");
+          } finally {
+            unsubscribe();
+          }
+        }
+      } finally {
+        f.unmount();
+        f.shell.release();
+      }
     });
   }
 });

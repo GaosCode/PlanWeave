@@ -250,9 +250,17 @@ export function mapAvailabilityToIssue(
   }
 }
 
+function resolveHumanDisplay(
+  humanPrincipalId: HumanPrincipalId,
+  human: { displayName?: string } | null | undefined
+): string {
+  return human?.displayName?.trim() || humanPrincipalId;
+}
+
 export function buildAssigneeCurrentDisplay(
   assignment: AssignmentDisplayProjection | null | undefined,
-  labels: AssigneeDisplayLabels = DEFAULT_ASSIGNEE_DISPLAY_LABELS
+  labels: AssigneeDisplayLabels = DEFAULT_ASSIGNEE_DISPLAY_LABELS,
+  members: readonly CollaborationMemberSummary[] = []
 ): AssigneeCurrentDisplay {
   if (!assignment) {
     return {
@@ -283,7 +291,11 @@ export function buildAssigneeCurrentDisplay(
         initials: null
       };
     case "human": {
-      const name = assignment.human?.displayName?.trim() || assignment.target.humanPrincipalId;
+      const principalId = assignment.target.humanPrincipalId;
+      const name = resolveHumanDisplay(
+        principalId,
+        members.find((member) => member.humanPrincipalId === principalId) ?? assignment.human
+      );
       return {
         label: name,
         targetKind: "human",
@@ -357,7 +369,7 @@ function evaluateHumanOption(input: {
     id: assignmentTargetKey(target),
     kind: "human",
     target,
-    label: input.displayName.trim() || input.humanPrincipalId,
+    label: resolveHumanDisplay(input.humanPrincipalId, input),
     secondaryLabel: input.membershipActive ? null : input.labels.inactiveMembership,
     selectable: unavailableReason === null,
     unavailableReason,
@@ -418,7 +430,7 @@ export function buildAssigneeSections(input: {
       human.humanPrincipalId,
       evaluateHumanOption({
         humanPrincipalId: human.humanPrincipalId,
-        displayName: human.displayName?.trim() || existing?.label || human.humanPrincipalId,
+        displayName: existing?.label ?? resolveHumanDisplay(human.humanPrincipalId, human),
         membershipActive: human.membershipActive,
         selected: selected.kind === "human" && selected.humanPrincipalId === human.humanPrincipalId,
         labels
@@ -432,7 +444,7 @@ export function buildAssigneeSections(input: {
       selected.humanPrincipalId,
       evaluateHumanOption({
         humanPrincipalId: selected.humanPrincipalId,
-        displayName: input.assignment?.human?.displayName?.trim() || selected.humanPrincipalId,
+        displayName: resolveHumanDisplay(selected.humanPrincipalId, input.assignment?.human),
         membershipActive: input.assignment?.human?.membershipActive ?? false,
         selected: true,
         labels
@@ -545,7 +557,7 @@ export function buildAssigneePickerViewModel(input: {
     workItem: input.workItem,
     canEdit,
     editBlockedReason,
-    current: buildAssigneeCurrentDisplay(input.assignment, labels),
+    current: buildAssigneeCurrentDisplay(input.assignment, labels, input.members),
     sections: filteredSections,
     filteredOptions,
     pending: input.pending,
