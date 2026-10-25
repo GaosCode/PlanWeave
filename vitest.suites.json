@@ -346,6 +346,7 @@
         "desktopHomeWatchReplay.test.tsx"
       ],
       "integration": [
+        "selfHostServerResourceStore.test.ts",
         "taskWorkspaceCachedComposer.test.tsx",
         "agentPromptBridgeIntegration.test.ts",
         "cliInstallation.test.ts",

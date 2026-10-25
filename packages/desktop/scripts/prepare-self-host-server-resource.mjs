@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
+import { spawnManagedProcess } from "@planweave-ai/runtime";
 
 const desktopRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const repositoryRoot = resolve(desktopRoot, "../..");
@@ -62,54 +63,110 @@ await rm(outputRoot, { recursive: true, force: true });
 await mkdir(imageRoot, { recursive: true });
 const storeParent = process.env.PLANWEAVE_BUILD_STORE_DIR;
 const deployStore = await mkdtemp(resolve(storeParent ?? tmpdir(), "planweave-deploy-store-"));
-const deploy = pnpmInvocation([
-  "--store-dir",
-  deployStore,
-  "--use-store-server=false",
-  "--use-running-store-server=false",
-  "--config.node-linker=hoisted",
-  "--config.inject-workspace-packages=true",
-  "--filter",
-  "@planweave-ai/server",
-  "--prod",
-  "deploy",
-  "--legacy",
-  stagingAppRoot
-]);
-await run(deploy.command, deploy.args);
-const appRoot = resolve(imageRoot, "app");
-await cp(stagingAppRoot, appRoot, { recursive: true, dereference: true });
-await rm(stagingAppRoot, { recursive: true, force: true });
-await assertPortableDirectory(appRoot);
-await run(
-  process.execPath,
-  [
-    "--input-type=module",
-    "-e",
-    "await import('@agentclientprotocol/sdk'); await import('@planweave-ai/runtime');"
-  ],
-  appRoot
-);
-await Promise.all([
-  cp(resolve(desktopRoot, "build/self-host-server.Dockerfile"), resolve(imageRoot, "Dockerfile")),
-  cp(
-    resolve(repositoryRoot, "packages/server/docker-entrypoint.sh"),
-    resolve(imageRoot, "docker-entrypoint.sh")
-  ),
-  cp(resolve(desktopRoot, "build/self-host-compose.yaml"), resolve(outputRoot, "compose.yaml"))
-]);
-const buildRevision = await capture("git", ["rev-parse", "HEAD"]);
-if (!/^[0-9a-f]{40}$/.test(buildRevision)) {
-  throw new Error("self-host resource build revision is invalid");
+const ownsDeployStore = storeParent === undefined;
+let deployStoreDrained = true;
+async function runDeploy(command, args) {
+  // An outer build lease owns the inherited group and its complete store parent.
+  if (!ownsDeployStore) return run(command, args);
+  const managed = spawnManagedProcess({ command, args, cwd: repositoryRoot });
+  deployStoreDrained = false;
+  managed.child.stdout.pipe(process.stdout, { end: false });
+  managed.child.stderr.pipe(process.stderr, { end: false });
+  managed.child.stdin.end();
+  let result = { ok: true };
+  try {
+    await new Promise((resolveDeploy, reject) => {
+      managed.child.once("error", reject);
+      managed.child.once("close", (code, signal) =>
+        code === 0
+          ? resolveDeploy()
+          : reject(
+              new Error(
+                `self-host resource build failed with ${signal ? `signal ${signal}` : `exit ${code}`}`
+              )
+            )
+      );
+    });
+  } catch (error) {
+    result = { ok: false, error };
+  }
+  try {
+    if (!(await managed.tree.awaitTreeExit(30_000)))
+      throw new Error(`self-host deploy writers did not exit; store retained at ${deployStore}`);
+    deployStoreDrained = true;
+  } catch (error) {
+    if (!result.ok)
+      throw new AggregateError([result.error, error], "self-host deploy and writer drain failed");
+    throw error;
+  }
+  if (!result.ok) throw result.error;
 }
-const dockerfilePath = resolve(imageRoot, "Dockerfile");
-const dockerfile = await readFile(dockerfilePath, "utf8");
-const revisionMarker = "ARG PLANWEAVE_SERVER_BUILD_REVISION=development";
-if (!dockerfile.includes(revisionMarker)) {
-  throw new Error("self-host resource build revision marker is missing");
+let buildFailure;
+try {
+  const deploy = pnpmInvocation([
+    "--store-dir",
+    deployStore,
+    "--use-store-server=false",
+    "--use-running-store-server=false",
+    "--config.node-linker=hoisted",
+    "--config.inject-workspace-packages=true",
+    "--filter",
+    "@planweave-ai/server",
+    "--prod",
+    "deploy",
+    "--legacy",
+    stagingAppRoot
+  ]);
+  await runDeploy(deploy.command, deploy.args);
+  const appRoot = resolve(imageRoot, "app");
+  await cp(stagingAppRoot, appRoot, { recursive: true, dereference: true });
+  await rm(stagingAppRoot, { recursive: true, force: true });
+  await assertPortableDirectory(appRoot);
+  await run(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "await import('@agentclientprotocol/sdk'); await import('@planweave-ai/runtime');"
+    ],
+    appRoot
+  );
+  await Promise.all([
+    cp(resolve(desktopRoot, "build/self-host-server.Dockerfile"), resolve(imageRoot, "Dockerfile")),
+    cp(
+      resolve(repositoryRoot, "packages/server/docker-entrypoint.sh"),
+      resolve(imageRoot, "docker-entrypoint.sh")
+    ),
+    cp(resolve(desktopRoot, "build/self-host-compose.yaml"), resolve(outputRoot, "compose.yaml"))
+  ]);
+  const buildRevision = await capture("git", ["rev-parse", "HEAD"]);
+  if (!/^[0-9a-f]{40}$/.test(buildRevision)) {
+    throw new Error("self-host resource build revision is invalid");
+  }
+  const dockerfilePath = resolve(imageRoot, "Dockerfile");
+  const dockerfile = await readFile(dockerfilePath, "utf8");
+  const revisionMarker = "ARG PLANWEAVE_SERVER_BUILD_REVISION=development";
+  if (!dockerfile.includes(revisionMarker)) {
+    throw new Error("self-host resource build revision marker is missing");
+  }
+  await writeFile(
+    dockerfilePath,
+    dockerfile.replace(revisionMarker, `ARG PLANWEAVE_SERVER_BUILD_REVISION=${buildRevision}`),
+    "utf8"
+  );
+} catch (error) {
+  buildFailure = { error };
 }
-await writeFile(
-  dockerfilePath,
-  dockerfile.replace(revisionMarker, `ARG PLANWEAVE_SERVER_BUILD_REVISION=${buildRevision}`),
-  "utf8"
-);
+if (ownsDeployStore && deployStoreDrained) {
+  try {
+    await rm(deployStore, { recursive: true, force: true });
+  } catch (error) {
+    if (buildFailure)
+      throw new AggregateError(
+        [buildFailure.error, error],
+        "self-host resource build and owned deploy store cleanup failed"
+      );
+    throw error;
+  }
+}
+if (buildFailure) throw buildFailure.error;
