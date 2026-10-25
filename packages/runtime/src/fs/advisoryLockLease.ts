@@ -90,11 +90,11 @@ export async function acquireDirectoryLockLease(options: {
         await removeEmptyLockRoot(lockPath, fs);
         continue;
       }
-      if (!isPidAlive(owner.pid)) {
+      if (owner.writersDrained || !isPidAlive(owner.pid)) {
         const ownerPath = join(lockPath, owner.name);
         let writersAlive: boolean;
         try {
-          writersAlive = await inspectWriterGroup(ownerPath, fs);
+          writersAlive = !owner.writersDrained && (await inspectWriterGroup(ownerPath, fs));
         } catch (error) {
           // A competing reclaimer may remove this UUID while its descriptor is being read.
           try {

@@ -121,3 +121,33 @@ it("does not remove the shared holder when private metadata publication fails", 
   ).rejects.toThrow("private metadata failure");
   expect(await fs.readFile(join(options.lockPath, "evidence"), "utf8")).toBe("preserve");
 });
+
+it("recovers when both cleanup attempts remove metadata before failing", async () => {
+  let attempts = 0;
+  const options = await fixture(async (path, removal) => {
+    if (attempts++ < 2) {
+      await fs.rm(join(path, "holder.json"), { force: true });
+      await fs.rm(join(path, "external-writers-pending"), { recursive: true, force: true });
+      throw new Error("metadata cleanup interrupted");
+    }
+    await fs.rm(path, removal);
+  });
+  await expect(
+    withAdvisoryDirectoryLock(options, async (scope) => {
+      await scope.runManagedCommand({ command: process.execPath, args: ["-e", "process.exit(0)"] });
+    })
+  ).rejects.toThrow("Directory lock release failed");
+  const owner = (await fs.readdir(options.lockPath))[0];
+  await expect(fs.access(join(options.lockPath, owner, "holder.json"))).rejects.toMatchObject({
+    code: "ENOENT"
+  });
+  await expect(
+    fs.access(join(options.lockPath, owner, "external-writers-pending"))
+  ).rejects.toMatchObject({ code: "ENOENT" });
+  await expect(
+    withAdvisoryDirectoryLock(
+      { ...options, timeoutMs: 100, retryDelayMs: 1 },
+      async () => "recovered"
+    )
+  ).resolves.toBe("recovered");
+});

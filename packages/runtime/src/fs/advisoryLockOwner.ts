@@ -50,10 +50,11 @@ export type LockOwner = {
   pid: number;
   token: string;
   holder: LockHolder | null;
+  writersDrained: boolean;
   detail: string;
 };
 const ownerName =
-  /^lease-v2-([1-9]\d*)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+  /^(?:lease|drained)-v2-([1-9]\d*)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
 export function unsupportedLock(path: string, detail: string): Error {
   return new Error(
@@ -83,8 +84,13 @@ export async function inspectLockOwner(
       pid: Number(match[1]),
       token: match[2],
       holder: null,
+      writersDrained: name.startsWith("drained-v2-"),
       detail: "holder missing"
     };
+    if (owner.writersDrained) {
+      owner.detail = "writer drainage confirmed before cleanup";
+      return owner;
+    }
     try {
       const holderMetadata = await fs.lstat(join(lockPath, name, "holder.json"));
       if (!holderMetadata.isFile() || holderMetadata.isSymbolicLink())
@@ -111,14 +117,23 @@ export async function inspectLockOwner(
   }
 }
 
-/** UUID names are never reused. Only the empty shared root may be removed. */
+/** Drainage is committed in the UUID directory identity before any contents are deleted. */
 export async function removeExactLockOwner(
   lockPath: string,
   name: string,
   fs: AdvisoryLockFs
 ): Promise<void> {
   if (!ownerName.test(name)) throw new Error("Invalid lock lease identity");
-  await fs.rm(join(lockPath, name), { recursive: true, force: true });
+  const drainedName = name.replace(/^lease-v2-/, "drained-v2-");
+  if (drainedName !== name) {
+    try {
+      await fs.rename(join(lockPath, name), join(lockPath, drainedName));
+    } catch (error) {
+      // Another cleanup may already have retired or removed this exact UUID.
+      if (!isErrno(error, "ENOENT")) throw error;
+    }
+  }
+  await fs.rm(join(lockPath, drainedName), { recursive: true, force: true });
   await removeEmptyLockRoot(lockPath, fs);
 }
 

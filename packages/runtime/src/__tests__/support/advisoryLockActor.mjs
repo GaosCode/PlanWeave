@@ -55,11 +55,12 @@ const adapter = {
     }
   },
   rename: async (from, to) => {
-    const pause = actor === "A" && from === lockPath && !paused;
+    const pause = actor === "A" && [lockPath, join(lockPath, oldName)].includes(from) && !paused;
     if (pause) await beforeCleanup();
     try {
       await fs.rename(from, to);
     } catch (error) {
+      if (pause && error.code === "ENOENT") await afterCleanup();
       if (to === lockPath && ["ENOTEMPTY", "EEXIST", "EPERM", "EBUSY"].includes(error.code)) {
         if (cleanupDone) send("blocked-after-cleanup");
         else if (!contended) {

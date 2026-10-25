@@ -643,6 +643,7 @@
         "advisoryDirectoryLockBootstrapProcess.test.ts",
         "advisoryDirectoryLockRelease.test.ts",
         "advisoryDirectoryLockReclaim.test.ts",
+        "advisoryDirectoryLockPartialCleanup.test.ts",
         "advisoryDirectoryLockWriterReclaimProcess.test.ts",
         "agentProcessEnvironmentIsolation.test.ts",
         "agentRunControlClient.test.ts",

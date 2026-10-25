@@ -96,8 +96,10 @@ describe("advisory directory lock", () => {
     let entered = false;
     options.fs.rename = async (from, to) => {
       await rename(from, to);
-      expect(await readdir(to)).toHaveLength(1);
-      throw failure;
+      if (to === options.lockPath) {
+        expect(await readdir(to)).toHaveLength(1);
+        throw failure;
+      }
     };
     await expect(
       withAdvisoryDirectoryLock(options, async () => {
@@ -198,13 +200,13 @@ describe("advisory directory lock", () => {
     const options = await fixture();
     const oldName = await seed(options, 7777);
     let replacementName = "";
-    options.fs.rm = async (path, removal) => {
-      if (path === join(options.lockPath, oldName) && !replacementName) {
-        await rm(path, removal);
+    options.fs.rename = async (from, to) => {
+      if (from === join(options.lockPath, oldName) && !replacementName) {
+        await rm(from, { recursive: true, force: true });
         await rmdir(options.lockPath);
         replacementName = await seed(options, process.pid);
       }
-      await rm(path, removal);
+      await rename(from, to);
     };
     await expect(
       withAdvisoryDirectoryLock(
