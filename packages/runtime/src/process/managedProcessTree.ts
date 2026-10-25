@@ -299,11 +299,46 @@ function createManagedProcessTree(options: {
     return adapter.isAlive(pid);
   };
 
-  const isTreeAlive = (): Promise<boolean> =>
+  const probeOwnedTree = (): Promise<boolean> =>
     Promise.resolve(adapter.isTreeAlive?.(pid) ?? adapter.isAlive(pid));
+  const isTreeAlive = async (): Promise<boolean> => (await probeOwnedTree()) || isAlive();
 
-  const awaitTreeExit = (timeoutMs: number): Promise<boolean> =>
-    adapter.awaitTreeExit?.(pid, timeoutMs) ?? pollTreeExit(isTreeAlive, timeoutMs);
+  const confirmWithinBudget = async (
+    confirm: () => Promise<boolean>,
+    remainingMs: () => number
+  ): Promise<boolean> => {
+    const timeoutMs = remainingMs();
+    if (timeoutMs <= 0) return false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timedOut = new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      });
+      const confirmed = await Promise.race([confirm(), timedOut]);
+      return confirmed && remainingMs() > 0;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const awaitTreeExit = async (timeoutMs: number): Promise<boolean> => {
+    const expiresAt = performance.now() + Math.max(0, timeoutMs);
+    const remainingMs = () => Math.max(0, expiresAt - performance.now());
+    if (
+      !(await confirmWithinBudget(
+        () =>
+          adapter.awaitTreeExit?.(pid, remainingMs()) ??
+          pollTreeExit(probeOwnedTree, remainingMs()),
+        remainingMs
+      ))
+    )
+      return false;
+    if (child.exitCode === null && child.signalCode === null) {
+      if (!(await confirmWithinBudget(() => exited.then(() => true), remainingMs))) return false;
+    }
+    // A live launcher can create or populate its Job after an earlier empty probe.
+    return confirmWithinBudget(async () => !(await probeOwnedTree()), remainingMs);
+  };
 
   const confirmExitAfterPermissionError = (error: unknown, timeoutMs: number): Promise<boolean> => {
     // Darwin can return EPERM for a group containing only an unreaped zombie.
@@ -313,17 +348,16 @@ function createManagedProcessTree(options: {
       : Promise.resolve(false);
   };
 
-  const waitForChildExitBounded = async (
-    step: string,
-    timeoutMs: number
-  ): Promise<"exited" | "timeout"> => {
+  const waitForChildExitBounded = async (step: string, timeoutMs: number): Promise<void> => {
     logProcessTree("child-exit-wait-start", { pid, adapter: adapter.name, step, timeoutMs });
-    const winner = await Promise.race([
-      exited.then(() => "exited" as const),
-      sleep(timeoutMs).then(() => "timeout" as const)
-    ]);
-    logProcessTree("child-exit-wait-done", { pid, adapter: adapter.name, step, winner });
-    return winner;
+    const expiresAt = performance.now() + Math.max(0, timeoutMs);
+    const remainingMs = () => Math.max(0, expiresAt - performance.now());
+    const rootExited = await confirmWithinBudget(() => exited.then(() => true), remainingMs);
+    const confirmed =
+      rootExited && (await confirmWithinBudget(async () => !(await isTreeAlive()), remainingMs));
+    logProcessTree("child-exit-wait-done", { pid, adapter: adapter.name, step, confirmed });
+    if (!confirmed)
+      throw new Error(`Managed process tree pid=${String(pid)} did not exit after ${step}.`);
   };
 
   const waitForForcedExit = async (reason: string, remainingMs: () => number): Promise<void> => {
@@ -462,6 +496,7 @@ function createManagedProcessTree(options: {
           };
         }
 
+        assertDeadline();
         logProcessTree("await-tree-exit-start", {
           pid,
           adapter: adapter.name,
@@ -469,6 +504,7 @@ function createManagedProcessTree(options: {
           timeoutMs: effectiveGraceMs
         });
         const exitedAfterGraceful = await awaitTreeExit(remainingBudget(effectiveGraceMs)());
+        assertDeadline();
         logProcessTree("await-tree-exit-done", {
           pid,
           adapter: adapter.name,
@@ -527,6 +563,10 @@ function createManagedProcessTree(options: {
           reason
         };
       })();
+      const pending = terminationPromise;
+      void pending.catch(() => {
+        if (terminationPromise === pending) terminationPromise = undefined;
+      });
     }
     return terminationPromise;
   };

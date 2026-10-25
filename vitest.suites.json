@@ -646,6 +646,8 @@
         "advisoryDirectoryLockReclaim.test.ts",
         "advisoryDirectoryLockPartialCleanup.test.ts",
         "advisoryDirectoryLockInheritedPipe.test.ts",
+        "managedProcessTreeLauncher.test.ts",
+        "managedProcessTreeConfirmation.test.ts",
         "advisoryDirectoryLockWriterReclaimProcess.test.ts",
         "agentProcessEnvironmentIsolation.test.ts",
         "agentRunControlClient.test.ts",

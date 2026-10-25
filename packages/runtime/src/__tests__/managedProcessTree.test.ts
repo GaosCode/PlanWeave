@@ -505,7 +505,7 @@ describe("managed process termination confirmation budgets", () => {
     expect(remainingAtSettlement).toBe(15);
   });
 
-  it("shares force confirmation with permission-error confirmation and root reaping", async () => {
+  it("bounds permission-error confirmation without claiming an unreaped root is terminal", async () => {
     controlledClock();
     const startedAt = performance.now();
     const child = new ChildProcess() as ChildProcessWithoutNullStreams;
@@ -538,7 +538,7 @@ describe("managed process termination confirmation budgets", () => {
       forceExitConfirmMs: 40,
       deadline: createAcpCleanupDeadline(100)
     });
-    const result = expect(termination).resolves.toEqual({ outcome: "forced", reason: "dispose" });
+    const result = expect(termination).rejects.toMatchObject({ code: "EPERM" });
 
     await vi.runAllTimersAsync();
     await result;
