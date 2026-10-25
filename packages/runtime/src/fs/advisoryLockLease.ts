@@ -90,9 +90,28 @@ export async function acquireDirectoryLockLease(options: {
         await removeEmptyLockRoot(lockPath, fs);
         continue;
       }
-      if (!isPidAlive(owner.pid) && !(await inspectWriterGroup(join(lockPath, owner.name), fs))) {
-        await removeExactLockOwner(lockPath, owner.name, fs);
-        continue;
+      if (!isPidAlive(owner.pid)) {
+        const ownerPath = join(lockPath, owner.name);
+        let writersAlive: boolean;
+        try {
+          writersAlive = await inspectWriterGroup(ownerPath, fs);
+        } catch (error) {
+          // A competing reclaimer may remove this UUID while its descriptor is being read.
+          try {
+            await fs.lstat(ownerPath);
+          } catch (identityError) {
+            if (isErrno(identityError, "ENOENT")) continue;
+            throw new AggregateError(
+              [error, identityError],
+              `Failed to inspect writer group and recheck lock identity at ${ownerPath}`
+            );
+          }
+          throw error;
+        }
+        if (!writersAlive) {
+          await removeExactLockOwner(lockPath, owner.name, fs);
+          continue;
+        }
       }
       await clock.delay(retryDelayMs);
     }

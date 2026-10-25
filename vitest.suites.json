@@ -639,6 +639,8 @@
         "acpPreparedContentRevisionLifecycle.test.ts",
         "advisoryDirectoryLock.test.ts",
         "advisoryDirectoryLockRelease.test.ts",
+        "advisoryDirectoryLockReclaim.test.ts",
+        "advisoryDirectoryLockWriterReclaimProcess.test.ts",
         "agentProcessEnvironmentIsolation.test.ts",
         "agentRunControlClient.test.ts",
         "agentRunControlEndpoint.test.ts",
