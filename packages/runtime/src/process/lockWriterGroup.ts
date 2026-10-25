@@ -100,66 +100,105 @@ export function createLockWriterScope(
   let command: Promise<void> | undefined;
   let active = true;
   async function run(request: LockManagedCommand): Promise<void> {
-    const pendingPath = join(ownerPath, pendingName);
-    await fs.mkdir(pendingPath);
-    const workPath = join(ownerPath, "writer-work");
-    await fs.mkdir(workPath);
-    const storePath = join(workPath, "pnpm-store");
-    await fs.mkdir(storePath);
-    const readyPath = join(pendingPath, readyName);
-    const env = { ...process.env, ...request.env, PLANWEAVE_BUILD_STORE_DIR: storePath };
-    const managed =
-      process.platform === "win32"
-        ? spawnManagedProcess({
-            ...request,
-            env,
-            windowsBuildJob: createWindowsBuildJobOwnership(readyPath)
-          })
-        : spawnManagedProcess({
-            command: process.execPath,
-            args: [
-              "-e",
-              posixBootstrap,
-              Buffer.from(
-                JSON.stringify({ command: request.command, args: request.args, readyPath })
-              ).toString("base64")
-            ],
-            cwd: request.cwd,
-            env
-          });
-    const closed = new Promise<void>((resolve, reject) => {
-      managed.child.once("error", reject);
-      managed.child.once("close", (code, signal) => {
-        if (code === 0) resolve();
-        else
-          reject(
-            new Error(
-              `Managed lock command failed with ${signal ? `signal ${signal}` : `exit code ${String(code)}`}`
-            )
-          );
+    const createdPaths: string[] = [];
+    let knownUnstarted = true;
+    const onSpawnAttempt = () => {
+      knownUnstarted = false;
+    };
+    const onSpawn = (child: { pid?: number }) => {
+      knownUnstarted = child.pid === undefined;
+    };
+    try {
+      const pendingPath = join(ownerPath, pendingName);
+      await fs.mkdir(pendingPath);
+      createdPaths.push(pendingPath);
+      const workPath = join(ownerPath, "writer-work");
+      await fs.mkdir(workPath);
+      createdPaths.push(workPath);
+      const storePath = join(workPath, "pnpm-store");
+      await fs.mkdir(storePath);
+      createdPaths.push(storePath);
+      const readyPath = join(pendingPath, readyName);
+      const env = { ...process.env, ...request.env, PLANWEAVE_BUILD_STORE_DIR: storePath };
+      const managed =
+        process.platform === "win32"
+          ? spawnManagedProcess({
+              ...request,
+              onSpawnAttempt,
+              onSpawn,
+              env,
+              windowsBuildJob: createWindowsBuildJobOwnership(readyPath)
+            })
+          : spawnManagedProcess({
+              onSpawnAttempt,
+              onSpawn,
+              command: process.execPath,
+              args: [
+                "-e",
+                posixBootstrap,
+                Buffer.from(
+                  JSON.stringify({ command: request.command, args: request.args, readyPath })
+                ).toString("base64")
+              ],
+              cwd: request.cwd,
+              env
+            });
+      const closed = new Promise<void>((resolve, reject) => {
+        managed.child.once("error", reject);
+        managed.child.once("close", (code, signal) => {
+          if (code === 0) resolve();
+          else
+            reject(
+              new Error(
+                `Managed lock command failed with ${signal ? `signal ${signal}` : `exit code ${String(code)}`}`
+              )
+            );
+        });
       });
-    });
-    managed.child.stdout.pipe(process.stdout, { end: false });
-    managed.child.stderr.pipe(process.stderr, { end: false });
-    managed.child.stdin.end();
-    let result: { ok: true } | { ok: false; error: unknown };
-    try {
-      await closed;
-      result = { ok: true };
+      if (!knownUnstarted) {
+        managed.child.stdout.pipe(process.stdout, { end: false });
+        managed.child.stderr.pipe(process.stderr, { end: false });
+        managed.child.stdin.end();
+      }
+      let result: { ok: true } | { ok: false; error: unknown };
+      try {
+        await closed;
+        result = { ok: true };
+      } catch (error) {
+        result = { ok: false, error };
+      }
+      if (knownUnstarted) {
+        if (!result.ok) throw result.error;
+        throw new Error(`Managed bootstrap did not start at ${ownerPath}`);
+      }
+      try {
+        if (!(await managed.tree.awaitTreeExit(30_000)))
+          throw new Error(`WRITER_GROUP_UNDRAINED at ${ownerPath}`);
+        if (await inspectWriterGroup(ownerPath, fs))
+          throw new Error(`WRITER_GROUP_UNDRAINED at ${ownerPath}`);
+      } catch (error) {
+        if (!result.ok)
+          throw new AggregateError(
+            [result.error, error],
+            "Managed command and writer drain failed"
+          );
+        throw error;
+      }
+      if (!result.ok) throw result.error;
     } catch (error) {
-      result = { ok: false, error };
-    }
-    try {
-      if (!(await managed.tree.awaitTreeExit(30_000)))
-        throw new Error(`WRITER_GROUP_UNDRAINED at ${ownerPath}`);
-      if (await inspectWriterGroup(ownerPath, fs))
-        throw new Error(`WRITER_GROUP_UNDRAINED at ${ownerPath}`);
-    } catch (error) {
-      if (!result.ok)
-        throw new AggregateError([result.error, error], "Managed command and writer drain failed");
+      if (!knownUnstarted) throw error;
+      // Only the current owner can prove startup never happened. Empty-directory removal
+      // refuses unexpected contents and never touches another UUID lease or a live writer.
+      try {
+        for (const path of createdPaths.reverse()) await fs.rmdir(path);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          "Managed bootstrap and registration rollback failed"
+        );
+      }
       throw error;
     }
-    if (!result.ok) throw result.error;
   }
   return {
     scope: {

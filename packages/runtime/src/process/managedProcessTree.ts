@@ -79,6 +79,10 @@ export type ManagedChildProcess = {
 export type SpawnManagedProcessOptions = {
   command: string;
   args: readonly string[];
+  /** Marks entry into native spawn, whose synchronous failure may leave ownership uncertain. */
+  onSpawnAttempt?: () => void;
+  /** Synchronous ownership handoff immediately after native spawn returns, before tree setup. */
+  onSpawn?: (child: ChildProcessWithoutNullStreams) => void;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   /** Grace between graceful and force signals. Default: DEFAULT_PROCESS_TREE_GRACE_MS. */
@@ -581,7 +585,9 @@ export function spawnManagedProcess(options: SpawnManagedProcessOptions): Manage
     throw new Error("Managed process spawn refuses shell:true.");
   }
 
+  options.onSpawnAttempt?.();
   const child = spawn(command, args, spawnOptions) as ChildProcessWithoutNullStreams;
+  options.onSpawn?.(child);
   const pid = child.pid;
   if (pid === undefined) {
     // Spawn may still emit 'error' asynchronously for missing binaries; expose a fail-closed tree.

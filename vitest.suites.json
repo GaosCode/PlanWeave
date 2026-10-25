@@ -639,6 +639,8 @@
         "acpRunnerLifecycle.test.ts",
         "acpPreparedContentRevisionLifecycle.test.ts",
         "advisoryDirectoryLock.test.ts",
+        "advisoryDirectoryLockBootstrap.test.ts",
+        "advisoryDirectoryLockBootstrapProcess.test.ts",
         "advisoryDirectoryLockRelease.test.ts",
         "advisoryDirectoryLockReclaim.test.ts",
         "advisoryDirectoryLockWriterReclaimProcess.test.ts",
