@@ -46,7 +46,12 @@ if (args[0] === "writer") {
   await writeFile(join(store, "owned-store"), "deploy bytes");
   if (process.env.STORE_TEST_WRITER === "1") {
     const writer = spawn(process.execPath, [process.argv[1], "writer", store], {
-      stdio: ["ignore", "ignore", "ignore", "ipc"]
+      stdio: [
+        "ignore",
+        process.env.STORE_TEST_INHERIT_PIPE === "1" ? "inherit" : "ignore",
+        process.env.STORE_TEST_INHERIT_PIPE === "1" ? "inherit" : "ignore",
+        "ipc"
+      ]
     });
     await once(writer, "message");
     process.stdout.write(`WRITER_READY ${JSON.stringify({ pid: writer.pid, store })}\n`);

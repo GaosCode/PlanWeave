@@ -347,6 +347,7 @@
       ],
       "integration": [
         "selfHostServerResourceStore.test.ts",
+        "selfHostServerResourceInheritedPipe.test.ts",
         "taskWorkspaceCachedComposer.test.tsx",
         "agentPromptBridgeIntegration.test.ts",
         "cliInstallation.test.ts",
@@ -644,6 +645,7 @@
         "advisoryDirectoryLockRelease.test.ts",
         "advisoryDirectoryLockReclaim.test.ts",
         "advisoryDirectoryLockPartialCleanup.test.ts",
+        "advisoryDirectoryLockInheritedPipe.test.ts",
         "advisoryDirectoryLockWriterReclaimProcess.test.ts",
         "agentProcessEnvironmentIsolation.test.ts",
         "agentRunControlClient.test.ts",

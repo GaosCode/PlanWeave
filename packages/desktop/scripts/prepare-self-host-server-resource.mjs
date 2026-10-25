@@ -77,7 +77,7 @@ async function runDeploy(command, args) {
   try {
     await new Promise((resolveDeploy, reject) => {
       managed.child.once("error", reject);
-      managed.child.once("close", (code, signal) =>
+      managed.child.once("exit", (code, signal) =>
         code === 0
           ? resolveDeploy()
           : reject(
@@ -95,6 +95,8 @@ async function runDeploy(command, args) {
       throw new Error(`self-host deploy writers did not exit; store retained at ${deployStore}`);
     deployStoreDrained = true;
   } catch (error) {
+    managed.child.stdout.destroy();
+    managed.child.stderr.destroy();
     if (!result.ok)
       throw new AggregateError([result.error, error], "self-host deploy and writer drain failed");
     throw error;

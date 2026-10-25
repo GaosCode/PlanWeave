@@ -89,7 +89,7 @@ const { spawn } = require('node:child_process');
   await fs.rename(request.readyPath + '.tmp', request.readyPath);
   const child = spawn(request.command, request.args, {stdio:'inherit',shell:false});
   child.once('error', error => { console.error(error); process.exitCode=1; });
-  child.once('close', (code,signal) => { process.exitCode=code===0?0:1; if(signal)console.error('Build terminated: '+signal); });
+  child.once('exit', (code,signal) => { process.exitCode=code===0?0:1; if(signal)console.error('Build terminated: '+signal); });
 })().catch(error => { console.error(error); process.exitCode=1; });
 `;
 
@@ -143,9 +143,9 @@ export function createLockWriterScope(
               cwd: request.cwd,
               env
             });
-      const closed = new Promise<void>((resolve, reject) => {
+      const exited = new Promise<void>((resolve, reject) => {
         managed.child.once("error", reject);
-        managed.child.once("close", (code, signal) => {
+        managed.child.once("exit", (code, signal) => {
           if (code === 0) resolve();
           else
             reject(
@@ -162,7 +162,7 @@ export function createLockWriterScope(
       }
       let result: { ok: true } | { ok: false; error: unknown };
       try {
-        await closed;
+        await exited;
         result = { ok: true };
       } catch (error) {
         result = { ok: false, error };
@@ -177,6 +177,9 @@ export function createLockWriterScope(
         if (await inspectWriterGroup(ownerPath, fs))
           throw new Error(`WRITER_GROUP_UNDRAINED at ${ownerPath}`);
       } catch (error) {
+        // Descendants can keep inherited pipes open after the root has exited.
+        managed.child.stdout.destroy();
+        managed.child.stderr.destroy();
         if (!result.ok)
           throw new AggregateError(
             [result.error, error],
