@@ -110,6 +110,12 @@ export function canvasDoctorIssue(
     taskId: issue.taskId,
     stateRunId: issue.stateRunId,
     indexRunId: issue.indexRunId,
+    ...(issue.stateReviewAttemptId !== undefined
+      ? { stateReviewAttemptId: issue.stateReviewAttemptId }
+      : {}),
+    ...(issue.indexReviewAttemptId !== undefined
+      ? { indexReviewAttemptId: issue.indexReviewAttemptId }
+      : {}),
     source: "canvas_doctor"
   };
 }

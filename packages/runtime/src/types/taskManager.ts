@@ -205,11 +205,15 @@ export type DoctorIssue = {
     | "index_state_mismatch"
     | "task_result_index_invalid"
     | "remote_ownership_orphaned_block"
-    | "remote_ownership_non_implementation"
+    | "remote_ownership_status_conflict"
     | "remote_ownership_source_drift"
     | "remote_ownership_interrupted"
     | "remote_terminal_result_conflict"
-    | "remote_terminal_non_implementation"
+    | "remote_terminal_type_mismatch"
+    | "remote_terminal_orphaned_block"
+    | "review_index_state_mismatch"
+    | "review_result_missing"
+    | "result_index_block_type_mismatch"
     | "retention_threshold_exceeded"
     | "auto_run_pending_transition_unreadable"
     | "auto_run_pending_transition_incomplete";
@@ -223,6 +227,8 @@ export type DoctorIssue = {
   transitionId?: string;
   stateRunId?: string | null;
   indexRunId?: string | null;
+  stateReviewAttemptId?: string | null;
+  indexReviewAttemptId?: string | null;
   count?: number;
   threshold?: number;
 };
@@ -251,6 +257,8 @@ export type ProjectDoctorIssue = {
   taskId?: string;
   stateRunId?: string | null;
   indexRunId?: string | null;
+  stateReviewAttemptId?: string | null;
+  indexReviewAttemptId?: string | null;
 };
 
 export type ProjectDoctorCanvasReport = {

@@ -20,6 +20,12 @@ import type {
 import { isDoctorErrorIssue } from "../types.js";
 import { readImplementationRunMetadataFile } from "./implementationRunMetadata.js";
 import { readTaskIndex, updateTaskIndex } from "./resultIndex.js";
+import { diagnoseReviewResults } from "./doctorReviewResults.js";
+import {
+  assertRemoteBlockOwnershipInvariant,
+  remoteOperationReceiptMatchesBlockType,
+  RemoteOwnershipConflictError
+} from "./remoteOwnershipTransitions.js";
 import { projectRemoteBlockExecution } from "./remoteExecutionReadModel.js";
 
 async function exists(path: string): Promise<boolean> {
@@ -146,12 +152,17 @@ export async function runDoctor(options: {
         });
         continue;
       }
-      if (block.type !== "implementation") {
+      try {
+        assertRemoteBlockOwnershipInvariant({ blockType: block.type, blockState });
+      } catch (error) {
+        if (!(error instanceof RemoteOwnershipConflictError)) {
+          throw error;
+        }
         issues.push({
-          code: "remote_ownership_non_implementation",
+          code: "remote_ownership_status_conflict",
           ref,
           repaired: false,
-          message: `Remote ownership operation '${owner.operationId}' is attached to non-implementation block '${ref}'.`
+          message: error.message
         });
         continue;
       }
@@ -173,45 +184,50 @@ export async function runDoctor(options: {
         }
       }
     }
-    const remoteOwnershipBlocksRepair = issues.some(
-      (issue) =>
-        issue.code === "remote_ownership_orphaned_block" ||
-        issue.code === "remote_ownership_non_implementation"
-    );
-    const nonImplementationTerminals = Object.entries(state.blocks).flatMap(([ref, blockState]) => {
+    const mismatchedTerminals = Object.entries(state.blocks).flatMap(([ref, blockState]) => {
       const receipt = blockState.remoteOperationReceipt;
       const block = graph.blocksByRef.get(ref);
-      return receipt && block && block.type !== "implementation"
+      if (receipt && !block) {
+        issues.push({
+          code: "remote_terminal_orphaned_block",
+          ref,
+          repaired: false,
+          message: `Remote terminal operation '${receipt.operationId}' belongs to missing block '${ref}'.`
+        });
+      }
+      return receipt && block && !remoteOperationReceiptMatchesBlockType(receipt, block.type)
         ? [{ ref, operationId: receipt.operationId }]
         : [];
     });
-    const repairedNonImplementationTerminals =
-      options.repair === true &&
-      !remoteOwnershipBlocksRepair &&
-      nonImplementationTerminals.length > 0;
-    if (repairedNonImplementationTerminals) {
-      const repairedRefs = new Set(nonImplementationTerminals.map(({ ref }) => ref));
+    const remoteStateBlocksRepair = issues.some(
+      (issue) =>
+        issue.code === "remote_ownership_orphaned_block" ||
+        issue.code === "remote_ownership_status_conflict" ||
+        issue.code === "remote_terminal_orphaned_block"
+    );
+    const repairedMismatchedTerminals =
+      options.repair === true && !remoteStateBlocksRepair && mismatchedTerminals.length > 0;
+    if (repairedMismatchedTerminals) {
+      const repairedRefs = new Set(mismatchedTerminals.map(({ ref }) => ref));
       if (state.currentReviewBlockRef !== null && repairedRefs.has(state.currentReviewBlockRef)) {
         state.currentReviewBlockRef = null;
       }
       state = ensureStateForManifest(manifest, state);
       stateChanged = true;
     }
-    for (const { ref, operationId } of nonImplementationTerminals) {
+    for (const { ref, operationId } of mismatchedTerminals) {
       issues.push({
-        code: "remote_terminal_non_implementation",
+        code: "remote_terminal_type_mismatch",
         ref,
-        repaired: repairedNonImplementationTerminals,
-        message: `Remote terminal operation '${operationId}' is attached to non-implementation block '${ref}'.`
+        repaired: repairedMismatchedTerminals,
+        message: `Remote terminal operation '${operationId}' has a receipt type incompatible with block '${ref}'.`
       });
     }
 
     for (const ref of state.currentRefs ?? []) {
       if (!graph.blocksByRef.has(ref)) {
         const repaired =
-          options.repair && !remoteOwnershipBlocksRepair
-            ? repairStaleCurrentRef(state, ref)
-            : false;
+          options.repair && !remoteStateBlocksRepair ? repairStaleCurrentRef(state, ref) : false;
         stateChanged = stateChanged || repaired;
         issues.push({
           code: "stale_current_ref",
@@ -246,9 +262,28 @@ export async function runDoctor(options: {
         });
         continue;
       }
+      issues.push(...(await diagnoseReviewResults({ workspace, graph, state, taskId, index })));
       const checkedRefs = new Set<string>();
       for (const [ref, indexRunId] of Object.entries(index.latestRunByBlock ?? {})) {
         checkedRefs.add(ref);
+        const blockType = graph.blocksByRef.get(ref)?.type;
+        if (
+          blockType === "review" &&
+          state.blocks[ref]?.remoteOperationReceipt?.outcome !== "failed"
+        ) {
+          continue;
+        }
+        if (!blockType) {
+          issues.push({
+            code: "result_index_block_type_mismatch",
+            ref,
+            taskId,
+            path: indexPath,
+            repaired: false,
+            message: `Run index contains unknown block '${ref}'.`
+          });
+          continue;
+        }
         const blockState = state.blocks?.[ref];
         const stateRunId = blockState?.lastRunId ?? null;
         if (stateRunId !== indexRunId) {
@@ -269,7 +304,7 @@ export async function runDoctor(options: {
             });
           }
           const repaired =
-            options.repair && !remoteOwnershipBlocksRepair && !failedReceipt
+            options.repair && !remoteStateBlocksRepair && !failedReceipt
               ? await repairStateRunMismatch({
                   workspace,
                   state,
@@ -293,7 +328,7 @@ export async function runDoctor(options: {
         }
       }
       for (const ref of requireMapValue(graph.blocksByTask, taskId, "blocksByTask")) {
-        if (checkedRefs.has(ref)) {
+        if (checkedRefs.has(ref) || graph.blocksByRef.get(ref)?.type !== "implementation") {
           continue;
         }
         const stateRunId = state.blocks?.[ref]?.lastRunId ?? null;
@@ -301,7 +336,7 @@ export async function runDoctor(options: {
           continue;
         }
         const repaired =
-          options.repair && !remoteOwnershipBlocksRepair
+          options.repair && !remoteStateBlocksRepair
             ? await repairIndexRunMismatch({ workspace, ref, taskId, stateRunId })
             : false;
         issues.push({

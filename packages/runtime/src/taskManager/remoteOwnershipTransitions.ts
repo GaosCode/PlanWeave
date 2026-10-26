@@ -63,6 +63,16 @@ function assertRemoteExecutableBlockType(blockType: BlockType): void {
   }
 }
 
+/** Legacy untyped receipts belong only to implementation blocks. */
+export function remoteOperationReceiptMatchesBlockType(
+  receipt: RemoteOperationReceipt,
+  blockType: BlockType
+): boolean {
+  return receipt.blockType === undefined
+    ? blockType === "implementation"
+    : receipt.blockType === blockType;
+}
+
 export function assertRemoteBlockOwnershipInvariant(options: {
   blockType: BlockType;
   blockState: BlockState;
