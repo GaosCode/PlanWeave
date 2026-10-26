@@ -1,7 +1,8 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import type { DesktopStatistics } from "@planweave-ai/runtime";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsSwitchRow } from "../renderer/components/SettingsSwitchRow";
@@ -13,6 +14,87 @@ import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironmen
 afterEach(cleanupRendererTestEnvironment);
 
 describe("desktop renderer component interactions", () => {
+  describe.each(["en", "zh-CN"] as const)("statistics Task completion in %s", (language) => {
+    it.each([
+      {
+        name: "uneven Task sizes: one completed Task with one Block and one incomplete Task with nine Blocks",
+        taskTotal: 2,
+        implementedTaskCount: 1,
+        implementedRatio: 0.5,
+        blockTotal: 10,
+        completedBlockCount: 1,
+        percentage: "50%",
+        fraction: "1/2",
+        remainingBlocks: 9
+      },
+      {
+        name: "zero Tasks",
+        taskTotal: 0,
+        implementedTaskCount: 0,
+        implementedRatio: 0,
+        blockTotal: 0,
+        completedBlockCount: 0,
+        percentage: "0%",
+        fraction: "0/0",
+        remainingBlocks: 0
+      },
+      {
+        name: "all Tasks completed",
+        taskTotal: 2,
+        implementedTaskCount: 2,
+        implementedRatio: 1,
+        blockTotal: 10,
+        completedBlockCount: 10,
+        percentage: "100%",
+        fraction: "2/2",
+        remainingBlocks: 0
+      }
+    ])("keeps percentage, fraction, unit and accessible value aligned for $name", (testCase) => {
+      const statistics: DesktopStatistics = {
+        taskTotal: testCase.taskTotal,
+        implementedTaskCount: testCase.implementedTaskCount,
+        implementedRatio: testCase.implementedRatio,
+        taskThroughput: testCase.implementedTaskCount,
+        blockTotal: testCase.blockTotal,
+        completedBlockCount: testCase.completedBlockCount,
+        averageImplementationTimeMs: null,
+        totalImplementationTimeMs: null,
+        timedImplementationRunCount: 0,
+        reviewPassedCount: 0,
+        reviewPassedRatio: 0,
+        feedbackEnvelopeCount: 0,
+        reworkCount: 0,
+        estimatedRemainingBlocks: testCase.remainingBlocks
+      };
+
+      render(
+        <StatisticsView
+          handleOpenProject={vi.fn().mockResolvedValue(undefined)}
+          selectedProject={{}}
+          statistics={statistics}
+          t={createTranslator(language)}
+        />
+      );
+
+      const summary = within(screen.getByText("Implemented Ratio").parentElement!.parentElement!);
+      expect(summary.getByText(testCase.percentage)).toBeInTheDocument();
+      expect(summary.getByText(testCase.fraction)).toBeInTheDocument();
+      expect(summary.getByText("Tasks")).toBeInTheDocument();
+      expect(summary.queryByText(language === "en" ? "Blocks" : "任务块")).not.toBeInTheDocument();
+      const progress = summary.getByRole("progressbar", { name: "Tasks" });
+      expect(progress).toHaveAttribute("aria-valuenow", String(testCase.implementedRatio * 100));
+      expect(progress).toHaveAttribute("aria-valuemin", "0");
+      expect(progress).toHaveAttribute("aria-valuemax", "100");
+      expect(progress).toHaveAttribute(
+        "aria-valuetext",
+        `${testCase.percentage} (${testCase.fraction} Tasks)`
+      );
+      expect(screen.getByText("Remaining").parentElement).toHaveTextContent(
+        `Remaining${testCase.remainingBlocks}`
+      );
+    });
+  });
+
   it("shows a project-opening empty state for statistics when no project is selected", async () => {
     const handleOpenProject = vi.fn().mockResolvedValue(undefined);
 

@@ -80,12 +80,20 @@ export function StatisticsView({
                     {t("implementedRatio")}
                   </span>
                 </div>
-                <div className="mt-5">
+                <div
+                  aria-label={t("tasks")}
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={implementedPercent}
+                  aria-valuetext={`${formatPercent(statistics.implementedRatio)} (${statistics.implementedTaskCount}/${statistics.taskTotal} ${t("tasks")})`}
+                  className="mt-5"
+                  role="progressbar"
+                >
                   <Meter tone="neutral" value={implementedPercent} />
                   <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{t("blocks")}</span>
+                    <span>{t("tasks")}</span>
                     <span className="font-mono tabular-nums">
-                      {statistics.completedBlockCount}/{statistics.blockTotal}
+                      {statistics.implementedTaskCount}/{statistics.taskTotal}
                     </span>
                   </div>
                 </div>
