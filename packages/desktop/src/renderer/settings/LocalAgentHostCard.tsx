@@ -77,14 +77,47 @@ export function LocalAgentHostCard({
   enroll,
   t
 }: LocalAgentHostCardProps) {
-  const [selected, setSelected] = useState<string[]>([]);
+  const profileScope = JSON.stringify([
+    activeProfile?.profileId,
+    activeProfile?.serverBaseUrl,
+    activeProfile?.operatorId,
+    activeProfile?.humanPrincipalId
+  ]);
+  const targetScope = JSON.stringify([status?.workspaceId, status?.serverConnection?.serverOrigin]);
+  const [selection, setSelection] = useState<{
+    profileScope: string;
+    targetScope: string;
+    choices: Record<string, boolean>;
+  }>({ profileScope, targetScope, choices: {} });
+  const selected =
+    status?.agents
+      .filter((agent) =>
+        selection.profileScope === profileScope && selection.targetScope === targetScope
+          ? (selection.choices[agent.profileId] ?? agent.exposed)
+          : agent.exposed
+      )
+      .map((agent) => agent.profileId) ?? [];
   const [handoff, setHandoff] = useState("");
 
   useEffect(() => {
-    setSelected(
-      status?.agents.filter((agent) => agent.exposed).map((agent) => agent.profileId) ?? []
-    );
-  }, [status]);
+    if (!status) {
+      setSelection((current) =>
+        current.profileScope === profileScope ? current : { profileScope, targetScope, choices: {} }
+      );
+      return;
+    }
+    const available = new Set(status.agents.map((agent) => agent.profileId));
+    setSelection((current) => ({
+      profileScope,
+      targetScope,
+      choices:
+        current.profileScope === profileScope && current.targetScope === targetScope
+          ? Object.fromEntries(
+              Object.entries(current.choices).filter(([profileId]) => available.has(profileId))
+            )
+          : {}
+    }));
+  }, [profileScope, targetScope, status]);
 
   const activeProfileHostedByThisDesktop = Boolean(activeProfile?.hostedByThisDesktop);
   const activeLocalServerReady = localServerHosted && activeProfileHostedByThisDesktop;
@@ -215,13 +248,20 @@ export function LocalAgentHostCard({
                     data-testid={`host-admin-local-agent-${agent.profileId}`}
                     checked={selected.includes(agent.profileId)}
                     disabled={busy || loading}
-                    onChange={(event) =>
-                      setSelected((current) =>
-                        event.target.checked
-                          ? [...new Set([...current, agent.profileId])]
-                          : current.filter((profileId) => profileId !== agent.profileId)
-                      )
-                    }
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      setSelection((current) => ({
+                        profileScope,
+                        targetScope,
+                        choices: {
+                          ...(current.profileScope === profileScope &&
+                          current.targetScope === targetScope
+                            ? current.choices
+                            : {}),
+                          [agent.profileId]: checked
+                        }
+                      }));
+                    }}
                   />
                 </label>
               ))}
