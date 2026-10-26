@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type {
   DesktopAutoRunState,
   DesktopBlockDetail,
@@ -8,7 +8,10 @@ import type {
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
-import { project } from "./helpers/desktopProjectFixtures";
+import { deferred, project, projectSnapshot } from "./helpers/desktopProjectFixtures";
+import { useState } from "react";
+import type { AppView } from "../renderer/types";
+import { createTranslator } from "../renderer/i18n";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import type { useDesktopProject } from "../renderer/hooks/useDesktopProject";
 
@@ -283,7 +286,10 @@ describe("desktop project session hook", () => {
     const { useDesktopProjectSession } = await import("../renderer/hooks/useDesktopProjectSession");
 
     const setActiveView = vi.fn();
-    const selectBlock = vi.fn().mockResolvedValue({ taskId: "T-ALPHA" } as DesktopBlockDetail);
+    const selectBlock = vi.fn().mockResolvedValue({
+      block: { taskId: "T-ALPHA" } as DesktopBlockDetail,
+      isCurrent: () => true
+    });
     const clearSelectedBlockRecords = vi.fn();
     const setBlockInspectorOpen = vi.fn();
     const setError = vi.fn();
@@ -331,5 +337,228 @@ describe("desktop project session hook", () => {
     });
     expect(result.current.selectedTaskPanelId).toBe("T-ALPHA");
     expect(setError).not.toHaveBeenCalled();
+  });
+});
+
+describe("desktop session selection consumers", () => {
+  const alpha: DesktopBlockDetail = {
+    ref: "T-ALPHA#B-001",
+    taskId: "T-ALPHA",
+    blockId: "B-001",
+    type: "implementation",
+    title: "Alpha Inspector",
+    status: "ready",
+    executor: null,
+    effectiveExecutor: "codex",
+    promptMarkdown: "# Alpha",
+    promptMissing: false,
+    promptSurfaceMarkdown: "# Alpha",
+    promptSources: [],
+    dependencies: [],
+    latestRunId: null,
+    latestReviewAttemptId: null,
+    activeFeedbackId: null,
+    exceptionReason: null,
+    reviewGate: null
+  };
+  const beta = { ...alpha, ref: "T-BETA#B-001", taskId: "T-BETA", title: "Beta Inspector" };
+
+  it("opens and displays the latest Inspector and dispatches its Block after an older open returns", async () => {
+    const pending = deferred<DesktopBlockDetail>();
+    const bridge = createDesktopBridgeMock({
+      getBlockDetail: vi.fn((_canvas, ref) =>
+        ref === alpha.ref ? pending.promise : Promise.resolve(beta)
+      ),
+      listBlockRunRecords: vi.fn().mockResolvedValue([]),
+      getReviewAttempts: vi.fn().mockResolvedValue([]),
+      getFeedbackRecords: vi.fn().mockResolvedValue([]),
+      openBlockInspectorWindow: vi.fn().mockResolvedValue(undefined),
+      startAutoRun: vi.fn().mockResolvedValue(undefined)
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useSelectedBlock } = await import("../renderer/hooks/useSelectedBlock");
+    const { useDesktopProjectSession } = await import("../renderer/hooks/useDesktopProjectSession");
+    const { BlockInspector } = await import("../renderer/inspector/BlockInspector");
+    const setError = vi.fn();
+    const setActiveView = vi.fn();
+    const setBlockInspectorOpen = vi.fn();
+    const state = projectStateFixture();
+    let openingAlpha: Promise<void> | undefined;
+    let openingBeta: Promise<void> | undefined;
+    function SessionInspector() {
+      const selection = useSelectedBlock({
+        captureSelectionScope: state.captureProjectSelection,
+        selectedProject: project,
+        selectedCanvasId: "canvas-main",
+        refreshGraph: state.refreshGraph,
+        setActiveView,
+        setError
+      });
+      const session = useDesktopProjectSession({
+        clearSelectedBlockRecords: selection.clearSelectedBlockRecords,
+        language: "en",
+        projectState: state,
+        selectBlock: selection.handleBlockSelect,
+        setActiveView,
+        setBlockInspectorOpen,
+        setError,
+        setSelectedBlock: selection.setSelectedBlock,
+        setSelectedRunRecord: selection.setSelectedRunRecord
+      });
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              openingAlpha = session.openBlockInspector(alpha.ref);
+            }}
+          >
+            Open Alpha
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              openingBeta = session.openBlockInspector(beta.ref);
+            }}
+          >
+            Open Beta
+          </button>
+          <output data-testid="selected-task">{session.selectedTaskPanelId}</output>
+          <BlockInspector
+            {...selection}
+            selectedAgentEndpointId="local:test-agent"
+            agentEndpoints={[
+              {
+                id: "local:test-agent",
+                source: "local",
+                executorName: "test-agent",
+                localExecutorName: "test-agent",
+                displayName: "Test agent",
+                locationName: "This device",
+                capabilities: [],
+                available: true,
+                unavailableReason: null
+              }
+            ]}
+            canvasRef={{ projectRoot: project.rootPath, canvasId: "canvas-main" }}
+            error={null}
+            executorOptions={["codex"]}
+            graph={null}
+            onBlockSelect={async (ref) => {
+              await session.openBlockInspector(ref);
+            }}
+            onClose={() => undefined}
+            t={createTranslator("en")}
+          />
+        </>
+      );
+    }
+    render(<SessionInspector />);
+    fireEvent.click(screen.getByRole("button", { name: "Open Alpha" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open Beta" }));
+      await openingBeta;
+    });
+    expect(screen.getByDisplayValue("Beta Inspector")).toBeTruthy();
+    await act(async () => {
+      pending.resolve(alpha);
+      await openingAlpha;
+    });
+    expect(screen.getByDisplayValue("Beta Inspector")).toBeTruthy();
+    expect(screen.queryByDisplayValue("Alpha Inspector")).toBeNull();
+    expect(screen.getByTestId("selected-task").textContent).toBe(beta.taskId);
+    expect(bridge.openBlockInspectorWindow).toHaveBeenCalledTimes(1);
+    expect(bridge.openBlockInspectorWindow).toHaveBeenCalledWith({
+      blockRef: beta.ref,
+      canvas: { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      language: "en"
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("remote-run-action-dispatch"));
+    });
+    expect(bridge.startAutoRun).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      { kind: "block", blockRef: beta.ref },
+      20,
+      { executorOverride: "test-agent" }
+    );
+    expect(setError).not.toHaveBeenCalled();
+  });
+
+  it("retires an Inspector read when the same project and canvas are reopened", async () => {
+    const pending = deferred<DesktopBlockDetail>();
+    const bridge = createDesktopBridgeMock({
+      getDesktopProjectSnapshot: vi.fn().mockResolvedValue(projectSnapshot()),
+      getBlockDetail: vi
+        .fn()
+        .mockImplementationOnce(() => pending.promise)
+        .mockResolvedValue(beta),
+      listBlockRunRecords: vi.fn().mockResolvedValue([]),
+      getReviewAttempts: vi.fn().mockResolvedValue([]),
+      getFeedbackRecords: vi.fn().mockResolvedValue([]),
+      openBlockInspectorWindow: vi.fn().mockResolvedValue(undefined)
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useDesktopProject } = await import("../renderer/hooks/useDesktopProject");
+    const { useSelectedBlock } = await import("../renderer/hooks/useSelectedBlock");
+    const { useDesktopProjectSession } = await import("../renderer/hooks/useDesktopProjectSession");
+    const setError = vi.fn();
+    const updateSettings = vi.fn();
+    const setBlockInspectorOpen = vi.fn();
+    const t = createTranslator("en");
+    const { result } = renderHook(() => {
+      const [, setView] = useState<AppView>("graph");
+      const projectState = useDesktopProject({
+        planweaveHome: "/tmp/test-home",
+        settingsHydrated: false,
+        autoSelectInitialProject: false,
+        setError,
+        t,
+        updateSettings
+      });
+      const selection = useSelectedBlock({
+        captureSelectionScope: projectState.captureProjectSelection,
+        selectedProject: projectState.selectedProject,
+        selectedCanvasId: projectState.selectedCanvasId,
+        refreshGraph: projectState.refreshGraph,
+        setActiveView: setView,
+        setError
+      });
+      const session = useDesktopProjectSession({
+        clearSelectedBlockRecords: selection.clearSelectedBlockRecords,
+        language: "en",
+        projectState,
+        selectBlock: selection.handleBlockSelect,
+        setActiveView: setView,
+        setBlockInspectorOpen,
+        setError,
+        setSelectedBlock: selection.setSelectedBlock,
+        setSelectedRunRecord: selection.setSelectedRunRecord
+      });
+      return { session, selection };
+    });
+    await act(async () => {
+      await result.current.session.openProject(project, "canvas-main");
+    });
+    let opening!: Promise<void>;
+    act(() => {
+      opening = result.current.session.openBlockInspector(alpha.ref);
+    });
+    await act(async () => {
+      await result.current.session.openProject(project, "canvas-main");
+    });
+    await act(async () => {
+      await result.current.session.openBlockInspector(beta.ref);
+    });
+    await act(async () => {
+      pending.resolve(alpha);
+      await opening;
+    });
+    expect(result.current.selection.selectedBlock).toEqual(beta);
+    expect(result.current.session.selectedTaskPanelId).toBe(beta.taskId);
+    expect(bridge.openBlockInspectorWindow).toHaveBeenCalledTimes(1);
+    expect(setError.mock.calls.filter(([error]) => error !== null)).toEqual([]);
   });
 });

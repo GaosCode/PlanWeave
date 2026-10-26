@@ -288,6 +288,7 @@ export function ProjectWorkspaceProvider({
     setSelectedBlock,
     setSelectedRunRecord
   } = useSelectedBlock({
+    captureSelectionScope: desktopProject.captureProjectSelection,
     refreshGraph,
     selectedCanvasId,
     selectedProject,
@@ -361,7 +362,8 @@ export function ProjectWorkspaceProvider({
     async (taskId: string | null, blockRef: string | null) => {
       setSelectedRunRecord(null);
       if (blockRef) {
-        await restoreBlockSelection(blockRef);
+        const accepted = await restoreBlockSelection(blockRef);
+        if (!accepted?.isCurrent()) return;
       } else {
         setSelectedBlock(null);
         clearSelectedBlockRecords();

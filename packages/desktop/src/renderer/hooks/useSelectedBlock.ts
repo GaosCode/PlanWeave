@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import type {
   DesktopBlockDetail,
   DesktopBlockRunRecordSummary,
@@ -12,9 +12,16 @@ import { bridge, desktopCanvasReference } from "../bridge";
 import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
 import type { AppView } from "../types";
 import { useAutoRunSelectionGuard } from "./useAutoRunSelectionGuard";
+import type { DesktopSelectionReceipt } from "./useDesktopProjectSnapshot";
 import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
+export type SelectedBlockSelection = {
+  block: DesktopBlockDetail;
+  isCurrent: () => boolean;
+};
+
 type UseSelectedBlockArgs = {
+  captureSelectionScope: () => DesktopSelectionReceipt;
   refreshGraph: () => Promise<void>;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
@@ -25,6 +32,7 @@ type UseSelectedBlockArgs = {
 };
 
 export function useSelectedBlock({
+  captureSelectionScope,
   refreshGraph,
   selectedCanvasId,
   selectedProject,
@@ -38,87 +46,188 @@ export function useSelectedBlock({
     null,
     selectedProject?.workspaceRoot ?? null
   );
-  const [selectedBlock, setSelectedBlock] = useState<DesktopBlockDetail | null>(null);
+  const [selectedBlock, publishSelectedBlock] = useState<DesktopBlockDetail | null>(null);
   const [blockRunRecords, setBlockRunRecords] = useState<DesktopBlockRunRecordSummary[]>([]);
   const [blockReviewAttempts, setBlockReviewAttempts] = useState<DesktopReviewAttemptSummary[]>([]);
   const [blockFeedbackRecords, setBlockFeedbackRecords] = useState<DesktopFeedbackRecord[]>([]);
-  const [selectedRunRecord, setSelectedRunRecord] = useState<DesktopRunRecord | null>(null);
+  const [selectedRunRecord, publishSelectedRunRecord] = useState<DesktopRunRecord | null>(null);
 
-  const refreshSelectedBlockRecords = useCallback(
-    async (block: DesktopBlockDetail) => {
-      if (!bridge || !selectedProject) {
-        return;
+  const selection = useRef({
+    version: 0,
+    ref: null as string | null,
+    canvasId: selectedCanvasId,
+    block: null as DesktopBlockDetail | null,
+    record: null as DesktopRunRecord | null,
+    recordsOperation: 0,
+    runOperation: 0,
+    promptOperation: 0,
+    titleOperation: 0,
+    runRefreshOperation: 0,
+    editVersion: 0,
+    owner: null as DesktopSelectionReceipt | null,
+    desiredRecordId: null as string | null
+  });
+
+  const captureBlockRequest = useCallback(() => {
+    const scope = captureSelectionScope();
+    const lifecycle = captureSelection();
+    const owner = selection.current.owner;
+    const version = selection.current.version;
+    const ref = selection.current.ref;
+    return {
+      isCurrent: () =>
+        scope.isCurrent() &&
+        lifecycle.isCurrent() &&
+        (!owner || owner.isCurrent()) &&
+        selection.current.version === version &&
+        selection.current.ref === ref
+    };
+  }, [captureSelection, captureSelectionScope]);
+
+  const setSelectedBlock = useCallback(
+    (value: SetStateAction<DesktopBlockDetail | null>) => {
+      const current = selection.current;
+      const next = typeof value === "function" ? value(current.block) : value;
+      if (!next || next.ref !== current.ref) {
+        current.version += 1;
+        current.runOperation += 1;
+        current.recordsOperation += 1;
+        current.ref = next?.ref ?? null;
+        current.canvasId = selectedCanvasId;
+        current.owner = captureSelectionScope();
       }
-      const canvas = desktopCanvasReference(selectedProject, selectedCanvasId);
-      const [nextBlock, runRecords, reviewAttempts, feedbackRecords] = await Promise.all([
-        bridge.getBlockDetail(canvas, block.ref),
-        bridge.listBlockRunRecords(canvas, block.ref),
-        bridge.getReviewAttempts(canvas, block.ref),
-        bridge.getFeedbackRecords(canvas, block.ref)
-      ]);
-      setSelectedBlock(nextBlock);
-      setBlockRunRecords(runRecords);
-      setBlockReviewAttempts(reviewAttempts);
-      setBlockFeedbackRecords(feedbackRecords);
+      current.editVersion += 1;
+      current.block = next;
+      publishSelectedBlock(next);
     },
-    [selectedCanvasId, selectedProject]
+    [captureSelectionScope, selectedCanvasId]
   );
 
+  const setSelectedRunRecord = useCallback((value: SetStateAction<DesktopRunRecord | null>) => {
+    selection.current.runOperation += 1;
+    const next = typeof value === "function" ? value(selection.current.record) : value;
+    selection.current.record = next;
+    selection.current.desiredRecordId = next?.recordId ?? null;
+    publishSelectedRunRecord(next);
+  }, []);
+
   const clearSelectedBlockRecords = useCallback(() => {
+    selection.current.recordsOperation += 1;
     setBlockRunRecords([]);
     setBlockReviewAttempts([]);
     setBlockFeedbackRecords([]);
   }, []);
 
-  const restoreBlockSelection = useCallback(
-    async (ref: string, canvasIdOverride?: string | null) => {
-      if (!bridge || !selectedProject) {
-        return;
+  const refreshSelectedBlockRecords = useCallback(
+    async (block: DesktopBlockDetail) => {
+      if (!bridge || !selectedProject || selection.current.ref !== block.ref) return;
+      const request = captureBlockRequest();
+      const operation = ++selection.current.recordsOperation;
+      const editVersion = selection.current.editVersion;
+      const isCurrent = () =>
+        request.isCurrent() && selection.current.recordsOperation === operation;
+      const canvas = desktopCanvasReference(selectedProject, selection.current.canvasId);
+      try {
+        const [nextBlock, runRecords, reviewAttempts, feedbackRecords] = await Promise.all([
+          bridge.getBlockDetail(canvas, block.ref),
+          bridge.listBlockRunRecords(canvas, block.ref),
+          bridge.getReviewAttempts(canvas, block.ref),
+          bridge.getFeedbackRecords(canvas, block.ref)
+        ]);
+        if (!isCurrent()) return;
+        if (selection.current.editVersion === editVersion) {
+          selection.current.block = nextBlock;
+          publishSelectedBlock(nextBlock);
+        }
+        setBlockRunRecords(runRecords);
+        setBlockReviewAttempts(reviewAttempts);
+        setBlockFeedbackRecords(feedbackRecords);
+      } catch (caught) {
+        if (isCurrent()) setError(caught instanceof Error ? caught.message : String(caught));
       }
-      const canvasId = canvasIdOverride === undefined ? selectedCanvasId : canvasIdOverride;
-      const canvas = desktopCanvasReference(selectedProject, canvasId);
-      const [block, runRecords, reviewAttempts, feedbackRecords] = await Promise.all([
-        bridge.getBlockDetail(canvas, ref),
-        bridge.listBlockRunRecords(canvas, ref),
-        bridge.getReviewAttempts(canvas, ref),
-        bridge.getFeedbackRecords(canvas, ref)
-      ]);
-      setSelectedBlock(block);
-      setBlockRunRecords(runRecords);
-      setBlockReviewAttempts(reviewAttempts);
-      setBlockFeedbackRecords(feedbackRecords);
-      setSelectedRunRecord(null);
-      return block;
     },
-    [selectedCanvasId, selectedProject]
+    [captureBlockRequest, selectedProject, setError]
+  );
+
+  const restoreBlockSelection = useCallback(
+    async (
+      ref: string,
+      canvasIdOverride?: string | null
+    ): Promise<SelectedBlockSelection | undefined> => {
+      if (!bridge || !selectedProject) return;
+      const canvasId = canvasIdOverride === undefined ? selectedCanvasId : canvasIdOverride;
+      selection.current.owner = captureSelectionScope();
+      selection.current.version += 1;
+      selection.current.ref = ref;
+      selection.current.canvasId = canvasId;
+      selection.current.runOperation += 1;
+      const recordsOperation = ++selection.current.recordsOperation;
+      const request = captureBlockRequest();
+      const canvas = desktopCanvasReference(selectedProject, canvasId);
+      try {
+        const [block, runRecords, reviewAttempts, feedbackRecords] = await Promise.all([
+          bridge.getBlockDetail(canvas, ref),
+          bridge.listBlockRunRecords(canvas, ref),
+          bridge.getReviewAttempts(canvas, ref),
+          bridge.getFeedbackRecords(canvas, ref)
+        ]);
+        if (!request.isCurrent()) return;
+        selection.current.block = block;
+        publishSelectedBlock(block);
+        if (selection.current.recordsOperation === recordsOperation) {
+          setBlockRunRecords(runRecords);
+          setBlockReviewAttempts(reviewAttempts);
+          setBlockFeedbackRecords(feedbackRecords);
+        }
+        setSelectedRunRecord(null);
+        return { block, isCurrent: request.isCurrent };
+      } catch (caught) {
+        if (request.isCurrent())
+          setError(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [
+      captureBlockRequest,
+      captureSelectionScope,
+      selectedCanvasId,
+      selectedProject,
+      setError,
+      setSelectedRunRecord
+    ]
   );
 
   const handleBlockSelect = useCallback(
     async (ref: string, canvasIdOverride?: string | null) => {
-      const block = await restoreBlockSelection(ref, canvasIdOverride);
-      if (block) {
-        setActiveView("graph");
-      }
-      return block;
+      const accepted = await restoreBlockSelection(ref, canvasIdOverride);
+      if (!accepted?.isCurrent()) return;
+      setActiveView("graph");
+      return accepted;
     },
     [restoreBlockSelection, setActiveView]
   );
 
   const handleOpenRunRecord = useCallback(
     async (recordId: string | null | undefined, canvasIdOverride?: string | null) => {
-      if (!bridge || !selectedProject || !recordId) {
-        return;
-      }
+      if (!bridge || !selectedProject || !recordId) return;
+      const request = captureBlockRequest();
+      const operation = ++selection.current.runOperation;
+      selection.current.desiredRecordId = recordId;
+      const isCurrent = () => request.isCurrent() && selection.current.runOperation === operation;
       try {
-        const canvasId = canvasIdOverride === undefined ? selectedCanvasId : canvasIdOverride;
-        setSelectedRunRecord(
-          await bridge.getRunRecord(desktopCanvasReference(selectedProject, canvasId), recordId)
+        const canvasId =
+          canvasIdOverride === undefined ? selection.current.canvasId : canvasIdOverride;
+        const record = await bridge.getRunRecord(
+          desktopCanvasReference(selectedProject, canvasId),
+          recordId
         );
+        if (!isCurrent()) return;
+        selection.current.record = record;
+        publishSelectedRunRecord(record);
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
+        if (isCurrent()) setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [selectedCanvasId, selectedProject, setError]
+    [captureBlockRequest, selectedProject, setError]
   );
 
   useEffect(() => {
@@ -126,14 +235,14 @@ export function useSelectedBlock({
       return undefined;
     }
     const runtimeBridge = bridge;
-    const request = captureSelection();
+    const request = captureBlockRequest();
     return runtimeBridge.onAutoRunChanged((event) => {
       if (!request.isCurrent()) return;
       if (
         !autoRunEventMatchesProjectCanvas(
           event,
           selectedProject.rootPath,
-          selectedCanvasId,
+          selection.current.canvasId,
           selectedProject.workspaceRoot
         )
       ) {
@@ -157,35 +266,51 @@ export function useSelectedBlock({
         return;
       }
       if (latestRecordMatchesSelectedRecord && event.latestRecordId) {
+        const recordId = event.latestRecordId;
+        const operation = selection.current.runOperation;
+        const refreshOperation = ++selection.current.runRefreshOperation;
+        const isCurrent = () =>
+          request.isCurrent() &&
+          selection.current.runOperation === operation &&
+          selection.current.runRefreshOperation === refreshOperation &&
+          selection.current.desiredRecordId === recordId;
         void runtimeBridge
           .getRunRecord(
-            desktopCanvasReference(selectedProject, selectedCanvasId),
-            event.latestRecordId
+            desktopCanvasReference(selectedProject, selection.current.canvasId),
+            recordId
           )
-          .then(setSelectedRunRecord)
-          .catch((caught: unknown) =>
-            setError(caught instanceof Error ? caught.message : String(caught))
-          );
+          .then((record) => {
+            if (!isCurrent()) return;
+            selection.current.record = record;
+            publishSelectedRunRecord(record);
+          })
+          .catch((caught: unknown) => {
+            if (isCurrent()) setError(caught instanceof Error ? caught.message : String(caught));
+          });
       }
-      void refreshSelectedBlockRecords(selectedBlock).catch((caught: unknown) =>
-        setError(caught instanceof Error ? caught.message : String(caught))
-      );
+      void refreshSelectedBlockRecords(selectedBlock);
     });
   }, [
     blockRunRecords,
-    captureSelection,
+    captureBlockRequest,
     refreshSelectedBlockRecords,
     selectedBlock,
-    selectedCanvasId,
     selectedProject,
     selectedRunRecord?.recordId,
     setError
   ]);
 
   const saveSelectedBlockTitle = useCallback(async () => {
-    if (!selectedProject || !selectedBlock) {
+    if (!selectedProject || !selectedBlock || selection.current.ref !== selectedBlock.ref) {
       return;
     }
+    const request = captureBlockRequest();
+    const operation = ++selection.current.titleOperation;
+    const isCurrent = () => request.isCurrent() && selection.current.titleOperation === operation;
+    if (!isCurrent()) return;
+    const reportError = (message: string | null) => {
+      if (isCurrent()) setError(message);
+    };
     try {
       const mode = await runDurablePackageWrite({
         workspaceCanvas,
@@ -194,27 +319,41 @@ export function useSelectedBlock({
           blockRef: selectedBlock.ref,
           fields: { title: selectedBlock.title }
         },
-        onError: setError,
+        onError: reportError,
         localWrite: async () => {
           if (!bridge) return;
           await bridge.updateBlockTitle(
-            desktopCanvasReference(selectedProject, selectedCanvasId),
+            desktopCanvasReference(selectedProject, selection.current.canvasId),
             selectedBlock.ref,
             selectedBlock.title
           );
         }
       });
-      if (mode === "failed" || mode === "retired") return;
+      if (mode === "failed" || mode === "retired" || !isCurrent()) return;
       await refreshGraph();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      reportError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [refreshGraph, selectedBlock, selectedCanvasId, selectedProject, setError, workspaceCanvas]);
+  }, [
+    captureBlockRequest,
+    refreshGraph,
+    selectedBlock,
+    selectedProject,
+    setError,
+    workspaceCanvas
+  ]);
 
   const saveSelectedBlockPrompt = useCallback(async () => {
-    if (!selectedProject || !selectedBlock) {
+    if (!selectedProject || !selectedBlock || selection.current.ref !== selectedBlock.ref) {
       return;
     }
+    const request = captureBlockRequest();
+    const operation = ++selection.current.promptOperation;
+    const isCurrent = () => request.isCurrent() && selection.current.promptOperation === operation;
+    if (!isCurrent()) return;
+    const reportError = (message: string | null) => {
+      if (isCurrent()) setError(message);
+    };
     try {
       const mode = await runDurablePackageWrite({
         workspaceCanvas,
@@ -223,11 +362,11 @@ export function useSelectedBlock({
           blockRef: selectedBlock.ref,
           promptMarkdown: selectedBlock.promptMarkdown
         },
-        onError: setError,
+        onError: reportError,
         localWrite: async () => {
           if (!bridge) return;
           const result = await bridge.updateBlockPrompt(
-            desktopCanvasReference(selectedProject, selectedCanvasId),
+            desktopCanvasReference(selectedProject, selection.current.canvasId),
             selectedBlock.ref,
             selectedBlock.promptMarkdown,
             {
@@ -240,20 +379,38 @@ export function useSelectedBlock({
           }
         }
       });
-      if (mode === "failed" || mode === "retired") return;
+      if (mode === "failed" || mode === "retired" || !isCurrent()) return;
       if (bridge && mode === "local") {
-        setSelectedBlock(
-          await bridge.getBlockDetail(
-            desktopCanvasReference(selectedProject, selectedCanvasId),
-            selectedBlock.ref
-          )
+        const nextBlock = await bridge.getBlockDetail(
+          desktopCanvasReference(selectedProject, selection.current.canvasId),
+          selectedBlock.ref
         );
+        if (!isCurrent()) return;
+        const current = selection.current.block;
+        const merged = {
+          ...nextBlock,
+          title: current && current.title !== selectedBlock.title ? current.title : nextBlock.title,
+          promptMarkdown:
+            current && current.promptMarkdown !== selectedBlock.promptMarkdown
+              ? current.promptMarkdown
+              : nextBlock.promptMarkdown
+        };
+        selection.current.editVersion += 1;
+        selection.current.block = merged;
+        publishSelectedBlock(merged);
       }
       await refreshGraph();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      reportError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [refreshGraph, selectedBlock, selectedCanvasId, selectedProject, setError, workspaceCanvas]);
+  }, [
+    captureBlockRequest,
+    refreshGraph,
+    selectedBlock,
+    selectedProject,
+    setError,
+    workspaceCanvas
+  ]);
 
   return {
     blockFeedbackRecords,

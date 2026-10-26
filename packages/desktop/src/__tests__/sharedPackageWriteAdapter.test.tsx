@@ -139,6 +139,7 @@ describe("shared-mode package write gate", () => {
     const { useSelectedBlock } = await import("../renderer/hooks/useSelectedBlock");
     const { result } = renderHook(() =>
       useSelectedBlock({
+        captureSelectionScope: () => ({ isCurrent: () => true }),
         refreshGraph: vi.fn().mockResolvedValue(undefined),
         selectedCanvasId: "canvas-main",
         selectedProject: project,

@@ -97,6 +97,7 @@
         "autoRunRetrospective.test.tsx",
         "autoRunScopeControl.test.tsx",
         "blockInspectorRemoteRunCoexistence.test.tsx",
+        "blockInspectorWindowSelection.test.tsx",
         "boundedCollaborationPagination.test.ts",
         "boundedNumberCursorPagination.test.ts",
         "canvasDiagnosticSeverity.test.tsx",

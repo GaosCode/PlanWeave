@@ -256,6 +256,7 @@ describe("desktop renderer hook interfaces", () => {
 
     const { result } = renderHook(() =>
       useSelectedBlock({
+        captureSelectionScope: () => ({ isCurrent: () => true }),
         refreshGraph,
         selectedCanvasId: "canvas-main",
         selectedProject: project,

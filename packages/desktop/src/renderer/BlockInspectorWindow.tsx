@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import type {
   DesktopAutoRunEvent,
   DesktopBlockDetail,
@@ -24,6 +24,7 @@ import { inheritAgentEndpointValue } from "./collaboration/AgentEndpointSelect";
 import { changeAgentEndpointSelection } from "./collaboration/changeAgentEndpoint";
 import { createTranslator, type Language } from "./i18n";
 import { BlockInspector } from "./inspector/BlockInspector";
+import { useAutoRunSelectionGuard } from "./hooks/useAutoRunSelectionGuard";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
 import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
@@ -60,22 +61,15 @@ export function BlockInspectorWindow() {
   const language = supportedLanguage(params.get("language"));
   const t = useMemo(() => createTranslator(language), [language]);
   const [blockRef, setBlockRef] = useState(initialBlockRef);
-  const [selectedBlock, setSelectedBlock] = useState<DesktopBlockDetail | null>(null);
-  const [selectedRunRecord, setSelectedRunRecord] = useState<DesktopRunRecord | null>(null);
+  const [selectedBlock, publishSelectedBlock] = useState<DesktopBlockDetail | null>(null);
+  const [selectedRunRecord, publishSelectedRunRecord] = useState<DesktopRunRecord | null>(null);
   const graphScopeKey = JSON.stringify([projectRoot, canvasId]);
   const [loadedGraph, setLoadedGraph] = useState<{
     scopeKey: string;
     value: DesktopGraphViewModel;
   } | null>(null);
   const graph = loadedGraph?.scopeKey === graphScopeKey ? loadedGraph.value : null;
-  const loadRequestRef = useRef(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: changing local canvas retires pending graph loads
-  useEffect(
-    () => () => {
-      loadRequestRef.current += 1;
-    },
-    [projectRoot, canvasId]
-  );
+  const loadRequestRef = useRef({ sequence: 0, foreground: null as number | null });
   const [blockRunRecords, setBlockRunRecords] = useState<DesktopBlockRunRecordSummary[]>([]);
   const [blockReviewAttempts, setBlockReviewAttempts] = useState<DesktopReviewAttemptSummary[]>([]);
   const [blockFeedbackRecords, setBlockFeedbackRecords] = useState<DesktopFeedbackRecord[]>([]);
@@ -93,6 +87,59 @@ export function BlockInspectorWindow() {
   const { settings, updateSettingsAndWait } = useDesktopSettingsBridge({ setError });
   const { agentDetections } = useDetectedAgents();
   const draftDirtyRef = useRef(false);
+
+  const captureScope = useAutoRunSelectionGuard(projectRoot, canvasId);
+  const selection = useRef({
+    version: 0,
+    ref: initialBlockRef,
+    block: null as DesktopBlockDetail | null,
+    record: null as DesktopRunRecord | null,
+    desiredRecordId: null as string | null,
+    runOperation: 0,
+    runRefreshOperation: 0,
+    promptSave: 0,
+    titleSave: 0,
+    executorSave: 0,
+    editVersion: 0
+  });
+  const captureBlockSelection = useCallback(() => {
+    const scope = captureScope();
+    const { version, ref } = selection.current;
+    return {
+      isCurrent: () =>
+        scope.isCurrent() && selection.current.version === version && selection.current.ref === ref
+    };
+  }, [captureScope]);
+  const setSelectedRunRecord = useCallback((value: SetStateAction<DesktopRunRecord | null>) => {
+    const current = selection.current;
+    const next = typeof value === "function" ? value(current.record) : value;
+    current.runOperation += 1;
+    current.record = next;
+    current.desiredRecordId = next?.recordId ?? null;
+    publishSelectedRunRecord(next);
+  }, []);
+  const beginBlockSelection = useCallback(
+    (ref: string) => {
+      selection.current.version += 1;
+      selection.current.ref = ref;
+      setBlockRef(ref);
+      setSelectedRunRecord(null);
+      draftDirtyRef.current = false;
+      setDraftDirty(false);
+    },
+    [setSelectedRunRecord]
+  );
+  const setSelectedBlock = useCallback(
+    (value: SetStateAction<DesktopBlockDetail | null>) => {
+      const current = selection.current;
+      const next = typeof value === "function" ? value(current.block) : value;
+      if (!next || next.ref !== current.ref) beginBlockSelection(next?.ref ?? "");
+      current.editVersion += 1;
+      current.block = next;
+      publishSelectedBlock(next);
+    },
+    [beginBlockSelection]
+  );
 
   useEffect(() => {
     if (!bridge) {
@@ -162,20 +209,50 @@ export function BlockInspectorWindow() {
     terminalAvailabilityRefreshKey
   ]);
 
-  const updateDraftDirty = useCallback((nextDraftDirty: boolean) => {
-    draftDirtyRef.current = nextDraftDirty;
-    setDraftDirty(nextDraftDirty);
-  }, []);
+  const editVersion = selection.current.editVersion;
+  const selectionVersion = selection.current.version;
+  const updateDraftDirty = useCallback(
+    (nextDraftDirty: boolean) => {
+      if (
+        selection.current.version !== selectionVersion ||
+        (!nextDraftDirty && selection.current.editVersion !== editVersion)
+      )
+        return;
+      draftDirtyRef.current = nextDraftDirty;
+      setDraftDirty(nextDraftDirty);
+    },
+    [editVersion, selectionVersion]
+  );
 
   const loadBlock = useCallback(
     async (
       ref: string,
-      options: { resetSelectedRunRecord?: boolean; skipCommitWhenDirty?: boolean } = {}
+      options: {
+        resetSelectedRunRecord?: boolean;
+        skipCommitWhenDirty?: boolean;
+        preserveEditsSince?: DesktopBlockDetail;
+        isOwnerCurrent?: () => boolean;
+      } = {}
     ) => {
       if (!bridge || !projectRoot || !ref) {
         return;
       }
-      const request = ++loadRequestRef.current;
+      const owner = captureBlockSelection();
+      if (
+        selection.current.ref !== ref ||
+        !owner.isCurrent() ||
+        options.isOwnerCurrent?.() === false
+      )
+        return;
+      if (options.skipCommitWhenDirty && loadRequestRef.current.foreground !== null) return;
+      const request = ++loadRequestRef.current.sequence;
+      if (!options.skipCommitWhenDirty) loadRequestRef.current.foreground = request;
+      const runOperation = selection.current.runOperation;
+      const draftBefore = options.preserveEditsSince ?? selection.current.block;
+      const isCurrent = () =>
+        owner.isCurrent() &&
+        request === loadRequestRef.current.sequence &&
+        options.isOwnerCurrent?.() !== false;
       const canvas = { projectRoot, canvasId };
       try {
         const [nextGraph, block, runRecords, reviewAttempts, feedbackRecords] = await Promise.all([
@@ -185,35 +262,50 @@ export function BlockInspectorWindow() {
           bridge.getReviewAttempts(canvas, ref),
           bridge.getFeedbackRecords(canvas, ref)
         ]);
-        if (request !== loadRequestRef.current) return;
+        if (!isCurrent()) return;
         if (options.skipCommitWhenDirty && draftDirtyRef.current) {
           return;
         }
         setLoadedGraph({ scopeKey: graphScopeKey, value: nextGraph });
-        setSelectedBlock(block);
+        const current = selection.current.block;
+        const nextBlock =
+          current?.ref === ref && draftBefore?.ref === ref
+            ? {
+                ...block,
+                title: current.title !== draftBefore.title ? current.title : block.title,
+                promptMarkdown:
+                  current.promptMarkdown !== draftBefore.promptMarkdown
+                    ? current.promptMarkdown
+                    : block.promptMarkdown
+              }
+            : block;
+        selection.current.block = nextBlock;
+        publishSelectedBlock(nextBlock);
         setBlockRunRecords(runRecords);
         setBlockReviewAttempts(reviewAttempts);
         setBlockFeedbackRecords(feedbackRecords);
-        if (options.resetSelectedRunRecord !== false) {
+        if (
+          options.resetSelectedRunRecord !== false &&
+          selection.current.runOperation === runOperation
+        ) {
           setSelectedRunRecord(null);
         }
         setError(null);
       } catch (caught) {
-        if (request !== loadRequestRef.current) return;
+        if (!isCurrent()) return;
         setLoadedGraph(null);
         setError(caught instanceof Error ? caught.message : String(caught));
+      } finally {
+        if (loadRequestRef.current.foreground === request) loadRequestRef.current.foreground = null;
       }
     },
-    [canvasId, graphScopeKey, projectRoot]
+    [canvasId, captureBlockSelection, graphScopeKey, projectRoot, setSelectedRunRecord]
   );
 
   useEffect(() => {
-    void loadBlock(blockRef);
-  }, [blockRef, loadBlock]);
-
-  const refreshBlock = useCallback(async () => {
-    await loadBlock(blockRef);
-  }, [blockRef, loadBlock]);
+    beginBlockSelection(initialBlockRef);
+    void loadBlock(initialBlockRef);
+  }, [beginBlockSelection, initialBlockRef, loadBlock]);
 
   const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
@@ -303,10 +395,10 @@ export function BlockInspectorWindow() {
 
   const handleBlockSelect = useCallback(
     async (ref: string) => {
-      setBlockRef(ref);
+      beginBlockSelection(ref);
       await loadBlock(ref);
     },
-    [loadBlock]
+    [beginBlockSelection, loadBlock]
   );
 
   const handleOpenRunRecord = useCallback(
@@ -314,13 +406,20 @@ export function BlockInspectorWindow() {
       if (!bridge || !projectRoot || !recordId) {
         return;
       }
+      const owner = captureBlockSelection();
+      const operation = ++selection.current.runOperation;
+      selection.current.desiredRecordId = recordId;
+      const isCurrent = () => owner.isCurrent() && selection.current.runOperation === operation;
       try {
-        setSelectedRunRecord(await bridge.getRunRecord({ projectRoot, canvasId }, recordId));
+        const record = await bridge.getRunRecord({ projectRoot, canvasId }, recordId);
+        if (!isCurrent()) return;
+        selection.current.record = record;
+        publishSelectedRunRecord(record);
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
+        if (isCurrent()) setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
-    [canvasId, projectRoot]
+    [canvasId, captureBlockSelection, projectRoot]
   );
 
   const handleTerminalDefaultAppChange = useCallback(async (appId: DesktopTerminalAppId) => {
@@ -377,7 +476,9 @@ export function BlockInspectorWindow() {
       return undefined;
     }
     const runtimeBridge = bridge;
+    const owner = captureBlockSelection();
     return runtimeBridge.onAutoRunChanged((event) => {
+      if (!owner.isCurrent()) return;
       if (!autoRunEventMatchesInspectorCanvas(event, projectRoot, canvasId)) {
         return;
       }
@@ -393,13 +494,29 @@ export function BlockInspectorWindow() {
         return;
       }
       setTerminalAvailabilityRefreshKey((refreshKey) => refreshKey + 1);
-      if (latestRecordMatchesSelectedRecord && event.latestRecordId) {
+      if (
+        latestRecordMatchesSelectedRecord &&
+        event.latestRecordId &&
+        selection.current.desiredRecordId === event.latestRecordId
+      ) {
+        const recordId = event.latestRecordId;
+        const operation = selection.current.runOperation;
+        const refreshOperation = ++selection.current.runRefreshOperation;
+        const isCurrent = () =>
+          owner.isCurrent() &&
+          selection.current.runOperation === operation &&
+          selection.current.runRefreshOperation === refreshOperation &&
+          selection.current.desiredRecordId === recordId;
         void runtimeBridge
-          .getRunRecord({ projectRoot, canvasId }, event.latestRecordId)
-          .then(setSelectedRunRecord)
-          .catch((caught: unknown) =>
-            setError(caught instanceof Error ? caught.message : String(caught))
-          );
+          .getRunRecord({ projectRoot, canvasId }, recordId)
+          .then((record) => {
+            if (!isCurrent()) return;
+            selection.current.record = record;
+            publishSelectedRunRecord(record);
+          })
+          .catch((caught: unknown) => {
+            if (isCurrent()) setError(caught instanceof Error ? caught.message : String(caught));
+          });
       }
       if (!draftDirty) {
         void loadBlock(blockRef, { resetSelectedRunRecord: false, skipCommitWhenDirty: true });
@@ -409,6 +526,7 @@ export function BlockInspectorWindow() {
     blockRef,
     blockRunRecords,
     canvasId,
+    captureBlockSelection,
     draftDirty,
     loadBlock,
     projectRoot,
@@ -419,6 +537,16 @@ export function BlockInspectorWindow() {
     if (!projectRoot || !selectedBlock) {
       return;
     }
+    const owner = captureBlockSelection();
+    const operation = ++selection.current.titleSave;
+    const isCurrent = () =>
+      owner.isCurrent() &&
+      selection.current.titleSave === operation &&
+      selection.current.ref === selectedBlock.ref;
+    if (!isCurrent()) return;
+    const reportError = (message: string | null) => {
+      if (isCurrent()) setError(message);
+    };
     try {
       const mode = await runDurablePackageWrite({
         workspaceCanvas,
@@ -427,7 +555,7 @@ export function BlockInspectorWindow() {
           blockRef: selectedBlock.ref,
           fields: { title: selectedBlock.title }
         },
-        onError: setError,
+        onError: reportError,
         localWrite: async () => {
           if (!bridge) return;
           const result = await bridge.updateBlockTitle(
@@ -440,18 +568,31 @@ export function BlockInspectorWindow() {
           }
         }
       });
-      if (mode === "failed" || mode === "retired") return;
-      await refreshBlock();
+      if (mode === "failed" || mode === "retired" || !isCurrent()) return;
+      await loadBlock(selectedBlock.ref, {
+        preserveEditsSince: selectedBlock,
+        isOwnerCurrent: isCurrent
+      });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      reportError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [canvasId, projectRoot, refreshBlock, selectedBlock]);
+  }, [canvasId, captureBlockSelection, projectRoot, loadBlock, selectedBlock]);
 
   const saveSelectedBlockExecutor = useCallback(
     async (executorName: string | null) => {
       if (!projectRoot || !selectedBlock) {
         return false;
       }
+      const owner = captureBlockSelection();
+      const operation = ++selection.current.executorSave;
+      const isCurrent = () =>
+        owner.isCurrent() &&
+        selection.current.executorSave === operation &&
+        selection.current.ref === selectedBlock.ref;
+      if (!isCurrent()) return false;
+      const reportError = (message: string | null) => {
+        if (isCurrent()) setError(message);
+      };
       try {
         const mode = await runDurablePackageWrite({
           workspaceCanvas,
@@ -460,7 +601,7 @@ export function BlockInspectorWindow() {
             blockRef: selectedBlock.ref,
             fields: { executor: executorName }
           },
-          onError: setError,
+          onError: reportError,
           localWrite: async () => {
             if (!bridge) return;
             const result = await bridge.updateBlockExecutor(
@@ -475,15 +616,18 @@ export function BlockInspectorWindow() {
             }
           }
         });
-        if (mode === "failed" || mode === "retired") return false;
-        await refreshBlock();
-        return true;
+        if (mode === "failed" || mode === "retired" || !isCurrent()) return false;
+        await loadBlock(selectedBlock.ref, {
+          preserveEditsSince: selectedBlock,
+          isOwnerCurrent: isCurrent
+        });
+        return isCurrent();
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
+        reportError(caught instanceof Error ? caught.message : String(caught));
         return false;
       }
     },
-    [canvasId, projectRoot, refreshBlock, selectedBlock]
+    [canvasId, captureBlockSelection, projectRoot, loadBlock, selectedBlock]
   );
 
   const changeEndpoint = useCallback(
@@ -510,6 +654,16 @@ export function BlockInspectorWindow() {
     if (!projectRoot || !selectedBlock) {
       return;
     }
+    const owner = captureBlockSelection();
+    const operation = ++selection.current.promptSave;
+    const isCurrent = () =>
+      owner.isCurrent() &&
+      selection.current.promptSave === operation &&
+      selection.current.ref === selectedBlock.ref;
+    if (!isCurrent()) return;
+    const reportError = (message: string | null) => {
+      if (isCurrent()) setError(message);
+    };
     try {
       const mode = await runDurablePackageWrite({
         workspaceCanvas,
@@ -518,7 +672,7 @@ export function BlockInspectorWindow() {
           blockRef: selectedBlock.ref,
           promptMarkdown: selectedBlock.promptMarkdown
         },
-        onError: setError,
+        onError: reportError,
         localWrite: async () => {
           if (!bridge) return;
           const result = await bridge.updateBlockPrompt(
@@ -535,12 +689,15 @@ export function BlockInspectorWindow() {
           }
         }
       });
-      if (mode === "failed" || mode === "retired") return;
-      await refreshBlock();
+      if (mode === "failed" || mode === "retired" || !isCurrent()) return;
+      await loadBlock(selectedBlock.ref, {
+        preserveEditsSince: selectedBlock,
+        isOwnerCurrent: isCurrent
+      });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      reportError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [canvasId, projectRoot, refreshBlock, selectedBlock]);
+  }, [canvasId, captureBlockSelection, projectRoot, loadBlock, selectedBlock]);
 
   return (
     <BlockInspector

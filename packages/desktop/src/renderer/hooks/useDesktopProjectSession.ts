@@ -9,6 +9,7 @@ import type {
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { Language } from "../i18n";
 import type { AppView } from "../types";
+import type { SelectedBlockSelection } from "./useSelectedBlock";
 import { resolveProjectCanvasId, useDesktopProject } from "./useDesktopProject";
 
 type DesktopProjectState = ReturnType<typeof useDesktopProject>;
@@ -17,7 +18,10 @@ type UseDesktopProjectSessionArgs = {
   clearSelectedBlockRecords: () => void;
   language: Language;
   projectState: DesktopProjectState;
-  selectBlock: (ref: string, canvasId?: string | null) => Promise<DesktopBlockDetail | undefined>;
+  selectBlock: (
+    ref: string,
+    canvasId?: string | null
+  ) => Promise<SelectedBlockSelection | undefined>;
   setActiveView: (view: AppView) => void;
   setBlockInspectorOpen: (open: boolean) => void;
   setError: (message: string | null) => void;
@@ -172,25 +176,26 @@ export function useDesktopProjectSession({
     async (ref: string, canvasIdOverride?: string | null) => {
       const canvasId =
         canvasIdOverride === undefined ? projectState.selectedCanvasId : canvasIdOverride;
+      const scope = projectState.captureProjectSelection();
+      let accepted: SelectedBlockSelection | undefined;
       try {
-        const block = await selectBlock(ref, canvasId);
-        if (block) {
-          selectTaskPanel(block.taskId);
-        }
-        if (!bridge || !projectState.selectedProject) {
-          return;
-        }
+        accepted = await selectBlock(ref, canvasId);
+        if (!scope.isCurrent() || !accepted?.isCurrent()) return;
+        selectTaskPanel(accepted.block.taskId);
+        if (!bridge || !projectState.selectedProject) return;
         await bridge.openBlockInspectorWindow({
           blockRef: ref,
           canvas: desktopCanvasReference(projectState.selectedProject, canvasId),
           language
         });
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
+        if (scope.isCurrent() && (!accepted || accepted.isCurrent()))
+          setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
     [
       language,
+      projectState.captureProjectSelection,
       projectState.selectedCanvasId,
       projectState.selectedProject,
       selectBlock,
