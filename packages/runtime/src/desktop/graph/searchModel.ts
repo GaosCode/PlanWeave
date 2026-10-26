@@ -9,7 +9,9 @@ import {
   readDesktopProjectProjectionContext,
   readDesktopProjectSearchIndexFromContext
 } from "./projectProjectionModel.js";
-import { searchDesktopSearchIndex } from "./searchIndexModel.js";
+import { searchDesktopSearchIndexWithTruncation } from "./searchIndexModel.js";
+
+import { desktopSearchProjectionSchema } from "../types/searchProjectionSchema.js";
 
 const bodySearchKinds = new Set(["prompt", "run_record", "review_attempt"]);
 
@@ -44,10 +46,10 @@ export async function searchProjectWithDiagnostics(
     canvasId: filters.canvasId
   });
   appendDesktopDiagnostics(diagnostics, index.diagnostics);
-  return {
-    results: searchDesktopSearchIndex(index, query, filters),
+  return desktopSearchProjectionSchema.parse({
+    ...searchDesktopSearchIndexWithTruncation(index, query, filters),
     diagnostics
-  };
+  });
 }
 
 export async function searchProject(

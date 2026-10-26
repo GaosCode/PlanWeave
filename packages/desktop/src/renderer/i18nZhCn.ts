@@ -352,6 +352,7 @@ export const zhCnCatalog = {
   searchStatusBodyLoading: "正在扩展正文搜索",
   searchStatusSummaryCount: "摘要结果",
   searchStatusResultCount: "结果",
+  searchTruncatedHint: "仅显示前 {count} 项，请缩小搜索范围。",
   searchStatusError: "搜索失败",
   searchNoResults: "没有找到结果",
   systemLanguage: "跟随系统",

@@ -98,6 +98,12 @@ export function SearchView({
   const hasProject = Boolean(selectedProject);
   const hasQuery = Boolean(searchQuery.trim());
   const statusLabel = searchStatusLabel(searchStatus, t);
+  const displayedTruncatedCount =
+    searchStatus.phase === "body_loading" && searchStatus.truncated
+      ? searchStatus.summaryResultCount
+      : searchStatus.phase === "complete" && searchStatus.truncated
+        ? searchStatus.resultCount
+        : null;
   const showNoResults = searchStatus.phase === "complete" && searchStatus.resultCount === 0;
   const kindLabels: Record<DesktopSearchResultKind, string> = {
     task: searchKindLabel("task", t),
@@ -203,6 +209,11 @@ export function SearchView({
                 data-testid="search-status"
               >
                 {statusLabel}
+              </div>
+            ) : null}
+            {displayedTruncatedCount !== null ? (
+              <div className="text-sm text-text-muted" data-testid="search-truncated">
+                {t("searchTruncatedHint").replace("{count}", String(displayedTruncatedCount))}
               </div>
             ) : null}
             {showNoResults ? (

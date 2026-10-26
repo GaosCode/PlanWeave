@@ -31,8 +31,8 @@ export type DesktopSearchStatus =
   | { phase: "idle" }
   | { phase: "debouncing" }
   | { phase: "summary_loading" }
-  | { phase: "body_loading"; summaryResultCount: number }
-  | { phase: "complete"; resultCount: number; expandedBodySearch: boolean }
+  | { phase: "body_loading"; summaryResultCount: number; truncated: boolean }
+  | { phase: "complete"; resultCount: number; expandedBodySearch: boolean; truncated: boolean }
   | { phase: "error"; message: string };
 
 const bodySearchResultKinds = new Set<DesktopSearchResultKind>([
@@ -203,29 +203,35 @@ export function useDesktopSearch({
       if (!isLatestSearch()) {
         return;
       }
-      const { diagnostics, results } = projection;
+      const { diagnostics, results, truncated } = projection;
       setSearchDiagnostics(diagnostics);
       setSearchResults(results);
       setSearchResultsProjectRoot(projectRoot);
       if (bodyFilters) {
-        setSearchStatus({ phase: "body_loading", summaryResultCount: results.length });
+        setSearchStatus({ phase: "body_loading", summaryResultCount: results.length, truncated });
         return;
       }
       setSearchStatus({
         phase: "complete",
         resultCount: results.length,
-        expandedBodySearch: false
+        expandedBodySearch: false,
+        truncated
       });
     };
     const applyBodyResults = (projection: DesktopSearchProjection) => {
       if (!isLatestSearch()) {
         return;
       }
-      const { diagnostics, results } = projection;
+      const { diagnostics, results, truncated } = projection;
       setSearchDiagnostics(diagnostics);
       setSearchResults(results);
       setSearchResultsProjectRoot(projectRoot);
-      setSearchStatus({ phase: "complete", resultCount: results.length, expandedBodySearch: true });
+      setSearchStatus({
+        phase: "complete",
+        resultCount: results.length,
+        expandedBodySearch: true,
+        truncated
+      });
     };
     const applyError = (caught: unknown) => {
       if (!isLatestSearch()) {

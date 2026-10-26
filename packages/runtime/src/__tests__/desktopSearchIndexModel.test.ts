@@ -3,6 +3,7 @@ import {
   createDesktopSearchDocument,
   mergeSearchIndexBodies,
   searchDesktopSearchIndex,
+  searchDesktopSearchIndexWithTruncation,
   type DesktopSearchDocument,
   type DesktopSearchDocumentInput,
   type DesktopSearchIndex
@@ -118,6 +119,17 @@ describe("desktop search index model", () => {
     );
 
     expect(results.map((result) => result.ref)).toEqual(["first", "second", "third"]);
+    const limited = searchDesktopSearchIndexWithTruncation(
+      searchIndex([
+        searchDocument({ ref: "first", title: "Same", body: "stable order needle" }),
+        searchDocument({ ref: "second", title: "Same", body: "stable order needle" }),
+        searchDocument({ ref: "third", title: "Same", body: "stable order needle" })
+      ]),
+      "order needle",
+      { limit: 2 }
+    );
+    expect(limited.results.map((result) => result.ref)).toEqual(["first", "second"]);
+    expect(limited.truncated).toBe(true);
   });
 
   it("ranks by preview length semantics without raw whitespace or over-limit text drift", () => {
@@ -140,9 +152,46 @@ describe("desktop search index model", () => {
     expect(results.map((result) => result.ref)).toEqual(["trimmed-preview", "long-preview"]);
   });
 
+  it.each([
+    0, 99, 100, 101
+  ])("distinguishes %i matches from overflowing the default limit", (count) => {
+    const index = searchIndex(matchingDocuments(count));
+    const projection = searchDesktopSearchIndexWithTruncation(index, "limit needle");
+    expect(projection.results).toHaveLength(Math.min(count, 100));
+    expect(projection.truncated).toBe(count > 100);
+    expect(searchDesktopSearchIndex(index, "limit needle")).toEqual(projection.results);
+    expect(searchDesktopSearchIndexWithTruncation(index, "  ")).toEqual({
+      results: [],
+      truncated: false
+    });
+  });
+
   it("clamps search limits to the supported range", () => {
     const index = searchIndex(matchingDocuments(105));
 
+    for (const [limit, displayed] of [
+      [150, 100],
+      [0, 1],
+      [-5, 1],
+      [2.9, 2],
+      [Number.POSITIVE_INFINITY, 100],
+      [Number.NaN, 100]
+    ]) {
+      const projection = searchDesktopSearchIndexWithTruncation(
+        searchIndex(matchingDocuments(displayed)),
+        "limit needle",
+        { limit }
+      );
+      expect(projection.results).toHaveLength(displayed);
+      expect(projection.truncated).toBe(false);
+      expect(
+        searchDesktopSearchIndexWithTruncation(
+          searchIndex(matchingDocuments(displayed + 1)),
+          "limit needle",
+          { limit }
+        ).truncated
+      ).toBe(true);
+    }
     expect(searchDesktopSearchIndex(index, "limit needle")).toHaveLength(100);
     expect(searchDesktopSearchIndex(index, "limit needle", { limit: 150 })).toHaveLength(100);
     expect(searchDesktopSearchIndex(index, "limit needle", { limit: 0 })).toHaveLength(1);
@@ -195,6 +244,25 @@ describe("desktop search index model", () => {
     });
 
     expect(results.map((result) => result.ref)).toEqual(["default-task"]);
+    expect(
+      searchDesktopSearchIndexWithTruncation(searchIndex(documents), "filter needle", {
+        canvasId: "default",
+        kinds,
+        limit: 1
+      })
+    ).toMatchObject({ results, truncated: false });
+    expect(
+      searchDesktopSearchIndexWithTruncation(searchIndex(documents), "filter needle", {
+        canvasId: "default",
+        limit: 1
+      }).truncated
+    ).toBe(true);
+    expect(
+      searchDesktopSearchIndexWithTruncation(searchIndex(documents), "filter needle", {
+        kinds,
+        limit: 1
+      }).truncated
+    ).toBe(true);
   });
 
   it("matches prompt documents by body and ignores prompt titles", () => {

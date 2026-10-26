@@ -364,6 +364,7 @@ export const enCatalog = {
   searchStatusBodyLoading: "Expanding body search",
   searchStatusSummaryCount: "Summary results",
   searchStatusResultCount: "Results",
+  searchTruncatedHint: "Only the first {count} results are shown. Narrow your search.",
   searchStatusError: "Search failed",
   searchNoResults: "No results found",
   systemLanguage: "System language",

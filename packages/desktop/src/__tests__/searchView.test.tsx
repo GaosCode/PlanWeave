@@ -168,7 +168,11 @@ describe("SearchView", () => {
         searchQuery="alpha"
         searchResultKinds={searchResultKinds}
         searchResults={results}
-        searchStatus={{ phase: "body_loading", summaryResultCount: results.length }}
+        searchStatus={{
+          phase: "body_loading",
+          summaryResultCount: results.length,
+          truncated: false
+        }}
         selectedCanvasId="canvas-main"
         selectedProject={project}
         selectedSearchResultKinds={searchResultKinds}
@@ -183,6 +187,7 @@ describe("SearchView", () => {
       "Expanding body search Summary results: 1"
     );
     expect(screen.getAllByText("Alpha task").length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("search-truncated")).not.toBeInTheDocument();
   });
 
   it("shows no results only after search completes with zero results", () => {
@@ -195,7 +200,12 @@ describe("SearchView", () => {
         searchQuery="missing"
         searchResultKinds={searchResultKinds}
         searchResults={[]}
-        searchStatus={{ phase: "complete", resultCount: 0, expandedBodySearch: true }}
+        searchStatus={{
+          phase: "complete",
+          resultCount: 0,
+          expandedBodySearch: true,
+          truncated: false
+        }}
         selectedCanvasId="canvas-main"
         selectedProject={project}
         selectedSearchResultKinds={searchResultKinds}
@@ -207,9 +217,10 @@ describe("SearchView", () => {
     );
 
     expect(screen.getByText("No results found")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-truncated")).not.toBeInTheDocument();
   });
 
-  it("shows result count after completed searches with matches", () => {
+  it.each(["en", "zh-CN"] as const)("shows truncated result count and hint in %s", (language) => {
     stubResizeObserver();
     const results: DesktopSearchResult[] = [
       { kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }
@@ -223,18 +234,30 @@ describe("SearchView", () => {
         searchQuery="alpha"
         searchResultKinds={searchResultKinds}
         searchResults={results}
-        searchStatus={{ phase: "complete", resultCount: results.length, expandedBodySearch: true }}
+        searchStatus={{
+          phase: "complete",
+          resultCount: results.length,
+          expandedBodySearch: true,
+          truncated: true
+        }}
         selectedCanvasId="canvas-main"
         selectedProject={project}
         selectedSearchResultKinds={searchResultKinds}
         setSearchCanvasScope={vi.fn()}
         setSearchQuery={vi.fn()}
         setSearchResultKindEnabled={vi.fn()}
-        t={createTranslator("en")}
+        t={createTranslator(language)}
       />
     );
 
-    expect(screen.getByTestId("search-status")).toHaveTextContent("Results: 1");
+    expect(screen.getByTestId("search-status")).toHaveTextContent(
+      language === "en" ? "Results: 1" : "结果: 1"
+    );
+    expect(screen.getByTestId("search-truncated")).toHaveTextContent(
+      language === "en"
+        ? "Only the first 1 results are shown. Narrow your search."
+        : "仅显示前 1 项，请缩小搜索范围。"
+    );
     expect(screen.queryByText("No results found")).not.toBeInTheDocument();
   });
 
@@ -283,7 +306,12 @@ describe("SearchView", () => {
         searchQuery="match"
         searchResultKinds={searchResultKinds}
         searchResults={results}
-        searchStatus={{ phase: "complete", resultCount: results.length, expandedBodySearch: true }}
+        searchStatus={{
+          phase: "complete",
+          resultCount: results.length,
+          expandedBodySearch: true,
+          truncated: false
+        }}
         selectedCanvasId="canvas-main"
         selectedProject={{
           projectId: "P-001",

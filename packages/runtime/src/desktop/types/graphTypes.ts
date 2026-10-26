@@ -1,3 +1,4 @@
+import type { DesktopSearchResultKind } from "./searchProjectionSchema.js";
 import type {
   BlockStatus,
   BlockType,
@@ -338,47 +339,19 @@ export type DesktopProjectSnapshot = {
   errors: string[];
 };
 
-export type DesktopSearchResultKind =
-  | "task"
-  | "block"
-  | "prompt"
-  | "run_record"
-  | "review_attempt"
-  | "feedback";
+export type {
+  DesktopSearchResultKind,
+  DesktopSearchMatchField,
+  DesktopSearchMatch,
+  DesktopSearchResult,
+  DesktopSearchProjection
+} from "./searchProjectionSchema.js";
 
 export type DesktopSearchFilters = {
   kinds?: DesktopSearchResultKind[];
   canvasId?: string | null;
   includeBodies?: boolean;
   limit?: number;
-};
-
-export type DesktopSearchMatchField = "title" | "body";
-
-export type DesktopSearchMatch = {
-  field: DesktopSearchMatchField;
-  start: number;
-  length: number;
-  excerpt: string;
-  excerptStart: number;
-};
-
-export type DesktopSearchResult = {
-  kind: DesktopSearchResultKind;
-  canvasId?: string;
-  canvasName?: string;
-  ref: string;
-  targetRef?: string;
-  title: string;
-  excerpt: string;
-  match?: DesktopSearchMatch;
-  recordId?: string;
-  path?: string;
-};
-
-export type DesktopSearchProjection = {
-  results: DesktopSearchResult[];
-  diagnostics: ValidationIssue[];
 };
 
 export type DesktopAddTaskInput = {

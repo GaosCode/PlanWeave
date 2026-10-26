@@ -18,6 +18,7 @@ const project = {
 };
 const projection = (title: string): DesktopSearchProjection => ({
   diagnostics: [],
+  truncated: false,
   results: [{ kind: "task", ref: "T-1", title, excerpt: title }]
 });
 function deferred<T>() {

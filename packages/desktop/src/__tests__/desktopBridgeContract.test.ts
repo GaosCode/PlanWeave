@@ -1,3 +1,4 @@
+import type { DesktopSearchProjection } from "@planweave-ai/runtime";
 import { describe, expect, it, vi } from "vitest";
 import * as collaborationClient from "../main/collaboration/index";
 import { runtimeBridgeHandlers } from "../main/runtimeBridgeHandlerRegistry";
@@ -47,6 +48,29 @@ describe("desktop bridge end-to-end contract", () => {
       expect(desktopBridgeInvokeChannels[method]).toBe(`planweave:${method}`);
       expect(typeof (preloadApi[method] as InvokeForwarder)).toBe("function");
     }
+  });
+
+  it("transports search truncation with its result batch while keeping the array method compatible", async () => {
+    const projection: DesktopSearchProjection = { results: [], diagnostics: [], truncated: true };
+    const invoke = vi.fn(async (channel: string) =>
+      structuredClone(
+        channel === desktopBridgeInvokeChannels.searchProjectWithDiagnostics
+          ? projection
+          : projection.results
+      )
+    );
+    const api = createDesktopBridgeInvokeApi(invoke);
+    const filters = { limit: 1, kinds: ["task" as const], canvasId: "canvas-a" };
+    expect(await api.searchProjectWithDiagnostics("/tmp/project", "needle", filters)).toEqual(
+      projection
+    );
+    expect(invoke).toHaveBeenLastCalledWith(
+      desktopBridgeInvokeChannels.searchProjectWithDiagnostics,
+      "/tmp/project",
+      "needle",
+      filters
+    );
+    expect(await api.searchProject("/tmp/project", "needle", filters)).toEqual([]);
   });
 
   it("keeps Electron handlers outside the collaboration client barrel", () => {

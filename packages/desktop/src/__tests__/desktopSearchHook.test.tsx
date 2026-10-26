@@ -46,9 +46,10 @@ function searchArgsBase() {
 
 function searchProjection(
   results: DesktopSearchResult[],
-  diagnostics: ValidationIssue[] = []
+  diagnostics: ValidationIssue[] = [],
+  truncated = false
 ): DesktopSearchProjection {
-  return { diagnostics, results };
+  return { diagnostics, results, truncated };
 }
 
 async function waitForSearchDebounce(): Promise<void> {
@@ -60,6 +61,7 @@ async function waitForSearchDebounce(): Promise<void> {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -109,6 +111,7 @@ describe("desktop search hook", () => {
     expect(result.current.searchResults).toEqual(searchResults);
     expect(result.current.searchStatus).toEqual({
       phase: "complete",
+      truncated: false,
       resultCount: searchResults.length,
       expandedBodySearch: true
     });
@@ -172,7 +175,10 @@ describe("desktop search hook", () => {
     );
   });
 
-  it("returns summary search before hydrating body results in the background", async () => {
+  it.each([
+    true,
+    false
+  ])("replaces summary truncation %s with the body response", async (summaryTruncated) => {
     let resolveBodySearch: (projection: DesktopSearchProjection) => void = () => undefined;
     const summaryResults: DesktopSearchResult[] = [
       { kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }
@@ -196,7 +202,7 @@ describe("desktop search hook", () => {
     const bridge = createDesktopBridgeMock({
       searchProjectWithDiagnostics: vi
         .fn()
-        .mockResolvedValueOnce(searchProjection(summaryResults))
+        .mockResolvedValueOnce(searchProjection(summaryResults, [], summaryTruncated))
         .mockReturnValueOnce(
           new Promise<DesktopSearchProjection>((resolve) => {
             resolveBodySearch = resolve;
@@ -226,6 +232,7 @@ describe("desktop search hook", () => {
     expect(result.current.searchResults).toEqual(summaryResults);
     expect(result.current.searchStatus).toEqual({
       phase: "body_loading",
+      truncated: summaryTruncated,
       summaryResultCount: summaryResults.length
     });
     expect(result.current.searchDiagnostics).toEqual([]);
@@ -240,7 +247,7 @@ describe("desktop search hook", () => {
     );
 
     await act(async () => {
-      resolveBodySearch(searchProjection(bodyResults, bodyDiagnostics));
+      resolveBodySearch(searchProjection(bodyResults, bodyDiagnostics, !summaryTruncated));
       await Promise.resolve();
     });
 
@@ -248,6 +255,7 @@ describe("desktop search hook", () => {
     expect(result.current.searchDiagnostics).toEqual(bodyDiagnostics);
     expect(result.current.searchStatus).toEqual({
       phase: "complete",
+      truncated: !summaryTruncated,
       resultCount: bodyResults.length,
       expandedBodySearch: true
     });
@@ -309,9 +317,11 @@ describe("desktop search hook", () => {
 
     await act(async () => {
       resolveSearch(
-        searchProjection([
-          { kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }
-        ])
+        searchProjection(
+          [{ kind: "task", ref: "T-ALPHA", title: "Alpha task", excerpt: "Alpha task" }],
+          [],
+          true
+        )
       );
       await Promise.resolve();
     });
@@ -363,7 +373,7 @@ describe("desktop search hook", () => {
     expect(result.current.searchStatus).toEqual({ phase: "debouncing" });
 
     await act(async () => {
-      resolveAlphaSearch(searchProjection(alphaResults));
+      resolveAlphaSearch(searchProjection(alphaResults, [], true));
       await Promise.resolve();
     });
 
@@ -379,9 +389,103 @@ describe("desktop search hook", () => {
     await waitFor(() => expect(result.current.searchResults).toEqual(betaResults));
     expect(result.current.searchStatus).toEqual({
       phase: "complete",
+      truncated: false,
       resultCount: betaResults.length,
       expandedBodySearch: true
     });
+  });
+
+  it.each([
+    "scope",
+    "filter",
+    "canvas"
+  ] as const)("clears truncation when %s changes and ignores old body responses", async (change) => {
+    vi.useFakeTimers();
+    let resolveOldBody!: (projection: DesktopSearchProjection) => void;
+    const oldBody = new Promise<DesktopSearchProjection>((resolve) => {
+      resolveOldBody = resolve;
+    });
+    const oldResults: DesktopSearchResult[] = [
+      { kind: "task", ref: "old", title: "Alpha old", excerpt: "Alpha" }
+    ];
+    const freshResults: DesktopSearchResult[] = [
+      { kind: "task", ref: "fresh", title: "Alpha fresh", excerpt: "Alpha" }
+    ];
+    const bridge = createDesktopBridgeMock({
+      searchProjectWithDiagnostics: vi
+        .fn()
+        .mockResolvedValueOnce(searchProjection(oldResults, [], true))
+        .mockReturnValueOnce(oldBody)
+        .mockResolvedValue(searchProjection(freshResults))
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useDesktopSearch } = await import("../renderer/hooks/useDesktopSearch");
+    const { result, rerender } = renderHook(
+      ({ canvas }) => useDesktopSearch(searchArgs({ selectedCanvasId: canvas })),
+      {
+        initialProps: { canvas: "canvas-main" }
+      }
+    );
+    act(() => {
+      if (change === "canvas") result.current.setSearchCanvasScope("current");
+      result.current.setSearchQuery("Alpha");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(result.current.searchStatus).toMatchObject({ phase: "body_loading", truncated: true });
+    act(() => {
+      if (change === "scope") result.current.setSearchCanvasScope("current");
+      if (change === "filter") result.current.setSearchResultKindEnabled("feedback", false);
+      if (change === "canvas") rerender({ canvas: "canvas-other" });
+    });
+    expect(result.current.searchStatus).toEqual({ phase: "summary_loading" });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.searchStatus).toMatchObject({ phase: "complete", truncated: false });
+    await act(async () => {
+      resolveOldBody(searchProjection(oldResults, [], true));
+    });
+    expect(result.current.searchResults).toEqual(freshResults);
+    expect(result.current.searchStatus).toMatchObject({ phase: "complete", truncated: false });
+    act(() => result.current.setSearchQuery(""));
+    expect(result.current.searchResults).toEqual([]);
+    expect(result.current.searchStatus).toEqual({ phase: "idle" });
+  });
+
+  it("clears the truncation hint when body search fails", async () => {
+    vi.useFakeTimers();
+    let rejectBody!: (error: Error) => void;
+    const body = new Promise<DesktopSearchProjection>((_resolve, reject) => {
+      rejectBody = reject;
+    });
+    const args = searchArgs();
+    const bridge = createDesktopBridgeMock({
+      searchProjectWithDiagnostics: vi
+        .fn()
+        .mockResolvedValueOnce(
+          searchProjection(
+            [{ kind: "task", ref: "T-1", title: "Alpha", excerpt: "Alpha" }],
+            [],
+            true
+          )
+        )
+        .mockReturnValueOnce(body)
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { useDesktopSearch } = await import("../renderer/hooks/useDesktopSearch");
+    const { result } = renderHook(() => useDesktopSearch(args));
+    act(() => result.current.setSearchQuery("Alpha"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(result.current.searchStatus).toMatchObject({ phase: "body_loading", truncated: true });
+    await act(async () => rejectBody(new Error("Body unavailable")));
+    expect(result.current.searchStatus).toEqual({ phase: "error", message: "Body unavailable" });
+    expect(args.setError).toHaveBeenCalledWith("Body unavailable");
   });
 
   it("opens task, block, and record targets from search results", async () => {

@@ -4,6 +4,7 @@ import type {
   DesktopSearchFilters,
   DesktopSearchMatch,
   DesktopSearchMatchField,
+  DesktopSearchProjection,
   DesktopSearchResult,
   DesktopSearchResultKind
 } from "../types.js";
@@ -527,19 +528,19 @@ export async function buildSearchIndexFromProjectTodoContext(
   return buildSearchIndexFromCanvasIndexes(indexes);
 }
 
-export function searchDesktopSearchIndex(
+export function searchDesktopSearchIndexWithTruncation(
   index: DesktopSearchIndex,
   query: string,
   filters: DesktopSearchFilters = {}
-): DesktopSearchResult[] {
+): Pick<DesktopSearchProjection, "results" | "truncated"> {
   const normalized = query.trim().toLowerCase();
   if (!normalized) {
-    return [];
+    return { results: [], truncated: false };
   }
   const allowedKinds = filters.kinds?.length
     ? new Set<DesktopSearchResultKind>(filters.kinds)
     : null;
-  return index.documents
+  const ranked = index.documents
     .map((document, documentIndex) => ({ document, documentIndex }))
     .filter(({ document }) => !allowedKinds || allowedKinds.has(document.kind))
     .filter(
@@ -552,7 +553,20 @@ export function searchDesktopSearchIndex(
       rank: searchRank(document, normalized),
       documentIndex
     }))
-    .sort(compareSearchRank)
-    .slice(0, searchLimit(filters))
-    .map((ranked) => searchResultFromDocument(ranked.document, normalized));
+    .sort(compareSearchRank);
+  const limit = searchLimit(filters);
+  return {
+    results: ranked
+      .slice(0, limit)
+      .map((entry) => searchResultFromDocument(entry.document, normalized)),
+    truncated: ranked.length > limit
+  };
+}
+
+export function searchDesktopSearchIndex(
+  index: DesktopSearchIndex,
+  query: string,
+  filters: DesktopSearchFilters = {}
+): DesktopSearchResult[] {
+  return searchDesktopSearchIndexWithTruncation(index, query, filters).results;
 }

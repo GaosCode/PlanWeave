@@ -48,6 +48,40 @@ function sizedBody(needle: string, size: number): string {
 }
 
 describe("desktop search and statistics API", () => {
+  it.each([
+    0, 99, 100, 101
+  ])("reports truncation for %i task matches through the project API", async (count) => {
+    const manifest = basicManifest();
+    const template = manifest.nodes[0];
+    if (template.type !== "task") throw new Error("Fixture task missing.");
+    manifest.nodes = Array.from({ length: count }, (_, index) => ({
+      ...template,
+      id: `T-${String(index + 1).padStart(3, "0")}`,
+      title: "Boundary needle"
+    }));
+    const { root, home } = await createTestWorkspace(manifest);
+    try {
+      const filters = { kinds: ["task" as const], includeBodies: false };
+      const projection = await searchProjectWithDiagnostics(root, "Boundary needle", filters);
+      expect(projection.results).toHaveLength(Math.min(count, 100));
+      expect(projection.truncated).toBe(count > 100);
+      expect(await searchProject(root, "Boundary needle", filters)).toEqual(projection.results);
+      expect(await searchProjectWithDiagnostics(root, "   ", filters)).toMatchObject({
+        results: [],
+        truncated: false
+      });
+      const limited = await searchProjectWithDiagnostics(root, "Boundary needle", {
+        ...filters,
+        limit: 2.9
+      });
+      expect(limited.results).toHaveLength(Math.min(count, 2));
+      expect(limited.truncated).toBe(count > 2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("maps project task canvases in registry order including empty canvases", async () => {
     const { root, init } = await createTestWorkspace();
     const secondCanvas = await createTaskCanvas(root, { name: "Empty follow-up canvas" });
