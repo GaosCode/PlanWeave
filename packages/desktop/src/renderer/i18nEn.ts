@@ -881,6 +881,10 @@ export const enCatalog = {
     "The enrollment details have expired, were already used, or were rejected by the Server. Copy new details from the managing computer.",
   hostAdminLocalHostEnrollmentUnreachable:
     "The PlanWeave Server in the enrollment details cannot be reached. Make sure this computer has joined the same private network and can access its HTTPS address.",
+  hostAdminLocalHostEnrollmentTimeout:
+    "Registration timed out. The Server may have accepted it. Check the connection and retry with the same enrollment details to recover the pending attempt.",
+  hostAdminLocalHostEnrollmentCanceled:
+    "Registration was canceled. Retry with the same enrollment details to recover the pending attempt.",
   hostAdminLocalHostEnrollmentTransportUnsupported:
     "The enrollment details use an unsupported connection method. Remote devices require a reachable HTTPS Server.",
   hostAdminLocalHostEnrollmentResponseInvalid:

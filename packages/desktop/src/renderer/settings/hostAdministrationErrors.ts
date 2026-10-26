@@ -36,6 +36,8 @@ const knownErrorCodes = new Set([
   "local_agent_host_handoff_expired",
   "agent_host_enrollment_rejected",
   "agent_host_enrollment_exchange_failed",
+  "agent_host_enrollment_timeout",
+  "agent_host_enrollment_canceled",
   "agent_host_enrollment_transport_insecure",
   "agent_host_enrollment_transport_unsupported",
   "agent_host_enrollment_response_malformed",
@@ -121,6 +123,12 @@ export function formatHostAdministrationError(
   }
   if (code === "agent_host_enrollment_exchange_failed") {
     return t("hostAdminLocalHostEnrollmentUnreachable");
+  }
+  if (code === "agent_host_enrollment_timeout") {
+    return t("hostAdminLocalHostEnrollmentTimeout");
+  }
+  if (code === "agent_host_enrollment_canceled") {
+    return t("hostAdminLocalHostEnrollmentCanceled");
   }
   if (
     code === "agent_host_enrollment_transport_insecure" ||

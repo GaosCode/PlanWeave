@@ -1,3 +1,4 @@
+import { OperatorLocalHostEnrollment } from "./operatorLocalHostEnrollment.js";
 import { OperatorProfileSynchronization } from "./operatorProfileSynchronization.js";
 import {
   OperatorLocalHostOperations,
@@ -49,10 +50,7 @@ import {
   type OperatorCredentialPersistence,
   type OperatorProfileView
 } from "../../shared/operatorControl.js";
-import {
-  buildHostBootstrapHandoff,
-  buildHostBootstrapHandoffPayload
-} from "./hostBootstrapHandoff.js";
+import { buildHostBootstrapHandoff } from "./hostBootstrapHandoff.js";
 import {
   type LocalAgentHostProvisioner,
   unavailableLocalAgentHostProvisioner
@@ -163,6 +161,7 @@ export class OperatorControlService {
   private readonly synchronization: OperatorProfileSynchronization;
   private readonly profileMutations = new Map<string, symbol>();
   private readonly localHostMutations = new OperatorLocalHostOperations(this.operations);
+  private readonly localHostEnrollment: OperatorLocalHostEnrollment;
   private readonly management: OperatorManagementService;
   private readonly maintenance: OperatorAuthorizationMaintenance;
   private disposed = false;
@@ -188,6 +187,10 @@ export class OperatorControlService {
     this.clock = options.clock;
     this.onStatusChange = options.onStatusChange;
     this.localAgentHost = options.localAgentHost ?? unavailableLocalAgentHostProvisioner();
+    this.localHostEnrollment = new OperatorLocalHostEnrollment(
+      this.localAgentHost,
+      this.localHostMutations
+    );
     this.localOperatorBackend = options.localOperatorBackend;
     this.resolveHumanIdentityCredential = options.resolveHumanIdentityCredential;
     this.management = new OperatorManagementService({
@@ -236,6 +239,7 @@ export class OperatorControlService {
           current.assertCurrent();
           if (!same) {
             current.release();
+            this.localHostEnrollment.invalidate(profileId);
             this.management.forget(profileId);
             // The new generation queue must follow this action, not a cancellable race.
             return await this.operations.occupy(profileId, async (operation) => {
@@ -263,6 +267,7 @@ export class OperatorControlService {
   }
 
   private invalidateProfile(profileId: string): void {
+    this.localHostEnrollment.invalidate(profileId);
     this.profileMutations.set(profileId, Symbol());
     this.management.forget(profileId);
   }
@@ -782,24 +787,9 @@ export class OperatorControlService {
   async registerLocalAgentHost(input: unknown) {
     assertNoSmuggledOperatorSecrets(input, "registerLocalAgentHost");
     const parsed = operatorRegisterLocalAgentHostInputSchema.parse(input);
-    return this.withProfile(parsed, async (client, value, connectionProfile, operation) => {
-      if (!(await this.localAgentHost.status(value.profileId)).supported) {
-        throw new Error("local_agent_host_unavailable");
-      }
-      if (connectionProfile.endpoint?.tlsTrust === "configured_ca") {
-        throw new Error("local_agent_host_custom_ca_unsupported");
-      }
-      const grant = await client.createEnrollmentGrant(value.request);
-      operation.assertCurrent();
-      const handoff = buildHostBootstrapHandoffPayload(connectionProfile, grant);
-      try {
-        return await this.localHostMutations.run(operation, () =>
-          this.localAgentHost.register(value.profileId, handoff, value.exposedProfileIds)
-        );
-      } catch (error) {
-        throw localAgentHostErrorFromUnknown(error);
-      }
-    });
+    return this.withProfile(parsed, (client, value, _profile, operation) =>
+      this.localHostEnrollment.register(client, value, operation)
+    );
   }
 
   async repairLocalAgentHost(input: unknown) {
@@ -844,6 +834,7 @@ export class OperatorControlService {
           )
         );
         operation.assertCurrent();
+        this.localHostEnrollment.clear();
         this.lastErrorCode = null;
         this.lastErrorMessage = null;
         return result;
@@ -1060,6 +1051,7 @@ export class OperatorControlService {
   async shutdown(): Promise<void> {
     this.disposed = true;
     this.maintenance.stop();
+    this.localHostEnrollment.clear();
     this.operations.shutdown();
     await this.queue;
     await this.vault.clearSessionMemory();

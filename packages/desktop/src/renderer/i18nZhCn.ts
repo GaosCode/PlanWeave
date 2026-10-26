@@ -832,6 +832,10 @@ export const zhCnCatalog = {
     "设备入驻信息已过期、已使用或被 Server 拒绝，请在管理电脑上重新复制一份。",
   hostAdminLocalHostEnrollmentUnreachable:
     "无法访问设备入驻信息中的 PlanWeave Server。请确认这台电脑已加入同一私有网络，并且能够访问该 HTTPS 地址。",
+  hostAdminLocalHostEnrollmentTimeout:
+    "注册请求超时，Server 可能已接受注册。请检查连接，并使用同一份设备入驻信息重试，以恢复待完成的注册。",
+  hostAdminLocalHostEnrollmentCanceled:
+    "注册请求已取消。请使用同一份设备入驻信息重试，以恢复待完成的注册。",
   hostAdminLocalHostEnrollmentTransportUnsupported:
     "设备入驻信息使用了不受支持的连接方式。远程设备需要可访问的 HTTPS Server。",
   hostAdminLocalHostEnrollmentResponseInvalid:

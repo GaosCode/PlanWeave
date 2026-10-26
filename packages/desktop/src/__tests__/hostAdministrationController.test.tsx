@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OperatorControlStatus, OperatorProfileView } from "../shared/operatorControl";
 import { useHostAdministrationController } from "../renderer/hooks/useHostAdministrationController";
 
+import { formatHostAdministrationError } from "../renderer/settings/hostAdministrationErrors";
+import { createTranslator } from "../renderer/i18n";
+
 const bridgeMock = vi.hoisted(() => ({
   getOperatorControlStatus: vi.fn(),
   onOperatorControlStatusChanged: vi.fn(),
@@ -12,6 +15,7 @@ const bridgeMock = vi.hoisted(() => ({
   getOperatorLocalAgentHostStatus: vi.fn(),
   copyOperatorHostBootstrapHandoff: vi.fn(),
   registerOperatorLocalAgentHost: vi.fn(),
+  enrollOperatorLocalAgentHost: vi.fn(),
   revokeOperatorHost: vi.fn(),
   renewOperatorHostCredential: vi.fn(),
   repairOperatorLocalAgentHost: vi.fn()
@@ -142,6 +146,59 @@ afterEach(() => {
 });
 
 describe("Host administration request authority", () => {
+  it.each([
+    { method: "register", code: "timeout", readable: "超时" },
+    { method: "register", code: "canceled", readable: "取消" },
+    { method: "enroll", code: "timeout", readable: "超时" },
+    { method: "enroll", code: "canceled", readable: "取消" }
+  ])("clears busy and permits $method retry after bridge $code with readable errors", async ({
+    method,
+    code,
+    readable
+  }) => {
+    const pending = deferred<never>();
+    const bridge =
+      method === "register"
+        ? bridgeMock.registerOperatorLocalAgentHost
+        : bridgeMock.enrollOperatorLocalAgentHost;
+    bridge
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce({ supported: true, state: "ready", agents: [] });
+    const { result } = renderHook(() => useHostAdministrationController());
+    await waitFor(() => expect(result.current.activeProfile?.profileId).toBe("profile-a"));
+    const invoke = () =>
+      method === "register"
+        ? result.current.registerLocalAgentHost(["codex-acp"])
+        : result.current.enrollLocalAgentHost("same-handoff", ["codex-acp"]);
+    let operation!: Promise<unknown>;
+    act(() => {
+      operation = invoke();
+    });
+    expect(result.current.busy).toBe(true);
+    await act(async () => {
+      pending.reject(new Error(`Error invoking remote method: agent_host_enrollment_${code}`));
+      await operation;
+    });
+    expect(result.current.busy).toBe(false);
+    expect(result.current.error).toBe(`agent_host_enrollment_${code}`);
+    const message = formatHostAdministrationError(result.current.error, createTranslator("zh-CN"));
+    expect(message).toContain(readable);
+    expect(message).toContain("重试");
+    await act(async () => {
+      await invoke();
+    });
+    expect(bridge).toHaveBeenCalledTimes(2);
+    if (method === "enroll") expect(bridge.mock.calls[1]).toEqual(bridge.mock.calls[0]);
+    else
+      expect(bridge.mock.calls[1]?.[0]).toMatchObject({
+        profileId: "profile-a",
+        exposedProfileIds: ["codex-acp"]
+      });
+    expect(result.current.busy).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(result.current.localAgentHost?.state).toBe("ready");
+  });
+
   it("waits for a slow local query to settle before scheduling the next five-second poll", async () => {
     vi.useFakeTimers();
     const slow = deferred<{ supported: boolean; state: string; agents: never[] }>();

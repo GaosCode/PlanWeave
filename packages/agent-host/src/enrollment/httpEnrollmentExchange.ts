@@ -6,8 +6,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import type { AgentHostEnrollmentExchange } from "./enrollmentService.js";
 
-const MAX_RESPONSE_BYTES = 16_384;
-const JSON_CONTENT_TYPE = /^application\/json(?:;\s*charset=utf-8)?$/i;
+import { EnrollmentHttpError, requestEnrollmentJson } from "./enrollmentHttpRequest.js";
 
 export function resolveHostEnrollmentEndpoint(
   coordinatorUrl: string,
@@ -29,51 +28,6 @@ export function resolveHostEnrollmentEndpoint(
   return endpoint;
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
-  if (!JSON_CONTENT_TYPE.test(response.headers.get("content-type") ?? "")) {
-    throw new Error("agent_host_enrollment_response_malformed");
-  }
-  const declaredLength = response.headers.get("content-length");
-  if (declaredLength !== null) {
-    const parsedLength = Number(declaredLength);
-    if (!Number.isSafeInteger(parsedLength) || parsedLength < 0) {
-      throw new Error("agent_host_enrollment_response_malformed");
-    }
-    if (parsedLength > MAX_RESPONSE_BYTES) {
-      throw new Error("agent_host_enrollment_response_too_large");
-    }
-  }
-  if (!response.body) throw new Error("agent_host_enrollment_response_malformed");
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      size += chunk.value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) {
-        await reader.cancel();
-        throw new Error("agent_host_enrollment_response_too_large");
-      }
-      chunks.push(chunk.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    throw new Error("agent_host_enrollment_response_malformed");
-  }
-}
-
 export class HttpAgentHostEnrollmentExchange implements AgentHostEnrollmentExchange {
   private readonly request: typeof fetch;
 
@@ -91,31 +45,22 @@ export class HttpAgentHostEnrollmentExchange implements AgentHostEnrollmentExcha
     input: HostEnrollmentRequest,
     signal?: AbortSignal
   ): Promise<HostEnrollmentCompleted> {
-    try {
-      const response = await this.request(
+    return requestEnrollmentJson(
+      this.request,
+      () =>
         resolveHostEnrollmentEndpoint(
           this.coordinatorUrl,
           this.options.allowInsecureDevelopment === true
         ),
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(input),
-          redirect: "error",
-          signal
+      input,
+      (response, payload) => {
+        if (!response.ok) {
+          hostEnrollmentErrorSchema.parse(payload);
+          throw new EnrollmentHttpError("rejected");
         }
-      );
-      const payload = await readBoundedJson(response);
-      if (!response.ok) {
-        hostEnrollmentErrorSchema.parse(payload);
-        throw new Error("agent_host_enrollment_rejected");
-      }
-      return hostEnrollmentCompletedSchema.parse(payload);
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("agent_host_enrollment_")) {
-        throw error;
-      }
-      throw new Error("agent_host_enrollment_exchange_failed");
-    }
+        return hostEnrollmentCompletedSchema.parse(payload);
+      },
+      signal
+    );
   }
 }

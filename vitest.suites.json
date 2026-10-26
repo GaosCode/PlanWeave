@@ -425,6 +425,7 @@
         "operatorProfileStore.test.ts",
         "operatorManagementService.test.ts",
         "operatorControl.test.ts",
+        "operatorLocalHostEnrollment.test.ts",
         "operatorControlHandlers.test.ts",
         "operatorControlHttpBody.test.ts",
         "operatorControlLocalReadiness.test.ts",
@@ -907,6 +908,7 @@
     {
       "root": "packages/agent-host/src/__tests__",
       "unit": [
+        "agentHostEnrollmentHttpDeadline.test.ts",
         "executionLeaseDeadline.test.ts",
         "remoteRunnerDiscovery.test.ts",
         "remoteAcpCleanupFailure.test.ts",
@@ -936,6 +938,7 @@
         "credentialRenewalDeadline.test.ts",
         "credentialRenewalHttpLifecycle.test.ts",
         "agentHostEnrollment.test.ts",
+        "agentHostEnrollmentHttpTransport.test.ts",
         "agentHostHandoffProvenance.test.ts",
         "agentHostExecutionState.test.ts",
         "agentHostTerminalCompaction.test.ts",
@@ -985,6 +988,7 @@
       "unit": [],
       "integration": [
         "acpConversationDelivery.test.ts",
+        "hostEnrollmentUnknownOutcome.test.ts",
         "exactPermissionHandshake.test.ts",
         "historicalPermissionReplay.test.ts",
         "historicalPermissionRecovery.test.ts",
