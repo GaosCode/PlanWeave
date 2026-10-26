@@ -1,4 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAcpCleanupDeadline } from "../autoRun/acpExecutionCleanup.js";
 import { shutdownAcpProcess } from "../autoRun/acpProcessShutdown.js";
@@ -9,10 +10,14 @@ import {
 } from "../process/managedProcessTree.js";
 
 describe("ACP process shutdown sequencing", () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
 
   it("uses one controlled deadline for EOF, TERM, force, and whole-tree confirmation", async () => {
     let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
     let descendantAlive = true;
     const events: string[] = [];
     const child = {
@@ -61,6 +66,7 @@ describe("ACP process shutdown sequencing", () => {
 
   it("preserves the caller's cutoff across delayed termination and async adapter work", async () => {
     let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
     let descendantAlive = true;
     const waits: number[] = [];
     const child = {
@@ -119,6 +125,7 @@ describe("ACP process shutdown sequencing", () => {
 
   it("reports cleanup failure when the shared cutoff expires during tree confirmation", async () => {
     let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
     const deadline = createAcpCleanupDeadline(300, () => now);
     const tree: ManagedProcessTree = {
       pid: 70_003,
