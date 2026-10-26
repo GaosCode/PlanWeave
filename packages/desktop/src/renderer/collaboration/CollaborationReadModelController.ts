@@ -284,7 +284,15 @@ export class CollaborationReadModelController {
         this.reloadActivity(generation),
         ...trackedComments.map((workItem) => this.reloadComments(workItem, generation))
       ]);
-      const authorities = await authorityRefresh.wait();
+      let authorities = await authorityRefresh.wait();
+      // Recheck at the publication boundary: awaiting the batch can admit a successor.
+      while (
+        !this.disposed &&
+        generation === this.state.generation &&
+        authorities.some(({ request }) => !this.authorityReads.isCurrent(request))
+      ) {
+        authorities = await authorityRefresh.wait();
+      }
       snapshotLoading.release();
       if (this.disposed || generation !== this.state.generation) return { status: "retired" };
 
