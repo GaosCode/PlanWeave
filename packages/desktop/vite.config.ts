@@ -172,6 +172,12 @@ export default defineConfig({
               priority: 14
             },
             {
+              // Block selection state stays mounted in the shell and keeps its own chunk.
+              name: "block-selection",
+              test: (id) => id.endsWith("/renderer/hooks/useSelectedBlock.ts"),
+              priority: 14
+            },
+            {
               // Search state stays mounted in the shell; its view retains its lazy route.
               name: "search-controller",
               test: (id) =>
