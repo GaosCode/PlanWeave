@@ -124,6 +124,7 @@ vi.mock("../../renderer/hooks/useWorkspaceAgentEndpointCatalog", () => ({
 }));
 vi.mock("../../renderer/hooks/useSelectedBlock", () => ({
   useSelectedBlock: () => ({
+    captureBlockSelection: () => ({ isCurrent: () => true }),
     clearSelectedBlockRecords: stubs.sync,
     handleBlockSelect: stubs.sync,
     handleOpenRunRecord: stubs.sync,
@@ -139,6 +140,7 @@ vi.mock("../../renderer/hooks/useDesktopProjectSession", () => ({
   useDesktopProjectSession: ({ projectState }: { projectState: { loadProject: unknown } }) => ({
     autoRunDiagnostics: [],
     autoRunState: null,
+    captureTaskPanelSelection: () => ({ isCurrent: () => true }),
     clearTaskPanelSelection: stubs.sync,
     createProjectFromTaskCanvas: stubs.asyncCall,
     createTaskCanvas: stubs.asyncCall,

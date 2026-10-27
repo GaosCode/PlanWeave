@@ -59,6 +59,7 @@ import type { ProjectSidebar } from "./sidebar/ProjectSidebar";
 import type { TaskWorkspaceController } from "./task-workspace/contracts";
 import { useTaskWorkspaceController } from "./task-workspace/useTaskWorkspaceController";
 import { useTaskWorkspaceGraphNavigation } from "./task-workspace/useTaskWorkspaceGraphNavigation";
+import { useTaskWorkspaceSourceSelection } from "./task-workspace/useTaskWorkspaceSourceSelection";
 import {
   useRecordWorkspaceNavigation,
   type RecordNavigationSource,
@@ -278,6 +279,7 @@ export function ProjectWorkspaceProvider({
   );
 
   const {
+    captureBlockSelection,
     clearSelectedBlockRecords,
     handleBlockSelect,
     handleOpenRunRecord,
@@ -300,6 +302,7 @@ export function ProjectWorkspaceProvider({
   const {
     autoRunDiagnostics,
     autoRunState,
+    captureTaskPanelSelection,
     clearTaskPanelSelection,
     createProjectFromTaskCanvas: createProjectFromTaskCanvasInSession,
     createTaskCanvas: createTaskCanvasInSession,
@@ -358,26 +361,15 @@ export function ProjectWorkspaceProvider({
     [createProjectFromTaskCanvasInSession]
   );
 
-  const restoreTaskWorkspaceSourceSelection = useCallback(
-    async (taskId: string | null, blockRef: string | null) => {
-      setSelectedRunRecord(null);
-      if (blockRef) {
-        const accepted = await restoreBlockSelection(blockRef);
-        if (!accepted?.isCurrent()) return;
-      } else {
-        setSelectedBlock(null);
-        clearSelectedBlockRecords();
-      }
-      restoreTaskPanelSelection(taskId);
-    },
-    [
-      clearSelectedBlockRecords,
-      restoreBlockSelection,
-      restoreTaskPanelSelection,
-      setSelectedBlock,
-      setSelectedRunRecord
-    ]
-  );
+  const restoreTaskWorkspaceSourceSelection = useTaskWorkspaceSourceSelection({
+    captureBlockSelection,
+    captureTaskPanelSelection,
+    clearSelectedBlockRecords,
+    restoreBlockSelection,
+    restoreTaskPanelSelection,
+    setSelectedBlock,
+    setSelectedRunRecord
+  });
   const taskWorkspaceNavigation = useTaskWorkspaceGraphNavigation({
     canvasLocator,
     flowInstance,

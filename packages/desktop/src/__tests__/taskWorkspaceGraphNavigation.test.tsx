@@ -220,7 +220,7 @@ describe("Task Workspace graph navigation", () => {
     const flow = flowInstance();
     const projectLoad = deferred<void>();
     const openProject = vi.fn(() => projectLoad.promise);
-    const restoreSelection = vi.fn().mockResolvedValue(undefined);
+    const restoreSelection = vi.fn().mockResolvedValue({ isCurrent: () => true });
     const setError = vi.fn();
     const { rerender } = renderHook(
       (props: { selected: boolean }) =>
@@ -260,7 +260,7 @@ describe("Task Workspace graph navigation", () => {
   it("cancels a deferred canvas restore after leaving its graph route", async () => {
     const projectLoad = deferred<void>();
     const openProject = vi.fn(() => projectLoad.promise);
-    const restoreSelection = vi.fn().mockResolvedValue(undefined);
+    const restoreSelection = vi.fn().mockResolvedValue({ isCurrent: () => true });
     const flow = flowInstance();
     const setError = vi.fn();
     const { rerender } = renderHook(
@@ -298,7 +298,7 @@ describe("Task Workspace graph navigation", () => {
   it("lets a rapid newer graph route win over an older deferred restore", async () => {
     const olderProjectLoad = deferred<void>();
     const openProject = vi.fn(() => olderProjectLoad.promise);
-    const restoreSelection = vi.fn().mockResolvedValue(undefined);
+    const restoreSelection = vi.fn().mockResolvedValue({ isCurrent: () => true });
     const flow = flowInstance();
     const setError = vi.fn();
     const newerSnapshot: GraphNavigationSnapshot = {
@@ -353,7 +353,7 @@ describe("Task Workspace graph navigation", () => {
   it("reports stale graph identity without restoring a fallback selection", async () => {
     const history = historyController(snapshot);
     const flow = flowInstance();
-    const restoreSelection = vi.fn().mockResolvedValue(undefined);
+    const restoreSelection = vi.fn().mockResolvedValue({ isCurrent: () => true });
     const setError = vi.fn();
     renderHook(() =>
       useTaskWorkspaceGraphNavigation({

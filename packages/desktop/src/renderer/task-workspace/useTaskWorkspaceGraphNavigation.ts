@@ -18,6 +18,7 @@ import type {
   TaskWorkspaceNavigationTarget
 } from "../taskWorkspaceNavigation";
 import type { AppFlowNode } from "../types";
+import type { TaskWorkspaceSourceSelectionReceipt } from "./useTaskWorkspaceSourceSelection";
 
 type OpenProject = (
   project: DesktopProjectSummary,
@@ -25,7 +26,10 @@ type OpenProject = (
   options?: { recordCanvasSelection?: boolean }
 ) => Promise<void>;
 
-type RestoreSelection = (taskId: string | null, blockRef: string | null) => Promise<void>;
+type RestoreSelection = (
+  taskId: string | null,
+  blockRef: string | null
+) => Promise<TaskWorkspaceSourceSelectionReceipt | undefined>;
 
 type RestoreAttempt = {
   generation: number;
@@ -65,6 +69,7 @@ export function useTaskWorkspaceGraphNavigation(options: {
   const routeKey = `${history.historyIndex}:${JSON.stringify(history.route)}`;
   const routeGeneration = useRef<RestoreAttempt>({ generation: 0, routeKey });
   const completedRestoreGeneration = useRef<number | null>(null);
+  const retiredRestoreGeneration = useRef<number | null>(null);
   const inFlightRestore = useRef<RestoreAttempt | null>(null);
   const awaitingCanvasRender = useRef<RestoreAttempt | null>(null);
   const [restoreDriveVersion, setRestoreDriveVersion] = useState(0);
@@ -75,6 +80,7 @@ export function useTaskWorkspaceGraphNavigation(options: {
       routeKey
     };
     completedRestoreGeneration.current = null;
+    retiredRestoreGeneration.current = null;
     inFlightRestore.current = null;
     awaitingCanvasRender.current = null;
   }
@@ -171,6 +177,7 @@ export function useTaskWorkspaceGraphNavigation(options: {
     const isCurrentAttempt = () => sameRestoreAttempt(routeGeneration.current, attempt);
     if (
       completedRestoreGeneration.current === attempt.generation ||
+      retiredRestoreGeneration.current === attempt.generation ||
       sameRestoreAttempt(inFlightRestore.current, attempt)
     ) {
       return;
@@ -249,23 +256,31 @@ export function useTaskWorkspaceGraphNavigation(options: {
       return;
     }
     inFlightRestore.current = attempt;
+    let selectionReceipt: TaskWorkspaceSourceSelectionReceipt | undefined;
     void restoreSelection(snapshot.selectedTaskId, snapshot.selectedBlockRef)
-      .then(() => {
-        if (!isCurrentAttempt()) {
+      .then(async (receipt) => {
+        selectionReceipt = receipt;
+        if (!isCurrentAttempt()) return;
+        if (!receipt?.isCurrent()) {
+          retiredRestoreGeneration.current = attempt.generation;
           return;
         }
-        return flowInstance.setViewport(snapshot.viewport, { duration: 0 });
-      })
-      .then(() => {
-        if (isCurrentAttempt()) {
+        await flowInstance.setViewport(snapshot.viewport, { duration: 0 });
+        if (!isCurrentAttempt()) return;
+        if (receipt.isCurrent()) {
           completedRestoreGeneration.current = attempt.generation;
+        } else {
+          retiredRestoreGeneration.current = attempt.generation;
         }
       })
       .catch((error: unknown) => {
-        if (isCurrentAttempt()) {
-          completedRestoreGeneration.current = attempt.generation;
-          setError(error instanceof Error ? error.message : String(error));
+        if (!isCurrentAttempt()) return;
+        if (selectionReceipt && !selectionReceipt.isCurrent()) {
+          retiredRestoreGeneration.current = attempt.generation;
+          return;
         }
+        completedRestoreGeneration.current = attempt.generation;
+        setError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
         if (sameRestoreAttempt(inFlightRestore.current, attempt)) {

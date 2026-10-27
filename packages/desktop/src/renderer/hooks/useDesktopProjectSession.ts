@@ -56,8 +56,17 @@ export function useDesktopProjectSession({
     version: number;
   } | null>(null);
   const [selectedTaskPanelId, setSelectedTaskPanelId] = useState<string | null>(null);
+  const taskPanelSelectionVersion = useRef(0);
+  const captureTaskPanelSelection = useCallback(() => {
+    const scope = projectState.captureProjectSelection();
+    const version = taskPanelSelectionVersion.current;
+    return {
+      isCurrent: () => scope.isCurrent() && taskPanelSelectionVersion.current === version
+    };
+  }, [projectState.captureProjectSelection]);
 
   const clearTaskPanelSelection = useCallback(() => {
+    taskPanelSelectionVersion.current += 1;
     setSelectedTaskPanelId(null);
     setTaskFocusRequest(null);
   }, []);
@@ -131,6 +140,7 @@ export function useDesktopProjectSession({
 
   const selectTaskPanel = useCallback(
     (taskId: string | null) => {
+      taskPanelSelectionVersion.current += 1;
       setSelectedTaskPanelId(taskId);
       setTaskFocusRequest((current) =>
         taskId ? { taskId, version: (current?.version ?? 0) + 1 } : null
@@ -141,6 +151,7 @@ export function useDesktopProjectSession({
   );
 
   const restoreTaskPanelSelection = useCallback((taskId: string | null) => {
+    taskPanelSelectionVersion.current += 1;
     setSelectedTaskPanelId(taskId);
     setTaskFocusRequest(null);
   }, []);
@@ -406,6 +417,7 @@ export function useDesktopProjectSession({
     ...projectState,
     autoRunDiagnostics,
     autoRunState,
+    captureTaskPanelSelection,
     clearSelectionForCanvasChange,
     clearTaskPanelSelection,
     createTaskCanvas,

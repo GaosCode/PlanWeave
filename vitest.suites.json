@@ -289,6 +289,7 @@
         "taskWorkspaceConversationActions.test.tsx",
         "taskWorkspaceConversationAuthority.test.tsx",
         "taskWorkspaceGraphNavigation.test.tsx",
+        "taskWorkspaceSourceSelection.test.tsx",
         "taskWorkspaceInspector.test.tsx",
         "taskWorkspaceLiveDuration.test.ts",
         "taskWorkspaceNavigation.test.ts",

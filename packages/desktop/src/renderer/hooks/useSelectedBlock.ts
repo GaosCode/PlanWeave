@@ -413,6 +413,7 @@ export function useSelectedBlock({
   ]);
 
   return {
+    captureBlockSelection: captureBlockRequest,
     blockFeedbackRecords,
     blockReviewAttempts,
     blockRunRecords,
