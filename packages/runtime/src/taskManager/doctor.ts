@@ -9,6 +9,7 @@ import { loadPackage } from "../package/loadPackage.js";
 import { RETENTION_DOCTOR_THRESHOLD, countRetentionArtifacts } from "../runSessions/retention.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
 import type {
+  BlockState,
   BlockType,
   DoctorIssue,
   DoctorReport,
@@ -30,6 +31,13 @@ import { projectRemoteBlockExecution } from "./remoteExecutionReadModel.js";
 
 async function exists(path: string): Promise<boolean> {
   return (await optionalStat(path)) !== null;
+}
+
+function needsRunIndex(blockType: BlockType, blockState: BlockState | undefined): boolean {
+  return (
+    blockType === "implementation" ||
+    (blockType === "review" && blockState?.remoteOperationReceipt?.outcome === "failed")
+  );
 }
 
 async function resultRunMatchesIndex(
@@ -267,12 +275,6 @@ export async function runDoctor(options: {
       for (const [ref, indexRunId] of Object.entries(index.latestRunByBlock ?? {})) {
         checkedRefs.add(ref);
         const blockType = graph.blocksByRef.get(ref)?.type;
-        if (
-          blockType === "review" &&
-          state.blocks[ref]?.remoteOperationReceipt?.outcome !== "failed"
-        ) {
-          continue;
-        }
         if (!blockType) {
           issues.push({
             code: "result_index_block_type_mismatch",
@@ -285,6 +287,9 @@ export async function runDoctor(options: {
           continue;
         }
         const blockState = state.blocks?.[ref];
+        if (!needsRunIndex(blockType, blockState)) {
+          continue;
+        }
         const stateRunId = blockState?.lastRunId ?? null;
         if (stateRunId !== indexRunId) {
           const failedReceipt =
@@ -328,7 +333,8 @@ export async function runDoctor(options: {
         }
       }
       for (const ref of requireMapValue(graph.blocksByTask, taskId, "blocksByTask")) {
-        if (checkedRefs.has(ref) || graph.blocksByRef.get(ref)?.type !== "implementation") {
+        const blockType = requireMapValue(graph.blocksByRef, ref, "blocksByRef").type;
+        if (checkedRefs.has(ref) || !needsRunIndex(blockType, state.blocks[ref])) {
           continue;
         }
         const stateRunId = state.blocks?.[ref]?.lastRunId ?? null;
@@ -336,7 +342,7 @@ export async function runDoctor(options: {
           continue;
         }
         const repaired =
-          options.repair && !remoteStateBlocksRepair
+          options.repair && !remoteStateBlocksRepair && blockType === "implementation"
             ? await repairIndexRunMismatch({ workspace, ref, taskId, stateRunId })
             : false;
         issues.push({

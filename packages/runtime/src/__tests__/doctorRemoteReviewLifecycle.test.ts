@@ -228,6 +228,56 @@ describe("Doctor after real remote review lifecycle writes", () => {
   });
 
   it.each([
+    "executor_failed",
+    "execution_cancelled"
+  ] as const)("reports a missing RUN index after real Review %s without changing failure evidence", async (code) => {
+    const workspace = await prepareReview();
+    await workspace.port.activate({ ref: reviewRef, ...workspace.identity });
+    await workspace.port.fail({
+      ref: reviewRef,
+      ...workspace.identity,
+      failure: { code, message: "Remote Review did not complete.", retryable: true }
+    });
+    const { resultsDir, stateFile } = workspace.init.workspace;
+    const block = (await readState(stateFile)).blocks[reviewRef];
+    expect(block).toMatchObject({
+      status: "blocked",
+      lastRunId: expect.stringMatching(/^RUN-\d+$/),
+      remoteOperationReceipt: { ...workspace.identity, blockType: "review", outcome: "failed" }
+    });
+    const runDir = join(resultsDir, "T-001/blocks/R-001/runs", block.lastRunId!);
+    expect(await readdir(runDir)).not.toContain("report.md");
+    expect(await readJsonFile(join(runDir, "metadata.json"))).toMatchObject({
+      operationId: workspace.identity.operationId,
+      dispatchId: workspace.identity.dispatchId,
+      executionAttemptId: workspace.identity.executionAttemptId,
+      status: "failed",
+      runId: block.lastRunId
+    });
+    await expectDoctorPreserves(workspace);
+
+    const indexPath = join(resultsDir, "T-001/index.json");
+    const index = await readJsonFile<{
+      latestRunByBlock: Record<string, string>;
+    }>(indexPath);
+    expect(index.latestRunByBlock[reviewRef]).toBe(block.lastRunId);
+    delete index.latestRunByBlock[reviewRef];
+    await writeJsonFile(indexPath, index);
+
+    await expectDoctorPreserves(workspace, ["index_state_mismatch"]);
+    const report = await runDoctor({ projectRoot: workspace.root });
+    expect(report.issues).toEqual([
+      expect.objectContaining({
+        code: "index_state_mismatch",
+        ref: reviewRef,
+        stateRunId: block.lastRunId,
+        indexRunId: null,
+        repaired: false
+      })
+    ]);
+  });
+
+  it.each([
     "metadata.json",
     "review-result.json"
   ])("reports missing real attempt %s without changing pointers or history", async (missingFile) => {

@@ -22,8 +22,7 @@ describe("runDoctor", () => {
   it.each([
     "preparing",
     "active",
-    "completed",
-    "failed"
+    "completed"
   ] as const)("preserves a valid %s remote review during diagnosis and repair", async (phase) => {
     const { root, init } = await createDoctorWorkspace();
     const identity = {
@@ -33,20 +32,18 @@ describe("runDoctor", () => {
       dispatchId: "dispatch-001",
       executionAttemptId: "attempt-001"
     };
-    const terminal = phase === "completed" || phase === "failed";
+    const terminal = phase === "completed";
     const block = terminal
       ? {
-          status: phase === "completed" ? "completed" : "blocked",
-          ...(phase === "completed"
-            ? { lastRunId: "REV-001", latestReviewAttemptId: "REV-001", completionReason: "passed" }
-            : { lastRunId: "RUN-FAILED-001", blockedReason: "[executor_failed] failed" }),
+          status: "completed",
+          lastRunId: "REV-001",
+          latestReviewAttemptId: "REV-001",
+          completionReason: "passed",
           remoteOperationReceipt: {
             ...identity,
             blockType: "review",
             outcome: phase,
-            ...(phase === "completed"
-              ? { runId: "REV-001" }
-              : { failure: { code: "executor_failed", message: "failed", retryable: true } })
+            runId: "REV-001"
           }
         }
       : {
