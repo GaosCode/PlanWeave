@@ -147,6 +147,22 @@ export function useHostAdministrationController(
     DEFAULT_HOST_CREDENTIAL_LIFETIME_DAYS
   );
 
+  const beginAction = useCallback(() => {
+    const generation = ++actionErrorGeneration.current;
+    const isCurrent = () => generation === actionErrorGeneration.current;
+    setLocalAgentHostLoading(false);
+    setActionError(null);
+    setInventoryError(null);
+    setLocalHostQueryError(null);
+    setLocalHostActionResult(null);
+    return {
+      isCurrent,
+      updateError: (error: string | null) => {
+        if (isCurrent()) setActionError(error);
+      }
+    };
+  }, []);
+
   const refresh = useCallback(async () => {
     const updateActionError = captureActionError();
     if (!operatorControlBridge) {
@@ -399,8 +415,10 @@ export function useHostAdministrationController(
     const poll = async (silent = false) => {
       const authority = localHostAuthority.current;
       const generation = authority.generation;
+      const errorGeneration = actionErrorGeneration.current;
       const isCurrent = () =>
         active &&
+        errorGeneration === actionErrorGeneration.current &&
         localHostAuthority.current === authority &&
         authority.identity === hostAuthorityIdentity &&
         authority.generation === generation &&
@@ -436,24 +454,27 @@ export function useHostAdministrationController(
 
   const runStatusAction = useCallback(
     async (action: () => Promise<OperatorControlStatus>): Promise<boolean> => {
-      const updateActionError = captureActionError();
+      const operation = beginAction();
+      const updateActionError = operation.updateError;
       if (!operatorControlBridge) {
         updateActionError("operator_bridge_unavailable");
         return false;
       }
       setBusy(true);
       try {
-        setStatus(await action());
+        const next = await action();
+        if (!operation.isCurrent()) return false;
+        setStatus(next);
         updateActionError(null);
         return true;
       } catch (cause) {
         updateActionError(hostAdministrationErrorCode(cause));
         return false;
       } finally {
-        setBusy(false);
+        if (operation.isCurrent()) setBusy(false);
       }
     },
-    [captureActionError]
+    [beginAction]
   );
 
   const saveProfile = useCallback(
@@ -497,7 +518,8 @@ export function useHostAdministrationController(
   );
 
   const copyBootstrapHandoff = useCallback(async () => {
-    const updateActionError = captureActionError();
+    const operation = beginAction();
+    const updateActionError = operation.updateError;
     if (!operatorControlBridge || !activeProfile || !activeProfile.hasOperatorCredential) {
       updateActionError("operator_credential_missing");
       return null;
@@ -516,6 +538,7 @@ export function useHostAdministrationController(
           ...enrollmentOwnerFields(humanPrincipalId, enrollmentWorkspaceId)
         }
       });
+      if (!operation.isCurrent()) return null;
       setHandoff(result);
       updateActionError(null);
       return result;
@@ -523,19 +546,14 @@ export function useHostAdministrationController(
       updateActionError(hostAdministrationErrorCode(cause));
       return null;
     } finally {
-      setBusy(false);
+      if (operation.isCurrent()) setBusy(false);
     }
-  }, [
-    activeProfile,
-    captureActionError,
-    credentialLifetimeDays,
-    enrollmentWorkspaceId,
-    humanPrincipalId
-  ]);
+  }, [activeProfile, beginAction, credentialLifetimeDays, enrollmentWorkspaceId, humanPrincipalId]);
 
   const copyMemberSetupCode = useCallback(
     async (target: OperatorCopyMemberSetupCodeInput) => {
-      const updateActionError = captureActionError();
+      const operation = beginAction();
+      const updateActionError = operation.updateError;
       if (!operatorControlBridge) {
         updateActionError("operator_credential_missing");
         return null;
@@ -543,6 +561,7 @@ export function useHostAdministrationController(
       setBusy(true);
       try {
         const result = await operatorControlBridge.copyOperatorMemberSetupCode(target);
+        if (!operation.isCurrent()) return null;
         setMemberSetupCodeHandoff(result);
         updateActionError(null);
         return result;
@@ -550,15 +569,16 @@ export function useHostAdministrationController(
         updateActionError(hostAdministrationErrorCode(cause));
         return null;
       } finally {
-        setBusy(false);
+        if (operation.isCurrent()) setBusy(false);
       }
     },
-    [captureActionError]
+    [beginAction]
   );
 
   const revokeHost = useCallback(
     async (hostId: string) => {
-      const updateActionError = captureActionError();
+      const operation = beginAction();
+      const updateActionError = operation.updateError;
       if (!operatorControlBridge || !activeProfile) {
         updateActionError("operator_profile_missing");
         return null;
@@ -569,6 +589,7 @@ export function useHostAdministrationController(
           profileId: activeProfile.profileId,
           hostId
         });
+        if (!operation.isCurrent()) return null;
         setHostSnapshot((current) => {
           if (
             current?.profileId !== activeProfile.profileId ||
@@ -595,15 +616,16 @@ export function useHostAdministrationController(
         updateActionError(hostAdministrationErrorCode(cause));
         return null;
       } finally {
-        setBusy(false);
+        if (operation.isCurrent()) setBusy(false);
       }
     },
-    [activeProfile, captureActionError]
+    [activeProfile, beginAction]
   );
 
   const renewHostCredential = useCallback(
     async (hostId: string) => {
-      const updateActionError = captureActionError();
+      const operation = beginAction();
+      const updateActionError = operation.updateError;
       if (!operatorControlBridge || !activeProfile) {
         updateActionError("operator_profile_missing");
         return null;
@@ -614,6 +636,7 @@ export function useHostAdministrationController(
           profileId: activeProfile.profileId,
           hostId
         });
+        if (!operation.isCurrent()) return null;
         setHostSnapshot((current) => {
           if (
             current?.profileId !== activeProfile.profileId ||
@@ -640,10 +663,10 @@ export function useHostAdministrationController(
         updateActionError(hostAdministrationErrorCode(cause));
         return null;
       } finally {
-        setBusy(false);
+        if (operation.isCurrent()) setBusy(false);
       }
     },
-    [activeProfile, captureActionError]
+    [activeProfile, beginAction]
   );
 
   const runLocalHostAction = useCallback(
@@ -655,15 +678,14 @@ export function useHostAdministrationController(
       if (authority.identity !== hostAuthorityIdentity || authority.action) return null;
       const generation = ++authority.generation;
       authority.action = true;
-      actionErrorGeneration.current += 1;
+      const operation = beginAction();
       const isCurrent = () =>
-        localHostAuthority.current === authority && authority.generation === generation;
+        operation.isCurrent() &&
+        localHostAuthority.current === authority &&
+        authority.generation === generation;
       setLocalAgentHostLoading(false);
       setBusy(true);
       setLocalHostActionResult({ identity: hostAuthorityIdentity, error: null });
-      setActionError(null);
-      setInventoryError(null);
-      setLocalHostQueryError(null);
       try {
         const next = await action();
         if (!isCurrent()) return null;
@@ -696,38 +718,32 @@ export function useHostAdministrationController(
         }
         return null;
       } finally {
-        if (isCurrent()) {
+        if (localHostAuthority.current === authority && authority.generation === generation) {
           authority.action = false;
-          setBusy(false);
+          if (operation.isCurrent()) setBusy(false);
         }
       }
     },
-    [activeProfileId, hostAuthorityIdentity, refreshHosts]
+    [activeProfileId, beginAction, hostAuthorityIdentity, refreshHosts]
   );
 
   const registerLocalAgentHost = useCallback(
     async (exposedProfileIds: readonly string[]) => {
-      if (!operatorControlBridge || !activeProfile || !activeProfile.hasOperatorCredential) {
-        setActionError("operator_credential_missing");
-        return null;
-      }
-      if (!humanPrincipalId) {
-        setActionError("human_principal_unavailable");
-        return null;
-      }
-      return runLocalHostAction(
-        () =>
-          operatorControlBridge!.registerOperatorLocalAgentHost({
-            profileId: activeProfile.profileId,
-            request: {
-              expiresAt: nextExpiry(15),
-              credentialPolicy: { lifetimeDays: credentialLifetimeDays, renewal: "automatic" },
-              ...enrollmentOwnerFields(humanPrincipalId, enrollmentWorkspaceId)
-            },
-            exposedProfileIds: [...exposedProfileIds]
-          }),
-        true
-      );
+      return runLocalHostAction(() => {
+        if (!operatorControlBridge || !activeProfile || !activeProfile.hasOperatorCredential) {
+          throw new Error("operator_credential_missing");
+        }
+        if (!humanPrincipalId) throw new Error("human_principal_unavailable");
+        return operatorControlBridge.registerOperatorLocalAgentHost({
+          profileId: activeProfile.profileId,
+          request: {
+            expiresAt: nextExpiry(15),
+            credentialPolicy: { lifetimeDays: credentialLifetimeDays, renewal: "automatic" },
+            ...enrollmentOwnerFields(humanPrincipalId, enrollmentWorkspaceId)
+          },
+          exposedProfileIds: [...exposedProfileIds]
+        });
+      }, true);
     },
     [
       activeProfile,
@@ -740,34 +756,26 @@ export function useHostAdministrationController(
 
   const enrollLocalAgentHost = useCallback(
     async (handoff: string, exposedProfileIds: readonly string[]) => {
-      if (!operatorControlBridge) {
-        setActionError("operator_bridge_unavailable");
-        return null;
-      }
-      return runLocalHostAction(
-        () =>
-          operatorControlBridge!.enrollOperatorLocalAgentHost({
-            handoff,
-            exposedProfileIds: [...exposedProfileIds]
-          }),
-        true
-      );
+      return runLocalHostAction(() => {
+        if (!operatorControlBridge) throw new Error("operator_bridge_unavailable");
+        return operatorControlBridge.enrollOperatorLocalAgentHost({
+          handoff,
+          exposedProfileIds: [...exposedProfileIds]
+        });
+      }, true);
     },
     [runLocalHostAction]
   );
 
   const repairLocalAgentHost = useCallback(
     async (exposedProfileIds: readonly string[]) => {
-      if (!operatorControlBridge) {
-        setActionError("operator_bridge_unavailable");
-        return null;
-      }
-      return runLocalHostAction(() =>
-        operatorControlBridge!.repairOperatorLocalAgentHost({
+      return runLocalHostAction(() => {
+        if (!operatorControlBridge) throw new Error("operator_bridge_unavailable");
+        return operatorControlBridge.repairOperatorLocalAgentHost({
           ...(activeProfileId ? { profileId: activeProfileId } : {}),
           exposedProfileIds: [...exposedProfileIds]
-        })
-      );
+        });
+      });
     },
     [activeProfileId, runLocalHostAction]
   );
@@ -807,7 +815,6 @@ export function useHostAdministrationController(
     dismissHandoff: () => setHandoff(null),
     dismissMemberSetupCodeHandoff: () => setMemberSetupCodeHandoff(null),
     clearError: () => {
-      actionErrorGeneration.current += 1;
       setActionError(null);
       setInventoryError(null);
       setLocalHostQueryError(null);

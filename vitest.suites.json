@@ -194,6 +194,7 @@
         "historyNavigationButtons.test.tsx",
         "hostAdministration.test.tsx",
         "hostAdministrationController.test.tsx",
+        "hostAdministrationActionOwnership.test.tsx",
         "hostAdministrationRegistrationRecovery.test.tsx",
         "hostBootstrapHandoff.test.ts",
         "hostInventoryOperationCoordinator.test.ts",
