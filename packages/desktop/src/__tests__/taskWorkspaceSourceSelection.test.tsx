@@ -1,7 +1,13 @@
 /* @vitest-environment jsdom */
 
 import { act, render, waitFor } from "@testing-library/react";
-import type { DesktopBlockDetail } from "@planweave-ai/runtime";
+import type {
+  DesktopBlockDetail,
+  DesktopBlockRunRecordSummary,
+  DesktopRunRecord,
+  DesktopReviewAttemptSummary,
+  DesktopFeedbackRecord
+} from "@planweave-ai/runtime";
 import type { Edge, ReactFlowInstance, Viewport } from "@xyflow/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -55,6 +61,69 @@ const graphWithBlocks = {
   }))
 };
 
+function sourceRun(block: DesktopBlockDetail): DesktopBlockRunRecordSummary {
+  return {
+    recordId: `${block.ref}::RUN-001`,
+    ref: block.ref,
+    taskId: block.taskId,
+    blockId: block.blockId,
+    runId: "RUN-001",
+    executor: "codex",
+    adapter: "codex",
+    executionCwd: project.rootPath,
+    projectRoot: project.rootPath,
+    agentSessionId: null,
+    codexSessionId: null,
+    exitCode: 0,
+    startedAt: "2026-10-28T00:00:00Z",
+    finishedAt: "2026-10-28T00:01:00Z",
+    promptPath: "/tmp/prompt.md",
+    reportPath: "/tmp/report.md",
+    metadataPath: "/tmp/metadata.json",
+    stdoutSummary: "completed",
+    stderrSummary: ""
+  };
+}
+function installSourceRecords(block: DesktopBlockDetail) {
+  const run = sourceRun(block);
+  const review: DesktopReviewAttemptSummary = {
+    ref: block.ref,
+    taskId: block.taskId,
+    blockId: block.blockId,
+    attemptId: "REV-001",
+    verdict: "needs_changes",
+    resultPath: "/tmp/review.json",
+    metadataPath: "/tmp/review-meta.json",
+    content: "Review content",
+    contentPreview: "Review content",
+    reviewedAt: "2026-10-28T00:01:00Z"
+  };
+  const feedback: DesktopFeedbackRecord = {
+    feedbackId: "FE-001",
+    sourceReviewBlockRef: block.ref,
+    status: "open",
+    latestSubmissionId: null,
+    content: "Feedback content",
+    sourceReviewAttemptId: review.attemptId,
+    createdAt: "2026-10-28T00:01:00Z",
+    resolvedAt: null
+  };
+  const opened: DesktopRunRecord = {
+    ...run,
+    promptMarkdown: "Prompt",
+    reportMarkdown: "Current report",
+    displayMarkdown: "Current report",
+    displayMarkdownSource: "report",
+    metadata: {},
+    runnerReadModel: null
+  };
+  bridges.desktop.target.listBlockRunRecords = vi.fn().mockResolvedValue([run]);
+  bridges.desktop.target.getReviewAttempts = vi.fn().mockResolvedValue([review]);
+  bridges.desktop.target.getFeedbackRecords = vi.fn().mockResolvedValue([feedback]);
+  bridges.desktop.target.getRunRecord = vi.fn().mockResolvedValue(opened);
+  return { run, review, feedback, opened };
+}
+
 beforeEach(() => {
   for (const name of ["useSelectedBlock", "useDesktopProjectSession"]) {
     vi.doUnmock(`../renderer/hooks/${name}`);
@@ -75,6 +144,19 @@ beforeEach(() => {
 });
 
 async function mountSource(source: GraphNavigationSnapshot = snapshot) {
+  let blockState!: ReturnType<typeof import("../renderer/hooks/useSelectedBlock").useSelectedBlock>;
+  vi.doMock("../renderer/hooks/useSelectedBlock", async () => {
+    const actual = await vi.importActual<typeof import("../renderer/hooks/useSelectedBlock")>(
+      "../renderer/hooks/useSelectedBlock"
+    );
+    return {
+      ...actual,
+      useSelectedBlock: (...args: Parameters<typeof actual.useSelectedBlock>) => {
+        blockState = actual.useSelectedBlock(...args);
+        return blockState;
+      }
+    };
+  });
   const { ProjectWorkspaceProvider, useProjectWorkspace } = await import(
     "../renderer/ProjectWorkspaceProvider"
   );
@@ -142,6 +224,9 @@ async function mountSource(source: GraphNavigationSnapshot = snapshot) {
     })
   } as ReactFlowInstance<AppFlowNode, Edge>;
   return {
+    get blockState() {
+      return blockState;
+    },
     startRestore: () => act(() => current.graphWorkspace.setFlowInstance(flow)),
     get current() {
       return current;
@@ -232,17 +317,84 @@ describe("Task Workspace source selection through ProjectWorkspaceProvider", () 
     expect(probe.flow.setViewport).not.toHaveBeenCalled();
   });
 
-  it("retires a pending Block source when the user selects another Task on the same graph", async () => {
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("does not publish a retired Block source after Task selection (%s)", async (outcome) => {
     const pending = deferred<DesktopBlockDetail>();
     bridges.desktop.target.getBlockDetail = vi.fn(() => pending.promise);
+    const records = installSourceRecords(alpha);
     const probe = await mountSource();
     probe.startRestore();
+    act(() => probe.current.projectSidebar.handleTaskPanelSelect(beta.taskId));
+    const opened: DesktopRunRecord = { ...records.opened, ...sourceRun(beta) };
+    act(() => probe.blockState.setSelectedRunRecord(opened));
+    probe.setError.mockClear();
+    await act(async () => {
+      if (outcome === "resolve") pending.resolve(alpha);
+      else pending.reject(new Error("old Alpha restore failed"));
+      await Promise.allSettled([pending.promise]);
+    });
+    expect(probe.current.projectSidebar.selectedTaskPanelId).toBe(beta.taskId);
+    expect(probe.blockState.selectedBlock).toBeNull();
+    expect(probe.blockState.blockRunRecords).toEqual([]);
+    expect(probe.blockState.blockReviewAttempts).toEqual([]);
+    expect(probe.blockState.blockFeedbackRecords).toEqual([]);
+    expect(probe.blockState.selectedRunRecord).toEqual(opened);
+    expect(probe.setError).not.toHaveBeenCalled();
+    expect(probe.flow.setViewport).not.toHaveBeenCalled();
+  });
+
+  it("keeps an adopted Block usable while a source request is retired by a Task selection", async () => {
+    const pending = deferred<DesktopBlockDetail>();
+    const getBlockDetail = vi.fn((_canvas, ref) =>
+      ref === alpha.ref ? pending.promise : Promise.resolve(beta)
+    );
+    bridges.desktop.target.getBlockDetail = getBlockDetail;
+    const records = installSourceRecords(beta);
+    const probe = await mountSource();
+    await act(async () => probe.current.graphWorkspace.handleOpenBlockInspector(beta.ref));
+    await act(async () => probe.current.graphWorkspace.handleOpenRunRecord(records.run.recordId));
+    const assertStableBlock = () => {
+      expect(probe.blockState.selectedBlock).toEqual(beta);
+      expect(probe.blockState.blockRunRecords).toEqual([records.run]);
+      expect(probe.blockState.blockReviewAttempts).toEqual([records.review]);
+      expect(probe.blockState.blockFeedbackRecords).toEqual([records.feedback]);
+      expect(probe.blockState.selectedRunRecord).toEqual(records.opened);
+    };
+    // Ordinary Task selection keeps an already adopted Block and its history.
+    act(() => probe.current.projectSidebar.handleTaskPanelSelect(beta.taskId));
+    assertStableBlock();
+    probe.startRestore();
+    await waitFor(() => expect(getBlockDetail).toHaveBeenCalledWith(expect.anything(), alpha.ref));
+    // A pending source must not clear C's opened run before it is adopted.
+    assertStableBlock();
     act(() => probe.current.projectSidebar.handleTaskPanelSelect(beta.taskId));
     await act(async () => {
       pending.resolve(alpha);
       await pending.promise;
     });
-    expect(probe.current.projectSidebar.selectedTaskPanelId).toBe(beta.taskId);
+    assertStableBlock();
+    getBlockDetail.mockImplementation((_canvas, ref) =>
+      Promise.resolve(ref === beta.ref ? beta : alpha)
+    );
+    expect(probe.blockState.captureBlockSelection().isCurrent()).toBe(true);
+    const updateBlockPrompt = vi
+      .fn()
+      .mockResolvedValue({ ok: true, affectedTasks: [beta.taskId], diagnostics: [] });
+    bridges.desktop.target.updateBlockPrompt = updateBlockPrompt;
+    act(() =>
+      probe.blockState.setSelectedBlock(
+        (current) => current && { ...current, promptMarkdown: "C draft" }
+      )
+    );
+    await act(async () => probe.blockState.saveSelectedBlockPrompt());
+    expect(updateBlockPrompt).toHaveBeenCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      beta.ref,
+      "C draft",
+      expect.any(Object)
+    );
     expect(probe.flow.setViewport).not.toHaveBeenCalled();
   });
 

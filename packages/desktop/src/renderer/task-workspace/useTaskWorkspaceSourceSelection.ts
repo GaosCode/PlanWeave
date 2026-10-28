@@ -33,13 +33,13 @@ export function useTaskWorkspaceSourceSelection({
       blockRef: string | null
     ): Promise<TaskWorkspaceSourceSelectionReceipt | undefined> => {
       const taskSelection = captureTaskPanelSelection();
-      setSelectedRunRecord(null);
       let blockSelection: TaskWorkspaceSourceSelectionReceipt;
       if (blockRef) {
-        const accepted = await restoreBlockSelection(blockRef);
+        const accepted = await restoreBlockSelection(blockRef, undefined, taskSelection);
         if (!accepted?.isCurrent() || !taskSelection.isCurrent()) return;
         blockSelection = accepted;
       } else {
+        setSelectedRunRecord(null);
         setSelectedBlock(null);
         clearSelectedBlockRecords();
         blockSelection = captureBlockSelection();

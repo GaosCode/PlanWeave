@@ -620,7 +620,16 @@ describe("selected block asynchronous ownership", () => {
   ] as const)("does not let a background refresh supersede a new selection (%s)", async (order) => {
     const background = deferred<DesktopBlockDetail>();
     const foreground = deferred<DesktopBlockDetail>();
+    const betaRecord = {
+      ...runRecordSummary,
+      ref: beta.ref,
+      taskId: beta.taskId,
+      recordId: `${beta.ref}::RUN-002`
+    };
     const { result, bridge, emit } = await setup({
+      listBlockRunRecords: vi.fn((_canvas, ref) =>
+        Promise.resolve([ref === beta.ref ? betaRecord : runRecordSummary])
+      ),
       getBlockDetail: vi
         .fn()
         .mockResolvedValueOnce(blockDetail)
@@ -656,6 +665,45 @@ describe("selected block asynchronous ownership", () => {
       await finishBackground();
     }
     expect(result.current.selectedBlock).toEqual(beta);
+    expect(result.current.blockRunRecords).toEqual([betaRecord]);
+  });
+
+  it("keeps an adopted Block refreshable on its own canvas after an override source is retired", async () => {
+    const pending = deferred<DesktopBlockDetail>();
+    const refreshed = { ...blockDetail, title: "Current refreshed" };
+    const { result, bridge, emit, setError } = await setup({
+      getBlockDetail: vi
+        .fn()
+        .mockResolvedValueOnce(blockDetail)
+        .mockImplementationOnce(() => pending.promise)
+        .mockResolvedValue(refreshed)
+    });
+    await act(async () => {
+      await result.current.handleBlockSelect(blockDetail.ref);
+      await result.current.handleOpenRunRecord(runRecordSummary.recordId);
+    });
+    let sourceCurrent = true;
+    let restoring!: ReturnType<typeof result.current.restoreBlockSelection>;
+    act(() => {
+      restoring = result.current.restoreBlockSelection(beta.ref, "canvas-override", {
+        isCurrent: () => sourceCurrent
+      });
+    });
+    sourceCurrent = false;
+    await act(async () => {
+      pending.resolve(beta);
+      expect(await restoring).toBeUndefined();
+    });
+    expect(result.current.selectedBlock).toEqual(blockDetail);
+    expect(result.current.selectedRunRecord).toEqual(runRecord());
+    act(emit);
+    await waitFor(() => expect(result.current.selectedBlock).toEqual(refreshed));
+    expect(bridge.getBlockDetail).toHaveBeenLastCalledWith(
+      { projectRoot: project.rootPath, canvasId: "canvas-main" },
+      blockDetail.ref
+    );
+    expect(result.current.selectedRunRecord).toEqual(runRecord());
+    expect(setError).not.toHaveBeenCalled();
   });
 
   it("preserves record-only clearing while retaining the selected block and opened history", async () => {

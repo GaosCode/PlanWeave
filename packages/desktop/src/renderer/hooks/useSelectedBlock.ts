@@ -54,11 +54,13 @@ export function useSelectedBlock({
 
   const selection = useRef({
     version: 0,
+    requestVersion: 0,
     ref: null as string | null,
     canvasId: selectedCanvasId,
     block: null as DesktopBlockDetail | null,
     record: null as DesktopRunRecord | null,
     recordsOperation: 0,
+    recordsClearVersion: 0,
     runOperation: 0,
     promptOperation: 0,
     titleOperation: 0,
@@ -84,11 +86,20 @@ export function useSelectedBlock({
     };
   }, [captureSelection, captureSelectionScope]);
 
+  const captureBlockSelection = useCallback(() => {
+    const request = captureBlockRequest();
+    const version = selection.current.requestVersion;
+    return {
+      isCurrent: () => request.isCurrent() && selection.current.requestVersion === version
+    };
+  }, [captureBlockRequest]);
+
   const setSelectedBlock = useCallback(
     (value: SetStateAction<DesktopBlockDetail | null>) => {
       const current = selection.current;
       const next = typeof value === "function" ? value(current.block) : value;
       if (!next || next.ref !== current.ref) {
+        current.requestVersion += 1;
         current.version += 1;
         current.runOperation += 1;
         current.recordsOperation += 1;
@@ -113,6 +124,7 @@ export function useSelectedBlock({
 
   const clearSelectedBlockRecords = useCallback(() => {
     selection.current.recordsOperation += 1;
+    selection.current.recordsClearVersion += 1;
     setBlockRunRecords([]);
     setBlockReviewAttempts([]);
     setBlockFeedbackRecords([]);
@@ -152,17 +164,20 @@ export function useSelectedBlock({
   const restoreBlockSelection = useCallback(
     async (
       ref: string,
-      canvasIdOverride?: string | null
+      canvasIdOverride?: string | null,
+      sourceOwner?: DesktopSelectionReceipt
     ): Promise<SelectedBlockSelection | undefined> => {
       if (!bridge || !selectedProject) return;
       const canvasId = canvasIdOverride === undefined ? selectedCanvasId : canvasIdOverride;
-      selection.current.owner = captureSelectionScope();
-      selection.current.version += 1;
-      selection.current.ref = ref;
-      selection.current.canvasId = canvasId;
-      selection.current.runOperation += 1;
-      const recordsOperation = ++selection.current.recordsOperation;
-      const request = captureBlockRequest();
+      const scope = captureSelectionScope();
+      const lifecycle = captureSelection();
+      const version = ++selection.current.requestVersion;
+      const recordsClearVersion = selection.current.recordsClearVersion;
+      const isCurrent = () =>
+        scope.isCurrent() &&
+        lifecycle.isCurrent() &&
+        selection.current.requestVersion === version &&
+        (!sourceOwner || sourceOwner.isCurrent());
       const canvas = desktopCanvasReference(selectedProject, canvasId);
       try {
         const [block, runRecords, reviewAttempts, feedbackRecords] = await Promise.all([
@@ -171,23 +186,28 @@ export function useSelectedBlock({
           bridge.getReviewAttempts(canvas, ref),
           bridge.getFeedbackRecords(canvas, ref)
         ]);
-        if (!request.isCurrent()) return;
+        if (!isCurrent()) return;
+        selection.current.owner = scope;
+        selection.current.version += 1;
+        selection.current.ref = ref;
+        selection.current.canvasId = canvasId;
         selection.current.block = block;
         publishSelectedBlock(block);
-        if (selection.current.recordsOperation === recordsOperation) {
+        selection.current.recordsOperation += 1;
+        if (selection.current.recordsClearVersion === recordsClearVersion) {
           setBlockRunRecords(runRecords);
           setBlockReviewAttempts(reviewAttempts);
           setBlockFeedbackRecords(feedbackRecords);
         }
         setSelectedRunRecord(null);
-        return { block, isCurrent: request.isCurrent };
+        return { block, ...captureBlockSelection() };
       } catch (caught) {
-        if (request.isCurrent())
-          setError(caught instanceof Error ? caught.message : String(caught));
+        if (isCurrent()) setError(caught instanceof Error ? caught.message : String(caught));
       }
     },
     [
-      captureBlockRequest,
+      captureBlockSelection,
+      captureSelection,
       captureSelectionScope,
       selectedCanvasId,
       selectedProject,
@@ -413,7 +433,7 @@ export function useSelectedBlock({
   ]);
 
   return {
-    captureBlockSelection: captureBlockRequest,
+    captureBlockSelection,
     blockFeedbackRecords,
     blockReviewAttempts,
     blockRunRecords,
