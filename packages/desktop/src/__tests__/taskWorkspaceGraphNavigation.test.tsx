@@ -378,4 +378,90 @@ describe("Task Workspace graph navigation", () => {
     expect(restoreSelection).not.toHaveBeenCalled();
     expect(flow.setViewport).not.toHaveBeenCalled();
   });
+  it.each([
+    "selection pending",
+    "viewport false",
+    "viewport pending",
+    "viewport reject"
+  ] as const)("restores on the current instance after %s without retrying an unavailable instance", async (phase) => {
+    const selection = deferred<{ isCurrent: () => boolean }>();
+    const viewport = deferred<boolean>();
+    const oldFlow = flowInstance();
+    const newFlow = flowInstance();
+    const restoreSelection = vi.fn().mockResolvedValue({ isCurrent: () => true });
+    if (phase === "selection pending")
+      restoreSelection.mockImplementationOnce(() => selection.promise);
+    if (phase === "viewport false") vi.mocked(oldFlow.setViewport).mockResolvedValue(false);
+    if (phase === "viewport pending" || phase === "viewport reject")
+      vi.mocked(oldFlow.setViewport).mockImplementationOnce(() => viewport.promise);
+    const history = historyController(snapshot);
+    const setError = vi.fn();
+    const { rerender } = renderHook(
+      ({ flow, currentGraph }) =>
+        useTaskWorkspaceGraphNavigation({
+          flowInstance: flow,
+          graph: currentGraph,
+          history,
+          openProject: vi.fn(),
+          projectLoading: false,
+          projects: [project],
+          restoreSelection,
+          selectedCanvasId: "canvas-main",
+          selectedProject: project,
+          setError
+        }),
+      { initialProps: { flow: oldFlow, currentGraph: graphWithBlock } }
+    );
+    await waitFor(() => expect(restoreSelection).toHaveBeenCalledOnce());
+    if (phase !== "selection pending") {
+      await waitFor(() => expect(oldFlow.setViewport).toHaveBeenCalledOnce());
+      await act(async () => undefined);
+      rerender({ flow: oldFlow, currentGraph: { ...graphWithBlock } });
+      await act(async () => undefined);
+      expect(restoreSelection).toHaveBeenCalledOnce();
+    }
+    rerender({ flow: newFlow, currentGraph: graphWithBlock });
+    await act(async () => {
+      selection.resolve({ isCurrent: () => true });
+      if (phase === "viewport reject") viewport.reject(new Error("old instance failed"));
+      else viewport.resolve(true);
+    });
+    await waitFor(() =>
+      expect(newFlow.setViewport).toHaveBeenCalledWith(snapshot.viewport, { duration: 0 })
+    );
+    expect(oldFlow.setViewport).toHaveBeenCalledTimes(phase === "selection pending" ? 0 : 1);
+    expect(newFlow.setViewport).toHaveBeenCalledOnce();
+    expect(setError).not.toHaveBeenCalled();
+  });
+  it("retires an accepted selection after viewport false if a new selection wins before the next onInit", async () => {
+    const oldFlow = flowInstance();
+    const newFlow = flowInstance();
+    vi.mocked(oldFlow.setViewport).mockResolvedValue(false);
+    let current = true;
+    const restoreSelection = vi.fn().mockResolvedValue({ isCurrent: () => current });
+    const history = historyController(snapshot);
+    const { rerender } = renderHook(
+      ({ flow }) =>
+        useTaskWorkspaceGraphNavigation({
+          flowInstance: flow,
+          graph: graphWithBlock,
+          history,
+          openProject: vi.fn(),
+          projectLoading: false,
+          projects: [project],
+          restoreSelection,
+          selectedCanvasId: "canvas-main",
+          selectedProject: project,
+          setError: vi.fn()
+        }),
+      { initialProps: { flow: oldFlow } }
+    );
+    await waitFor(() => expect(oldFlow.setViewport).toHaveBeenCalledOnce());
+    await act(async () => undefined);
+    current = false;
+    rerender({ flow: newFlow });
+    await act(async () => undefined);
+    expect(restoreSelection).toHaveBeenCalledOnce();
+    expect(newFlow.setViewport).not.toHaveBeenCalled();
+  });
 });

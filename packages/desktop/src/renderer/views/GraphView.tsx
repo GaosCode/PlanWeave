@@ -3,7 +3,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type CSSProperties,
   type Dispatch,
@@ -46,6 +45,7 @@ import { styleDependencyEdgesForInteraction } from "../graph/dependencyEdgeVisua
 import { CanvasPresenceOverlay } from "../graph/CanvasPresenceOverlay";
 import type { AppEdgeTypes, AppNodeTypes } from "../graph/flowModel";
 import { sharedResourceColor } from "../graph/sharedResourceColors";
+import { useGraphViewportLifecycle } from "../hooks/useGraphViewportLifecycle";
 import { useEdgeReconnect } from "../hooks/useEdgeReconnect";
 import { ResourceInspector } from "../inspector/ResourceInspector";
 import type { AppView } from "../types";
@@ -99,6 +99,7 @@ type GraphViewProps = {
   nodeTypes: AppNodeTypes;
   nodes: AppFlowNode[];
   projectLoading: boolean;
+  preserveSourceViewport: boolean;
   onEdgesChange: OnEdgesChange<Edge>;
   onNodesChange: OnNodesChange<AppFlowNode>;
   onTaskPanelSelect: (taskId: string | null) => void;
@@ -200,6 +201,7 @@ export function GraphView({
   nodeTypes,
   nodes,
   projectLoading,
+  preserveSourceViewport,
   onEdgesChange,
   onNodeDragStop,
   onNodesChange,
@@ -233,11 +235,6 @@ export function GraphView({
   onDownloadWorkspaceFork,
   runtimeAvailability
 }: GraphViewProps) {
-  const fittedGraphScopeId = useRef<string | null>(null);
-  const [localFlowInstance, setLocalFlowInstance] = useState<ReactFlowInstance<
-    AppFlowNode,
-    Edge
-  > | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const dirtyPromptRefs = graph?.dirtyPromptRefs ?? [];
@@ -263,13 +260,13 @@ export function GraphView({
     }
     return `${graph.projectId}:${selectedCanvasId ?? "default"}`;
   }, [graph, selectedCanvasId]);
-  const handleFlowInit = useCallback(
-    (instance: ReactFlowInstance<AppFlowNode, Edge>) => {
-      setLocalFlowInstance(instance);
-      setFlowInstance(instance);
-    },
-    [setFlowInstance]
-  );
+  const { handleFlowInit, localFlowInstance } = useGraphViewportLifecycle({
+    graphScopeId,
+    preserveSourceViewport,
+    selectedTaskPanelId,
+    setFlowInstance,
+    visibleNodeCount: visibleNodes.length
+  });
   /**
    * Presence cursors must track the full graph surface, including task nodes and edges.
    * React Flow's onPaneMouseMove/Leave only cover empty pane background — moving onto a
@@ -346,23 +343,6 @@ export function GraphView({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [graph, handleRedoGraph, handleUndoGraph, workspaceCanvasCanEdit]);
-
-  useEffect(() => {
-    if (!graphScopeId || !localFlowInstance || visibleNodes.length === 0) {
-      return undefined;
-    }
-    if (fittedGraphScopeId.current === graphScopeId) {
-      return undefined;
-    }
-    fittedGraphScopeId.current = graphScopeId;
-    if (selectedTaskPanelId) {
-      return undefined;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      void localFlowInstance.fitView({ maxZoom: 1 });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [graphScopeId, localFlowInstance, selectedTaskPanelId, visibleNodes.length]);
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: This div is a pointer drop target; keyboard graph interaction is owned by React Flow.

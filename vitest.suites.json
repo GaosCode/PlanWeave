@@ -350,6 +350,7 @@
         "desktopHomeWatchReplay.test.tsx"
       ],
       "integration": [
+        "taskWorkspaceViewportLifecycle.test.tsx",
         "selfHostServerResourceStore.test.ts",
         "selfHostServerResourceInheritedPipe.test.ts",
         "taskWorkspaceCachedComposer.test.tsx",

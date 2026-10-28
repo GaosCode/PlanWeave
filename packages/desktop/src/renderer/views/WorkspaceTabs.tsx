@@ -117,6 +117,7 @@ export type WorkspaceTabsShellProps = {
 };
 
 export type WorkspaceTabsGraphWorkspaceProps = {
+  preserveSourceViewport: boolean;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
   edges: Edge[];
   edgeTypes: AppEdgeTypes;

@@ -36,6 +36,7 @@ describe("task node focus", () => {
     const { rerender } = renderHook(
       ({ selectedTaskPanelId }) =>
         useTaskNodeFocus({
+          preserveSourceViewport: false,
           activeView: "graph",
           flowInstance: flow,
           nodes: [taskNode("T-001", 80, 120)],
@@ -60,6 +61,7 @@ describe("task node focus", () => {
     const { result, rerender } = renderHook(
       ({ activeView }) =>
         useTaskNodeFocus({
+          preserveSourceViewport: false,
           activeView,
           flowInstance: flow,
           nodes: [taskNode("T-001", 80, 120)],
@@ -83,6 +85,7 @@ describe("task node focus", () => {
 
     const { result } = renderHook(() =>
       useTaskNodeFocus({
+        preserveSourceViewport: false,
         activeView: "graph",
         flowInstance: flow,
         nodes: [taskNode("T-001", 80, 120)],
@@ -102,6 +105,7 @@ describe("task node focus", () => {
     const { rerender } = renderHook(
       ({ nodes, taskFocusRequest }) =>
         useTaskNodeFocus({
+          preserveSourceViewport: false,
           activeView: "graph",
           flowInstance: flow,
           nodes,
@@ -140,6 +144,7 @@ describe("task node focus", () => {
     const { rerender } = renderHook(
       ({ activeView, selectedTaskPanelId, taskFocusRequest }) =>
         useTaskNodeFocus({
+          preserveSourceViewport: false,
           activeView,
           flowInstance: flow,
           nodes: [taskNode("T-001", 80, 120)],

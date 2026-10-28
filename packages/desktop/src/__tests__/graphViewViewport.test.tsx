@@ -167,6 +167,7 @@ function defaultProps(
     onTaskPanelSelect: vi.fn(),
     projectDiagnostics: [],
     projectLoading: false,
+    preserveSourceViewport: false,
     refreshPackageFiles: vi.fn().mockResolvedValue(undefined),
     selectedBlockPresent: false,
     selectedCanvasId: "canvas-main",
@@ -377,6 +378,25 @@ describe("GraphView viewport fitting", () => {
 
     await waitFor(() => expect(reactFlowMock.props.length).toBeGreaterThan(1));
     expect(reactFlowMock.flowInstance.fitView).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not unregister a newer GraphView instance when the older owner unmounts", async () => {
+    let current: import("@xyflow/react").ReactFlowInstance<AppFlowNode> | null = null;
+    const setFlowInstance: ComponentProps<typeof GraphView>["setFlowInstance"] = (next) => {
+      current = typeof next === "function" ? next(current) : next;
+    };
+    const original = reactFlowMock.flowInstance;
+    const older = render(<GraphView {...defaultProps({ setFlowInstance })} />);
+    await waitFor(() => expect(current).toBe(original));
+    const newerInstance = { ...original, fitView: vi.fn() };
+    reactFlowMock.flowInstance = newerInstance;
+    const newer = render(<GraphView {...defaultProps({ setFlowInstance })} />);
+    await waitFor(() => expect(current).toBe(newerInstance));
+    older.unmount();
+    expect(current).toBe(newerInstance);
+    newer.unmount();
+    expect(current).toBeNull();
+    reactFlowMock.flowInstance = original;
   });
 
   it("uses ReactFlow reconnect end to remove an edge dragged off a handle", async () => {

@@ -49,6 +49,7 @@ export function useGraphWorkspaceController({
   edgeTypes,
   executionPlan,
   graph,
+  preserveSourceViewport,
   handleConnect,
   handleEdgesDelete,
   handleGraphDragOver,
@@ -86,6 +87,7 @@ export function useGraphWorkspaceController({
   edgeTypes: AppEdgeTypes;
   executionPlan: DesktopProjectExecutionPlan | null;
   graph: DesktopGraphViewModel | null;
+  preserveSourceViewport: boolean;
   handleConnect: (connection: Connection) => Promise<void>;
   handleEdgesDelete: (deletedEdges: Edge[]) => Promise<void>;
   handleGraphDragOver: (event: DragEvent) => void;
@@ -129,6 +131,7 @@ export function useGraphWorkspaceController({
     edgeTypes,
     executionPlan,
     graph,
+    preserveSourceViewport,
     handleConnect,
     handleEdgesDelete,
     handleGraphDragOver,

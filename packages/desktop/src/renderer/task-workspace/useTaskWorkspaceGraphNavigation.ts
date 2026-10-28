@@ -71,6 +71,16 @@ export function useTaskWorkspaceGraphNavigation(options: {
   const completedRestoreGeneration = useRef<number | null>(null);
   const retiredRestoreGeneration = useRef<number | null>(null);
   const inFlightRestore = useRef<RestoreAttempt | null>(null);
+  const currentFlowInstance = useRef(flowInstance);
+  currentFlowInstance.current = flowInstance;
+  const restoredSelection = useRef<{
+    attempt: RestoreAttempt;
+    receipt: TaskWorkspaceSourceSelectionReceipt;
+  } | null>(null);
+  const unavailableViewport = useRef<{
+    attempt: RestoreAttempt;
+    instance: ReactFlowInstance<AppFlowNode, Edge>;
+  } | null>(null);
   const awaitingCanvasRender = useRef<RestoreAttempt | null>(null);
   const [restoreDriveVersion, setRestoreDriveVersion] = useState(0);
 
@@ -83,6 +93,8 @@ export function useTaskWorkspaceGraphNavigation(options: {
     retiredRestoreGeneration.current = null;
     inFlightRestore.current = null;
     awaitingCanvasRender.current = null;
+    unavailableViewport.current = null;
+    restoredSelection.current = null;
   }
 
   const openWorkspaceTarget = useCallback(
@@ -182,6 +194,16 @@ export function useTaskWorkspaceGraphNavigation(options: {
     ) {
       return;
     }
+    const previousSelection = sameRestoreAttempt(
+      restoredSelection.current?.attempt ?? null,
+      attempt
+    )
+      ? restoredSelection.current?.receipt
+      : undefined;
+    if (previousSelection && !previousSelection.isCurrent()) {
+      retiredRestoreGeneration.current = attempt.generation;
+      return;
+    }
     if (projectLoading) {
       return;
     }
@@ -230,7 +252,12 @@ export function useTaskWorkspaceGraphNavigation(options: {
       return;
     }
     awaitingCanvasRender.current = null;
-    if (!graph || !flowInstance) {
+    if (
+      !graph ||
+      !flowInstance ||
+      (sameRestoreAttempt(unavailableViewport.current?.attempt ?? null, attempt) &&
+        unavailableViewport.current?.instance === flowInstance)
+    ) {
       return;
     }
     const resolution = resolveGraphNavigationSnapshot(snapshot, {
@@ -257,7 +284,11 @@ export function useTaskWorkspaceGraphNavigation(options: {
     }
     inFlightRestore.current = attempt;
     let selectionReceipt: TaskWorkspaceSourceSelectionReceipt | undefined;
-    void restoreSelection(snapshot.selectedTaskId, snapshot.selectedBlockRef)
+    let viewportInstance = flowInstance;
+    const selection = previousSelection
+      ? Promise.resolve(previousSelection)
+      : restoreSelection(snapshot.selectedTaskId, snapshot.selectedBlockRef);
+    void selection
       .then(async (receipt) => {
         selectionReceipt = receipt;
         if (!isCurrentAttempt()) return;
@@ -265,13 +296,19 @@ export function useTaskWorkspaceGraphNavigation(options: {
           retiredRestoreGeneration.current = attempt.generation;
           return;
         }
-        await flowInstance.setViewport(snapshot.viewport, { duration: 0 });
+        restoredSelection.current = { attempt, receipt };
+        const instance = currentFlowInstance.current;
+        if (!instance) return;
+        viewportInstance = instance;
+        const applied = await instance.setViewport(snapshot.viewport, { duration: 0 });
         if (!isCurrentAttempt()) return;
-        if (receipt.isCurrent()) {
-          completedRestoreGeneration.current = attempt.generation;
-        } else {
+        if (!receipt.isCurrent()) {
           retiredRestoreGeneration.current = attempt.generation;
+          return;
         }
+        if (currentFlowInstance.current !== instance) return;
+        if (applied) completedRestoreGeneration.current = attempt.generation;
+        else unavailableViewport.current = { attempt, instance };
       })
       .catch((error: unknown) => {
         if (!isCurrentAttempt()) return;
@@ -279,12 +316,21 @@ export function useTaskWorkspaceGraphNavigation(options: {
           retiredRestoreGeneration.current = attempt.generation;
           return;
         }
+        if (selectionReceipt && currentFlowInstance.current !== viewportInstance) return;
         completedRestoreGeneration.current = attempt.generation;
         setError(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
         if (sameRestoreAttempt(inFlightRestore.current, attempt)) {
           inFlightRestore.current = null;
+        }
+        if (
+          isCurrentAttempt() &&
+          selectionReceipt?.isCurrent() &&
+          currentFlowInstance.current &&
+          currentFlowInstance.current !== viewportInstance
+        ) {
+          setRestoreDriveVersion((current) => current + 1);
         }
       });
   }, [
@@ -323,8 +369,17 @@ export function useTaskWorkspaceGraphNavigation(options: {
     [openWorkspaceTarget]
   );
 
+  const preserveSourceViewport =
+    history.graphSnapshot !== null &&
+    history.graphSnapshot.projectRoot === selectedProject?.rootPath &&
+    history.graphSnapshot.canvasId === selectedCanvasId;
   return useMemo(
-    () => ({ openBlockWorkspace, openRunWorkspace, openTaskWorkspace: openTaskWorkspaceById }),
-    [openBlockWorkspace, openRunWorkspace, openTaskWorkspaceById]
+    () => ({
+      openBlockWorkspace,
+      openRunWorkspace,
+      openTaskWorkspace: openTaskWorkspaceById,
+      preserveSourceViewport
+    }),
+    [openBlockWorkspace, openRunWorkspace, openTaskWorkspaceById, preserveSourceViewport]
   );
 }

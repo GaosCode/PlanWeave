@@ -37,12 +37,14 @@ export function focusTaskNode(
 
 export function useTaskNodeFocus({
   activeView,
+  preserveSourceViewport,
   flowInstance,
   nodes,
   taskFocusRequest,
   selectedTaskPanelId
 }: {
   activeView: AppView;
+  preserveSourceViewport: boolean;
   flowInstance: ReactFlowInstance<AppFlowNode, Edge> | null;
   nodes: AppFlowNode[];
   taskFocusRequest?: TaskFocusRequest | null;
@@ -89,6 +91,10 @@ export function useTaskNodeFocus({
         ? taskFocusRequest
         : null;
     const activeFocusRequest = externalFocusRequest ?? focusRequest;
+    if (preserveSourceViewport && !activeFocusRequest) {
+      lastFocusedTaskId.current = selectedTaskPanelId;
+      return;
+    }
     const taskId = activeFocusRequest?.taskId ?? selectedTaskPanelId;
     if (!taskId) {
       lastFocusedTaskId.current = null;
@@ -105,7 +111,14 @@ export function useTaskNodeFocus({
         setFocusRequest(null);
       }
     }
-  }, [activeView, focusRequest, runTaskFocus, selectedTaskPanelId, taskFocusRequest]);
+  }, [
+    activeView,
+    focusRequest,
+    preserveSourceViewport,
+    runTaskFocus,
+    selectedTaskPanelId,
+    taskFocusRequest
+  ]);
 
   return { requestTaskFocus };
 }

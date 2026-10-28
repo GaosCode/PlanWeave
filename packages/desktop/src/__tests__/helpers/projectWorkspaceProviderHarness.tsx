@@ -160,6 +160,7 @@ vi.mock("../../renderer/hooks/useDesktopProjectSession", () => ({
 }));
 vi.mock("../../renderer/task-workspace/useTaskWorkspaceGraphNavigation", () => ({
   useTaskWorkspaceGraphNavigation: () => ({
+    preserveSourceViewport: false,
     openBlockWorkspace: stubs.sync,
     openRunWorkspace: stubs.sync,
     openTaskInspector: stubs.sync,

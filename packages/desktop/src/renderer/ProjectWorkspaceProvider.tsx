@@ -472,6 +472,7 @@ export function ProjectWorkspaceProvider({
   });
   useTaskNodeFocus({
     activeView,
+    preserveSourceViewport: taskWorkspaceNavigation.preserveSourceViewport,
     flowInstance,
     nodes,
     selectedTaskPanelId,
@@ -1027,6 +1028,7 @@ export function ProjectWorkspaceProvider({
     ]
   );
   const graphWorkspaceController = useGraphWorkspaceController({
+    preserveSourceViewport: taskWorkspaceNavigation.preserveSourceViewport,
     edges,
     edgeTypes,
     executionPlan,
