@@ -75,7 +75,10 @@ describe("Task Workspace graph navigation", () => {
     const setError = vi.fn();
     const { result } = renderHook(() =>
       useTaskWorkspaceGraphNavigation({
+        captureEntrySelection: () => ({ isCurrent: () => true }),
+        captureSelectionScope: () => ({ isCurrent: () => true }),
         flowInstance: flow,
+        getFlowInstance: () => flow,
         graph: graphWithBlock,
         history,
         openProject: vi.fn(),
@@ -128,9 +131,12 @@ describe("Task Workspace graph navigation", () => {
 
   it("opens a Block workspace from Server authority without requiring a local project path", () => {
     const history = historyController();
+    const flow = flowInstance();
     const setError = vi.fn();
     const { result } = renderHook(() =>
       useTaskWorkspaceGraphNavigation({
+        captureEntrySelection: () => ({ isCurrent: () => true }),
+        captureSelectionScope: () => ({ isCurrent: () => true }),
         canvasLocator: {
           kind: "workspace",
           connectionProfileId: "profile-workspace",
@@ -138,7 +144,8 @@ describe("Task Workspace graph navigation", () => {
           projectId: "project-demo",
           canvasId: "canvas-main"
         },
-        flowInstance: flowInstance(),
+        flowInstance: flow,
+        getFlowInstance: () => flow,
         graph: graphWithBlock,
         history,
         openProject: vi.fn(),
@@ -170,9 +177,13 @@ describe("Task Workspace graph navigation", () => {
 
   it("keeps source selection empty when a cross-authority run target reuses local refs", () => {
     const history = historyController();
+    const flow = flowInstance();
     const { result } = renderHook(() =>
       useTaskWorkspaceGraphNavigation({
-        flowInstance: flowInstance(),
+        captureEntrySelection: () => ({ isCurrent: () => true }),
+        captureSelectionScope: () => ({ isCurrent: () => true }),
+        flowInstance: flow,
+        getFlowInstance: () => flow,
         graph: graphWithBlock,
         history,
         openProject: vi.fn(),
@@ -225,7 +236,10 @@ describe("Task Workspace graph navigation", () => {
     const { rerender } = renderHook(
       (props: { selected: boolean }) =>
         useTaskWorkspaceGraphNavigation({
+          captureEntrySelection: () => ({ isCurrent: () => true }),
+          captureSelectionScope: () => ({ isCurrent: () => true }),
           flowInstance: props.selected ? flow : null,
+          getFlowInstance: () => (props.selected ? flow : null),
           graph: props.selected ? graphWithBlock : null,
           history,
           openProject,
@@ -266,7 +280,10 @@ describe("Task Workspace graph navigation", () => {
     const { rerender } = renderHook(
       (props: { history: AppViewHistoryController }) =>
         useTaskWorkspaceGraphNavigation({
+          captureEntrySelection: () => ({ isCurrent: () => true }),
+          captureSelectionScope: () => ({ isCurrent: () => true }),
           flowInstance: flow,
+          getFlowInstance: () => flow,
           graph: graphWithBlock,
           history: props.history,
           openProject,
@@ -313,7 +330,10 @@ describe("Task Workspace graph navigation", () => {
         selectedProject: typeof project | null;
       }) =>
         useTaskWorkspaceGraphNavigation({
+          captureEntrySelection: () => ({ isCurrent: () => true }),
+          captureSelectionScope: () => ({ isCurrent: () => true }),
           flowInstance: flow,
+          getFlowInstance: () => flow,
           graph: graphWithBlock,
           history: props.history,
           openProject,
@@ -357,7 +377,10 @@ describe("Task Workspace graph navigation", () => {
     const setError = vi.fn();
     renderHook(() =>
       useTaskWorkspaceGraphNavigation({
+        captureEntrySelection: () => ({ isCurrent: () => true }),
+        captureSelectionScope: () => ({ isCurrent: () => true }),
         flowInstance: flow,
+        getFlowInstance: () => flow,
         graph,
         history,
         openProject: vi.fn(),
@@ -396,10 +419,15 @@ describe("Task Workspace graph navigation", () => {
       vi.mocked(oldFlow.setViewport).mockImplementationOnce(() => viewport.promise);
     const history = historyController(snapshot);
     const setError = vi.fn();
+    let currentFlow = oldFlow;
+    const getFlowInstance = () => currentFlow;
     const { rerender } = renderHook(
       ({ flow, currentGraph }) =>
         useTaskWorkspaceGraphNavigation({
+          captureEntrySelection: () => ({ isCurrent: () => true }),
+          captureSelectionScope: () => ({ isCurrent: () => true }),
           flowInstance: flow,
+          getFlowInstance,
           graph: currentGraph,
           history,
           openProject: vi.fn(),
@@ -420,6 +448,7 @@ describe("Task Workspace graph navigation", () => {
       await act(async () => undefined);
       expect(restoreSelection).toHaveBeenCalledOnce();
     }
+    currentFlow = newFlow;
     rerender({ flow: newFlow, currentGraph: graphWithBlock });
     await act(async () => {
       selection.resolve({ isCurrent: () => true });
@@ -443,7 +472,10 @@ describe("Task Workspace graph navigation", () => {
     const { rerender } = renderHook(
       ({ flow }) =>
         useTaskWorkspaceGraphNavigation({
+          captureEntrySelection: () => ({ isCurrent: () => true }),
+          captureSelectionScope: () => ({ isCurrent: () => true }),
           flowInstance: flow,
+          getFlowInstance: () => flow,
           graph: graphWithBlock,
           history,
           openProject: vi.fn(),
@@ -463,5 +495,116 @@ describe("Task Workspace graph navigation", () => {
     await act(async () => undefined);
     expect(restoreSelection).toHaveBeenCalledOnce();
     expect(newFlow.setViewport).not.toHaveBeenCalled();
+  });
+  it.each([
+    "Block",
+    "Task",
+    "Run"
+  ] as const)("waits for the current owner before opening a %s target", async (kind) => {
+    const history = historyController();
+    let owner: ReturnType<typeof flowInstance> | null = null;
+    const getFlowInstance = () => owner;
+    const setError = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ flow }) =>
+        useTaskWorkspaceGraphNavigation({
+          captureEntrySelection: () => ({ isCurrent: () => true }),
+          captureSelectionScope: () => ({ isCurrent: () => true }),
+          flowInstance: flow,
+          getFlowInstance,
+          graph: graphWithBlock,
+          history,
+          openProject: vi.fn(),
+          projectLoading: false,
+          projects: [project],
+          restoreSelection: vi.fn(),
+          selectedCanvasId: "canvas-main",
+          selectedProject: project,
+          setError
+        }),
+      { initialProps: { flow: owner } }
+    );
+    act(() => {
+      if (kind === "Block") result.current.openBlockWorkspace("T-ALPHA#B-001");
+      else if (kind === "Task") result.current.openTaskWorkspace("T-ALPHA");
+      else
+        result.current.openRunWorkspace({
+          projectRoot: project.rootPath,
+          canvasId: "canvas-main",
+          taskId: "T-ALPHA",
+          blockRef: "T-ALPHA#B-001",
+          recordId: "T-ALPHA#B-001::RUN-001"
+        });
+    });
+    expect(history.openTaskWorkspace).not.toHaveBeenCalled();
+    owner = flowInstance();
+    rerender({ flow: owner });
+    await waitFor(() => expect(history.openTaskWorkspace).toHaveBeenCalledOnce());
+    expect(history.openTaskWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: "T-ALPHA" }),
+      expect.objectContaining({
+        graphSnapshot: expect.objectContaining({ viewport: { x: 12, y: 34, zoom: 0.8 } })
+      })
+    );
+    expect(setError).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "canvas",
+    "route",
+    "same-scope reopen",
+    "unmount"
+  ] as const)("cancels pending entry and old callbacks on %s", async (change) => {
+    let generation = 0;
+    const captureSelectionScope = () => {
+      const captured = generation;
+      return { isCurrent: () => captured === generation };
+    };
+    const originalHistory = historyController();
+    let owner: ReturnType<typeof flowInstance> | null = null;
+    const getFlowInstance = () => owner;
+    const { result, rerender, unmount } = renderHook(
+      ({ canvasId, history, flow }) =>
+        useTaskWorkspaceGraphNavigation({
+          captureEntrySelection: () => ({ isCurrent: () => true }),
+          captureSelectionScope,
+          flowInstance: flow,
+          getFlowInstance,
+          graph: graphWithBlock,
+          history,
+          openProject: vi.fn(),
+          projectLoading: false,
+          projects: [project],
+          restoreSelection: vi.fn(),
+          selectedCanvasId: canvasId,
+          selectedProject: project,
+          setError: vi.fn()
+        }),
+      { initialProps: { canvasId: "canvas-main", history: originalHistory, flow: owner } }
+    );
+    const oldEntry = result.current.openBlockWorkspace;
+    act(() => oldEntry("T-ALPHA#B-001"));
+    if (change === "unmount") unmount();
+    else {
+      if (change === "same-scope reopen") generation++;
+      rerender({
+        canvasId: change === "canvas" ? "canvas-next" : "canvas-main",
+        history:
+          change === "route"
+            ? { ...originalHistory, historyIndex: 2, route: { view: "search" } }
+            : originalHistory,
+        flow: null
+      });
+      owner = flowInstance();
+      // Returning to the same IDs must not revive the previous generation.
+      rerender({ canvasId: "canvas-main", history: originalHistory, flow: owner });
+    }
+    act(() => oldEntry("T-ALPHA#B-001"));
+    await act(async () => undefined);
+    expect(originalHistory.openTaskWorkspace).not.toHaveBeenCalled();
+    if (change !== "unmount") {
+      act(() => result.current.openBlockWorkspace("T-ALPHA#B-001"));
+      expect(originalHistory.openTaskWorkspace).toHaveBeenCalledOnce();
+    }
   });
 });

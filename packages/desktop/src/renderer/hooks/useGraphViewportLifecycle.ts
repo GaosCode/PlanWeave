@@ -40,8 +40,8 @@ export function useGraphViewportLifecycle({
     (instance: GraphFlow) => {
       if (!mounted.current) return;
       ownedInstance.current = instance;
-      setLocalFlowInstance(instance);
       setFlowInstance(instance);
+      setLocalFlowInstance(instance);
     },
     [setFlowInstance]
   );

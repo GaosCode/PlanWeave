@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode
 } from "react";
-import { type Edge, type ReactFlowInstance, useEdgesState, useNodesState } from "@xyflow/react";
+import { type Edge, useEdgesState, useNodesState } from "@xyflow/react";
 import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge, collaborationBridge, desktopCanvasReference } from "./bridge";
 import { edgeTypes, nodeTypes } from "./graph/flowModel";
@@ -31,6 +31,7 @@ import { useWorkspaceAgentEndpointCatalog } from "./hooks/useWorkspaceAgentEndpo
 import { useWorkspaceAgentEndpointRun } from "./hooks/useWorkspaceAgentEndpointRun";
 import { agentEndpointsForCanvasAuthority } from "./collaboration/agentEndpointViewModel";
 import { useDesktopProjectActions } from "./hooks/useDesktopProjectActions";
+import { useGraphFlowOwner } from "./hooks/useGraphFlowOwner";
 import { useGraphFlowModel } from "./hooks/useGraphFlowModel";
 import { useGraphHistoryActions } from "./hooks/useGraphHistoryActions";
 import { useSharedResourceHighlight } from "./hooks/useSharedResourceHighlight";
@@ -147,9 +148,7 @@ export function ProjectWorkspaceProvider({
   } = shellInput;
 
   const [, setBlockInspectorOpen] = useState(false);
-  const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<AppFlowNode, Edge> | null>(
-    null
-  );
+  const { flowInstance, getFlowInstance, setFlowInstance } = useGraphFlowOwner();
   const [nodes, setNodes, onNodesChange] = useNodesState<AppFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const lerpedNodeDrag = useLerpedNodeDrag({
@@ -370,9 +369,17 @@ export function ProjectWorkspaceProvider({
     setSelectedBlock,
     setSelectedRunRecord
   });
+  const captureWorkspaceEntrySelection = useCallback(() => {
+    const block = captureBlockSelection();
+    const task = captureTaskPanelSelection();
+    return { isCurrent: () => block.isCurrent() && task.isCurrent() };
+  }, [captureBlockSelection, captureTaskPanelSelection]);
   const taskWorkspaceNavigation = useTaskWorkspaceGraphNavigation({
     canvasLocator,
+    captureEntrySelection: captureWorkspaceEntrySelection,
+    captureSelectionScope: desktopProject.captureProjectSelection,
     flowInstance,
+    getFlowInstance,
     graph,
     history: appHistory,
     openProject: openLocalProject,

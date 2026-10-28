@@ -1,6 +1,8 @@
 /* @vitest-environment jsdom */
 
-import { act, render, waitFor, screen, cleanup } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+
+import { act, render, waitFor, screen, cleanup, fireEvent } from "@testing-library/react";
 import type { DesktopBlockDetail } from "@planweave-ai/runtime";
 import type { Edge, ReactFlowInstance } from "@xyflow/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +17,7 @@ import type { GraphNavigationSnapshot } from "../renderer/taskWorkspaceNavigatio
 import { bridges, installProviderHarness } from "./helpers/projectWorkspaceProviderHarness";
 import { deferred, project, projectSnapshot } from "./helpers/desktopProjectFixtures";
 import { graph } from "./helpers/graphFixtures";
+import { workspaceHeader } from "./helpers/taskWorkspaceControllerModelFixture";
 
 installProviderHarness();
 afterEach(() => {
@@ -56,9 +59,6 @@ vi.mock("@xyflow/react", async (importOriginal) => {
   };
 });
 vi.mock("../renderer/run/FloatingAutoRunControl", () => ({ FloatingAutoRunControl: () => null }));
-vi.mock("../renderer/views/TaskWorkspaceAppRoute", () => ({
-  TaskWorkspaceAppRoute: () => <div data-testid="workspace-route" />
-}));
 
 const alpha: DesktopBlockDetail = {
   ref: "T-ALPHA#B-001",
@@ -92,7 +92,13 @@ const graphWithBlocks = {
   ...graph,
   tasks: graph.tasks.map((task) => ({
     ...task,
-    blocks: [{ ...(task.taskId === alpha.taskId ? alpha : beta), dispatchable: true }]
+    blocks: [
+      {
+        ...(task.taskId === alpha.taskId ? alpha : beta),
+        dispatchable: true,
+        requiredCapabilities: []
+      }
+    ]
   }))
 };
 
@@ -101,6 +107,7 @@ beforeEach(() => {
     vi.doUnmock(`../renderer/hooks/${name}`);
   }
   vi.doUnmock("../renderer/task-workspace/useTaskWorkspaceGraphNavigation");
+  vi.doUnmock("../renderer/task-workspace/useTaskWorkspaceController");
   vi.doUnmock("../renderer/controllers/GraphWorkspaceController");
   vi.doMock("../renderer/hooks/useCollaborationCanvasPresence", () => ({
     useCollaborationCanvasPresence: () => undefined
@@ -129,6 +136,36 @@ beforeEach(() => {
   bridges.desktop.target.getDesktopProjectSnapshot = vi
     .fn()
     .mockResolvedValue(projectSnapshot({ graph: graphWithBlocks }));
+  bridges.desktop.target.detectDevelopmentTools = vi.fn().mockResolvedValue([]);
+  bridges.desktop.target.getGraphViewModel = vi.fn().mockResolvedValue(graphWithBlocks);
+  bridges.desktop.target.listTaskWorkspaceRuns = vi
+    .fn()
+    .mockResolvedValue({ items: [], nextCursor: null });
+  bridges.desktop.target.getTaskWorkspace = vi
+    .fn()
+    .mockImplementation(({ taskId }: { taskId: string }) => {
+      const header = workspaceHeader(null);
+      return Promise.resolve({
+        ...header,
+        project: {
+          projectId: project.projectId,
+          projectRoot: project.rootPath,
+          canvasId: "canvas-main"
+        },
+        task: {
+          ...header.task,
+          taskId,
+          title: `Workspace ${taskId}`,
+          promptMarkdown: `Task body ${taskId}`
+        },
+        blocks: header.blocks.map((block) => ({
+          ...block,
+          ref: `${taskId}#B-001`,
+          taskId,
+          promptMarkdown: `Block body ${taskId}`
+        }))
+      });
+    });
   bridges.desktop.target.getLatestAutoRunSummaryWithDiagnostics = vi.fn().mockResolvedValue({
     state: null,
     diagnostics: []
@@ -138,7 +175,7 @@ beforeEach(() => {
   }
 });
 
-async function mountGraph() {
+async function mountGraph(waitForInit = true) {
   const { ProjectWorkspaceProvider, useProjectWorkspace } = await import(
     "../renderer/ProjectWorkspaceProvider"
   );
@@ -196,12 +233,18 @@ async function mountGraph() {
   await waitFor(() =>
     expect(current.projectSidebar.selectedProject?.rootPath).toBe(project.rootPath)
   );
-  await waitFor(() => expect(flowLifecycle.instances.length).toBe(1));
+  if (waitForInit) {
+    await waitFor(() => expect(flowLifecycle.instances.length).toBe(1));
+    const initialFlow = flowLifecycle.instances[0]!;
+    await waitFor(() => expect(initialFlow.fitView).toHaveBeenCalledOnce());
+    await act(async () => {
+      await vi.mocked(initialFlow.fitView).mock.results[0]!.value;
+    });
+  } else {
+    await waitFor(() => expect(flowLifecycle.pendingInit).toHaveLength(1));
+    await screen.findAllByTestId("task-node-block");
+  }
   const initialFlow = flowLifecycle.instances[0]!;
-  await waitFor(() => expect(initialFlow.fitView).toHaveBeenCalledOnce());
-  await act(async () => {
-    await vi.mocked(initialFlow.fitView).mock.results[0]!.value;
-  });
   return {
     initialFlow,
     get flow() {
@@ -230,11 +273,110 @@ async function enterWorkspace(
     const taskNode = probe.current.graphWorkspace.nodes.find((node) => node.id === taskId)!;
     act(() => taskNode.data.onTaskWorkspaceOpen(taskId));
   }
-  await screen.findByTestId("workspace-route");
+  await waitFor(() =>
+    expect(screen.getByTestId("task-workspace-shell")).toHaveAttribute(
+      "data-workspace-status",
+      "ready"
+    )
+  );
   expect(await probe.flow.setViewport(snapshot.viewport, { duration: 0 })).toBe(false);
 }
 
 describe("Graph viewport across real ReactFlow route lifecycles", () => {
+  it.each([
+    "Block",
+    "Task"
+  ] as const)("accepts a real %s event after onInit registration before Provider and node callbacks refresh", async (kind) => {
+    flowLifecycle.holdInit = true;
+    const probe = await mountGraph(false);
+    const blockButton = screen
+      .getAllByTestId("task-node-block")
+      .find((button) => button.dataset.blockRef === alpha.ref)!;
+    const node = blockButton.closest("[data-id]")!;
+    act(() => {
+      flowLifecycle.pendingInit.shift()!();
+      if (kind === "Block") fireEvent.click(blockButton);
+      else fireEvent.doubleClick(node);
+    });
+    expect(flowLifecycle.instances).toHaveLength(1);
+    expect(probe.setError.mock.calls.filter(([message]) => message !== null)).toEqual([]);
+    await waitFor(() =>
+      expect(screen.getByTestId("task-workspace-shell")).toHaveAttribute(
+        "data-workspace-status",
+        "ready"
+      )
+    );
+    expect(screen.getByTestId("task-workspace-shell")).toHaveAttribute(
+      "data-task-id",
+      alpha.taskId
+    );
+    expect(screen.getAllByText(`Task body ${alpha.taskId}`).length).toBeGreaterThan(0);
+    expect(probe.current.taskWorkspace.status).toBe("ready");
+    expect(probe.setError.mock.calls.filter(([message]) => message !== null)).toEqual([]);
+  });
+
+  it("keeps only the newest pre-init entry and consumes it once when the owner becomes ready", async () => {
+    flowLifecycle.holdInit = true;
+    const probe = await mountGraph(false);
+    const buttons = screen.getAllByTestId("task-node-block");
+    fireEvent.click(buttons.find((button) => button.dataset.blockRef === alpha.ref)!);
+    fireEvent.click(buttons.find((button) => button.dataset.blockRef === beta.ref)!);
+    expect(probe.history.route.view).toBe("graph");
+    act(() => flowLifecycle.pendingInit.shift()!());
+    await waitFor(() =>
+      expect(screen.getByTestId("task-workspace-shell")).toHaveAttribute(
+        "data-workspace-status",
+        "ready"
+      )
+    );
+    expect(screen.getByTestId("task-workspace-shell")).toHaveAttribute("data-task-id", beta.taskId);
+    expect(probe.history.historyIndex).toBe(1);
+    expect(probe.setError.mock.calls.filter(([message]) => message !== null)).toEqual([]);
+  });
+
+  it.each([
+    "Inspector",
+    "clear"
+  ] as const)("cancels a pre-init entry after a newer foreground %s selection", async (change) => {
+    flowLifecycle.holdInit = true;
+    const pendingBeta = deferred<DesktopBlockDetail>();
+    bridges.desktop.target.getBlockDetail = vi.fn(() => pendingBeta.promise);
+    const probe = await mountGraph(false);
+    const alphaButton = screen
+      .getAllByTestId("task-node-block")
+      .find((button) => button.dataset.blockRef === alpha.ref)!;
+    fireEvent.click(alphaButton);
+    let selection: Promise<void> | undefined;
+    act(() => {
+      if (change === "Inspector")
+        selection = probe.current.graphWorkspace.handleOpenBlockInspector(beta.ref);
+      else probe.current.projectSidebar.handleTaskPanelSelect(null);
+      flowLifecycle.pendingInit.shift()!();
+    });
+    await act(async () => undefined);
+    expect(probe.history.route.view).toBe("graph");
+    expect(screen.queryByTestId("task-workspace-shell")).not.toBeInTheDocument();
+    if (selection) {
+      await act(async () => {
+        pendingBeta.resolve(beta);
+        await selection;
+      });
+      expect(probe.current.projectSidebar.selectedTaskPanelId).toBe(beta.taskId);
+    }
+    const betaButton = screen
+      .getAllByTestId("task-node-block")
+      .find((button) => button.dataset.blockRef === beta.ref)!;
+    fireEvent.click(betaButton);
+    await waitFor(() =>
+      expect(screen.getByTestId("task-workspace-shell")).toHaveAttribute(
+        "data-workspace-status",
+        "ready"
+      )
+    );
+    expect(screen.getByTestId("task-workspace-shell")).toHaveAttribute("data-task-id", beta.taskId);
+    expect(probe.history.historyIndex).toBe(1);
+  });
+
   it.each([
     "Block",
     "Task"

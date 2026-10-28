@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Edge, ReactFlowInstance } from "@xyflow/react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import type { CanvasLocator } from "../../shared/canvasLocator";
+import type { DesktopSelectionReceipt } from "../hooks/useDesktopProjectSnapshot";
 import type { AppViewHistoryController } from "../hooks/useAppViewHistory";
 import {
   blockWorkspaceTarget,
@@ -42,7 +43,10 @@ function sameRestoreAttempt(left: RestoreAttempt | null, right: RestoreAttempt):
 
 export function useTaskWorkspaceGraphNavigation(options: {
   canvasLocator?: CanvasLocator | null;
+  captureSelectionScope: () => DesktopSelectionReceipt;
+  captureEntrySelection: () => DesktopSelectionReceipt;
   flowInstance: ReactFlowInstance<AppFlowNode, Edge> | null;
+  getFlowInstance: () => ReactFlowInstance<AppFlowNode, Edge> | null;
   graph: DesktopGraphViewModel | null;
   history: AppViewHistoryController;
   openProject: OpenProject;
@@ -55,7 +59,10 @@ export function useTaskWorkspaceGraphNavigation(options: {
 }) {
   const {
     canvasLocator = null,
+    captureSelectionScope,
+    captureEntrySelection,
     flowInstance,
+    getFlowInstance,
     graph,
     history,
     openProject,
@@ -71,8 +78,56 @@ export function useTaskWorkspaceGraphNavigation(options: {
   const completedRestoreGeneration = useRef<number | null>(null);
   const retiredRestoreGeneration = useRef<number | null>(null);
   const inFlightRestore = useRef<RestoreAttempt | null>(null);
-  const currentFlowInstance = useRef(flowInstance);
-  currentFlowInstance.current = flowInstance;
+  const entryScopeKey = JSON.stringify([
+    routeKey,
+    selectedProject?.rootPath,
+    selectedProject?.workspaceRoot,
+    selectedCanvasId,
+    canvasLocator
+  ]);
+  const entryLifecycle = useRef({
+    key: entryScopeKey,
+    generation: 0,
+    receipt: captureSelectionScope()
+  });
+  if (entryLifecycle.current.key !== entryScopeKey || !entryLifecycle.current.receipt.isCurrent()) {
+    entryLifecycle.current = {
+      key: entryScopeKey,
+      generation: entryLifecycle.current.generation + 1,
+      receipt: captureSelectionScope()
+    };
+  }
+  const entryScope = entryLifecycle.current.generation;
+  const pendingEntry = useRef<{
+    scope: number;
+    target: TaskWorkspaceNavigationTarget;
+    selection: DesktopSelectionReceipt;
+  } | null>(null);
+  const entryContext = useRef({
+    entryScope,
+    graph,
+    history,
+    projectLoading,
+    selectedCanvasId,
+    selectedProject
+  });
+  entryContext.current = {
+    entryScope,
+    graph,
+    history,
+    projectLoading,
+    selectedCanvasId,
+    selectedProject
+  };
+  if (pendingEntry.current?.scope !== entryScope || projectLoading) pendingEntry.current = null;
+  const entryMounted = useRef(true);
+  useEffect(() => {
+    entryMounted.current = true;
+    return () => {
+      entryMounted.current = false;
+      pendingEntry.current = null;
+    };
+  }, []);
   const restoredSelection = useRef<{
     attempt: RestoreAttempt;
     receipt: TaskWorkspaceSourceSelectionReceipt;
@@ -99,12 +154,34 @@ export function useTaskWorkspaceGraphNavigation(options: {
 
   const openWorkspaceTarget = useCallback(
     (navigationTarget: TaskWorkspaceNavigationTarget) => {
+      const current = entryContext.current;
+      if (
+        !entryMounted.current ||
+        current.entryScope !== entryScope ||
+        !entryLifecycle.current.receipt.isCurrent()
+      )
+        return;
+      pendingEntry.current = null;
       if (isWorkspaceTaskWorkspaceNavigation(navigationTarget)) {
-        history.openTaskWorkspace(navigationTarget, { view: "graph" });
+        current.history.openTaskWorkspace(navigationTarget, { view: "graph" });
         return;
       }
-      if (!(selectedProject && selectedCanvasId && flowInstance && graph)) {
+      const { selectedProject, selectedCanvasId, graph } = current;
+      if (!(selectedProject && selectedCanvasId && graph) || current.projectLoading) {
         setError("Task Workspace requires an open project canvas and graph viewport.");
+        return;
+      }
+      const instance = getFlowInstance();
+      if (!instance) {
+        if (current.history.route.view === "graph") {
+          pendingEntry.current = {
+            scope: entryScope,
+            target: navigationTarget,
+            selection: captureEntrySelection()
+          };
+        } else {
+          setError("Task Workspace requires an open project canvas and graph viewport.");
+        }
         return;
       }
       const sameAuthority =
@@ -121,14 +198,21 @@ export function useTaskWorkspaceGraphNavigation(options: {
       const graphSnapshot = graphNavigationSnapshotSchema.parse({
         projectRoot: selectedProject.rootPath,
         canvasId: selectedCanvasId,
-        viewport: flowInstance.getViewport(),
+        viewport: instance.getViewport(),
         selectedTaskId: sourceTask?.taskId ?? null,
         selectedBlockRef: sourceBlockRef
       });
-      history.openTaskWorkspace(navigationTarget, { view: "graph", graphSnapshot });
+      current.history.openTaskWorkspace(navigationTarget, { view: "graph", graphSnapshot });
     },
-    [flowInstance, graph, history.openTaskWorkspace, selectedCanvasId, selectedProject, setError]
+    [captureEntrySelection, entryScope, getFlowInstance, setError]
   );
+  useEffect(() => {
+    const pending = pendingEntry.current;
+    if (flowInstance && pending?.scope === entryScope && getFlowInstance()) {
+      pendingEntry.current = null;
+      if (pending.selection.isCurrent()) openWorkspaceTarget(pending.target);
+    }
+  }, [entryScope, flowInstance, getFlowInstance, openWorkspaceTarget]);
   const openTaskWorkspace = useCallback(
     (target: { taskId: string; blockRef?: string }) => {
       if (canvasLocator?.kind === "workspace") {
@@ -297,7 +381,7 @@ export function useTaskWorkspaceGraphNavigation(options: {
           return;
         }
         restoredSelection.current = { attempt, receipt };
-        const instance = currentFlowInstance.current;
+        const instance = getFlowInstance();
         if (!instance) return;
         viewportInstance = instance;
         const applied = await instance.setViewport(snapshot.viewport, { duration: 0 });
@@ -306,7 +390,7 @@ export function useTaskWorkspaceGraphNavigation(options: {
           retiredRestoreGeneration.current = attempt.generation;
           return;
         }
-        if (currentFlowInstance.current !== instance) return;
+        if (getFlowInstance() !== instance) return;
         if (applied) completedRestoreGeneration.current = attempt.generation;
         else unavailableViewport.current = { attempt, instance };
       })
@@ -316,7 +400,7 @@ export function useTaskWorkspaceGraphNavigation(options: {
           retiredRestoreGeneration.current = attempt.generation;
           return;
         }
-        if (selectionReceipt && currentFlowInstance.current !== viewportInstance) return;
+        if (selectionReceipt && getFlowInstance() !== viewportInstance) return;
         completedRestoreGeneration.current = attempt.generation;
         setError(error instanceof Error ? error.message : String(error));
       })
@@ -327,14 +411,15 @@ export function useTaskWorkspaceGraphNavigation(options: {
         if (
           isCurrentAttempt() &&
           selectionReceipt?.isCurrent() &&
-          currentFlowInstance.current &&
-          currentFlowInstance.current !== viewportInstance
+          getFlowInstance() &&
+          getFlowInstance() !== viewportInstance
         ) {
           setRestoreDriveVersion((current) => current + 1);
         }
       });
   }, [
     flowInstance,
+    getFlowInstance,
     graph,
     history.graphSnapshot,
     history.historyIndex,
