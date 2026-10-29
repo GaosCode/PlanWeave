@@ -172,6 +172,13 @@ export default defineConfig({
               priority: 14
             },
             {
+              name: "project-rename",
+              test: (id) =>
+                id.endsWith("/renderer/hooks/useInlineRename.ts") ||
+                id.endsWith("/renderer/hooks/useDesktopRenameActions.ts"),
+              priority: 14
+            },
+            {
               // Block selection state stays mounted in the shell and keeps its own chunk.
               name: "block-selection",
               test: (id) => id.endsWith("/renderer/hooks/useSelectedBlock.ts"),

@@ -159,7 +159,8 @@ describe("desktop project session hook", () => {
       expect.objectContaining({
         isCurrent: expect.any(Function),
         finishLoading: expect.any(Function)
-      })
+      }),
+      undefined
     );
     expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({
       projectRoot: project.rootPath,
@@ -223,7 +224,8 @@ describe("desktop project session hook", () => {
       expect.objectContaining({
         isCurrent: expect.any(Function),
         finishLoading: expect.any(Function)
-      })
+      }),
+      undefined
     );
     expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({
       projectRoot: project.rootPath,

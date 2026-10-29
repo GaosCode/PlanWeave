@@ -401,6 +401,9 @@ class StartupHarness {
       DROP TABLE operator_management_recovery_codes;
       DROP TABLE operator_management_devices;
       DROP TABLE acp_task_restorations;
+      DROP TABLE acp_conversation_event_digests;
+      DROP TABLE acp_conversation_action_digests;
+      DROP TABLE acp_conversation_replay_receipts;
       DROP TABLE acp_conversation_events;
       DROP TABLE acp_conversation_actions;
       DROP TABLE acp_conversation_turns;
