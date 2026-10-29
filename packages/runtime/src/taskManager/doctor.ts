@@ -36,7 +36,9 @@ async function exists(path: string): Promise<boolean> {
 function needsRunIndex(blockType: BlockType, blockState: BlockState | undefined): boolean {
   return (
     blockType === "implementation" ||
-    (blockType === "review" && blockState?.remoteOperationReceipt?.outcome === "failed")
+    (blockType === "review" &&
+      (blockState?.remoteOperationReceipt?.outcome === "failed" ||
+        blockState?.remoteInterruption?.resumable === false))
   );
 }
 

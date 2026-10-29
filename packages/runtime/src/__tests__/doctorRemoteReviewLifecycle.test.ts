@@ -229,22 +229,46 @@ describe("Doctor after real remote review lifecycle writes", () => {
 
   it.each([
     "executor_failed",
-    "execution_cancelled"
+    "execution_cancelled",
+    "lease_lost"
   ] as const)("reports a missing RUN index after real Review %s without changing failure evidence", async (code) => {
     const workspace = await prepareReview();
     await workspace.port.activate({ ref: reviewRef, ...workspace.identity });
-    await workspace.port.fail({
-      ref: reviewRef,
-      ...workspace.identity,
-      failure: { code, message: "Remote Review did not complete.", retryable: true }
-    });
+    if (code === "lease_lost") {
+      await workspace.port.markInterrupted({
+        ref: reviewRef,
+        ...workspace.identity,
+        interruption: { reason: code, resumable: false }
+      });
+    } else {
+      await workspace.port.fail({
+        ref: reviewRef,
+        ...workspace.identity,
+        failure: { code, message: "Remote Review did not complete.", retryable: true }
+      });
+    }
     const { resultsDir, stateFile } = workspace.init.workspace;
-    const block = (await readState(stateFile)).blocks[reviewRef];
+    const state = await readState(stateFile);
+    const block = state.blocks[reviewRef];
     expect(block).toMatchObject({
-      status: "blocked",
-      lastRunId: expect.stringMatching(/^RUN-\d+$/),
-      remoteOperationReceipt: { ...workspace.identity, blockType: "review", outcome: "failed" }
+      lastRunId: expect.stringMatching(/^RUN-\d+$/)
     });
+    expect(block.latestReviewAttemptId).toBeUndefined();
+    expect(state.currentReviewBlockRef).toBeNull();
+    expect(state.currentRefs).not.toContain(reviewRef);
+    if (code === "lease_lost") {
+      expect(block).toMatchObject({
+        status: "diverged",
+        remoteOwnership: { ...workspace.identity, phase: "active" },
+        remoteInterruption: { reason: code, resumable: false }
+      });
+      expect(block.remoteOperationReceipt).toBeUndefined();
+    } else {
+      expect(block).toMatchObject({
+        status: "blocked",
+        remoteOperationReceipt: { ...workspace.identity, blockType: "review", outcome: "failed" }
+      });
+    }
     const runDir = join(resultsDir, "T-001/blocks/R-001/runs", block.lastRunId!);
     expect(await readdir(runDir)).not.toContain("report.md");
     expect(await readJsonFile(join(runDir, "metadata.json"))).toMatchObject({
@@ -254,7 +278,8 @@ describe("Doctor after real remote review lifecycle writes", () => {
       status: "failed",
       runId: block.lastRunId
     });
-    await expectDoctorPreserves(workspace);
+    const interruptionIssues = code === "lease_lost" ? ["remote_ownership_interrupted"] : [];
+    await expectDoctorPreserves(workspace, interruptionIssues);
 
     const indexPath = join(resultsDir, "T-001/index.json");
     const index = await readJsonFile<{
@@ -264,9 +289,9 @@ describe("Doctor after real remote review lifecycle writes", () => {
     delete index.latestRunByBlock[reviewRef];
     await writeJsonFile(indexPath, index);
 
-    await expectDoctorPreserves(workspace, ["index_state_mismatch"]);
+    await expectDoctorPreserves(workspace, [...interruptionIssues, "index_state_mismatch"]);
     const report = await runDoctor({ projectRoot: workspace.root });
-    expect(report.issues).toEqual([
+    expect(report.issues).toContainEqual(
       expect.objectContaining({
         code: "index_state_mismatch",
         ref: reviewRef,
@@ -274,7 +299,7 @@ describe("Doctor after real remote review lifecycle writes", () => {
         indexRunId: null,
         repaired: false
       })
-    ]);
+    );
   });
 
   it.each([
