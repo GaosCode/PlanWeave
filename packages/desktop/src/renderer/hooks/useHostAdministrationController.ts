@@ -229,6 +229,8 @@ export function useHostAdministrationController(
   const previousActiveProfileId = useRef(activeProfile?.profileId);
   const hostSnapshotRef = useRef(hostSnapshot);
   hostSnapshotRef.current = hostSnapshot;
+  const hostInventoryRevision = useRef(0);
+  const hostInventoryLoadingOwner = useRef<object | null>(null);
   const hostOperationCoordinator = useRef(createHostInventoryOperationCoordinator());
   const visibleHostSnapshot =
     activeProfileHasOperatorCredential &&
@@ -279,22 +281,17 @@ export function useHostAdministrationController(
         return Promise.resolve();
       }
       const requestAuthority = hostAuthorityRef.current;
+      const inventoryRevision = hostInventoryRevision.current;
       const profileId = activeProfileId;
       const bridge = operatorControlBridge;
-      const authorityKey = `${profileId}\u0000${requestAuthority.generation}`;
+      const authorityKey = `${profileId}\u0000${requestAuthority.generation}\u0000${inventoryRevision}`;
+      const isCurrent = () =>
+        hostAuthorityRef.current.generation === requestAuthority.generation &&
+        hostAuthorityRef.current.identity === requestAuthority.identity &&
+        hostAuthorityRef.current.profileId === requestAuthority.profileId &&
+        hostInventoryRevision.current === inventoryRevision;
       return hostOperationCoordinator.current.run(authorityKey, options.mode, async () => {
-        const currentAuthority = hostAuthorityRef.current;
-        if (
-          currentAuthority.generation !== requestAuthority.generation ||
-          currentAuthority.identity !== requestAuthority.identity ||
-          currentAuthority.profileId !== requestAuthority.profileId
-        ) {
-          return;
-        }
-        if (!options.silent) {
-          setHostsLoading(true);
-          if (options.mode === "refresh") setHostInventoryState("loading");
-        }
+        if (!isCurrent()) return;
         const currentSnapshot = hostSnapshotRef.current;
         const continuationSnapshot =
           options.mode === "continue" &&
@@ -303,8 +300,13 @@ export function useHostAdministrationController(
             ? currentSnapshot
             : null;
         if (options.mode === "continue" && continuationSnapshot?.nextCursor === null) {
-          setHostsLoading(false);
           return;
+        }
+        const loadingOwner = {};
+        if (!options.silent) {
+          hostInventoryLoadingOwner.current = loadingOwner;
+          setHostsLoading(true);
+          if (options.mode === "refresh") setHostInventoryState("loading");
         }
         const cursor = continuationSnapshot?.nextCursor ?? 0;
         const errorGeneration = actionErrorGeneration.current;
@@ -319,7 +321,7 @@ export function useHostAdministrationController(
                 query: { cursor: pageCursor, limit: HOST_INVENTORY_PAGE_SIZE }
               })
           });
-          if (hostAuthorityRef.current.generation !== requestAuthority.generation) return;
+          if (!isCurrent()) return;
           const preservedHosts =
             options.mode === "continue"
               ? (continuationSnapshot?.preservedHosts ?? [])
@@ -343,7 +345,7 @@ export function useHostAdministrationController(
           setHostInventoryState("ready");
           if (errorGeneration === actionErrorGeneration.current) setInventoryError(null);
         } catch (cause) {
-          if (hostAuthorityRef.current.generation !== requestAuthority.generation) return;
+          if (!isCurrent()) return;
           const authoritativeSnapshot = hostSnapshotRef.current;
           setHostInventoryState(
             authoritativeSnapshot?.profileId === profileId &&
@@ -357,8 +359,10 @@ export function useHostAdministrationController(
         } finally {
           if (
             !options.silent &&
+            hostInventoryLoadingOwner.current === loadingOwner &&
             hostAuthorityRef.current.generation === requestAuthority.generation
           ) {
+            hostInventoryLoadingOwner.current = null;
             setHostsLoading(false);
           }
         }
@@ -575,6 +579,36 @@ export function useHostAdministrationController(
     [beginAction]
   );
 
+  const publishHostMutation = useCallback(
+    (profileId: string, hostId: string, updatedHost: OperatorHostView) => {
+      hostInventoryRevision.current += 1;
+      hostInventoryLoadingOwner.current = null;
+      setHostsLoading(false);
+      const current = hostSnapshotRef.current;
+      if (
+        current?.profileId !== profileId ||
+        current.authorityGeneration !== hostAuthorityRef.current.generation
+      ) {
+        setHostInventoryState("unavailable");
+        return;
+      }
+      const next = {
+        ...current,
+        hosts: current.hosts.map((host) => (host.id === hostId ? updatedHost : host)),
+        displayedHosts: current.displayedHosts.map((host) =>
+          host.id === hostId ? updatedHost : host
+        ),
+        preservedHosts: current.preservedHosts.map((host) =>
+          host.id === hostId ? updatedHost : host
+        )
+      };
+      hostSnapshotRef.current = next;
+      setHostSnapshot(next);
+      setHostInventoryState("ready");
+    },
+    []
+  );
+
   const revokeHost = useCallback(
     async (hostId: string) => {
       const operation = beginAction();
@@ -590,26 +624,7 @@ export function useHostAdministrationController(
           hostId
         });
         if (!operation.isCurrent()) return null;
-        setHostSnapshot((current) => {
-          if (
-            current?.profileId !== activeProfile.profileId ||
-            current.authorityGeneration !== hostAuthorityRef.current.generation
-          ) {
-            return current;
-          }
-          const next = {
-            ...current,
-            hosts: current.hosts.map((host) => (host.id === hostId ? revoked : host)),
-            displayedHosts: current.displayedHosts.map((host) =>
-              host.id === hostId ? revoked : host
-            ),
-            preservedHosts: current.preservedHosts.map((host) =>
-              host.id === hostId ? revoked : host
-            )
-          };
-          hostSnapshotRef.current = next;
-          return next;
-        });
+        publishHostMutation(activeProfile.profileId, hostId, revoked);
         updateActionError(null);
         return revoked;
       } catch (cause) {
@@ -619,7 +634,7 @@ export function useHostAdministrationController(
         if (operation.isCurrent()) setBusy(false);
       }
     },
-    [activeProfile, beginAction]
+    [activeProfile, beginAction, publishHostMutation]
   );
 
   const renewHostCredential = useCallback(
@@ -637,26 +652,7 @@ export function useHostAdministrationController(
           hostId
         });
         if (!operation.isCurrent()) return null;
-        setHostSnapshot((current) => {
-          if (
-            current?.profileId !== activeProfile.profileId ||
-            current.authorityGeneration !== hostAuthorityRef.current.generation
-          ) {
-            return current;
-          }
-          const next = {
-            ...current,
-            hosts: current.hosts.map((host) => (host.id === hostId ? renewed : host)),
-            displayedHosts: current.displayedHosts.map((host) =>
-              host.id === hostId ? renewed : host
-            ),
-            preservedHosts: current.preservedHosts.map((host) =>
-              host.id === hostId ? renewed : host
-            )
-          };
-          hostSnapshotRef.current = next;
-          return next;
-        });
+        publishHostMutation(activeProfile.profileId, hostId, renewed);
         updateActionError(null);
         return renewed;
       } catch (cause) {
@@ -666,7 +662,7 @@ export function useHostAdministrationController(
         if (operation.isCurrent()) setBusy(false);
       }
     },
-    [activeProfile, beginAction]
+    [activeProfile, beginAction, publishHostMutation]
   );
 
   const runLocalHostAction = useCallback(
