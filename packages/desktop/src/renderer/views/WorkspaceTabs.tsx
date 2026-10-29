@@ -1,3 +1,4 @@
+import type { TaskCanvasRenameHandler } from "../renameResult";
 import type { EndpointScopeCancellationState } from "../hooks/useWorkspaceAgentEndpointRun";
 import {
   lazy,
@@ -91,11 +92,7 @@ export type WorkspaceTabsShellProps = {
   handleOpenProject: () => Promise<void>;
   handleRevealPathInFinder: (path: string | null | undefined) => Promise<void>;
   handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
-  handleRenameTaskCanvas: (
-    project: DesktopProjectSummary,
-    canvasId: string,
-    currentName: string
-  ) => Promise<void>;
+  handleRenameTaskCanvas: TaskCanvasRenameHandler;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   openWorkspaceCanvasLocator: (locator: WorkspaceCanvasLocator) => void;
   refreshProjects: (options?: {

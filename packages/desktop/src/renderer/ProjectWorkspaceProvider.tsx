@@ -705,25 +705,9 @@ export function ProjectWorkspaceProvider({
     createProjectFromTaskCanvas: createLocalProjectFromTaskCanvas,
     deleteTaskCanvas: deleteTaskCanvasInSession,
     duplicateTaskCanvas: duplicateTaskCanvasInSession,
-    renameProject: async (project, name) => {
-      if (!bridge) {
-        return null;
-      }
-      const updated = await bridge.renameProject(project.projectId, name);
-      if (updated.projectId !== project.projectId) {
-        updateSettings((current) => ({
-          pinnedProjectIds: Array.from(
-            new Set(
-              current.pinnedProjectIds.map((pinnedProjectId) =>
-                pinnedProjectId === project.projectId ? updated.projectId : pinnedProjectId
-              )
-            )
-          )
-        }));
-      }
-      await refreshProjects({ selectProjectId: updated.projectId });
-      return updated;
-    },
+    captureProjectSelection: desktopProject.captureProjectSelection,
+    refreshProjects,
+    updateSettings,
     renameTaskCanvas: renameTaskCanvasInSession,
     refreshProjectSummary,
     removeProject,

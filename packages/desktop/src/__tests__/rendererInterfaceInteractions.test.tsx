@@ -231,7 +231,7 @@ describe("desktop renderer interface interactions", () => {
         handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={handleTaskPanelSelect}
         loadProject={loadProject}
@@ -295,7 +295,7 @@ describe("desktop renderer interface interactions", () => {
       unobserve = vi.fn();
     }
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
-    const handleRenameTaskCanvas = vi.fn().mockResolvedValue(undefined);
+    const handleRenameTaskCanvas = vi.fn().mockResolvedValue({ status: "saved" });
 
     render(
       <ProjectSidebar
@@ -335,7 +335,12 @@ describe("desktop renderer interface interactions", () => {
     await userEvent.clear(input);
     await userEvent.type(input, "Renamed canvas{Enter}");
 
-    expect(handleRenameTaskCanvas).toHaveBeenCalledWith(project, "canvas-main", "Renamed canvas");
+    expect(handleRenameTaskCanvas).toHaveBeenCalledWith(
+      project,
+      "canvas-main",
+      "Renamed canvas",
+      expect.objectContaining({ isCurrent: expect.any(Function) })
+    );
   });
 
   it("copies an agent prompt from the task canvas context menu", async () => {
@@ -360,7 +365,7 @@ describe("desktop renderer interface interactions", () => {
         handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={vi.fn()}
         loadProject={vi.fn().mockResolvedValue(undefined)}
@@ -405,7 +410,7 @@ describe("desktop renderer interface interactions", () => {
         handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={vi.fn()}
         loadProject={vi.fn().mockResolvedValue(undefined)}
@@ -449,7 +454,7 @@ describe("desktop renderer interface interactions", () => {
         handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={vi.fn()}
         loadProject={vi.fn().mockResolvedValue(undefined)}
@@ -510,7 +515,7 @@ describe("desktop renderer interface interactions", () => {
         handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={vi.fn()}
         loadProject={loadProject}
@@ -584,7 +589,7 @@ describe("desktop renderer interface interactions", () => {
         handleDeleteTaskNode={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={vi.fn()}
         loadProject={vi.fn().mockResolvedValue(undefined)}

@@ -262,13 +262,13 @@ vi.mock("../../renderer/hooks/useDesktopProjectActions", () => ({
     handleDuplicateTaskCanvas: stubs.asyncCall,
     handleDropSourceRoot: stubs.asyncCall,
     handleProjectNewGraph: stubs.asyncCall,
-    handleRenameProject: stubs.asyncCall,
+    handleRenameProject: async () => ({ status: "saved" }),
     handleRevealPathInFinder: stubs.asyncCall,
     handleRevealPlanWorkspace: stubs.asyncCall,
     handleRevealProject: stubs.asyncCall,
     handleRevealSourceRoot: stubs.asyncCall,
     handleRevealTaskCanvas: stubs.asyncCall,
-    handleRenameTaskCanvas: stubs.asyncCall,
+    handleRenameTaskCanvas: async () => ({ status: "saved" }),
     handleUnlinkSourceRoot: stubs.asyncCall
   })
 }));

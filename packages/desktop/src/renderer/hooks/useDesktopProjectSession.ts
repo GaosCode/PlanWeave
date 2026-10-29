@@ -9,6 +9,7 @@ import type {
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { Language } from "../i18n";
 import type { AppView } from "../types";
+import type { RenameRequest } from "../renameResult";
 import type { SelectedBlockSelection } from "./useSelectedBlock";
 import { resolveProjectCanvasId, useDesktopProject } from "./useDesktopProject";
 
@@ -107,7 +108,8 @@ export function useDesktopProjectSession({
   const refreshLatestAutoRunSummary = useCallback(
     async (
       projectRoot = projectState.selectedProject?.rootPath,
-      canvasId = projectState.selectedCanvasId
+      canvasId = projectState.selectedCanvasId,
+      isOwnerCurrent: () => boolean = () => true
     ) => {
       if (!bridge || !projectRoot) {
         setAutoRunState(null);
@@ -115,18 +117,18 @@ export function useDesktopProjectSession({
         return null;
       }
       const request = projectState.beginProjectRequest({ projectRoot, canvasId }, "autoRun");
-      if (!request.isCurrent()) return null;
+      if (!request.isCurrent() || !isOwnerCurrent()) return null;
       try {
         const summary = await bridge.getLatestAutoRunSummaryWithDiagnostics({
           projectRoot,
           canvasId
         });
-        if (!request.isCurrent()) return null;
+        if (!request.isCurrent() || !isOwnerCurrent()) return null;
         setAutoRunState(summary.state);
         setAutoRunDiagnostics(summary.diagnostics);
         return summary.state;
       } catch (caught) {
-        if (request.isCurrent())
+        if (request.isCurrent() && isOwnerCurrent())
           summaryError.current(caught instanceof Error ? caught.message : String(caught));
         return null;
       }
@@ -219,8 +221,9 @@ export function useDesktopProjectSession({
     async (
       project: DesktopProjectSummary,
       canvasId?: string | null,
-      options: { recordCanvasSelection?: boolean } = {}
+      options: { recordCanvasSelection?: boolean; isOwnerCurrent?: () => boolean } = {}
     ) => {
+      if (options.isOwnerCurrent?.() === false) return;
       const nextCanvasId = resolveProjectCanvasId(project, canvasId);
       const selection = projectState.beginProjectSelection(project, nextCanvasId);
       try {
@@ -231,18 +234,24 @@ export function useDesktopProjectSession({
           options.recordCanvasSelection !== false
         ) {
           await bridge.selectTaskCanvas(project.rootPath, nextCanvasId);
-          if (!selection.isCurrent()) return;
+          if (!selection.isCurrent() || options.isOwnerCurrent?.() === false) return;
         }
-        if (!selection.isCurrent()) return;
+        if (!selection.isCurrent() || options.isOwnerCurrent?.() === false) return;
         clearSelectionForCanvasChange();
-        const loading = projectState.loadProject(project, nextCanvasId, selection);
+        const loading = projectState.loadProject(
+          project,
+          nextCanvasId,
+          selection,
+          options.isOwnerCurrent
+        );
         const request = projectState.beginProjectRequest(
           { projectRoot: project.rootPath, canvasId: nextCanvasId },
           "autoRun"
         );
         await loading;
-        if (!selection.isCurrent() || !request.isCurrent()) return;
-        await refreshLatestAutoRunSummary(project.rootPath, nextCanvasId);
+        if (!selection.isCurrent() || !request.isCurrent() || options.isOwnerCurrent?.() === false)
+          return;
+        await refreshLatestAutoRunSummary(project.rootPath, nextCanvasId, options.isOwnerCurrent);
       } catch (caught) {
         if (selection.isCurrent()) throw caught;
       } finally {
@@ -354,27 +363,29 @@ export function useDesktopProjectSession({
   );
 
   const renameTaskCanvas = useCallback(
-    async (project: DesktopProjectSummary, canvasId: string, name: string) => {
+    async (
+      project: DesktopProjectSummary,
+      canvasId: string,
+      name: string,
+      request: RenameRequest
+    ) => {
       if (!bridge) {
-        return null;
+        throw new Error("Desktop bridge is unavailable");
       }
       const selection = projectState.captureProjectSelection();
-      try {
-        const canvas = await bridge.renameTaskCanvas(project.rootPath, canvasId, name);
-        if (!selection.isCurrent()) return canvas;
-        const refreshed = await projectState.refreshProjectSummary(
-          project.rootPath,
-          projectState.selectedCanvasId
-        );
-        if (!selection.isCurrent()) return canvas;
-        if (projectState.selectedProject?.projectId === project.projectId && refreshed) {
-          await openProject(refreshed, projectState.selectedCanvasId);
-        }
-        return canvas;
-      } catch (caught) {
-        if (selection.isCurrent()) throw caught;
-        return null;
+      const canvas = await bridge.renameTaskCanvas(project.rootPath, canvasId, name);
+      if (!selection.isCurrent() || !request.isCurrent()) return canvas;
+      const refreshed = await projectState.refreshProjectSummary(
+        project.rootPath,
+        projectState.selectedCanvasId
+      );
+      if (!selection.isCurrent() || !request.isCurrent()) return canvas;
+      if (projectState.selectedProject?.projectId === project.projectId && refreshed) {
+        await openProject(refreshed, projectState.selectedCanvasId, {
+          isOwnerCurrent: request.isCurrent
+        });
       }
+      return canvas;
     },
     [
       openProject,

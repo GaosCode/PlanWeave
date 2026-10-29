@@ -1,3 +1,4 @@
+import type { ProjectRenameHandler, TaskCanvasRenameHandler } from "../renameResult";
 import {
   ChevronRightIcon,
   FolderOpenIcon,
@@ -7,14 +8,7 @@ import {
   SquarePenIcon,
   Trash2Icon
 } from "lucide-react";
-import {
-  useEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type DragEvent,
-  type SetStateAction
-} from "react";
+import { type Dispatch, type DragEvent, type SetStateAction } from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -28,6 +22,7 @@ import {
 } from "@/components/ui/context-menu";
 import { fileManagerLabel } from "../fileManagerLabels";
 import type { createTranslator } from "../i18n";
+import { useInlineRename } from "../hooks/useInlineRename";
 import { AnimatedTreeRegion } from "./AnimatedTreeRegion";
 import { CanvasTreeItem } from "./CanvasTreeItem";
 
@@ -57,12 +52,8 @@ type ProjectTreeItemProps = {
     canvas: TaskCanvasSummary,
     taskId: string
   ) => void;
-  handleRenameProject: (project: DesktopProjectSummary, name: string) => Promise<void>;
-  handleRenameTaskCanvas: (
-    project: DesktopProjectSummary,
-    canvasId: string,
-    currentName: string
-  ) => Promise<void>;
+  handleRenameProject: ProjectRenameHandler;
+  handleRenameTaskCanvas: TaskCanvasRenameHandler;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   isExpandedProject: boolean;
@@ -80,6 +71,8 @@ type ProjectTreeItemProps = {
   project: DesktopProjectSummary;
   renamingProjectId: string | null;
   selectedCanvasId: string | null;
+  onRenameStart: () => void;
+  renameScopeKey: string;
   selectedTaskPanelId: string | null;
   setRenamingProjectId: Dispatch<SetStateAction<string | null>>;
   t: ReturnType<typeof createTranslator>;
@@ -117,6 +110,8 @@ export function ProjectTreeItem({
   project,
   renamingProjectId,
   selectedCanvasId,
+  onRenameStart,
+  renameScopeKey,
   selectedTaskPanelId,
   setRenamingProjectId,
   t
@@ -126,45 +121,17 @@ export function ProjectTreeItem({
   const isRenamingProject = renamingProjectId === project.projectId;
   const openPlanWorkspaceLabel = fileManagerLabel(t, "planWorkspace");
   const openSourceRootLabel = fileManagerLabel(t, "sourceRoot");
-  const [renameDraft, setRenameDraft] = useState(project.name);
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const commitStartedRef = useRef(false);
+  const rename = useInlineRename({
+    active: isRenamingProject,
+    name: project.name,
+    scopeKey: renameScopeKey,
+    onClose: () =>
+      setRenamingProjectId((current) => (current === project.projectId ? null : current)),
+    onSave: (name, request) => handleRenameProject(project, name, request)
+  });
   const droppedPath = (event: DragEvent<HTMLElement>): string | null => {
     const file = event.dataTransfer.files[0] as (File & { path?: string }) | undefined;
     return file?.path ?? null;
-  };
-
-  useEffect(() => {
-    if (!isRenamingProject) {
-      setRenameDraft(project.name);
-      return;
-    }
-    commitStartedRef.current = false;
-    setRenameDraft(project.name);
-    requestAnimationFrame(() => {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
-    });
-  }, [isRenamingProject, project.name]);
-
-  const cancelRenameProject = () => {
-    commitStartedRef.current = true;
-    setRenameDraft(project.name);
-    setRenamingProjectId(null);
-  };
-
-  const commitRenameProject = async () => {
-    if (commitStartedRef.current) {
-      return;
-    }
-    commitStartedRef.current = true;
-    const nextName = renameDraft.trim();
-    setRenamingProjectId(null);
-    if (!nextName || nextName === project.name.trim()) {
-      setRenameDraft(project.name);
-      return;
-    }
-    await handleRenameProject(project, nextName);
   };
 
   return (
@@ -193,21 +160,24 @@ export function ProjectTreeItem({
             className="flex h-8 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md border border-state-selected/30 bg-state-selected-surface px-2 text-sm text-text-strong shadow-sm [&_svg]:size-4"
             onSubmit={(event) => {
               event.preventDefault();
-              void commitRenameProject();
+              void rename.commit();
             }}
           >
             <GitBranchIcon className="shrink-0" data-icon="inline-start" />
             <input
-              ref={renameInputRef}
+              ref={rename.inputRef}
               aria-label={t("renameProjectPrompt")}
+              aria-invalid={rename.failed}
+              aria-busy={rename.pending}
+              readOnly={rename.pending}
               className="min-w-0 flex-1 bg-transparent font-medium outline-none"
-              value={renameDraft}
-              onBlur={() => void commitRenameProject()}
-              onChange={(event) => setRenameDraft(event.target.value)}
+              value={rename.draft}
+              onBlur={() => void rename.commit()}
+              onChange={(event) => rename.setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   event.preventDefault();
-                  cancelRenameProject();
+                  rename.cancel();
                 }
               }}
             />
@@ -288,7 +258,12 @@ export function ProjectTreeItem({
                 <SquarePenIcon data-icon="inline-start" />
                 {t("newGraph")}
               </ContextMenuItem>
-              <ContextMenuItem onSelect={() => setRenamingProjectId(project.projectId)}>
+              <ContextMenuItem
+                onSelect={() => {
+                  onRenameStart();
+                  setRenamingProjectId(project.projectId);
+                }}
+              >
                 <PencilIcon data-icon="inline-start" />
                 {t("renameProject")}
               </ContextMenuItem>
@@ -335,6 +310,8 @@ export function ProjectTreeItem({
               onCanvasSelect={onCanvasSelect}
               onCanvasToggle={onCanvasToggle}
               project={project}
+              onRenameStart={onRenameStart}
+              renameScopeKey={renameScopeKey}
               selectedTaskPanelId={selectedTaskPanelId}
               t={t}
             />

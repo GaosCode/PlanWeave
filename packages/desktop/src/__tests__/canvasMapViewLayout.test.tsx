@@ -1,7 +1,11 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import userEvent from "@testing-library/user-event";
+import { useDesktopProjectActions } from "../renderer/hooks/useDesktopProjectActions";
+import { deferred } from "./helpers/desktopProjectFixtures";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { DesktopCanvasGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
@@ -10,7 +14,8 @@ import { stubSelectLayoutApis } from "./helpers/rendererTestEnvironment";
 
 const useCanvasMapMock = vi.hoisted(() => vi.fn());
 const bridgeMock = vi.hoisted(() => ({
-  updateCanvasExecutionPolicy: vi.fn()
+  updateCanvasExecutionPolicy: vi.fn(),
+  renameTaskCanvas: vi.fn()
 }));
 const reactFlowRenderNodes = vi.hoisted(() => [] as Array<unknown[] | undefined>);
 
@@ -90,7 +95,7 @@ function renderCanvasMapView(patch: Partial<Parameters<typeof CanvasMapView>[0]>
       handleOpenBlockInspector={vi.fn().mockResolvedValue(undefined)}
       handleOpenProject={vi.fn().mockResolvedValue(undefined)}
       handleRevealTaskCanvas={vi.fn().mockResolvedValue(undefined)}
-      handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+      handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
       loadProject={vi.fn().mockResolvedValue(undefined)}
       onAgentPromptCopied={vi.fn()}
       onTaskPanelSelect={vi.fn()}
@@ -107,6 +112,14 @@ function renderCanvasMapView(patch: Partial<Parameters<typeof CanvasMapView>[0]>
 }
 
 beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
   stubSelectLayoutApis();
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -115,6 +128,7 @@ beforeEach(() => {
     }
   });
   bridgeMock.updateCanvasExecutionPolicy.mockResolvedValue(undefined);
+  bridgeMock.renameTaskCanvas.mockReset();
   reactFlowRenderNodes.length = 0;
   useCanvasMapMock.mockReturnValue({
     canvasGraph,
@@ -136,6 +150,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("CanvasMapView agent scope layout", () => {
@@ -165,7 +180,7 @@ describe("CanvasMapView agent scope layout", () => {
 
   it("wires canvas map node rename and Finder actions to the project handlers", async () => {
     const handleRevealTaskCanvas = vi.fn().mockResolvedValue(undefined);
-    const handleRenameTaskCanvas = vi.fn().mockResolvedValue(undefined);
+    const handleRenameTaskCanvas = vi.fn().mockResolvedValue({ status: "saved" });
     const loadCanvasMap = vi.fn().mockResolvedValue(undefined);
     const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
     useCanvasMapMock.mockReturnValue({
@@ -182,7 +197,6 @@ describe("CanvasMapView agent scope layout", () => {
       selectedMapCanvasId: "default",
       setSelectedMapCanvasId: vi.fn()
     });
-    vi.spyOn(window, "prompt").mockReturnValue("Renamed canvas");
 
     renderCanvasMapView({
       handleRevealTaskCanvas,
@@ -199,11 +213,20 @@ describe("CanvasMapView agent scope layout", () => {
       };
     };
     node.data.onRevealInFinder("default");
-    node.data.onRename(node.data.canvas);
+    await act(async () => node.data.onRename(node.data.canvas));
+    fireEvent.change(screen.getByRole("textbox", { name: "Task canvas name" }), {
+      target: { value: "Renamed canvas" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(handleRevealTaskCanvas).toHaveBeenCalledWith(project, "default");
     await waitFor(() =>
-      expect(handleRenameTaskCanvas).toHaveBeenCalledWith(project, "default", "Renamed canvas")
+      expect(handleRenameTaskCanvas).toHaveBeenCalledWith(
+        project,
+        "default",
+        "Renamed canvas",
+        expect.objectContaining({ isCurrent: expect.any(Function) })
+      )
     );
     await waitFor(() => expect(loadCanvasMap).toHaveBeenCalledTimes(1));
     expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
@@ -285,7 +308,7 @@ describe("CanvasMapView agent scope layout", () => {
         handleOpenBlockInspector={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleRevealTaskCanvas={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         loadProject={vi.fn().mockResolvedValue(undefined)}
         onAgentPromptCopied={vi.fn()}
         onTaskPanelSelect={vi.fn()}
@@ -310,7 +333,7 @@ describe("CanvasMapView agent scope layout", () => {
         handleOpenBlockInspector={vi.fn().mockResolvedValue(undefined)}
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleRevealTaskCanvas={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         loadProject={vi.fn().mockResolvedValue(undefined)}
         onAgentPromptCopied={vi.fn()}
         onTaskPanelSelect={vi.fn()}
@@ -375,5 +398,104 @@ describe("CanvasMapView agent scope layout", () => {
 
     expect(screen.getByTestId("canvas-map-layout-status")).toHaveTextContent("Saving layout");
     expect(screen.queryByTestId("canvas-map-layout-retry-save")).toBeNull();
+  });
+});
+
+function CanvasMapWithRenameAction({
+  refreshProjectDerivedState = vi.fn()
+}: {
+  refreshProjectDerivedState?: () => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const actions = useDesktopProjectActions({
+    clearReviewTaskSelection: vi.fn(),
+    createTaskCanvas: vi.fn(),
+    createProjectFromTaskCanvas: vi.fn(),
+    deleteTaskCanvas: vi.fn(),
+    duplicateTaskCanvas: vi.fn(),
+    renameTaskCanvas: (item, id, name) => bridgeMock.renameTaskCanvas(item.rootPath, id, name),
+    captureProjectSelection: () => ({ isCurrent: () => true }),
+    refreshProjects: vi.fn(),
+    updateSettings: vi.fn(),
+    refreshProjectSummary: vi.fn(),
+    removeProject: vi.fn(),
+    setActiveView: vi.fn(),
+    setError,
+    t: createTranslator("en")
+  });
+  return (
+    <>
+      {error ? <div role="alert">{error}</div> : null}
+      <CanvasMapView
+        executorOptions={["manual"]}
+        handleOpenBlockInspector={vi.fn()}
+        handleOpenProject={vi.fn()}
+        handleRevealTaskCanvas={vi.fn()}
+        handleRenameTaskCanvas={actions.handleRenameTaskCanvas}
+        loadProject={vi.fn()}
+        onAgentPromptCopied={vi.fn()}
+        onTaskPanelSelect={vi.fn()}
+        packageExecutorNames={[]}
+        refreshProjectDerivedState={refreshProjectDerivedState}
+        selectedCanvasId="default"
+        selectedProject={project}
+        setActiveView={vi.fn()}
+        setError={setError}
+        t={createTranslator("en")}
+      />
+    </>
+  );
+}
+
+async function openCanvasMapRename() {
+  await waitFor(() => expect(reactFlowRenderNodes.at(-1)?.length).toBe(1));
+  const node = reactFlowRenderNodes.at(-1)?.[0] as {
+    data: {
+      canvas: DesktopCanvasGraphViewModel["canvases"][number];
+      onRename: (canvas: DesktopCanvasGraphViewModel["canvases"][number]) => void;
+    };
+  };
+  await act(async () => node.data.onRename(node.data.canvas));
+  return screen.getByRole("textbox", { name: "Task canvas name" });
+}
+
+describe("canvas map rename save results", () => {
+  it("retains the failed draft without refreshing and refreshes only after a successful retry", async () => {
+    bridgeMock.renameTaskCanvas
+      .mockRejectedValueOnce(new Error("Canvas map read-only"))
+      .mockResolvedValueOnce({ canvasId: "default", name: "Retried map" });
+    const refreshProjectDerivedState = vi.fn().mockResolvedValue(undefined);
+    const loadCanvasMap = useCanvasMapMock().loadCanvasMap;
+    render(<CanvasMapWithRenameAction refreshProjectDerivedState={refreshProjectDerivedState} />);
+    const input = await openCanvasMapRename();
+    await userEvent.clear(input);
+    await userEvent.type(input, "Retried map{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Canvas map read-only");
+    expect(input).toHaveValue("Retried map");
+    expect(loadCanvasMap).not.toHaveBeenCalled();
+    expect(refreshProjectDerivedState).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(input).not.toBeInTheDocument());
+    expect(bridgeMock.renameTaskCanvas).toHaveBeenCalledTimes(2);
+    expect(loadCanvasMap).toHaveBeenCalledTimes(1);
+    expect(refreshProjectDerivedState).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a replacement draft when an escaped pending map rename rejects", async () => {
+    const gate = deferred<void>();
+    bridgeMock.renameTaskCanvas.mockImplementationOnce(() => gate.promise);
+    const loadCanvasMap = useCanvasMapMock().loadCanvasMap;
+    render(<CanvasMapWithRenameAction />);
+    const input = await openCanvasMapRename();
+    await userEvent.clear(input);
+    await userEvent.type(input, "Old map{Enter}{Escape}");
+    expect(input).not.toBeInTheDocument();
+    const replacement = await openCanvasMapRename();
+    await userEvent.clear(replacement);
+    await userEvent.type(replacement, "New map draft");
+    await act(async () => gate.reject(new Error("Old map error")));
+    expect(replacement).toHaveValue("New map draft");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(loadCanvasMap).not.toHaveBeenCalled();
   });
 });

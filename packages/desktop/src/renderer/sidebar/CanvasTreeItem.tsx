@@ -1,3 +1,4 @@
+import type { TaskCanvasRenameHandler } from "../renameResult";
 import {
   AlertTriangleIcon,
   ClipboardIcon,
@@ -9,7 +10,7 @@ import {
   Trash2Icon,
   WorkflowIcon
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/context-menu";
 import { fileManagerLabel } from "../fileManagerLabels";
 import type { createTranslator } from "../i18n";
+import { useInlineRename } from "../hooks/useInlineRename";
 import { AnimatedTreeRegion } from "./AnimatedTreeRegion";
 import {
   CanvasTreeSelectButton,
@@ -46,11 +48,7 @@ type CanvasTreeItemProps = {
     canvas: TaskCanvasSummary,
     taskId: string
   ) => void;
-  handleRenameTaskCanvas: (
-    project: DesktopProjectSummary,
-    canvasId: string,
-    name: string
-  ) => Promise<void>;
+  handleRenameTaskCanvas: TaskCanvasRenameHandler;
   handleTaskPanelSelect: (taskId: string | null) => void;
   isExpandedCanvas: boolean;
   isGraphCanvas: boolean;
@@ -61,6 +59,8 @@ type CanvasTreeItemProps = {
     isGraphCanvas: boolean
   ) => void;
   project: DesktopProjectSummary;
+  onRenameStart: () => void;
+  renameScopeKey: string;
   selectedTaskPanelId: string | null;
   t: ReturnType<typeof createTranslator>;
 };
@@ -83,6 +83,8 @@ export function CanvasTreeItem({
   onCanvasSelect,
   onCanvasToggle,
   project,
+  onRenameStart,
+  renameScopeKey,
   selectedTaskPanelId,
   t
 }: CanvasTreeItemProps) {
@@ -94,44 +96,13 @@ export function CanvasTreeItem({
   const openTaskLabel = fileManagerLabel(t, "task");
   const resetOnlyCanvas = canvas.canvasId === "default" || project.taskCanvases.length === 1;
   const [isRenaming, setIsRenaming] = useState(false);
-  const [renameDraft, setRenameDraft] = useState(canvasLabel);
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const commitStartedRef = useRef(false);
-
-  useEffect(() => {
-    if (!isRenaming) {
-      setRenameDraft(canvasLabel);
-      return;
-    }
-    renameInputRef.current?.focus();
-    renameInputRef.current?.select();
-  }, [canvasLabel, isRenaming]);
-
-  const startRename = () => {
-    commitStartedRef.current = false;
-    setRenameDraft(canvasLabel);
-    setIsRenaming(true);
-  };
-
-  const cancelRename = () => {
-    commitStartedRef.current = true;
-    setRenameDraft(canvasLabel);
-    setIsRenaming(false);
-  };
-
-  const commitRename = async () => {
-    if (commitStartedRef.current) {
-      return;
-    }
-    commitStartedRef.current = true;
-    const nextName = renameDraft.trim();
-    setIsRenaming(false);
-    if (!nextName || nextName === canvasLabel.trim()) {
-      setRenameDraft(canvasLabel);
-      return;
-    }
-    await handleRenameTaskCanvas(project, canvas.canvasId, nextName);
-  };
+  const rename = useInlineRename({
+    active: isRenaming,
+    name: canvasLabel,
+    scopeKey: renameScopeKey,
+    onClose: () => setIsRenaming(false),
+    onSave: (name, request) => handleRenameTaskCanvas(project, canvas.canvasId, name, request)
+  });
 
   return (
     <div className="flex w-full min-w-0 max-w-full flex-col overflow-hidden">
@@ -141,21 +112,24 @@ export function CanvasTreeItem({
             className="flex h-8 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md border border-state-selected/30 bg-state-selected-surface px-2 text-xs text-text-strong shadow-sm [&_svg]:size-4"
             onSubmit={(event) => {
               event.preventDefault();
-              void commitRename();
+              void rename.commit();
             }}
           >
             <WorkflowIcon className="shrink-0" data-icon="inline-start" />
             <input
-              ref={renameInputRef}
+              ref={rename.inputRef}
               aria-label={t("renameTaskCanvasPrompt")}
+              aria-invalid={rename.failed}
+              aria-busy={rename.pending}
+              readOnly={rename.pending}
               className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none"
-              value={renameDraft}
-              onBlur={() => void commitRename()}
-              onChange={(event) => setRenameDraft(event.target.value)}
+              value={rename.draft}
+              onBlur={() => void rename.commit()}
+              onChange={(event) => rename.setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   event.preventDefault();
-                  cancelRename();
+                  rename.cancel();
                 }
               }}
             />
@@ -217,7 +191,12 @@ export function CanvasTreeItem({
                 <FolderPlusIcon data-icon="inline-start" />
                 {t("copyCanvasToNewProject")}
               </ContextMenuItem>
-              <ContextMenuItem onSelect={startRename}>
+              <ContextMenuItem
+                onSelect={() => {
+                  onRenameStart();
+                  setIsRenaming(true);
+                }}
+              >
                 <PencilIcon data-icon="inline-start" />
                 {t("renameTaskCanvas")}
               </ContextMenuItem>

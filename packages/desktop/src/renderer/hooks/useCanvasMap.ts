@@ -58,64 +58,70 @@ export function useCanvasMap({ activeCanvasId, selectedProject, setError }: UseC
     }
   }, [selectedProject?.rootPath]);
 
-  const loadCanvasMap = useCallback(async () => {
-    if (!bridge || !selectedProject) {
-      setCanvasGraph(null);
-      setCanvasMapLayout(null);
-      setPersistedCanvasMapLayout(null);
-      setLayoutDirty(false);
-      setLayoutPending(null);
-      setSelectedMapCanvasId(null);
-      return;
-    }
-
-    const epoch = layoutEpochRef.current + 1;
-    layoutEpochRef.current = epoch;
-    setLayoutPending("load");
-    setError(null);
-
-    const projectRoot = selectedProject.rootPath;
-    const [graphResult, layoutResult] = await Promise.allSettled([
-      bridge.getCanvasGraphViewModel(projectRoot),
-      bridge.getCanvasMapLayout(projectRoot)
-    ]);
-
-    if (layoutEpochRef.current !== epoch || projectRootRef.current !== projectRoot) {
-      return;
-    }
-
-    const errors: string[] = [];
-    if (graphResult.status === "fulfilled") {
-      setCanvasGraph(graphResult.value);
-      setSelectedMapCanvasId(
-        (current) => current ?? activeCanvasId ?? graphResult.value.canvases[0]?.canvasId ?? null
-      );
-    } else {
-      setCanvasGraph(null);
-      errors.push(errorMessage(graphResult.reason));
-    }
-
-    if (layoutResult.status === "fulfilled") {
-      // Disk is always the persisted baseline, but an unsaved working layout must
-      // survive graph/name/policy reloads until explicit reset or successful save.
-      setPersistedCanvasMapLayout(layoutResult.value);
-      if (layoutDirtyRef.current && workingLayoutRef.current) {
-        setCanvasMapLayout(workingLayoutRef.current);
-        setLayoutDirty(true);
-      } else {
-        setCanvasMapLayout(layoutResult.value);
+  const loadCanvasMap = useCallback(
+    async (isOwnerCurrent: () => boolean = () => true) => {
+      if (!isOwnerCurrent()) return;
+      if (!bridge || !selectedProject) {
+        setCanvasGraph(null);
+        setCanvasMapLayout(null);
+        setPersistedCanvasMapLayout(null);
         setLayoutDirty(false);
+        setLayoutPending(null);
+        setSelectedMapCanvasId(null);
+        return;
       }
-    } else {
-      // Keep last-known-good working/persisted layout; only clear when never loaded.
-      errors.push(errorMessage(layoutResult.reason));
-    }
 
-    if (errors.length > 0) {
-      setError(errors.join("\n"));
-    }
-    setLayoutPending((current) => (current === "load" ? null : current));
-  }, [activeCanvasId, selectedProject, setError]);
+      const epoch = layoutEpochRef.current + 1;
+      layoutEpochRef.current = epoch;
+      setLayoutPending("load");
+      setError(null);
+
+      const projectRoot = selectedProject.rootPath;
+      const [graphResult, layoutResult] = await Promise.allSettled([
+        bridge.getCanvasGraphViewModel(projectRoot),
+        bridge.getCanvasMapLayout(projectRoot)
+      ]);
+
+      if (layoutEpochRef.current !== epoch || projectRootRef.current !== projectRoot) return;
+      if (!isOwnerCurrent()) {
+        setLayoutPending((current) => (current === "load" ? null : current));
+        return;
+      }
+
+      const errors: string[] = [];
+      if (graphResult.status === "fulfilled") {
+        setCanvasGraph(graphResult.value);
+        setSelectedMapCanvasId(
+          (current) => current ?? activeCanvasId ?? graphResult.value.canvases[0]?.canvasId ?? null
+        );
+      } else {
+        setCanvasGraph(null);
+        errors.push(errorMessage(graphResult.reason));
+      }
+
+      if (layoutResult.status === "fulfilled") {
+        // Disk is always the persisted baseline, but an unsaved working layout must
+        // survive graph/name/policy reloads until explicit reset or successful save.
+        setPersistedCanvasMapLayout(layoutResult.value);
+        if (layoutDirtyRef.current && workingLayoutRef.current) {
+          setCanvasMapLayout(workingLayoutRef.current);
+          setLayoutDirty(true);
+        } else {
+          setCanvasMapLayout(layoutResult.value);
+          setLayoutDirty(false);
+        }
+      } else {
+        // Keep last-known-good working/persisted layout; only clear when never loaded.
+        errors.push(errorMessage(layoutResult.reason));
+      }
+
+      if (errors.length > 0) {
+        setError(errors.join("\n"));
+      }
+      setLayoutPending((current) => (current === "load" ? null : current));
+    },
+    [activeCanvasId, selectedProject, setError]
+  );
 
   useEffect(() => {
     void loadCanvasMap();

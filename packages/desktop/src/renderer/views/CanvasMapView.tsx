@@ -1,3 +1,4 @@
+import type { TaskCanvasRenameHandler } from "../renameResult";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   Background,
@@ -30,24 +31,22 @@ import {
 } from "../graph/canvasFlowModel";
 import { styleDependencyEdgesForInteraction } from "../graph/dependencyEdgeVisual";
 import { useCanvasMap } from "../hooks/useCanvasMap";
+import type { ApplyDesktopProjectSnapshotOptions } from "../hooks/useDesktopProjectSnapshot";
 import type { AppView, CanvasFlowNode } from "../types";
 import { CanvasMapInspector } from "./CanvasMapInspector";
+import { CanvasMapRenameEditor } from "./CanvasMapRenameEditor";
 
 type CanvasMapViewProps = {
   executorOptions: readonly string[];
   handleOpenProject: () => Promise<void>;
   handleOpenBlockInspector: (ref: string, canvasId?: string | null) => Promise<void>;
   handleRevealTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
-  handleRenameTaskCanvas: (
-    project: DesktopProjectSummary,
-    canvasId: string,
-    name: string
-  ) => Promise<void>;
+  handleRenameTaskCanvas: TaskCanvasRenameHandler;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
   onAgentPromptCopied: () => void;
   onTaskPanelSelect: (taskId: string | null) => void;
   packageExecutorNames: readonly string[];
-  refreshProjectDerivedState: () => Promise<void>;
+  refreshProjectDerivedState: (options?: ApplyDesktopProjectSnapshotOptions) => Promise<void>;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;
   setActiveView: (view: AppView) => void;
@@ -253,31 +252,31 @@ export function CanvasMapView({
     },
     [handleRevealTaskCanvas, selectedProject]
   );
+  const [renamingCanvas, setRenamingCanvas] = useState<{
+    canvas: DesktopCanvasNodeViewModel;
+    projectId: string;
+    canvasId: string | null;
+  } | null>(null);
   const renameCanvas = useCallback(
     (canvas: DesktopCanvasNodeViewModel) => {
-      if (!selectedProject) {
-        return;
-      }
-      const nextName = window.prompt(t("renameTaskCanvasPrompt"), canvas.title)?.trim();
-      if (!nextName || nextName === canvas.title.trim()) {
-        return;
-      }
-      void handleRenameTaskCanvas(selectedProject, canvas.canvasId, nextName)
-        .then(() => loadCanvasMap())
-        .then(refreshProjectDerivedState)
-        .catch((caught: unknown) =>
-          setError(caught instanceof Error ? caught.message : String(caught))
-        );
+      if (!selectedProject) return;
+      setSelectedMapCanvasId(canvas.canvasId);
+      setRenamingCanvas({
+        canvas,
+        projectId: selectedProject.projectId,
+        canvasId: selectedCanvasId
+      });
     },
-    [
-      handleRenameTaskCanvas,
-      loadCanvasMap,
-      refreshProjectDerivedState,
-      selectedProject,
-      setError,
-      t
-    ]
+    [selectedProject, selectedCanvasId, setSelectedMapCanvasId]
   );
+  useEffect(() => {
+    setRenamingCanvas((current) =>
+      current &&
+      (current.projectId !== selectedProject?.projectId || current.canvasId !== selectedCanvasId)
+        ? null
+        : current
+    );
+  }, [selectedProject?.projectId, selectedCanvasId]);
   const openCanvasRef = useRef(openCanvas);
   const copyAgentPromptRef = useRef(copyAgentPrompt);
   const revealCanvasInFinderRef = useRef(revealCanvasInFinder);
@@ -522,6 +521,31 @@ export function CanvasMapView({
           viewportClassName="[&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full"
         >
           <div className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden p-3 pr-4">
+            {renamingCanvas ? (
+              <CanvasMapRenameEditor
+                key={renamingCanvas.canvas.canvasId}
+                canvas={renamingCanvas.canvas}
+                project={selectedProject}
+                scopeKey={JSON.stringify([
+                  selectedProject.projectId,
+                  selectedCanvasId,
+                  selectedMapCanvasId
+                ])}
+                onClose={() => setRenamingCanvas(null)}
+                onSave={handleRenameTaskCanvas}
+                onSaved={async (request) => {
+                  try {
+                    await loadCanvasMap(request.isCurrent);
+                    if (request.isCurrent())
+                      await refreshProjectDerivedState({ isOwnerCurrent: request.isCurrent });
+                  } catch (caught) {
+                    if (request.isCurrent())
+                      setError(caught instanceof Error ? caught.message : String(caught));
+                  }
+                }}
+                t={t}
+              />
+            ) : null}
             {agentScopeCanvas ? (
               <AgentScopeCard
                 canvas={agentScopeCanvas}

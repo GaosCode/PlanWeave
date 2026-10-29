@@ -1,3 +1,4 @@
+import type { ProjectRenameHandler, TaskCanvasRenameHandler } from "../renameResult";
 import { PlusIcon, RefreshCwIcon } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
@@ -39,12 +40,8 @@ type ProjectTreeProps = {
     canvas: TaskCanvasSummary,
     taskId: string
   ) => void;
-  handleRenameProject: (project: DesktopProjectSummary, name: string) => Promise<void>;
-  handleRenameTaskCanvas: (
-    project: DesktopProjectSummary,
-    canvasId: string,
-    currentName: string
-  ) => Promise<void>;
+  handleRenameProject: ProjectRenameHandler;
+  handleRenameTaskCanvas: TaskCanvasRenameHandler;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   onCanvasSelect: (project: DesktopProjectSummary, canvasId: string) => void;
@@ -66,6 +63,8 @@ type ProjectTreeProps = {
   onRemoteCanvasSelect?: (canvas: CanvasAccessRecord) => void;
   selectedProject: DesktopProjectSummary | null;
   selectedCanvasId: string | null;
+  onRenameStart: () => void;
+  renameScopeKey: string;
   selectedTaskPanelId: string | null;
   setRenamingProjectId: Dispatch<SetStateAction<string | null>>;
   t: ReturnType<typeof createTranslator>;
@@ -111,6 +110,8 @@ export function ProjectTree({
   onRemoteCanvasSelect,
   selectedProject,
   selectedCanvasId,
+  onRenameStart,
+  renameScopeKey,
   selectedTaskPanelId,
   setRenamingProjectId,
   t
@@ -197,6 +198,8 @@ export function ProjectTree({
                 project={project}
                 renamingProjectId={renamingProjectId}
                 selectedCanvasId={selectedCanvasId}
+                onRenameStart={onRenameStart}
+                renameScopeKey={renameScopeKey}
                 selectedTaskPanelId={selectedTaskPanelId}
                 setRenamingProjectId={setRenamingProjectId}
                 t={t}

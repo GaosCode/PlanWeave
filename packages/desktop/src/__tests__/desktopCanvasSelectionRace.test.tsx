@@ -404,7 +404,9 @@ describe("Desktop selection intent before IPC", () => {
           return updatedCanvas;
         });
         start = () =>
-          h.result.current.session.renameTaskCanvas(project, "canvas-main", "New title");
+          h.result.current.session.renameTaskCanvas(project, "canvas-main", "New title", {
+            isCurrent: () => true
+          });
         break;
       case "create-project":
         vi.mocked(h.bridge.createProjectFromTaskCanvas).mockImplementationOnce(async () => {
@@ -434,7 +436,11 @@ describe("Desktop selection intent before IPC", () => {
       else gate.reject(new Error("OBSOLETE-MUTATION"));
       outcome = await pending;
     });
-    expect(outcome).toBeNull();
+    if (operation === "rename" && completion === "error") {
+      expect(outcome).toEqual(new Error("OBSOLETE-MUTATION"));
+    } else {
+      expect(outcome).toBeNull();
+    }
     expectScope(h, target, "canvas-b");
     expect(h.bridge.listProjects).not.toHaveBeenCalled();
     expect(h.clearSelectedBlockRecords).not.toHaveBeenCalled();

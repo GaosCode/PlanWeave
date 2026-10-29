@@ -196,7 +196,10 @@ export function useDesktopProjectLoader({
             await bridge.refreshPackageFileChanges(canvasRef);
             if (!isCurrent()) return;
             stopPackageWatch();
-            const registration = { ...beginDesktopWatchRegistration(project, canvasId), isCurrent };
+            const registration = {
+              ...beginDesktopWatchRegistration(project, canvasId),
+              isCurrent: loadRequest.isSelectionCurrent
+            };
             packageWatch.current = registration;
             try {
               await bridge.watchPackageFiles(registration.reference);

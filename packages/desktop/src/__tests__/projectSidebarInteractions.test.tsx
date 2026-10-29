@@ -12,7 +12,16 @@ import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai
 import type { CanvasAccessRecord } from "@planweave-ai/collaboration-protocol/access/project";
 import type { WorkspaceCanvasProjection } from "../shared/workspaceCanvasProjection";
 import { WorkspaceCanvasCatalog } from "../renderer/sidebar/WorkspaceCanvasCatalog";
+import { sidebarRenameScenarios, type RenameBridgeState } from "./helpers/sidebarRenameScenarios";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
+
+const renameBridge = vi.hoisted<RenameBridgeState>(() => ({ api: null }));
+vi.mock("../renderer/bridge", async () => ({
+  ...(await vi.importActual<typeof import("../renderer/bridge")>("../renderer/bridge")),
+  get bridge() {
+    return renameBridge.api;
+  }
+}));
 
 afterEach(cleanupRendererTestEnvironment);
 
@@ -208,7 +217,7 @@ describe("desktop renderer component interactions", () => {
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
         handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={handleTaskPanelSelect}
         loadProject={vi.fn().mockResolvedValue(undefined)}
@@ -336,7 +345,7 @@ describe("desktop renderer component interactions", () => {
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
         handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={vi.fn()}
         loadProject={vi.fn().mockResolvedValue(undefined)}
@@ -463,7 +472,7 @@ describe("desktop renderer component interactions", () => {
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
         handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={vi.fn()}
         loadProject={vi.fn().mockResolvedValue(undefined)}
@@ -551,7 +560,7 @@ describe("desktop renderer component interactions", () => {
         handleOpenProject={vi.fn().mockResolvedValue(undefined)}
         handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
         handleRefreshProjects={handleRefreshProjects}
-        handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+        handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
         handleRevealProject={vi.fn().mockResolvedValue(undefined)}
         handleTaskPanelSelect={vi.fn()}
         loadProject={vi.fn().mockResolvedValue(undefined)}
@@ -618,8 +627,8 @@ describe("desktop renderer component interactions", () => {
           handleOpenProject={vi.fn().mockResolvedValue(undefined)}
           handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
           handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
-          handleRenameProject={vi.fn().mockResolvedValue(undefined)}
-          handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+          handleRenameProject={vi.fn().mockResolvedValue({ status: "saved" })}
+          handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
           handleRevealPlanWorkspace={vi.fn().mockResolvedValue(undefined)}
           handleRevealProject={vi.fn().mockResolvedValue(undefined)}
           handleRevealSourceRoot={vi.fn().mockResolvedValue(undefined)}
@@ -691,7 +700,7 @@ describe("desktop renderer component interactions", () => {
           handleOpenProject={vi.fn().mockResolvedValue(undefined)}
           handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
           handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
-          handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+          handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
           handleRevealProject={vi.fn().mockResolvedValue(undefined)}
           handleRevealTaskCanvas={handleRevealTaskCanvas}
           handleTaskPanelSelect={vi.fn()}
@@ -795,8 +804,8 @@ describe("desktop renderer component interactions", () => {
           handleOpenProject={vi.fn().mockResolvedValue(undefined)}
           handleProjectNewGraph={vi.fn().mockResolvedValue(undefined)}
           handleRefreshProjects={vi.fn().mockResolvedValue(undefined)}
-          handleRenameProject={vi.fn().mockResolvedValue(undefined)}
-          handleRenameTaskCanvas={vi.fn().mockResolvedValue(undefined)}
+          handleRenameProject={vi.fn().mockResolvedValue({ status: "saved" })}
+          handleRenameTaskCanvas={vi.fn().mockResolvedValue({ status: "saved" })}
           handleRevealPlanWorkspace={vi.fn().mockResolvedValue(undefined)}
           handleRevealProject={vi.fn().mockResolvedValue(undefined)}
           handleRevealSourceRoot={vi.fn().mockResolvedValue(undefined)}
@@ -841,3 +850,5 @@ describe("desktop renderer component interactions", () => {
     ).toEqual(["P-3", "P-1", "P-2"]);
   });
 });
+
+describe("sidebar rename persistence", () => sidebarRenameScenarios(renameBridge));

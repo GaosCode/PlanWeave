@@ -1,4 +1,6 @@
+import type { ProjectRenameHandler, TaskCanvasRenameHandler } from "../renameResult";
 import {
+  useEffect,
   useState,
   type Dispatch,
   type PointerEvent as ReactPointerEvent,
@@ -50,12 +52,8 @@ type ProjectSidebarProps = {
     canvas: TaskCanvasSummary,
     taskId: string
   ) => void;
-  handleRenameProject: (project: DesktopProjectSummary, name: string) => Promise<void>;
-  handleRenameTaskCanvas: (
-    project: DesktopProjectSummary,
-    canvasId: string,
-    currentName: string
-  ) => Promise<void>;
+  handleRenameProject: ProjectRenameHandler;
+  handleRenameTaskCanvas: TaskCanvasRenameHandler;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
   loadProject: (project: DesktopProjectSummary, canvasId?: string | null) => Promise<void>;
@@ -127,6 +125,10 @@ export function ProjectSidebar({
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
   const [collapsedCanvasIds, setCollapsedCanvasIds] = useState<Set<string>>(() => new Set());
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
+  const [renameGeneration, setRenameGeneration] = useState(0);
+  useEffect(() => {
+    if (collapsed) setRenamingProjectId(null);
+  }, [collapsed]);
 
   if (collapsed) {
     return null;
@@ -241,6 +243,16 @@ export function ProjectSidebar({
         t={t}
       />
       <ProjectTree
+        onRenameStart={() => {
+          setRenamingProjectId(null);
+          setRenameGeneration((value) => value + 1);
+        }}
+        renameScopeKey={JSON.stringify([
+          activeView,
+          selectedProject?.projectId,
+          selectedCanvasId,
+          renameGeneration
+        ])}
         collapsedCanvasIds={collapsedCanvasIds}
         collapsedProjectIds={collapsedProjectIds}
         expandedProjectId={expandedProjectId}

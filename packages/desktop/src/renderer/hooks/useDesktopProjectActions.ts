@@ -3,8 +3,9 @@ import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 import type { createTranslator } from "../i18n";
 import type { AppView } from "../types";
+import { useDesktopRenameActions, type RenameActionsOptions } from "./useDesktopRenameActions";
 
-type UseDesktopProjectActionsArgs = {
+type UseDesktopProjectActionsArgs = RenameActionsOptions & {
   clearReviewTaskSelection: (taskId?: string | null) => void;
   createTaskCanvas: (project: DesktopProjectSummary) => Promise<unknown>;
   createProjectFromTaskCanvas: (
@@ -13,12 +14,6 @@ type UseDesktopProjectActionsArgs = {
   ) => Promise<DesktopProjectSummary | null>;
   deleteTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<void>;
   duplicateTaskCanvas: (project: DesktopProjectSummary, canvasId: string) => Promise<unknown>;
-  renameProject: (project: DesktopProjectSummary, name: string) => Promise<unknown>;
-  renameTaskCanvas: (
-    project: DesktopProjectSummary,
-    canvasId: string,
-    name: string
-  ) => Promise<unknown>;
   refreshProjectSummary: (
     projectRoot: string,
     canvasId?: string | null
@@ -35,7 +30,9 @@ export function useDesktopProjectActions({
   createProjectFromTaskCanvas,
   deleteTaskCanvas,
   duplicateTaskCanvas,
-  renameProject,
+  captureProjectSelection,
+  refreshProjects,
+  updateSettings,
   renameTaskCanvas,
   refreshProjectSummary,
   removeProject,
@@ -273,43 +270,14 @@ export function useDesktopProjectActions({
     [createProjectFromTaskCanvas, setActiveView, setError, t]
   );
 
-  const handleRenameProject = useCallback(
-    async (project: DesktopProjectSummary, name: string) => {
-      if (!bridge) {
-        setError(t("bridgeUnavailable"));
-        return;
-      }
-      const nextName = name.trim();
-      if (!nextName) {
-        return;
-      }
-      try {
-        await renameProject(project, nextName);
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
-      }
-    },
-    [renameProject, setError, t]
-  );
-
-  const handleRenameTaskCanvas = useCallback(
-    async (project: DesktopProjectSummary, canvasId: string, name: string) => {
-      if (!bridge) {
-        setError(t("bridgeUnavailable"));
-        return;
-      }
-      const nextName = name.trim();
-      if (!nextName) {
-        return;
-      }
-      try {
-        await renameTaskCanvas(project, canvasId, nextName);
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
-      }
-    },
-    [renameTaskCanvas, setError, t]
-  );
+  const { handleRenameProject, handleRenameTaskCanvas } = useDesktopRenameActions({
+    captureProjectSelection,
+    refreshProjects,
+    updateSettings,
+    renameTaskCanvas,
+    setError,
+    t
+  });
 
   return {
     handleBindSourceRoot,
