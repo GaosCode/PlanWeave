@@ -69,7 +69,7 @@ export function NotificationsView({
       className="flex h-full min-h-0 flex-col gap-4"
       data-testid="notifications-view"
     >
-      <div className="flex flex-col gap-1">
+      <div className="flex shrink-0 flex-col gap-1">
         <div className="text-sm text-text-muted">
           {notificationItems.length > 0
             ? `${t("unreadNotifications")}: ${unreadCount} / ${notificationItems.length}`
@@ -77,7 +77,7 @@ export function NotificationsView({
         </div>
         <div className="text-sm text-text-muted">{t("notificationRulesHint")}</div>
       </div>
-      <div className="flex min-h-0 flex-col gap-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
         {notificationItems.length === 0 ? (
           <div className="rounded-md border border-border/80 bg-surface-muted/70 p-4 text-sm text-text-muted">
             {t("noNotifications")}
@@ -85,12 +85,14 @@ export function NotificationsView({
         ) : null}
         {notificationItems.map((item) => (
           <div
-            className={`flex items-start justify-between gap-3 rounded-md border border-border/80 p-3 shadow-sm ${item.read ? "bg-surface-muted/70 text-text-muted" : "bg-surface-raised text-text"}`}
+            className={`flex shrink-0 items-start justify-between gap-3 rounded-md border border-border/80 p-3 shadow-sm ${item.read ? "bg-surface-muted/70 text-text-muted" : "bg-surface-raised text-text"}`}
             key={item.id}
           >
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-text-strong">{item.title}</div>
-              <div className="break-words text-xs text-text-muted">{item.detail}</div>
+              <div className="break-words text-xs text-text-muted [overflow-wrap:anywhere]">
+                {item.detail}
+              </div>
               {item.kind === "fileSync" ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button size="sm" variant="secondary" onClick={() => void refreshPackageFiles()}>
