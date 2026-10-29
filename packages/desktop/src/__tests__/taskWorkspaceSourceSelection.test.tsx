@@ -2,6 +2,7 @@
 
 import { act, render, waitFor } from "@testing-library/react";
 import type {
+  DesktopAutoRunEvent,
   DesktopBlockDetail,
   DesktopBlockRunRecordSummary,
   DesktopRunRecord,
@@ -21,6 +22,7 @@ import type { GraphNavigationSnapshot } from "../renderer/taskWorkspaceNavigatio
 import { bridges, installProviderHarness } from "./helpers/projectWorkspaceProviderHarness";
 import { deferred, project, projectSnapshot } from "./helpers/desktopProjectFixtures";
 import { graph } from "./helpers/graphFixtures";
+import { autoRunEvent, autoRunState } from "./helpers/autoRunControlHarness";
 
 installProviderHarness();
 afterEach(() => window.history.replaceState(null, ""));
@@ -117,9 +119,15 @@ function installSourceRecords(block: DesktopBlockDetail) {
     metadata: {},
     runnerReadModel: null
   };
-  bridges.desktop.target.listBlockRunRecords = vi.fn().mockResolvedValue([run]);
-  bridges.desktop.target.getReviewAttempts = vi.fn().mockResolvedValue([review]);
-  bridges.desktop.target.getFeedbackRecords = vi.fn().mockResolvedValue([feedback]);
+  bridges.desktop.target.listBlockRunRecords = vi
+    .fn()
+    .mockImplementation((_canvas, ref) => Promise.resolve(ref === block.ref ? [run] : []));
+  bridges.desktop.target.getReviewAttempts = vi
+    .fn()
+    .mockImplementation((_canvas, ref) => Promise.resolve(ref === block.ref ? [review] : []));
+  bridges.desktop.target.getFeedbackRecords = vi
+    .fn()
+    .mockImplementation((_canvas, ref) => Promise.resolve(ref === block.ref ? [feedback] : []));
   bridges.desktop.target.getRunRecord = vi.fn().mockResolvedValue(opened);
   return { run, review, feedback, opened };
 }
@@ -171,7 +179,10 @@ async function mountSource(source: GraphNavigationSnapshot = snapshot) {
   let current!: ProjectWorkspaceValue;
   let history!: ReturnType<typeof useAppViewHistory>[2];
   let setActiveView!: ProjectWorkspaceShellInput["setActiveView"];
-  const setError = vi.fn();
+  let error: string | null = null;
+  const setError = vi.fn((message: string | null) => {
+    error = message;
+  });
   const settings = { ...defaultDesktopSettings, runtimePath: project.workspaceRoot };
   const stableShell = {
     agentDetectionRefreshing: false,
@@ -233,6 +244,9 @@ async function mountSource(source: GraphNavigationSnapshot = snapshot) {
     },
     get history() {
       return history;
+    },
+    get error() {
+      return error;
     },
     setActiveView,
     flow,
@@ -345,70 +359,88 @@ describe("Task Workspace source selection through ProjectWorkspaceProvider", () 
     expect(probe.flow.setViewport).not.toHaveBeenCalled();
   });
 
-  it("keeps an adopted Block usable while a source request is retired by a Task selection", async () => {
+  it.each([
+    ["Task selection", "resolve"],
+    ["route departure", "resolve"],
+    ["route departure", "reject"]
+  ] as const)("keeps an adopted Block usable after %s retires a pending source (%s)", async (retirement, outcome) => {
     const pending = deferred<DesktopBlockDetail>();
     const getBlockDetail = vi.fn((_canvas, ref) =>
       ref === alpha.ref ? pending.promise : Promise.resolve(beta)
     );
     bridges.desktop.target.getBlockDetail = getBlockDetail;
+    const autoRunCallbacks = new Set<(event: DesktopAutoRunEvent) => void>();
+    bridges.desktop.target.onAutoRunChanged = vi.fn((callback) => {
+      autoRunCallbacks.add(callback);
+      return () => autoRunCallbacks.delete(callback);
+    });
     const records = installSourceRecords(beta);
     const probe = await mountSource();
     await act(async () => probe.current.graphWorkspace.handleOpenBlockInspector(beta.ref));
     await act(async () => probe.current.graphWorkspace.handleOpenRunRecord(records.run.recordId));
     const assertStableBlock = () => {
-      expect(probe.blockState.selectedBlock).toEqual(beta);
-      expect(probe.blockState.blockRunRecords).toEqual([records.run]);
-      expect(probe.blockState.blockReviewAttempts).toEqual([records.review]);
-      expect(probe.blockState.blockFeedbackRecords).toEqual([records.feedback]);
-      expect(probe.blockState.selectedRunRecord).toEqual(records.opened);
+      expect.soft(probe.blockState.selectedBlock).toEqual(beta);
+      expect.soft(probe.blockState.blockRunRecords).toEqual([records.run]);
+      expect.soft(probe.blockState.blockReviewAttempts).toEqual([records.review]);
+      expect.soft(probe.blockState.blockFeedbackRecords).toEqual([records.feedback]);
+      expect.soft(probe.blockState.selectedRunRecord).toEqual(records.opened);
     };
     // Ordinary Task selection keeps an already adopted Block and its history.
     act(() => probe.current.projectSidebar.handleTaskPanelSelect(beta.taskId));
     assertStableBlock();
     probe.startRestore();
     await waitFor(() => expect(getBlockDetail).toHaveBeenCalledWith(expect.anything(), alpha.ref));
-    // A pending source must not clear C's opened run before it is adopted.
+    // A pending source must not clear the adopted Block's opened run.
     assertStableBlock();
-    act(() => probe.current.projectSidebar.handleTaskPanelSelect(beta.taskId));
+    if (retirement === "Task selection") {
+      act(() => probe.current.projectSidebar.handleTaskPanelSelect(beta.taskId));
+    } else {
+      act(() => probe.setActiveView("canvas-map"));
+      probe.setError("Current Canvas Map error");
+    }
+    const currentError = probe.error;
+    probe.setError.mockClear();
     await act(async () => {
-      pending.resolve(alpha);
-      await pending.promise;
+      if (outcome === "resolve") pending.resolve(alpha);
+      else pending.reject(new Error("departed graph source failed"));
+      await Promise.allSettled([pending.promise]);
     });
+    expect(probe.history.route.view).toBe(retirement === "Task selection" ? "graph" : "canvas-map");
+    expect.soft(probe.current.projectSidebar.selectedTaskPanelId).toBe(beta.taskId);
+    expect.soft(probe.error).toBe(currentError);
+    expect.soft(probe.setError).not.toHaveBeenCalled();
     assertStableBlock();
+    const refreshedBeta = { ...beta, title: "Beta refreshed" };
     getBlockDetail.mockImplementation((_canvas, ref) =>
-      Promise.resolve(ref === beta.ref ? beta : alpha)
+      Promise.resolve(ref === beta.ref ? refreshedBeta : alpha)
     );
     expect(probe.blockState.captureBlockSelection().isCurrent()).toBe(true);
+    await act(async () => {
+      const event = autoRunEvent(autoRunState({ currentRef: beta.ref }), {
+        projectRoot: project.rootPath,
+        workspaceRoot: project.workspaceRoot,
+        canvasId: "canvas-main"
+      });
+      for (const callback of autoRunCallbacks) callback(event);
+    });
+    expect(probe.blockState.selectedBlock).toEqual(refreshedBeta);
+    expect(probe.blockState.selectedRunRecord).toEqual(records.opened);
     const updateBlockPrompt = vi
       .fn()
       .mockResolvedValue({ ok: true, affectedTasks: [beta.taskId], diagnostics: [] });
     bridges.desktop.target.updateBlockPrompt = updateBlockPrompt;
     act(() =>
       probe.blockState.setSelectedBlock(
-        (current) => current && { ...current, promptMarkdown: "C draft" }
+        (current) => current && { ...current, promptMarkdown: "Beta draft" }
       )
     );
     await act(async () => probe.blockState.saveSelectedBlockPrompt());
     expect(updateBlockPrompt).toHaveBeenCalledWith(
       { projectRoot: project.rootPath, canvasId: "canvas-main" },
       beta.ref,
-      "C draft",
+      "Beta draft",
       expect.any(Object)
     );
-    expect(probe.flow.setViewport).not.toHaveBeenCalled();
-  });
-
-  it("does not apply a pending source viewport after leaving its graph route", async () => {
-    const pending = deferred<DesktopBlockDetail>();
-    bridges.desktop.target.getBlockDetail = vi.fn(() => pending.promise);
-    const probe = await mountSource();
-    probe.startRestore();
-    act(() => probe.setActiveView("canvas-map"));
-    await act(async () => {
-      pending.resolve(alpha);
-      await pending.promise;
-    });
-    expect(probe.history.route.view).toBe("canvas-map");
     expect(probe.flow.setViewport).not.toHaveBeenCalled();
   });
 

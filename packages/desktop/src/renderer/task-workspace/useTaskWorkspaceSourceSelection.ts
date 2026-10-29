@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { useSelectedBlock } from "../hooks/useSelectedBlock";
 import type { useDesktopProjectSession } from "../hooks/useDesktopProjectSession";
+import type { DesktopSelectionReceipt } from "../hooks/useDesktopProjectSnapshot";
 
 type BlockSelection = ReturnType<typeof useSelectedBlock>;
 type ProjectSession = ReturnType<typeof useDesktopProjectSession>;
@@ -30,13 +31,18 @@ export function useTaskWorkspaceSourceSelection({
   return useCallback(
     async (
       taskId: string | null,
-      blockRef: string | null
+      blockRef: string | null,
+      restoreAttempt: DesktopSelectionReceipt
     ): Promise<TaskWorkspaceSourceSelectionReceipt | undefined> => {
       const taskSelection = captureTaskPanelSelection();
+      const sourceOwner = {
+        isCurrent: () => restoreAttempt.isCurrent() && taskSelection.isCurrent()
+      };
+      if (!sourceOwner.isCurrent()) return;
       let blockSelection: TaskWorkspaceSourceSelectionReceipt;
       if (blockRef) {
-        const accepted = await restoreBlockSelection(blockRef, undefined, taskSelection);
-        if (!accepted?.isCurrent() || !taskSelection.isCurrent()) return;
+        const accepted = await restoreBlockSelection(blockRef, undefined, sourceOwner);
+        if (!accepted?.isCurrent()) return;
         blockSelection = accepted;
       } else {
         setSelectedRunRecord(null);
@@ -44,6 +50,7 @@ export function useTaskWorkspaceSourceSelection({
         clearSelectedBlockRecords();
         blockSelection = captureBlockSelection();
       }
+      if (!sourceOwner.isCurrent()) return;
       restoreTaskPanelSelection(taskId);
       const restoredTaskSelection = captureTaskPanelSelection();
       return {

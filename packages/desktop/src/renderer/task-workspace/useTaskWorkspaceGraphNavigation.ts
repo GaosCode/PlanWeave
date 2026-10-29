@@ -29,7 +29,8 @@ type OpenProject = (
 
 type RestoreSelection = (
   taskId: string | null,
-  blockRef: string | null
+  blockRef: string | null,
+  restoreAttempt: DesktopSelectionReceipt
 ) => Promise<TaskWorkspaceSourceSelectionReceipt | undefined>;
 
 type RestoreAttempt = {
@@ -270,7 +271,8 @@ export function useTaskWorkspaceGraphNavigation(options: {
       return;
     }
     const attempt = routeGeneration.current;
-    const isCurrentAttempt = () => sameRestoreAttempt(routeGeneration.current, attempt);
+    const isCurrentAttempt = () =>
+      entryMounted.current && sameRestoreAttempt(routeGeneration.current, attempt);
     if (
       completedRestoreGeneration.current === attempt.generation ||
       retiredRestoreGeneration.current === attempt.generation ||
@@ -371,7 +373,9 @@ export function useTaskWorkspaceGraphNavigation(options: {
     let viewportInstance = flowInstance;
     const selection = previousSelection
       ? Promise.resolve(previousSelection)
-      : restoreSelection(snapshot.selectedTaskId, snapshot.selectedBlockRef);
+      : restoreSelection(snapshot.selectedTaskId, snapshot.selectedBlockRef, {
+          isCurrent: isCurrentAttempt
+        });
     void selection
       .then(async (receipt) => {
         selectionReceipt = receipt;

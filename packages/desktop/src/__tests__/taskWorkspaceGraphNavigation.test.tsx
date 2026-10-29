@@ -263,7 +263,11 @@ describe("Task Workspace graph navigation", () => {
 
     await act(async () => projectLoad.resolve());
 
-    await waitFor(() => expect(restoreSelection).toHaveBeenCalledWith("T-ALPHA", "T-ALPHA#B-001"));
+    await waitFor(() =>
+      expect(restoreSelection).toHaveBeenCalledWith("T-ALPHA", "T-ALPHA#B-001", {
+        isCurrent: expect.any(Function)
+      })
+    );
     expect(flow.setViewport).toHaveBeenCalledWith(snapshot.viewport, { duration: 0 });
     expect(openProject.mock.invocationCallOrder[0]).toBeLessThan(
       restoreSelection.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
@@ -365,7 +369,9 @@ describe("Task Workspace graph navigation", () => {
     await act(async () => olderProjectLoad.resolve());
 
     expect(restoreSelection).toHaveBeenCalledTimes(1);
-    expect(restoreSelection).toHaveBeenCalledWith("T-ALPHA", null);
+    expect(restoreSelection).toHaveBeenCalledWith("T-ALPHA", null, {
+      isCurrent: expect.any(Function)
+    });
     expect(flow.setViewport).toHaveBeenCalledTimes(1);
     expect(setError).not.toHaveBeenCalled();
   });
