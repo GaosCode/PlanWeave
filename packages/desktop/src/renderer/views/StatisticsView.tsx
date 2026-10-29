@@ -106,7 +106,7 @@ export function StatisticsView({
               />
               <HeroStat label={t("taskThroughput")} value={String(statistics.taskThroughput)} />
               <HeroStat
-                label={t("remaining")}
+                label={t("remainingBlocks")}
                 value={String(statistics.estimatedRemainingBlocks)}
               />
             </div>

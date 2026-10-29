@@ -311,7 +311,7 @@ export const zhCnCatalog = {
   totalImplementationTime: "已记录总实现时长",
   timedImplementationRun: "次计时运行",
   timedImplementationRuns: "次计时运行",
-  remaining: "Remaining",
+  remainingBlocks: "剩余任务块",
   reviewsPassed: "Reviews Passed",
   reviewPassedRatio: "Review Passed Ratio",
   feedback: "Feedback",

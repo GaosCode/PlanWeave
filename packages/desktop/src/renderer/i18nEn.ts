@@ -322,7 +322,7 @@ export const enCatalog = {
   totalImplementationTime: "Total Recorded Time",
   timedImplementationRun: "timed run",
   timedImplementationRuns: "timed runs",
-  remaining: "Remaining",
+  remainingBlocks: "Remaining Blocks",
   reviewsPassed: "Reviews Passed",
   reviewPassedRatio: "Review Passed Ratio",
   feedback: "Feedback",

@@ -89,9 +89,10 @@ describe("desktop renderer component interactions", () => {
         "aria-valuetext",
         `${testCase.percentage} (${testCase.fraction} Tasks)`
       );
-      expect(screen.getByText("Remaining").parentElement).toHaveTextContent(
-        `Remaining${testCase.remainingBlocks}`
-      );
+      const remainingBlocksLabel = language === "en" ? "Remaining Blocks" : "剩余任务块";
+      const remainingBlocks = within(screen.getByText(remainingBlocksLabel).parentElement!);
+      expect(remainingBlocks.getByText(String(testCase.remainingBlocks))).toBeInTheDocument();
+      expect(screen.queryByText("Remaining")).not.toBeInTheDocument();
     });
   });
 
