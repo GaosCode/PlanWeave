@@ -4,6 +4,7 @@ import { operatorAuthorizationMigration } from "./operatorAuthorization.js";
 import { acpTaskRestorationsMigration } from "./acpTaskRestorations.js";
 import { collaborationMigrations } from "./collaboration.js";
 import { acpConversationsMigration } from "./acpConversations.js";
+import { acpConversationEventCursorMigration } from "./acpConversationEventCursor.js";
 import { coreMigrations } from "./core.js";
 import { identityMigrations } from "./identity.js";
 import { migration26 } from "./legacyTail.js";
@@ -65,7 +66,10 @@ export const migrationModules: readonly MigrationModule[] = [
     name: "operator-authorization",
     migrations: [operatorAuthorizationMigration, operatorManagementDevicesMigration]
   },
-  { name: "acp-conversations", migrations: [acpConversationsMigration] },
+  {
+    name: "acp-conversations",
+    migrations: [acpConversationsMigration, acpConversationEventCursorMigration]
+  },
   coreMigrations,
   collaborationMigrations,
   observerMigrations,
