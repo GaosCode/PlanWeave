@@ -25,6 +25,7 @@ import {
 } from "../runtimeArtifactAdapter.js";
 import type { HumanIdentityRepository } from "../identity/index.js";
 import { RemoteOperationRetention } from "../remoteOperationRetention.js";
+import { AcpConversationRetention } from "../acpConversationRetention.js";
 import type { RuntimeAttachmentRequest } from "../canvas/runtimeAttachment.js";
 import type {
   CanvasExecutionRuntimeLease,
@@ -314,10 +315,27 @@ export function createRemoteExecutionComposition(input: {
     },
     createMaintenance() {
       const retention = new RemoteOperationRetention(input.database, input.clock);
+      const conversations = new AcpConversationRetention(input.database, input.clock);
       return new RemoteCoordinationMaintenance(
         () => input.coordination.reconcile(),
         input.config.limits.heartbeatIntervalMs,
-        () => retention.compactBatch()
+        () => {
+          const result = { selected: 0, compacted: 0, skipped: 0 };
+          const failures: unknown[] = [];
+          for (const owner of [conversations, retention]) {
+            try {
+              const batch = owner.compactBatch();
+              result.selected += batch.selected;
+              result.compacted += batch.compacted;
+              result.skipped += batch.skipped;
+            } catch (error) {
+              failures.push(error);
+            }
+          }
+          if (failures.length === 1) throw failures[0];
+          if (failures.length > 1) throw new AggregateError(failures, "remote_retention_failed");
+          return result;
+        }
       );
     }
   };

@@ -5,6 +5,8 @@ import { acpTaskRestorationsMigration } from "./acpTaskRestorations.js";
 import { collaborationMigrations } from "./collaboration.js";
 import { acpConversationsMigration } from "./acpConversations.js";
 import { acpConversationEventCursorMigration } from "./acpConversationEventCursor.js";
+import { acpConversationRetentionMigration } from "./acpConversationRetention.js";
+import { acpConversationRestorationIndexMigration } from "./acpConversationRestorationIndex.js";
 import { coreMigrations } from "./core.js";
 import { identityMigrations } from "./identity.js";
 import { migration26 } from "./legacyTail.js";
@@ -68,7 +70,12 @@ export const migrationModules: readonly MigrationModule[] = [
   },
   {
     name: "acp-conversations",
-    migrations: [acpConversationsMigration, acpConversationEventCursorMigration]
+    migrations: [
+      acpConversationsMigration,
+      acpConversationEventCursorMigration,
+      acpConversationRetentionMigration,
+      acpConversationRestorationIndexMigration
+    ]
   },
   coreMigrations,
   collaborationMigrations,

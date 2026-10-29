@@ -18,6 +18,11 @@ import type { DurableMailbox } from "./mailbox.js";
 import { isAgentHostOnline, type AgentHostRepository } from "./hosts.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
 import { taskRestorationIdempotencyKey } from "./remoteTaskRestoration.js";
+import {
+  acpConversationDigest,
+  readAcpConversationReplayReceipt
+} from "./acpConversationReplay.js";
+import { expireAcpConversationTurns } from "./acpConversationExpiry.js";
 
 export class AcpConversationError extends Error {
   constructor(readonly code: string) {
@@ -101,7 +106,7 @@ export class AcpConversationService {
     )
       throw new AcpConversationError("acp_restore_host_upgrade_required");
     inWriteTransaction(this.database, () => {
-      this.expire();
+      this.expire(operation.attempt.hostId, source.sessionId);
       if (
         this.database
           .prepare(
@@ -203,20 +208,17 @@ export class AcpConversationService {
     return null;
   }
 
-  private expire() {
-    this.database
-      .prepare(
-        "UPDATE acp_conversation_turns SET status='failed',error='acp_conversation_deadline_exceeded' WHERE status IN ('queued','running') AND expires_at<=?"
-      )
-      .run(this.now());
+  private expire(hostId: RemoteOperation["attempt"]["hostId"], sessionId: string | null) {
+    if (hostId && sessionId)
+      expireAcpConversationTurns(this.database, this.now(), { hostId, sessionId });
   }
 
   page(operation: RemoteOperation, actorId: string, afterCursor = 0): AcpConversationPage {
     if (!Number.isSafeInteger(afterCursor) || afterCursor < 0)
       throw new AcpConversationError("acp_conversation_cursor_invalid");
     this.options.authorize(operation, actorId);
-    this.expire();
     const source = this.source(operation);
+    this.expire(operation.attempt.hostId, source.sessionId);
     const reason = this.availability(operation, source);
     const turns = this.database
       .prepare(
@@ -229,6 +231,9 @@ export class AcpConversationService {
       ORDER BY e.cursor LIMIT 129`)
       .all(operation.id, afterCursor);
     const page = rows.slice(0, 128);
+    const compactedTurnIds = turns
+      .filter((turn) => turn.compacted_at !== null)
+      .map((turn) => String(turn.turn_id));
     return acpConversationPageSchema.parse({
       available: reason === null,
       canRestoreTask:
@@ -266,7 +271,8 @@ export class AcpConversationService {
       })),
       events: page.map((row) => JSON.parse(String(row.event_json))),
       cursor: page.length ? Number(page.at(-1)!.cursor) : afterCursor,
-      hasMore: rows.length > 128
+      hasMore: rows.length > 128,
+      ...(compactedTurnIds.length ? { retention: { compactedTurnIds } } : {})
     });
   }
 
@@ -280,7 +286,7 @@ export class AcpConversationService {
     const source = this.source(operation);
     if (source.sessionId !== action.sessionId)
       throw new AcpConversationError("acp_conversation_session_mismatch");
-    this.expire();
+    this.expire(operation.attempt.hostId, source.sessionId);
     const now = this.now();
     const message = inWriteTransaction(this.database, () => {
       const existing = this.database
@@ -289,9 +295,21 @@ export class AcpConversationService {
       if (existing && (existing.operation_id !== operation.id || existing.actor_id !== actorId)) {
         throw new AcpConversationError("acp_conversation_turn_forbidden");
       }
+      const replay =
+        existing?.compacted_at != null
+          ? readAcpConversationReplayReceipt(
+              this.database,
+              action.turnId,
+              Number(existing.last_sequence)
+            )
+          : undefined;
       if (action.kind === "prompt") {
         if (existing) {
-          if (existing.request_json !== canonicalizeJson(action))
+          if (
+            replay
+              ? replay.request_digest !== acpConversationDigest(action)
+              : existing.request_json !== canonicalizeJson(action)
+          )
             throw new AcpConversationError("acp_conversation_request_conflict");
           return null;
         }
@@ -353,10 +371,18 @@ export class AcpConversationService {
         )
         .digest("hex");
       const receipt = this.database
-        .prepare("SELECT request_json FROM acp_conversation_actions WHERE action_key=?")
-        .get(actionKey);
+        .prepare(
+          replay
+            ? "SELECT request_digest FROM acp_conversation_action_digests WHERE action_key=? AND turn_id=?"
+            : "SELECT request_json FROM acp_conversation_actions WHERE action_key=? AND turn_id=?"
+        )
+        .get(actionKey, action.turnId);
       if (receipt) {
-        if (receipt.request_json !== canonicalizeJson(action))
+        if (
+          replay
+            ? receipt.request_digest !== acpConversationDigest(action)
+            : receipt.request_json !== canonicalizeJson(action)
+        )
           throw new AcpConversationError("acp_conversation_response_conflict");
         return null;
       }
@@ -380,7 +406,9 @@ export class AcpConversationService {
             };
       // The command schema validates the discriminated response before transport.
       this.database
-        .prepare("INSERT INTO acp_conversation_actions VALUES(?,?,?)")
+        .prepare(
+          "INSERT INTO acp_conversation_actions(action_key,turn_id,request_json) VALUES(?,?,?)"
+        )
         .run(actionKey, action.turnId, canonicalizeJson(action));
       return this.options.mailbox.enqueueOnce(
         `acp-action-${actionKey}`,
@@ -433,6 +461,25 @@ export class AcpConversationService {
         turn.execution_attempt_id !== event.executionAttemptId
       )
         throw new AcpConversationError("acp_conversation_event_identity_mismatch");
+      if (turn.compacted_at !== null) {
+        const replay = readAcpConversationReplayReceipt(
+          this.database,
+          event.turnId,
+          Number(turn.last_sequence)
+        );
+        const receipt = this.database
+          .prepare(
+            "SELECT event_digest FROM acp_conversation_event_digests WHERE turn_id=? AND sequence=?"
+          )
+          .get(event.turnId, event.sequence);
+        if (receipt) {
+          if (receipt.event_digest !== acpConversationDigest(event))
+            throw new AcpConversationError("acp_conversation_event_conflict");
+        } else if (event.sequence <= replay.final_sequence) {
+          throw new Error("acp_conversation_replay_receipt_incomplete");
+        }
+        return;
+      }
       const json = canonicalizeJson(event);
       const prior = this.database
         .prepare("SELECT event_json FROM acp_conversation_events WHERE turn_id=? AND sequence=?")
@@ -442,11 +489,12 @@ export class AcpConversationService {
           throw new AcpConversationError("acp_conversation_event_conflict");
         return;
       }
-      if (
-        !["queued", "running"].includes(String(turn.status)) ||
-        String(turn.expires_at) <= this.now()
-      )
+      if (!["queued", "running"].includes(String(turn.status))) return;
+      const now = this.now();
+      if (String(turn.expires_at) <= now) {
+        this.expire(String(turn.host_id), String(turn.session_id));
         return;
+      }
       if (event.sequence !== Number(turn.last_sequence) + 1)
         throw new AcpConversationError("acp_conversation_event_gap");
       const bytes = Number(turn.event_bytes) + Buffer.byteLength(json);
@@ -458,9 +506,9 @@ export class AcpConversationService {
       const error = event.payload.kind === "status" ? event.payload.error : null;
       this.database
         .prepare(
-          "UPDATE acp_conversation_turns SET last_sequence=?,event_bytes=?,status=?,error=? WHERE turn_id=?"
+          "UPDATE acp_conversation_turns SET last_sequence=?,event_bytes=?,status=?,error=?,terminal_at=CASE WHEN ? IN ('completed','failed','cancelled') THEN COALESCE(terminal_at,?) ELSE terminal_at END WHERE turn_id=?"
         )
-        .run(event.sequence, bytes, status, error, event.turnId);
+        .run(event.sequence, bytes, status, error, status, now, event.turnId);
     });
   }
 }

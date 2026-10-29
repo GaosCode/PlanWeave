@@ -167,7 +167,13 @@ export const acpConversationPageSchema = z
     turns: z.array(acpConversationTurnSchema),
     events: z.array(acpConversationEventSchema),
     cursor: z.number().int().nonnegative().safe(),
-    hasMore: z.boolean()
+    hasMore: z.boolean(),
+    retention: z
+      .object({
+        compactedTurnIds: z.array(identifier).min(1).max(256)
+      })
+      .strict()
+      .optional()
   })
   .strict();
 export type AcpConversationPage = z.infer<typeof acpConversationPageSchema>;

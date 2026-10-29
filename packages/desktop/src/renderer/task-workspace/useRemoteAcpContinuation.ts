@@ -41,6 +41,7 @@ export function useRemoteAcpContinuation(
   const actionRevision = useRef(0);
   const pageRef = useRef<DesktopRemoteAcpConversationPage | null>(null);
   const events = useRef(new Map<string, AcpConversationEvent>());
+  const compactedTurns = useRef(new Set<string>());
   const cursor = useRef(0);
   const refreshRef = useRef<() => Promise<void>>(async () => {});
   const pendingPrompt = useRef<Extract<AcpConversationAction, { kind: "prompt" }> | null>(null);
@@ -67,7 +68,15 @@ export function useRemoteAcpContinuation(
     }[]
   >([]);
   const acceptPage = useCallback((page: DesktopRemoteAcpConversationPage, scopeKey: string) => {
-    for (const event of page.events) events.current.set(`${event.turnId}:${event.sequence}`, event);
+    for (const turnId of page.retention?.compactedTurnIds ?? []) compactedTurns.current.add(turnId);
+    for (const [eventId, event] of events.current)
+      if (compactedTurns.current.has(event.turnId)) events.current.delete(eventId);
+    for (const event of page.events)
+      if (!compactedTurns.current.has(event.turnId))
+        events.current.set(`${event.turnId}:${event.sequence}`, event);
+    setLocalMessages((messages) =>
+      messages.filter((message) => !compactedTurns.current.has(message.turnId))
+    );
     cursor.current = Math.max(cursor.current, page.cursor);
     pageRef.current = page;
     const prompt = pendingPrompt.current;
@@ -82,6 +91,7 @@ export function useRemoteAcpContinuation(
     const scope = inputRef.current;
     const generation = ++epoch.current;
     events.current = new Map();
+    compactedTurns.current = new Set();
     cursor.current = 0;
     pendingPrompt.current = null;
     setLocalMessages([]);
@@ -105,13 +115,10 @@ export function useRemoteAcpContinuation(
           do {
             page = await api.remoteAcpConversation({ ...scope, afterCursor: cursor.current });
             if (epoch.current !== generation || revision !== actionRevision.current) return;
-            for (const event of page.events)
-              events.current.set(`${event.turnId}:${event.sequence}`, event);
             if (page.hasMore && page.cursor <= cursor.current)
               throw new Error("acp_conversation_cursor_stalled");
-            cursor.current = page.cursor;
+            acceptPage(page, key);
           } while (page.hasMore);
-          acceptPage(page, key);
         } catch (cause) {
           if (epoch.current === generation && revision === actionRevision.current)
             setError(cause instanceof Error ? cause.message : "acp_conversation_request_failed");
@@ -207,7 +214,14 @@ export function useRemoteAcpContinuation(
             : []
         )
       });
-      return { ...turn, timeline: projected.timeline, projected: projected.events };
+      return {
+        ...turn,
+        history: compactedTurns.current.has(turn.turnId)
+          ? ("compacted" as const)
+          : ("unknown" as const),
+        timeline: projected.timeline,
+        projected: projected.events
+      };
     });
     const latestRecord = turns.filter((turn) => turn.projected.length > 0).at(-1);
     return {
@@ -224,6 +238,7 @@ export function useRemoteAcpContinuation(
   const isAwaitingReplay = useCallback(
     (message: (typeof localMessages)[number]) =>
       message.key === key &&
+      !compactedTurns.current.has(message.turnId) &&
       !projection.turns.some(
         (turn) =>
           turn.turnId === message.turnId &&

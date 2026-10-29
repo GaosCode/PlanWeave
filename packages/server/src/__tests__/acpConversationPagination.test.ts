@@ -161,12 +161,15 @@ describe("ACP conversation cursor storage and pagination", () => {
     expect(centralSchemaVersion(f.database)).toBe(75);
     applyMigrations(f.database);
     expect(centralSchemaVersion(f.database)).toBe(latestCentralSchemaVersion);
-    expect(snapshot()).toEqual(before);
+    const upgraded = snapshot();
+    expect(upgraded.turns).toMatchObject(before.turns);
+    expect(upgraded.events).toEqual(before.events);
+    expect(upgraded.actions).toEqual(before.actions);
     f.database.close();
     f.fixture.database = await openServerDatabase(f.path, 5_000);
     const db = f.fixture.database;
     applyMigrations(db);
-    expect(snapshot()).toEqual(before);
+    expect(snapshot()).toEqual(upgraded);
     expect(() =>
       db
         .prepare(

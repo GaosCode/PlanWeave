@@ -1216,6 +1216,9 @@ export const enCatalog = {
   remoteAcpConversationFinalizing: "Saving results…",
   remoteAcpConversationStopped: "Stopped",
   remoteAcpTurnQueued: "Waiting for the agent",
+  remoteAcpHistoryUnknown: "History completeness is not confirmed by the server.",
+  remoteAcpHistoryCompacted:
+    "This reply’s content was removed under the retention policy. Its identity and result remain available.",
   remoteAcpMessageSending: "Sending…",
   remoteAcpMessageAccepted: "Received · waiting for the agent",
   remoteAcpMessageUnconfirmed: "Delivery unconfirmed. Retry the same message.",

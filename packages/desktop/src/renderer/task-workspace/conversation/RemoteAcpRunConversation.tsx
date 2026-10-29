@@ -76,6 +76,11 @@ export function RemoteAcpRunConversation({
             {conversation.error}
           </p>
         ) : null}
+        {conversation.continuation?.turns.some((turn) => turn.history === "unknown") ? (
+          <p className="text-xs text-muted-foreground" data-testid="remote-acp-history-unknown">
+            {t("remoteAcpHistoryUnknown")}
+          </p>
+        ) : null}
         {conversation.timeline.length === 0 &&
         !conversation.previousTimelines?.some((item) => item.timeline.length > 0) &&
         !conversation.error ? (
@@ -109,7 +114,16 @@ export function RemoteAcpRunConversation({
                 .map((message) => (
                   <PendingMessage key={message.turnId} message={message} t={t} />
                 ))}
-              <AcpConversationItems presentation="workspace" timeline={turn.timeline} t={t} />
+              {turn.history === "compacted" ? (
+                <p
+                  className="rounded-md border p-3 text-xs text-muted-foreground"
+                  data-testid="remote-acp-history-compacted"
+                >
+                  {t("remoteAcpHistoryCompacted")}
+                </p>
+              ) : (
+                <AcpConversationItems presentation="workspace" timeline={turn.timeline} t={t} />
+              )}
               {turn.error ? (
                 <p role="alert" className="text-sm text-destructive">
                   {turn.error}

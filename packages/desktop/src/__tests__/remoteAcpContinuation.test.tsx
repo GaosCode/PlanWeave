@@ -66,6 +66,131 @@ function setup() {
   };
 }
 describe("remote ACP composer continuation", () => {
+  it("removes cached compacted content, shows explicit truncation, and keeps later turns", async () => {
+    const f = setup();
+    const timestamp = "2030-01-01T00:00:00.000Z";
+    const turn = {
+      turnId: "old-turn",
+      executionAttemptId: "attempt-one",
+      sessionId: "original-session",
+      status: "completed" as const,
+      createdAt: timestamp,
+      error: null
+    };
+    let page: DesktopRemoteAcpConversationPage = {
+      ...f.page,
+      turns: [turn],
+      cursor: 1,
+      events: [
+        {
+          protocolVersion: 1,
+          type: "acp_conversation.event",
+          operationId: scope.operationId,
+          executionAttemptId: turn.executionAttemptId,
+          sessionId: turn.sessionId,
+          turnId: turn.turnId,
+          sequence: 1,
+          messageId: "old-message",
+          timestamp,
+          payload: {
+            kind: "runner",
+            fragment: {
+              kind: "runner_body",
+              body: {
+                kind: "message",
+                role: "assistant",
+                messageId: "reply-old",
+                chunk: false,
+                content: "Old cached payload",
+                redaction: { classes: [], replaced: 0 }
+              }
+            }
+          }
+        }
+      ]
+    };
+    f.api.remoteAcpConversation.mockImplementation(async () => page);
+    let continuation: ReturnType<typeof useRemoteAcpContinuation> | undefined;
+    function View() {
+      continuation = useRemoteAcpContinuation(f.api, scope);
+      return (
+        <RemoteAcpRunConversation
+          conversation={{
+            ...scope,
+            continuation,
+            cursor: 0,
+            error: null,
+            eventProtocolVersion: 2,
+            executionAttemptId: "attempt-one",
+            replayDiagnostics: [],
+            state: "completed",
+            terminalOutcome: "completed",
+            timeline: [],
+            telemetry: null
+          }}
+          t={createTranslator("zh-CN")}
+        />
+      );
+    }
+    render(<View />);
+    await screen.findByText("Old cached payload");
+    expect(screen.getByTestId("remote-acp-history-unknown")).toBeTruthy();
+    vi.useFakeTimers();
+    try {
+      page = { ...page, events: [], retention: { compactedTurnIds: [turn.turnId] } };
+      await act(async () => {
+        expect(await continuation!.send("New message")).toBe(true);
+      });
+      expect(screen.queryByText("Old cached payload")).toBeNull();
+      expect(screen.getByTestId("remote-acp-history-compacted").textContent).toContain(
+        "正文已按保留策略清理"
+      );
+      expect(screen.getByText("New message")).toBeTruthy();
+      const sentPrompt = f.api.remoteAcpConversation.mock.calls.at(-1)?.[0].action;
+      if (sentPrompt?.kind !== "prompt") throw new Error("Expected a prompt action");
+      const nextTurn = { ...turn, turnId: sentPrompt.turnId };
+      page = {
+        ...page,
+        turns: [turn, nextTurn],
+        cursor: 2,
+        events: [
+          {
+            protocolVersion: 1,
+            type: "acp_conversation.event",
+            operationId: scope.operationId,
+            executionAttemptId: turn.executionAttemptId,
+            sessionId: turn.sessionId,
+            turnId: nextTurn.turnId,
+            sequence: 1,
+            messageId: "new-message",
+            timestamp,
+            payload: {
+              kind: "runner",
+              fragment: {
+                kind: "runner_body",
+                body: {
+                  kind: "message",
+                  role: "assistant",
+                  messageId: "reply-new",
+                  chunk: false,
+                  content: "New retained reply",
+                  redaction: { classes: [], replaced: 0 }
+                }
+              }
+            }
+          }
+        ]
+      };
+      await act(async () => {
+        expect(await continuation!.send("New message")).toBe(true);
+      });
+      expect(screen.getByText("New retained reply")).toBeTruthy();
+      expect(screen.queryByText("Old cached payload")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("restores only from the explicit composer action and retains the original session identity", async () => {
     const f = setup();
     f.page.canRestoreTask = true;

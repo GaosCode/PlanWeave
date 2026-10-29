@@ -1130,6 +1130,8 @@ export const zhCnCatalog = {
   remoteAcpConversationFinalizing: "正在保存结果…",
   remoteAcpConversationStopped: "已停止",
   remoteAcpTurnQueued: "等待 Agent",
+  remoteAcpHistoryUnknown: "服务器未确认历史记录的完整性。",
+  remoteAcpHistoryCompacted: "本轮正文已按保留策略清理，轮次身份与结果仍保留。",
   remoteAcpMessageSending: "发送中…",
   remoteAcpMessageAccepted: "已接收 · 等待 Agent",
   remoteAcpMessageUnconfirmed: "尚未确认是否送达，请重试这条消息。",

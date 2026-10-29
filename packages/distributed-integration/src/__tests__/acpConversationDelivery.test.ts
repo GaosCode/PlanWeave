@@ -20,6 +20,9 @@ import { FakeHostTransportClock } from "../../../agent-host/src/__tests__/suppor
 import { remoteRunnerEventV2Request } from "../../../agent-host/src/__tests__/support/remoteRunnerEventCapabilityTestValues.js";
 import { AcpConversationService } from "../../../server/src/acpConversationService.js";
 import { createRemoteBlockCoordination } from "../../../server/src/distributedCoordination.js";
+import { AcpConversationRetention } from "../../../server/src/acpConversationRetention.js";
+import { RemoteOperationRetention } from "../../../server/src/remoteOperationRetention.js";
+import { attachConversationHttpFixture } from "./support/acpConversationHttpFixture.js";
 import { RemoteOperationRepository } from "../../../server/src/remoteOperations.js";
 import { attachAgentHostWebSocketServer } from "../../../server/src/wsServer.js";
 import { createRemoteAcpEventV2Fixture } from "../../../server/src/__tests__/support/remoteAcpEventV2Fixture.js";
@@ -106,7 +109,6 @@ it("persists independently woken conversation events and deduplicates unacknowle
   );
   const operation = new RemoteOperationRepository(db, f.clock).getRequired(f.operation.id);
 
-  // A completed source execution is the precondition for a continuation turn.
   const state = await openAgentHostState(join(f.directory, "host.sqlite"));
   cleanups.push(() => state.close());
   const received = state.receive(
@@ -139,6 +141,31 @@ it("persists independently woken conversation events and deduplicates unacknowle
   const finish = gate();
   const selected = vi.fn();
   const converse = vi.fn<RemoteAcpExecutor["converse"]>(async (command, broker, sink, signal) => {
+    if (command.turnId !== "delivery-turn") {
+      if (command.turnId === "retention-active")
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true })
+        );
+      else
+        await sink({
+          kind: "session_update",
+          sequence: 1,
+          timestamp: f.clock().toISOString(),
+          sessionId: command.sessionId,
+          body: {
+            kind: "output",
+            stream: "stdout",
+            content: `continued ${command.turnId}`,
+            redaction: { classes: [], replaced: 0 }
+          }
+        });
+      return {
+        terminal: signal.aborted
+          ? { state: "cancelled", message: "Fixture conversation cancelled" }
+          : { state: "succeeded", stopReason: "end_turn" },
+        cleanup: { attempted: true, completed: true }
+      };
+    }
     const abort = () => {
       output.release();
       permission.release();
@@ -186,6 +213,7 @@ it("persists independently woken conversation events and deduplicates unacknowle
   const clock = new FakeHostTransportClock(f.clock());
   const conversations = new RemoteAcpConversationService(state.conversations, { converse }, clock);
   const http = createServer();
+  const httpClient = attachConversationHttpFixture(http, db, service, f.clock);
   cleanups.push(() => new Promise<void>((resolve) => http.close(() => resolve())));
   const transport = attachAgentHostWebSocketServer({
     server: http,
@@ -227,7 +255,7 @@ it("persists independently woken conversation events and deduplicates unacknowle
       const parsed = serverEventSchema.safeParse(JSON.parse(String(data)));
       return parsed.success ? [parsed.data] : [];
     });
-  const page = () => service.page(operation, "fixture-actor");
+  const { page, act } = httpClient(`http://127.0.0.1:${address.port}`, operation.id);
   const drained = async () => {
     await vi.waitFor(() => expect(state.pendingEventCount()).toBe(0));
   };
@@ -254,8 +282,8 @@ it("persists independently woken conversation events and deduplicates unacknowle
     executionAttemptId: operation.executionAttemptId,
     sessionId: "delivery-session"
   };
-  service.act(operation, "fixture-actor", { ...action, kind: "prompt", text: "Continue" });
-  await vi.waitFor(() => expect(page().events).toHaveLength(1));
+  await act({ ...action, kind: "prompt", text: "Continue" });
+  await vi.waitFor(async () => expect((await page()).events).toHaveLength(1));
   await drained();
   expect(converse).toHaveBeenCalledOnce();
 
@@ -285,8 +313,8 @@ it("persists independently woken conversation events and deduplicates unacknowle
       })
     )
   );
-  await vi.waitFor(() => expect(page().events).toHaveLength(2));
-  const outputEvent = page().events[1]!;
+  await vi.waitFor(async () => expect((await page()).events).toHaveLength(2));
+  const outputEvent = (await page()).events[1]!;
   expect(outputEvent.payload).toMatchObject({
     kind: "runner",
     fragment: { kind: "runner_body", body: { kind: "output", content: "fixture output" } }
@@ -305,7 +333,7 @@ it("persists independently woken conversation events and deduplicates unacknowle
   );
   await drained();
   expect(hostWire().filter((event) => event.messageId === outputEvent.messageId)).toHaveLength(2);
-  expect(page().events).toHaveLength(2);
+  expect((await page()).events).toHaveLength(2);
   clock.advanceBy(0);
   await drained();
 
@@ -316,14 +344,14 @@ it("persists independently woken conversation events and deduplicates unacknowle
   await vi.waitFor(() =>
     expect(acknowledge.mock.calls.filter(([id]) => id === outputEvent.messageId)).toHaveLength(2)
   );
-  expect(page().events).toHaveLength(2);
+  expect((await page()).events).toHaveLength(2);
 
   const beforePermission = serverWire().length;
   const heartbeatCount = hostWire().filter((event) => event.type === "host.heartbeat").length;
   permission.release();
-  await vi.waitFor(() => expect(page().events).toHaveLength(3));
+  await vi.waitFor(async () => expect((await page()).events).toHaveLength(3));
   await drained();
-  expect(page().events[2]!.payload).toMatchObject({
+  expect((await page()).events[2]!.payload).toMatchObject({
     kind: "interaction",
     request: { kind: "permission", requestId: "delivery-permission" }
   });
@@ -336,7 +364,7 @@ it("persists independently woken conversation events and deduplicates unacknowle
     heartbeatCount
   );
 
-  service.act(operation, "fixture-actor", {
+  await act({
     ...action,
     kind: "respond",
     requestId: "delivery-permission",
@@ -346,10 +374,10 @@ it("persists independently woken conversation events and deduplicates unacknowle
     expect(selected).toHaveBeenCalledWith({ kind: "select", optionId: "allow-once" })
   );
   await drained();
-  expect(page().events).toHaveLength(4);
+  expect((await page()).events).toHaveLength(4);
   const beforeFinish = serverWire().length;
   finish.release();
-  await vi.waitFor(() => expect(page().turns[0]!.status).toBe("completed"));
+  await vi.waitFor(async () => expect((await page()).turns[0]!.status).toBe("completed"));
   await drained();
   expect(
     serverWire()
@@ -359,17 +387,142 @@ it("persists independently woken conversation events and deduplicates unacknowle
   expect(hostWire().filter((event) => event.type === "host.heartbeat")).toHaveLength(
     heartbeatCount
   );
-  expect(page().events.map((event) => [event.sequence, event.payload.kind])).toEqual([
+  expect((await page()).events.map((event) => [event.sequence, event.payload.kind])).toEqual([
     [1, "status"],
     [2, "runner"],
     [3, "interaction"],
     [4, "interaction_settled"],
     [5, "status"]
   ]);
-  expect(page().events[4]!.payload).toEqual({ kind: "status", status: "completed", error: null });
+  expect((await page()).events[4]!.payload).toEqual({
+    kind: "status",
+    status: "completed",
+    error: null
+  });
   expect(
     db
       .prepare("SELECT COUNT(*) AS count FROM acp_conversation_events WHERE turn_id=?")
       .get(action.turnId)?.count
   ).toBe(5);
-});
+  const oldCursor = (await page()).cursor;
+  const agedTerminal = new Date(serverNow.getTime() - 31 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare("UPDATE remote_operations SET terminal_at=? WHERE id=?").run(
+    agedTerminal,
+    operation.id
+  );
+  db.prepare("UPDATE acp_conversation_turns SET terminal_at=? WHERE turn_id=?").run(
+    agedTerminal,
+    action.turnId
+  );
+  db.prepare(
+    "UPDATE remote_execution_attempts SET status='completed',terminal_at=? WHERE execution_attempt_id=?"
+  ).run(agedTerminal, operation.executionAttemptId);
+  db.prepare("UPDATE dispatches SET status='completed',finished_at=? WHERE id=?").run(
+    agedTerminal,
+    operation.dispatchId
+  );
+  db.prepare(
+    "UPDATE host_capacity_reservations SET status='released',released_at=? WHERE execution_attempt_id=?"
+  ).run(f.clock().toISOString(), operation.executionAttemptId);
+  const operationRetention = new RemoteOperationRetention(db, f.clock, 0);
+  expect(operationRetention.compactBatch().compacted).toBe(1);
+  expect(operationRetention.getReceipt(operation.id)?.operationId).toBe(operation.id);
+  const completePrompt = async (turnId: string) => {
+    await act({ ...action, turnId, kind: "prompt", text: `Continue ${turnId}` });
+    await vi.waitFor(async () =>
+      expect((await page()).turns.find((turn) => turn.turnId === turnId)?.status).toBe("completed")
+    );
+    await drained();
+  };
+  for (let index = 0; index < 20; index++) await completePrompt(`retention-${index}`);
+  await act({ ...action, turnId: "retention-active", kind: "prompt", text: "Keep active" });
+  await vi.waitFor(async () =>
+    expect((await page()).turns.find((turn) => turn.turnId === "retention-active")?.status).toBe(
+      "running"
+    )
+  );
+  const retention = new AcpConversationRetention(db, f.clock);
+  expect(retention.compactBatch().compacted).toBe(0);
+  await act({ ...action, turnId: "retention-active", kind: "cancel" });
+  await vi.waitFor(async () =>
+    expect((await page()).turns.find((turn) => turn.turnId === "retention-active")?.status).toBe(
+      "cancelled"
+    )
+  );
+  await drained();
+  const before = db
+    .prepare(
+      "SELECT COUNT(*) AS events,SUM(length(event_json)) AS bytes FROM acp_conversation_events"
+    )
+    .get();
+  expect(retention.compactBatch().compacted).toBe(1);
+  expect(
+    db
+      .prepare("SELECT request_json,compacted_at FROM acp_conversation_turns WHERE turn_id=?")
+      .get(action.turnId)
+  ).toEqual({ request_json: "null", compacted_at: f.clock().toISOString() });
+  expect(
+    db
+      .prepare("SELECT COUNT(*) AS n FROM acp_conversation_event_digests WHERE turn_id=?")
+      .get(action.turnId)?.n
+  ).toBe(5);
+  expect(
+    db
+      .prepare("SELECT COUNT(*) AS n FROM acp_conversation_action_digests WHERE turn_id=?")
+      .get(action.turnId)?.n
+  ).toBe(1);
+  const retained = await page(oldCursor);
+  expect(retained.retention?.compactedTurnIds).toEqual([action.turnId]);
+  expect(retained.events.length).toBeGreaterThan(20);
+  expect(retained.events.every((event) => event.turnId !== action.turnId)).toBe(true);
+  expect(retained.cursor).toBeGreaterThan(oldCursor);
+  expect(
+    db.prepare("SELECT MIN(cursor) AS first FROM acp_conversation_events").get()?.first
+  ).toBeGreaterThan(oldCursor);
+  const mailboxCount = db.prepare("SELECT COUNT(*) AS n FROM mailbox_messages").get()?.n;
+  await act({ ...action, kind: "prompt", text: "Continue" });
+  await act({
+    ...action,
+    kind: "respond",
+    requestId: "delivery-permission",
+    decision: { kind: "permission", optionId: "allow-once" }
+  });
+  expect(db.prepare("SELECT COUNT(*) AS n FROM mailbox_messages").get()?.n).toBe(mailboxCount);
+  await expect(act({ ...action, kind: "prompt", text: "Conflicting retry" })).rejects.toThrow(
+    "request_conflict"
+  );
+  const clientSocket = sends.mock.calls
+    .map(([data], index) => ({
+      type: JSON.parse(String(data)).type,
+      context: sends.mock.contexts[index]
+    }))
+    .reverse()
+    .find(({ type }) => type === "host.heartbeat")?.context;
+  if (!(clientSocket instanceof WebSocket)) throw new Error("test_client_socket_missing");
+  const replayAck = acknowledge.mock.calls.length;
+  clientSocket.send(JSON.stringify(outputEvent));
+  await vi.waitFor(() => expect(acknowledge.mock.calls.length).toBe(replayAck + 1));
+  clientSocket.send(
+    JSON.stringify({ ...outputEvent, messageId: "late-after-final", sequence: 99 })
+  );
+  await vi.waitFor(() =>
+    expect(acknowledge.mock.calls.some(([id]) => id === "late-after-final")).toBe(true)
+  );
+  expect(serverWire().filter((event) => event.type === "protocol.error")).toEqual([]);
+  await completePrompt("after-compaction");
+  const continued = await page(retained.cursor);
+  expect(continued.events.map((event) => event.turnId)).toEqual([
+    "after-compaction",
+    "after-compaction",
+    "after-compaction"
+  ]);
+  const after = db
+    .prepare(
+      "SELECT COUNT(*) AS events,SUM(length(event_json)) AS bytes FROM acp_conversation_events"
+    )
+    .get();
+  process.stdout.write(
+    `${JSON.stringify({ transport: "operator HTTP -> mailbox -> AgentHostClient WebSocket -> controlled ACP runner", oldCursor, retainedCursor: retained.cursor, continuedCursor: continued.cursor, before, after, receipts: db.prepare("SELECT COUNT(*) AS n FROM acp_conversation_replay_receipts").get(), wire: { prompts: converse.mock.calls.length, reconnects: serverWire().filter((event) => event.type === "host.welcome").length, ackedAfterCompaction: acknowledge.mock.calls.length - replayAck } })}\n`
+  );
+  expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+}, 30_000);

@@ -2,6 +2,7 @@ import { createServer, type Server as HttpServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { canonicalizeJson } from "@planweave-ai/agent-host-protocol";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { AgentHostRepository } from "../hosts.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
@@ -133,6 +134,34 @@ describe("remote operation retention composition lifecycle", () => {
     expect(
       beforeClose.filter((row) => row.receipt_digest !== null).every((row) => row.event_count === 0)
     ).toBe(true);
+    const compactedOperation = beforeClose.find((row) => row.receipt_digest !== null)!;
+    const operation = new RemoteOperationRepository(database).getRequired(
+      String(compactedOperation.id)
+    );
+    for (let index = 0; index < 21; index++) {
+      const turnId = `retained-${String(index).padStart(3, "0")}`;
+      database
+        .prepare(`INSERT INTO acp_conversation_turns(
+        turn_id,operation_id,actor_id,host_id,session_id,execution_attempt_id,request_json,
+        status,created_at,expires_at,terminal_at) VALUES(?,?,?,?,'retained-session',?,?,'completed',?,?,?)`)
+        .run(
+          turnId,
+          operation.id,
+          "admin",
+          hostId,
+          operation.executionAttemptId,
+          canonicalizeJson({
+            kind: "prompt",
+            turnId,
+            executionAttemptId: operation.executionAttemptId,
+            sessionId: "retained-session",
+            text: "A later retained conversation"
+          }),
+          oldTime,
+          oldTime,
+          oldTime
+        );
+    }
     await first.close();
     compositions.splice(compositions.indexOf(first), 1);
     expect(vi.getTimerCount()).toBe(0);
@@ -150,6 +179,16 @@ describe("remote operation retention composition lifecycle", () => {
     compositions.push(second);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(snapshot(database)).toEqual(beforeClose);
+    expect(
+      database
+        .prepare("SELECT COUNT(*) AS n FROM acp_conversation_turns WHERE compacted_at IS NOT NULL")
+        .get()?.n
+    ).toBe(1);
+    expect(
+      database
+        .prepare("SELECT request_json FROM acp_conversation_turns WHERE turn_id='retained-000'")
+        .get()?.request_json
+    ).toBe("null");
     await vi.advanceTimersByTimeAsync(120_000);
     const afterRestart = snapshot(database);
     expect(afterRestart.filter((row) => row.receipt_digest !== null)).toHaveLength(26);

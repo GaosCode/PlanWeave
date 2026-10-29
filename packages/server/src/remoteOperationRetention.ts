@@ -94,7 +94,7 @@ export class RemoteOperationRetention {
   constructor(
     private readonly database: SqliteDatabase,
     private readonly clock: () => Date = () => new Date(),
-    fullPerScope = REMOTE_OPERATION_RETENTION_FULL_PER_SCOPE,
+    fullPerScope: number = REMOTE_OPERATION_RETENTION_FULL_PER_SCOPE,
     private readonly maxAgeMs = REMOTE_OPERATION_RETENTION_MAX_AGE_MS,
     batchSize = REMOTE_OPERATION_RETENTION_BATCH_SIZE
   ) {
