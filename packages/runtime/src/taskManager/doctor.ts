@@ -5,7 +5,8 @@ import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { requireMapValue } from "../graph/requireMapValue.js";
 import { findOrphanResultsFromGraph } from "../package/orphans.js";
-import { loadPackage } from "../package/loadPackage.js";
+import { loadPackage, resolvePackageWorkspace } from "../package/loadPackage.js";
+import { requireInitializedProjectWorkspace } from "../project.js";
 import { RETENTION_DOCTOR_THRESHOLD, countRetentionArtifacts } from "../runSessions/retention.js";
 import { ensureStateForManifest, readState, writeState } from "../state.js";
 import type {
@@ -139,10 +140,14 @@ export async function runDoctor(options: {
   projectRoot: PackageWorkspaceRef;
   repair?: boolean;
 }): Promise<DoctorReport> {
-  const { workspace, manifest } = await loadPackage(options.projectRoot);
-  const graph = compileTaskGraph(manifest);
+  if (typeof options.projectRoot === "string") {
+    await requireInitializedProjectWorkspace(options.projectRoot);
+  }
+  const workspace = await resolvePackageWorkspace(options.projectRoot);
 
   const diagnose = async (): Promise<DoctorReport> => {
+    const { manifest } = await loadPackage(workspace);
+    const graph = compileTaskGraph(manifest);
     let state = await readState(workspace.stateFile);
     const issues: DoctorIssue[] = [];
     let stateChanged = false;

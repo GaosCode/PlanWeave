@@ -735,6 +735,7 @@
         "desktopTaskWorkspaceReadContextSnapshot.test.ts",
         "desktopTaskWorkspaceRetry.test.ts",
         "doctor.test.ts",
+        "doctorManifestConcurrency.test.ts",
         "doctorRemoteReviewLifecycle.test.ts",
         "e2eBasic.test.ts",
         "editGraph.test.ts",
