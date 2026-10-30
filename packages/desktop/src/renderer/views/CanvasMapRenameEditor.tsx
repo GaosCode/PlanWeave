@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { createTranslator } from "../i18n";
 import { useInlineRename } from "../hooks/useInlineRename";
-import type { RenameRequest, TaskCanvasRenameHandler } from "../renameResult";
+import type { TaskCanvasRenameHandler } from "../renameResult";
 
 type CanvasMapRenameEditorProps = {
   canvas: DesktopCanvasNodeViewModel;
@@ -12,7 +12,6 @@ type CanvasMapRenameEditorProps = {
   scopeKey: string;
   onClose: () => void;
   onSave: TaskCanvasRenameHandler;
-  onSaved: (request: RenameRequest) => Promise<void>;
   t: ReturnType<typeof createTranslator>;
 };
 
@@ -22,7 +21,6 @@ export function CanvasMapRenameEditor({
   scopeKey,
   onClose,
   onSave,
-  onSaved,
   t
 }: CanvasMapRenameEditorProps) {
   const rename = useInlineRename({
@@ -30,11 +28,7 @@ export function CanvasMapRenameEditor({
     name: canvas.title,
     scopeKey,
     onClose,
-    onSave: async (name, request) => {
-      const result = await onSave(project, canvas.canvasId, name, request);
-      if (result.status === "saved" && request.isCurrent()) await onSaved(request);
-      return result;
-    }
+    onSave: (name, request) => onSave(project, canvas.canvasId, name, request)
   });
   return (
     <Card size="sm">

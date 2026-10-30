@@ -9,7 +9,7 @@ import type {
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { Language } from "../i18n";
 import type { AppView } from "../types";
-import type { RenameRequest } from "../renameResult";
+import type { RenameRequest, RenameResult } from "../renameResult";
 import type { SelectedBlockSelection } from "./useSelectedBlock";
 import { resolveProjectCanvasId, useDesktopProject } from "./useDesktopProject";
 
@@ -221,7 +221,11 @@ export function useDesktopProjectSession({
     async (
       project: DesktopProjectSummary,
       canvasId?: string | null,
-      options: { recordCanvasSelection?: boolean; isOwnerCurrent?: () => boolean } = {}
+      options: {
+        recordCanvasSelection?: boolean;
+        isOwnerCurrent?: () => boolean;
+        throwOnErrors?: boolean;
+      } = {}
     ) => {
       if (options.isOwnerCurrent?.() === false) return;
       const nextCanvasId = resolveProjectCanvasId(project, canvasId);
@@ -242,7 +246,8 @@ export function useDesktopProjectSession({
           project,
           nextCanvasId,
           selection,
-          options.isOwnerCurrent
+          options.isOwnerCurrent,
+          options.throwOnErrors
         );
         const request = projectState.beginProjectRequest(
           { projectRoot: project.rootPath, canvasId: nextCanvasId },
@@ -368,31 +373,45 @@ export function useDesktopProjectSession({
       canvasId: string,
       name: string,
       request: RenameRequest
-    ) => {
-      if (!bridge) {
-        throw new Error("Desktop bridge is unavailable");
-      }
+    ): Promise<RenameResult> => {
       const selection = projectState.captureProjectSelection();
-      const canvas = await bridge.renameTaskCanvas(project.rootPath, canvasId, name);
-      if (!selection.isCurrent() || !request.isCurrent()) return canvas;
-      const refreshed = await projectState.refreshProjectSummary(
-        project.rootPath,
-        projectState.selectedCanvasId
-      );
-      if (!selection.isCurrent() || !request.isCurrent()) return canvas;
-      if (projectState.selectedProject?.projectId === project.projectId && refreshed) {
-        await openProject(refreshed, projectState.selectedCanvasId, {
-          isOwnerCurrent: request.isCurrent
-        });
+      let isSaveOwnerCurrent = selection.isCurrent;
+      const isCurrent = () => request.isCurrent() && isSaveOwnerCurrent();
+      if (!isCurrent() || !name.trim()) return { status: "cancelled" };
+      try {
+        if (!bridge) throw new Error("Desktop bridge is unavailable");
+        await bridge.renameTaskCanvas(project.rootPath, canvasId, name.trim());
+        if (!isCurrent()) return { status: "cancelled" };
+        const refreshed = await projectState.refreshProjectSummary(
+          project.rootPath,
+          projectState.selectedCanvasId
+        );
+        if (!isCurrent()) return { status: "cancelled" };
+        if (projectState.selectedProject?.projectId === project.projectId && refreshed) {
+          const loading = openProject(refreshed, projectState.selectedCanvasId, {
+            throwOnErrors: true
+          });
+          const refresh = projectState.captureProjectSelection("projects");
+          isSaveOwnerCurrent = refresh.isCurrent;
+          await loading;
+        }
+        if (!isCurrent()) return { status: "cancelled" };
+        setError(null);
+        return { status: "saved" };
+      } catch (caught) {
+        if (!isCurrent()) return { status: "cancelled" };
+        const error = caught instanceof Error ? caught.message : String(caught);
+        setError(error);
+        return { status: "failed", error };
       }
-      return canvas;
     },
     [
       openProject,
       projectState.captureProjectSelection,
       projectState.refreshProjectSummary,
       projectState.selectedCanvasId,
-      projectState.selectedProject?.projectId
+      projectState.selectedProject?.projectId,
+      setError
     ]
   );
 

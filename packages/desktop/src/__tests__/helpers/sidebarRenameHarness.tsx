@@ -39,6 +39,7 @@ type RenameSidebarProps = {
   sidebarVisible?: boolean;
   onError: (error: string | null) => void;
   initialSelection?: DesktopProjectSummary;
+  home?: string;
 };
 
 export function RenameSidebar({
@@ -48,7 +49,8 @@ export function RenameSidebar({
   collapsed = false,
   sidebarVisible = true,
   onError,
-  initialSelection = initialProject
+  initialSelection = initialProject,
+  home = "/tmp/sidebar-rename-test"
 }: RenameSidebarProps) {
   const [error, setError] = useState<string | null>(null);
   const publishError = useCallback(
@@ -59,7 +61,7 @@ export function RenameSidebar({
     [onError]
   );
   const state = useDesktopProject({
-    planweaveHome: "/tmp/sidebar-rename-test",
+    planweaveHome: home,
     autoSelectInitialProject: false,
     setError: publishError,
     t,
@@ -109,11 +111,20 @@ export function RenameSidebar({
   return (
     <>
       {error ? <div role="alert">{error}</div> : null}
+      <button
+        type="button"
+        onClick={() =>
+          void state.refreshProjectDerivedState({ includeLayout: true, includePrompt: true })
+        }
+      >
+        Refresh canvas data
+      </button>
       <output data-testid="rename-project-state">
         {JSON.stringify({
           selected: state.selectedProject?.projectId,
           graph: state.graph?.projectTitle ?? null,
           layout: state.layout?.projectId ?? null,
+          layoutUpdatedAt: state.layout?.updatedAt ?? null,
           prompt: state.projectPromptMarkdown,
           loading: state.projectLoading,
           refreshing: state.projectRefreshing

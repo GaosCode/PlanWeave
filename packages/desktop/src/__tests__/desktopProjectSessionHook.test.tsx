@@ -160,6 +160,7 @@ describe("desktop project session hook", () => {
         isCurrent: expect.any(Function),
         finishLoading: expect.any(Function)
       }),
+      undefined,
       undefined
     );
     expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({
@@ -225,6 +226,7 @@ describe("desktop project session hook", () => {
         isCurrent: expect.any(Function),
         finishLoading: expect.any(Function)
       }),
+      undefined,
       undefined
     );
     expect(bridge.getLatestAutoRunSummaryWithDiagnostics).toHaveBeenCalledWith({

@@ -419,7 +419,7 @@ describe("Desktop selection intent before IPC", () => {
     let pending!: Promise<unknown>;
     act(() => {
       pending = start().then(
-        () => null,
+        (value) => (operation === "rename" ? value : null),
         (error) => error
       );
     });
@@ -436,8 +436,8 @@ describe("Desktop selection intent before IPC", () => {
       else gate.reject(new Error("OBSOLETE-MUTATION"));
       outcome = await pending;
     });
-    if (operation === "rename" && completion === "error") {
-      expect(outcome).toEqual(new Error("OBSOLETE-MUTATION"));
+    if (operation === "rename") {
+      expect(outcome).toEqual({ status: "cancelled" });
     } else {
       expect(outcome).toBeNull();
     }

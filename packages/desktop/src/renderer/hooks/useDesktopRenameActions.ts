@@ -1,5 +1,4 @@
 import { useCallback } from "react";
-import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate } from "../types";
@@ -17,12 +16,7 @@ type RenameActionsOptions = {
     throwOnErrors: boolean;
   }) => Promise<boolean>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
-  renameTaskCanvas: (
-    project: DesktopProjectSummary,
-    canvasId: string,
-    name: string,
-    request: RenameRequest
-  ) => Promise<unknown>;
+  renameTaskCanvas: TaskCanvasRenameHandler;
   setError: (message: string | null) => void;
   t: ReturnType<typeof createTranslator>;
 };
@@ -89,9 +83,16 @@ export function useDesktopRenameActions({
   );
 
   const handleRenameTaskCanvas: TaskCanvasRenameHandler = useCallback(
-    (project, canvasId, name, request) =>
-      save(name, request, () => renameTaskCanvas(project, canvasId, name.trim(), request)),
-    [renameTaskCanvas, save]
+    async (project, canvasId, name, request) => {
+      if (!request.isCurrent() || !name.trim()) return { status: "cancelled" };
+      if (!bridge) {
+        const error = t("bridgeUnavailable");
+        setError(error);
+        return { status: "failed", error };
+      }
+      return renameTaskCanvas(project, canvasId, name.trim(), request);
+    },
+    [renameTaskCanvas, setError, t]
   );
   return { handleRenameProject, handleRenameTaskCanvas };
 }

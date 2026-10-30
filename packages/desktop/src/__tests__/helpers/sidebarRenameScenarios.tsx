@@ -21,6 +21,8 @@ import {
   type RenameKind
 } from "./sidebarRenameHarness";
 
+import { sidebarCanvasRenameScenarios } from "./sidebarCanvasRenameScenarios";
+
 export type RenameBridgeState = { api: DesktopBridgeApi | null };
 export function sidebarRenameScenarios(bridgeState: RenameBridgeState) {
   let database: DesktopProjectSummary[];
@@ -67,6 +69,8 @@ export function sidebarRenameScenarios(bridgeState: RenameBridgeState) {
       });
     return gate;
   };
+  sidebarCanvasRenameScenarios({ api: () => api, listeners: () => listeners, onError });
+
   beforeEach(() => {
     database = [initialProject, secondProject];
     listeners = new Set();

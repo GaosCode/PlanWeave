@@ -149,7 +149,7 @@ vi.mock("../../renderer/hooks/useDesktopProjectSession", () => ({
     openBlockInspector: stubs.sync,
     openProject: projectState.loadProject,
     openTaskInspector: stubs.sync,
-    renameTaskCanvas: stubs.asyncCall,
+    renameTaskCanvas: vi.fn(async () => ({ status: "saved" as const })),
     reloadCurrentCanvas: stubs.asyncCall,
     restoreTaskPanelSelection: stubs.sync,
     selectedTaskPanelId: null,

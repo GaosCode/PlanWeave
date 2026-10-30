@@ -533,16 +533,6 @@ export function CanvasMapView({
                 ])}
                 onClose={() => setRenamingCanvas(null)}
                 onSave={handleRenameTaskCanvas}
-                onSaved={async (request) => {
-                  try {
-                    await loadCanvasMap(request.isCurrent);
-                    if (request.isCurrent())
-                      await refreshProjectDerivedState({ isOwnerCurrent: request.isCurrent });
-                  } catch (caught) {
-                    if (request.isCurrent())
-                      setError(caught instanceof Error ? caught.message : String(caught));
-                  }
-                }}
                 t={t}
               />
             ) : null}
