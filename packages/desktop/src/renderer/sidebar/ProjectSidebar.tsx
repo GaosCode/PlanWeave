@@ -1,7 +1,6 @@
-import type { ProjectRenameAction, TaskCanvasRenameHandler } from "../renameResult";
+import type { ProjectRenameHandler, TaskCanvasRenameHandler } from "../renameResult";
 import {
   useEffect,
-  useRef,
   useState,
   type Dispatch,
   type PointerEvent as ReactPointerEvent,
@@ -53,7 +52,7 @@ type ProjectSidebarProps = {
     canvas: TaskCanvasSummary,
     taskId: string
   ) => void;
-  handleRenameProject: ProjectRenameAction;
+  handleRenameProject: ProjectRenameHandler;
   handleRenameTaskCanvas: TaskCanvasRenameHandler;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
@@ -127,7 +126,6 @@ export function ProjectSidebar({
   const [collapsedCanvasIds, setCollapsedCanvasIds] = useState<Set<string>>(() => new Set());
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renameGeneration, setRenameGeneration] = useState(0);
-  const refreshOwner = useRef({ generation: 0 });
   useEffect(() => {
     if (collapsed) setRenamingProjectId(null);
   }, [collapsed]);
@@ -275,18 +273,8 @@ export function ProjectSidebar({
         handleRevealSourceRoot={handleRevealSourceRoot}
         handleRevealTaskCanvas={handleRevealTaskCanvas}
         handleRevealTaskNode={handleRevealTaskNode}
-        handleRenameProject={(project, name, request) => {
-          const owner = refreshOwner.current;
-          const generation = ++owner.generation;
-          return handleRenameProject(project, name, {
-            ...request,
-            isRefreshCurrent: () => owner.generation === generation
-          });
-        }}
-        handleRenameTaskCanvas={(project, canvasId, name, request) => {
-          refreshOwner.current.generation += 1;
-          return handleRenameTaskCanvas(project, canvasId, name, request);
-        }}
+        handleRenameProject={handleRenameProject}
+        handleRenameTaskCanvas={handleRenameTaskCanvas}
         handleUnlinkSourceRoot={handleUnlinkSourceRoot}
         handleTaskPanelSelect={handleTaskPanelSelect}
         onCanvasSelect={handleCanvasSelect}

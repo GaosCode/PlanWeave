@@ -13,12 +13,6 @@ export type ProjectRenameHandler = (
   request: RenameRequest
 ) => Promise<RenameResult>;
 
-export type ProjectRenameAction = (
-  project: DesktopProjectSummary,
-  name: string,
-  request: RenameRequest & { isRefreshCurrent: () => boolean }
-) => Promise<RenameResult>;
-
 export type TaskCanvasRenameHandler = (
   project: DesktopProjectSummary,
   canvasId: string,
