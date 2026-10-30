@@ -1,7 +1,6 @@
 import type { ProjectRenameAction, TaskCanvasRenameHandler } from "../renameResult";
 import {
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
@@ -128,17 +127,7 @@ export function ProjectSidebar({
   const [collapsedCanvasIds, setCollapsedCanvasIds] = useState<Set<string>>(() => new Set());
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renameGeneration, setRenameGeneration] = useState(0);
-  const refreshOwner = useRef({ generation: 0, mounted: true, activeView });
-  useLayoutEffect(() => {
-    const owner = refreshOwner.current;
-    owner.mounted = !collapsed;
-    owner.activeView = activeView;
-    owner.generation += 1;
-    return () => {
-      owner.mounted = false;
-      owner.generation += 1;
-    };
-  }, [activeView, collapsed]);
+  const refreshOwner = useRef({ generation: 0 });
   useEffect(() => {
     if (collapsed) setRenamingProjectId(null);
   }, [collapsed]);
@@ -291,8 +280,7 @@ export function ProjectSidebar({
           const generation = ++owner.generation;
           return handleRenameProject(project, name, {
             ...request,
-            isRefreshCurrent: () =>
-              owner.mounted && owner.activeView === activeView && owner.generation === generation
+            isRefreshCurrent: () => owner.generation === generation
           });
         }}
         handleRenameTaskCanvas={(project, canvasId, name, request) => {
