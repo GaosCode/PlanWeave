@@ -480,6 +480,7 @@ export function ProviderHarness({
   useEffect(() => onUpdateSettings?.(updateSettings), [onUpdateSettings, updateSettings]);
   const shell = useMemo<ProjectWorkspaceShellInput>(
     () => ({
+      captureErrorClear: () => vi.fn(),
       activeView,
       appHistory: {
         graphSnapshot: null,

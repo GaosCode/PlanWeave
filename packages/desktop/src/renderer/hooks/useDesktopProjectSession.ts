@@ -1,3 +1,4 @@
+import type { CaptureDesktopErrorClear } from "./useDesktopErrorState";
 import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import type {
   DesktopAutoRunState,
@@ -16,6 +17,7 @@ import { resolveProjectCanvasId, useDesktopProject } from "./useDesktopProject";
 type DesktopProjectState = ReturnType<typeof useDesktopProject>;
 
 type UseDesktopProjectSessionArgs = {
+  captureErrorClear: CaptureDesktopErrorClear;
   clearSelectedBlockRecords: () => void;
   language: Language;
   projectState: DesktopProjectState;
@@ -35,6 +37,7 @@ function clearDiagnostics(current: ValidationIssue[]) {
 }
 
 export function useDesktopProjectSession({
+  captureErrorClear,
   clearSelectedBlockRecords,
   language,
   projectState,
@@ -45,6 +48,12 @@ export function useDesktopProjectSession({
   setSelectedBlock,
   setSelectedRunRecord
 }: UseDesktopProjectSessionArgs) {
+  const renameErrorClear = useRef<{
+    projectRoot: string;
+    canvasId: string;
+    isCurrent: () => boolean;
+    clear: () => void;
+  } | null>(null);
   const [autoRunState, setAutoRunState] = useState<DesktopAutoRunState | null>(null);
   const [autoRunDiagnostics, setAutoRunDiagnostics] = useState<ValidationIssue[]>([]);
   const initialSelectionEffectSkipped = useRef(false);
@@ -374,6 +383,14 @@ export function useDesktopProjectSession({
       name: string,
       request: RenameRequest
     ): Promise<RenameResult> => {
+      const previousError = renameErrorClear.current;
+      renameErrorClear.current = null;
+      const clearSavedError =
+        previousError?.projectRoot === project.rootPath &&
+        previousError.canvasId === canvasId &&
+        previousError.isCurrent()
+          ? previousError.clear
+          : null;
       const selection = projectState.captureProjectSelection();
       let isSaveOwnerCurrent = selection.isCurrent;
       const isCurrent = () => request.isCurrent() && isSaveOwnerCurrent();
@@ -396,16 +413,23 @@ export function useDesktopProjectSession({
           await loading;
         }
         if (!isCurrent()) return { status: "cancelled" };
-        setError(null);
+        clearSavedError?.();
         return { status: "saved" };
       } catch (caught) {
         if (!isCurrent()) return { status: "cancelled" };
         const error = caught instanceof Error ? caught.message : String(caught);
         setError(error);
+        renameErrorClear.current = {
+          projectRoot: project.rootPath,
+          canvasId,
+          isCurrent: isSaveOwnerCurrent,
+          clear: captureErrorClear()
+        };
         return { status: "failed", error };
       }
     },
     [
+      captureErrorClear,
       openProject,
       projectState.captureProjectSelection,
       projectState.refreshProjectSummary,

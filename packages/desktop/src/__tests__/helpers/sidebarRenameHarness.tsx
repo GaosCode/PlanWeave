@@ -1,6 +1,7 @@
+import { useDesktopErrorState } from "../../renderer/hooks/useDesktopErrorState";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { expect, vi } from "vitest";
 import type { DesktopProjectSummary } from "@planweave-ai/runtime";
 import { useDesktopProject } from "../../renderer/hooks/useDesktopProject";
@@ -52,13 +53,13 @@ export function RenameSidebar({
   initialSelection = initialProject,
   home = "/tmp/sidebar-rename-test"
 }: RenameSidebarProps) {
-  const [error, setError] = useState<string | null>(null);
+  const { error, setError, captureErrorClear } = useDesktopErrorState();
   const publishError = useCallback(
     (message: string | null) => {
       setError(message);
       onError(message);
     },
-    [onError]
+    [onError, setError]
   );
   const state = useDesktopProject({
     planweaveHome: home,
@@ -68,6 +69,7 @@ export function RenameSidebar({
     updateSettings: ignore
   });
   const session = useDesktopProjectSession({
+    captureErrorClear,
     projectState: state,
     language: "en",
     setError: publishError,

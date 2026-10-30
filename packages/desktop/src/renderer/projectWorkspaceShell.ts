@@ -1,3 +1,4 @@
+import type { CaptureDesktopErrorClear } from "./hooks/useDesktopErrorState";
 import type { DesktopAgentDetection, DesktopRuntimeToolAvailability } from "@planweave-ai/runtime";
 import type { Dispatch, SetStateAction } from "react";
 import type { createTranslator } from "./i18n";
@@ -19,6 +20,7 @@ type LayoutSettingsPatch = {
 };
 
 export type ProjectWorkspaceShellInput = {
+  captureErrorClear: CaptureDesktopErrorClear;
   activeView: AppView;
   appHistory: AppViewHistoryController;
   agentDetectionRefreshing: boolean;

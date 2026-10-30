@@ -125,6 +125,7 @@ describe("desktop runtime refresh hook integration", () => {
           updateSettings
         });
         return useDesktopProjectSession({
+          captureErrorClear: () => vi.fn(),
           clearSelectedBlockRecords,
           language: "en",
           projectState,
@@ -212,6 +213,7 @@ describe("desktop runtime refresh hook integration", () => {
           updateSettings
         });
         return useDesktopProjectSession({
+          captureErrorClear: () => vi.fn(),
           clearSelectedBlockRecords,
           language: "en",
           projectState,
@@ -319,6 +321,7 @@ describe("desktop runtime refresh hook integration", () => {
           updateSettings
         });
         return useDesktopProjectSession({
+          captureErrorClear: () => vi.fn(),
           clearSelectedBlockRecords,
           language: "en",
           projectState,

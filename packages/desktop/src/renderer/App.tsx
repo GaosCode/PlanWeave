@@ -1,3 +1,4 @@
+import { useDesktopErrorState } from "./hooks/useDesktopErrorState";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { bridge } from "./bridge";
 import { createTranslator } from "./i18n";
@@ -133,7 +134,7 @@ function AppSettingsChrome({
 
 export function App() {
   const rendererPlatform = detectRendererPlatform();
-  const [error, setError] = useState<string | null>(null);
+  const { error, setError, captureErrorClear } = useDesktopErrorState();
   const {
     settings,
     settingsHydrated,
@@ -156,13 +157,13 @@ export function App() {
     if (!bridge) {
       setError(t("bridgeUnavailable"));
     }
-  }, [t]);
+  }, [t, setError]);
 
   useEffect(() => {
     if (appHistory.historyError) {
       setError(appHistory.historyError);
     }
-  }, [appHistory.historyError]);
+  }, [appHistory.historyError, setError]);
 
   useDesktopSettingsEffects(settings);
 
@@ -185,6 +186,7 @@ export function App() {
       appHistory,
       agentDetectionRefreshing,
       agentDetections,
+      captureErrorClear,
       globalPromptMarkdown,
       language,
       refreshAgentDetections,
@@ -206,12 +208,14 @@ export function App() {
       appHistory,
       agentDetectionRefreshing,
       agentDetections,
+      captureErrorClear,
       globalPromptMarkdown,
       language,
       refreshAgentDetections,
       refreshRuntimeTools,
       runtimeTools,
       setActiveView,
+      setError,
       settings,
       settingsHydrated,
       t,

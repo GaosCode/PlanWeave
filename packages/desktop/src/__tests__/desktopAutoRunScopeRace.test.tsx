@@ -45,6 +45,7 @@ async function sessionHarness() {
       updateSettings: vi.fn()
     });
     return useDesktopProjectSession({
+      captureErrorClear: () => vi.fn(),
       projectState,
       language: "en",
       setError,

@@ -133,6 +133,7 @@ describe("desktop project session hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProjectSession({
+        captureErrorClear: () => vi.fn(),
         clearSelectedBlockRecords,
         language: "zh-CN",
         projectState,
@@ -200,6 +201,7 @@ describe("desktop project session hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProjectSession({
+        captureErrorClear: () => vi.fn(),
         clearSelectedBlockRecords: vi.fn(),
         language: "zh-CN",
         projectState,
@@ -255,6 +257,7 @@ describe("desktop project session hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProjectSession({
+        captureErrorClear: () => vi.fn(),
         clearSelectedBlockRecords: vi.fn(),
         language: "zh-CN",
         projectState: projectStateFixture(),
@@ -303,6 +306,7 @@ describe("desktop project session hook", () => {
 
     const { result } = renderHook(() =>
       useDesktopProjectSession({
+        captureErrorClear: () => vi.fn(),
         clearSelectedBlockRecords,
         language: "zh-CN",
         projectState,
@@ -400,6 +404,7 @@ describe("desktop session selection consumers", () => {
         setError
       });
       const session = useDesktopProjectSession({
+        captureErrorClear: () => vi.fn(),
         clearSelectedBlockRecords: selection.clearSelectedBlockRecords,
         language: "en",
         projectState: state,
@@ -531,6 +536,7 @@ describe("desktop session selection consumers", () => {
         setError
       });
       const session = useDesktopProjectSession({
+        captureErrorClear: () => vi.fn(),
         clearSelectedBlockRecords: selection.clearSelectedBlockRecords,
         language: "en",
         projectState,
@@ -564,5 +570,101 @@ describe("desktop session selection consumers", () => {
     expect(result.current.session.selectedTaskPanelId).toBe(beta.taskId);
     expect(bridge.openBlockInspectorWindow).toHaveBeenCalledTimes(1);
     expect(setError.mock.calls.filter(([error]) => error !== null)).toEqual([]);
+  });
+});
+
+describe("canvas rename error ownership outside the selected project", () => {
+  it.each([
+    "retry",
+    "same-message",
+    "different-message",
+    "unowned-existing",
+    "other-canvas",
+    "other-project"
+  ] as const)("clears only its captured error after %s", async (mode) => {
+    const other = { ...project, projectId: "P-OTHER", rootPath: "/tmp/other-canvas-project" };
+    const pending = deferred<void>();
+    const api = createDesktopBridgeMock({
+      listProjects: vi.fn(async () => [project, other]),
+      renameTaskCanvas: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Canvas write unavailable"))
+        .mockImplementationOnce(async () => {
+          await pending.promise;
+          return other.taskCanvases[0];
+        })
+    });
+    vi.stubGlobal("planweave", api);
+    vi.resetModules();
+    const { useDesktopProject } = await import("../renderer/hooks/useDesktopProject");
+    const { useDesktopProjectSession } = await import("../renderer/hooks/useDesktopProjectSession");
+    const { useDesktopErrorState } = await import("../renderer/hooks/useDesktopErrorState");
+    const { result } = renderHook(() => {
+      const errors = useDesktopErrorState();
+      const state = useDesktopProject({
+        planweaveHome: "/tmp/rename-error-owner",
+        settingsHydrated: false,
+        setError: errors.setError,
+        t: createTranslator("en"),
+        updateSettings: vi.fn()
+      });
+      const session = useDesktopProjectSession({
+        captureErrorClear: errors.captureErrorClear,
+        projectState: state,
+        language: "en",
+        setError: errors.setError,
+        clearSelectedBlockRecords: vi.fn(),
+        selectBlock: vi.fn(),
+        setActiveView: vi.fn(),
+        setBlockInspectorOpen: vi.fn(),
+        setSelectedBlock: vi.fn(),
+        setSelectedRunRecord: vi.fn()
+      });
+      return { errors, state, session };
+    });
+    act(() => result.current.state.setSelectedProject(project));
+    if (mode === "unowned-existing") {
+      vi.mocked(api.renameTaskCanvas)
+        .mockReset()
+        .mockImplementationOnce(async () => {
+          await pending.promise;
+          return other.taskCanvases[0];
+        });
+      act(() => result.current.errors.setError("Parallel layout unavailable"));
+    } else {
+      await act(async () => {
+        expect(
+          await result.current.session.renameTaskCanvas(other, "canvas-main", "Retried", {
+            isCurrent: () => true
+          })
+        ).toEqual({ status: "failed", error: "Canvas write unavailable" });
+      });
+      expect(result.current.errors.error).toBe("Canvas write unavailable");
+    }
+    let saving!: ReturnType<typeof result.current.session.renameTaskCanvas>;
+    act(() => {
+      saving = result.current.session.renameTaskCanvas(
+        mode === "other-project" ? { ...other, rootPath: "/tmp/third-project" } : other,
+        mode === "other-canvas" ? "another-canvas" : "canvas-main",
+        "Retried",
+        {
+          isCurrent: () => true
+        }
+      );
+    });
+    const newerError =
+      mode === "different-message" || mode === "unowned-existing"
+        ? "Parallel layout unavailable"
+        : "Canvas write unavailable";
+    if (mode === "same-message" || mode === "different-message")
+      act(() => result.current.errors.setError(newerError));
+    expect(result.current.errors.error).toBe(newerError);
+    await act(async () => {
+      pending.resolve();
+      expect(await saving).toEqual({ status: "saved" });
+    });
+    expect(result.current.errors.error).toBe(mode === "retry" ? null : newerError);
+    expect(result.current.state.selectedProject?.projectId).toBe(project.projectId);
+    expect(api.getDesktopProjectSnapshot).not.toHaveBeenCalled();
   });
 });

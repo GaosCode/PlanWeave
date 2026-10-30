@@ -64,6 +64,7 @@ async function harness(autoSelectInitialProject = false) {
         updateSettings
       });
       const session = useDesktopProjectSession({
+        captureErrorClear: () => vi.fn(),
         projectState: state,
         language: "en",
         setError,

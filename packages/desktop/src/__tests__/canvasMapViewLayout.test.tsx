@@ -1,7 +1,8 @@
+import { useDesktopErrorState } from "../renderer/hooks/useDesktopErrorState";
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import userEvent from "@testing-library/user-event";
 import { useDesktopProjectActions } from "../renderer/hooks/useDesktopProjectActions";
 import {
@@ -424,7 +425,7 @@ function CanvasMapWithRenameAction({
 }: {
   refreshProjectDerivedState?: () => Promise<void>;
 }) {
-  const [error, setError] = useState<string | null>(null);
+  const { error, setError, captureErrorClear } = useDesktopErrorState();
   const state = useDesktopProject({
     planweaveHome: "/tmp/map-rename",
     autoSelectInitialProject: false,
@@ -433,6 +434,7 @@ function CanvasMapWithRenameAction({
     updateSettings: vi.fn()
   });
   const session = useDesktopProjectSession({
+    captureErrorClear,
     projectState: state,
     language: "en",
     setError,
@@ -563,6 +565,79 @@ describe("canvas map rename save results", () => {
     await waitFor(() => expect(input).not.toBeInTheDocument());
     expect(bridgeMock.renameTaskCanvas).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each(
+    (["graph", "layout"] as const).flatMap((kind) =>
+      (["map-first", "session-first"] as const).map((order) => ({ kind, order }))
+    )
+  )("retains $kind failure across $order rename completion until map recovery", async ({
+    kind,
+    order
+  }) => {
+    if (!bridgeMock.api) throw new Error("Expected map session bridge");
+    const api = bridgeMock.api;
+    const actual = await vi.importActual<typeof import("../renderer/hooks/useCanvasMap")>(
+      "../renderer/hooks/useCanvasMap"
+    );
+    useCanvasMapMock.mockImplementation(actual.useCanvasMap);
+    bridgeMock.renameTaskCanvas.mockImplementation(async (_root, _id, name) => {
+      currentProject = {
+        ...currentProject,
+        taskCanvases: [{ ...currentProject.taskCanvases[0], name }]
+      };
+      return currentProject.taskCanvases[0];
+    });
+    render(<CanvasMapWithRenameAction />);
+    const output = screen.getByTestId("map-session-state");
+    await waitFor(() => expect(output).toHaveTextContent('"graph":"Demo project"'));
+    const input = await openCanvasMapRename();
+    await waitFor(() =>
+      expect(useCanvasMapMock.mock.results.at(-1)?.value.layoutPending).toBe(null)
+    );
+    const snapshot = deferred<ReturnType<typeof projectSnapshot>>();
+    const map = deferred<never>();
+    vi.mocked(api.getDesktopProjectSnapshot).mockImplementationOnce(() => snapshot.promise);
+    if (kind === "graph")
+      vi.mocked(api.getCanvasGraphViewModel).mockImplementationOnce(() => map.promise);
+    else vi.mocked(api.getCanvasMapLayout).mockImplementationOnce(() => map.promise);
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed map{Enter}");
+    await waitFor(() => expect(api.getDesktopProjectSnapshot).toHaveBeenCalledTimes(2));
+    const finishSession = async () => {
+      await act(async () =>
+        snapshot.resolve(
+          projectSnapshot({ graph: { ...fixtureGraph, projectTitle: "Renamed canvas" } })
+        )
+      );
+      await waitFor(() => expect(output).toHaveTextContent('"loading":false'));
+    };
+    const failMap = async () => {
+      await act(async () => map.reject(new Error("Current canvas map unavailable")));
+      expect(screen.getByRole("alert")).toHaveTextContent("Current canvas map unavailable");
+    };
+    if (order === "map-first") {
+      await failMap();
+      await finishSession();
+    } else {
+      await finishSession();
+      await failMap();
+    }
+    expect(output).toHaveTextContent('"graph":"Renamed canvas"');
+    expect(screen.getByRole("alert")).toHaveTextContent("Current canvas map unavailable");
+    const recovered = {
+      version: "desktop-canvas-map-layout/v1" as const,
+      projectId: project.projectId,
+      nodes: [],
+      updatedAt: "2026-10-30T12:00:00Z"
+    };
+    vi.mocked(api.getCanvasMapLayout).mockResolvedValueOnce(recovered);
+    await act(async () => useCanvasMapMock.mock.results.at(-1)?.value.loadCanvasMap());
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    const state = useCanvasMapMock.mock.results.at(-1)?.value;
+    expect(state.persistedCanvasMapLayout).toEqual(recovered);
+    expect(state.canvasGraph.canvases[0].title).toBe("Renamed map");
+    expect(state.layoutPending).toBe(null);
   });
 
   it("finishes map and session data after an escaped saved editor is replaced", async () => {

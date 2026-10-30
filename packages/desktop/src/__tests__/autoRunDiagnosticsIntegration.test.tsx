@@ -51,6 +51,7 @@ describe("Auto Run diagnostics integration", () => {
     function DiagnosticsHarness() {
       const projectState = useDesktopProject({ planweaveHome: "", setError, t, updateSettings });
       const session = useDesktopProjectSession({
+        captureErrorClear: () => vi.fn(),
         clearSelectedBlockRecords: vi.fn(),
         language: "en",
         projectState,

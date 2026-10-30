@@ -127,6 +127,7 @@ export function ProjectWorkspaceProvider({
 }) {
   const {
     activeView,
+    captureErrorClear,
     appHistory,
     agentDetectionRefreshing,
     agentDetections,
@@ -318,6 +319,7 @@ export function ProjectWorkspaceProvider({
     setAutoRunState,
     taskFocusRequest
   } = useDesktopProjectSession({
+    captureErrorClear,
     clearSelectedBlockRecords,
     language,
     projectState: desktopProject,
