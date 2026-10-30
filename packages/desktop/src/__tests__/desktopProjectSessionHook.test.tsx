@@ -88,7 +88,7 @@ function projectStateFixture(overrides: Partial<DesktopProjectState> = {}): Desk
     projectPromptMarkdown: null,
     projectPromptPolicy: null,
     projectRefreshing: false,
-    refreshProjects: vi.fn().mockResolvedValue(undefined),
+    refreshProjects: vi.fn().mockResolvedValue(true),
     refreshProjectSummary: vi.fn().mockResolvedValue(project),
     refreshGraph: vi.fn().mockResolvedValue(undefined),
     refreshGraphAndLayout: vi.fn().mockResolvedValue(undefined),

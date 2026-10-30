@@ -29,7 +29,7 @@ export function useWorkspaceCanvasDownload(input: {
     selectProjectId: string;
     selectCanvasId: string;
     isCurrent: () => boolean;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   setError: (message: string) => void;
   setSuccessMessage: (message: string) => void;
   t: ReturnType<typeof createTranslator>;

@@ -98,7 +98,7 @@ export type WorkspaceTabsShellProps = {
   refreshProjects: (options?: {
     selectProjectId?: string;
     selectCanvasId?: string;
-  }) => Promise<void>;
+  }) => Promise<boolean>;
   projectLoading: boolean;
   selectedCanvasId: string | null;
   selectedProject: DesktopProjectSummary | null;

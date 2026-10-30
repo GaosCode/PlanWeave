@@ -460,33 +460,33 @@ export function useDesktopProjectLoader({
       } = {}
     ) => {
       if (!bridge || (options.isCurrent && !options.isCurrent())) {
-        return;
+        return false;
       }
-      const request = captureProjectSelection("projects");
+      let request = captureProjectSelection("projects");
       const isCurrent = () => request.isCurrent() && (!options.isCurrent || options.isCurrent());
+      const loadRefreshedProject = async (project: DesktopProjectSummary, canvasId?: string) => {
+        const selection = beginProjectSelection(project, resolveProjectCanvasId(project, canvasId));
+        request = captureProjectSelection("projects");
+        await loadProject(project, canvasId, selection, isCurrent, options.throwOnErrors);
+      };
       setProjectRefreshing(true);
       try {
         const nextProjects = await bridge.listProjects();
-        if (!isCurrent()) return;
+        if (!isCurrent()) return false;
         setProjects(nextProjects);
         const requestedProject = options.selectProjectId
           ? (nextProjects.find((item) => item.projectId === options.selectProjectId) ?? null)
           : null;
         if (requestedProject) {
-          await loadProject(
-            requestedProject,
-            options.selectCanvasId,
-            undefined,
-            options.isCurrent,
-            options.throwOnErrors
-          );
-          return;
+          await loadRefreshedProject(requestedProject, options.selectCanvasId);
+          return isCurrent();
         }
         const currentProject =
           nextProjects.find((item) => item.projectId === selectedProject?.projectId) ??
           nextProjects.find((item) => item.rootPath === selectedProject?.rootPath) ??
           null;
         if (
+          currentCanvasRef.current.hasGraph &&
           currentProject?.taskCanvases.some(
             (canvas) => canvas.canvasId === currentCanvasRef.current.canvasId
           )
@@ -498,32 +498,30 @@ export function useDesktopProjectLoader({
               : currentExpandedProjectId
           );
           setError(null);
-          return;
+          return true;
         }
         const nextProject = currentProject ?? nextProjects[0];
         if (nextProject) {
-          await loadProject(
-            nextProject,
-            undefined,
-            undefined,
-            options.isCurrent,
-            options.throwOnErrors
-          );
-          return;
+          await loadRefreshedProject(nextProject);
+          return isCurrent();
         }
         setSelectedProject(null);
         setSelectedCanvasId(null);
         setExpandedProjectId(null);
         clearProjectState();
         setError(null);
+        return true;
       } catch (caught) {
-        if (isCurrent()) setError(errorMessage(caught));
+        if (!isCurrent()) return false;
+        setError(errorMessage(caught));
         if (options.throwOnErrors) throw caught;
+        return false;
       } finally {
         if (request.isCurrent()) setProjectRefreshing(false);
       }
     },
     [
+      beginProjectSelection,
       captureProjectSelection,
       clearProjectState,
       currentCanvasRef,

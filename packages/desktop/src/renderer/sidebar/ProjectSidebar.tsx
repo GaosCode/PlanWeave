@@ -1,6 +1,8 @@
-import type { ProjectRenameHandler, TaskCanvasRenameHandler } from "../renameResult";
+import type { ProjectRenameAction, TaskCanvasRenameHandler } from "../renameResult";
 import {
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
   type Dispatch,
   type PointerEvent as ReactPointerEvent,
@@ -52,7 +54,7 @@ type ProjectSidebarProps = {
     canvas: TaskCanvasSummary,
     taskId: string
   ) => void;
-  handleRenameProject: ProjectRenameHandler;
+  handleRenameProject: ProjectRenameAction;
   handleRenameTaskCanvas: TaskCanvasRenameHandler;
   handleUnlinkSourceRoot: (project: DesktopProjectSummary) => Promise<void>;
   handleTaskPanelSelect: (taskId: string | null) => void;
@@ -126,6 +128,17 @@ export function ProjectSidebar({
   const [collapsedCanvasIds, setCollapsedCanvasIds] = useState<Set<string>>(() => new Set());
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renameGeneration, setRenameGeneration] = useState(0);
+  const refreshOwner = useRef({ generation: 0, mounted: true, activeView });
+  useLayoutEffect(() => {
+    const owner = refreshOwner.current;
+    owner.mounted = !collapsed;
+    owner.activeView = activeView;
+    owner.generation += 1;
+    return () => {
+      owner.mounted = false;
+      owner.generation += 1;
+    };
+  }, [activeView, collapsed]);
   useEffect(() => {
     if (collapsed) setRenamingProjectId(null);
   }, [collapsed]);
@@ -273,8 +286,19 @@ export function ProjectSidebar({
         handleRevealSourceRoot={handleRevealSourceRoot}
         handleRevealTaskCanvas={handleRevealTaskCanvas}
         handleRevealTaskNode={handleRevealTaskNode}
-        handleRenameProject={handleRenameProject}
-        handleRenameTaskCanvas={handleRenameTaskCanvas}
+        handleRenameProject={(project, name, request) => {
+          const owner = refreshOwner.current;
+          const generation = ++owner.generation;
+          return handleRenameProject(project, name, {
+            ...request,
+            isRefreshCurrent: () =>
+              owner.mounted && owner.activeView === activeView && owner.generation === generation
+          });
+        }}
+        handleRenameTaskCanvas={(project, canvasId, name, request) => {
+          refreshOwner.current.generation += 1;
+          return handleRenameTaskCanvas(project, canvasId, name, request);
+        }}
         handleUnlinkSourceRoot={handleUnlinkSourceRoot}
         handleTaskPanelSelect={handleTaskPanelSelect}
         onCanvasSelect={handleCanvasSelect}

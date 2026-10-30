@@ -175,7 +175,8 @@ export default defineConfig({
               name: "project-rename",
               test: (id) =>
                 id.endsWith("/renderer/hooks/useInlineRename.ts") ||
-                id.endsWith("/renderer/hooks/useDesktopRenameActions.ts"),
+                id.endsWith("/renderer/hooks/useDesktopRenameActions.ts") ||
+                id.endsWith("/renderer/sidebar/ProjectSidebar.tsx"),
               priority: 14
             },
             {

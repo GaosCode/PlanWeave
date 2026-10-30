@@ -4,7 +4,7 @@ import { bridge } from "../bridge";
 import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate } from "../types";
 import type {
-  ProjectRenameHandler,
+  ProjectRenameAction,
   RenameRequest,
   RenameResult,
   TaskCanvasRenameHandler
@@ -16,7 +16,7 @@ type RenameActionsOptions = {
     selectProjectId: string;
     isCurrent: () => boolean;
     throwOnErrors: boolean;
-  }) => Promise<unknown>;
+  }) => Promise<boolean>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
   renameTaskCanvas: (
     project: DesktopProjectSummary,
@@ -59,10 +59,12 @@ export function useDesktopRenameActions({
     [setError, t]
   );
 
-  const handleRenameProject: ProjectRenameHandler = useCallback(
+  const handleRenameProject: ProjectRenameAction = useCallback(
     async (project, name, request) => {
       const selection = captureProjectSelection();
-      return save(name, request, async (api) => {
+      let isSaveOwnerCurrent = selection.isCurrent;
+      const saveRequest = { isCurrent: () => request.isCurrent() && isSaveOwnerCurrent() };
+      return save(name, saveRequest, async (api) => {
         const updated = await api.renameProject(project.projectId, name.trim());
         if (!request.isCurrent() || !selection.isCurrent()) return;
         if (updated.projectId !== project.projectId) {
@@ -76,9 +78,11 @@ export function useDesktopRenameActions({
             )
           }));
         }
-        await refreshProjects({
+        let refreshAccepted = false;
+        isSaveOwnerCurrent = () => refreshAccepted;
+        refreshAccepted = await refreshProjects({
           selectProjectId: updated.projectId,
-          isCurrent: request.isCurrent,
+          isCurrent: request.isRefreshCurrent,
           throwOnErrors: true
         });
       });

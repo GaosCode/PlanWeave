@@ -14,9 +14,16 @@ import { useDesktopProjectSession } from "../../renderer/hooks/useDesktopProject
 import { useDesktopProjectActions } from "../../renderer/hooks/useDesktopProjectActions";
 import { ProjectSidebar } from "../../renderer/sidebar/ProjectSidebar";
 import { createTranslator } from "../../renderer/i18n";
+import { graph } from "./graphFixtures";
 import type { AppView } from "../../renderer/types";
 import { createDesktopBridgeMock } from "../desktopBridgeMock";
-import { deferred, project, projectDiagnostics, projectSnapshot } from "./desktopProjectFixtures";
+import {
+  deferred,
+  layout,
+  project,
+  projectDiagnostics,
+  projectSnapshot
+} from "./desktopProjectFixtures";
 
 export type RenameBridgeState = { api: DesktopBridgeApi | null };
 type RenameKind = "project" | "canvas";
@@ -29,6 +36,13 @@ const secondProject = {
   rootPath: "/tmp/other",
   workspaceRoot: "/tmp/other"
 };
+const thirdProject = {
+  ...secondProject,
+  projectId: "P-003",
+  name: "Third project",
+  rootPath: "/tmp/third",
+  workspaceRoot: "/tmp/third"
+};
 const secondCanvas = { ...project.taskCanvases[0], canvasId: "canvas-other", name: "Other canvas" };
 const initialProject = { ...project, taskCanvases: [...project.taskCanvases, secondCanvas] };
 
@@ -37,13 +51,15 @@ type RenameSidebarProps = {
   targetCanvasId?: string;
   activeView?: AppView;
   onError: (error: string | null) => void;
+  initialSelection?: DesktopProjectSummary;
 };
 
 function RenameSidebar({
   targetProjectId = project.projectId,
   targetCanvasId = "canvas-main",
   activeView = "graph",
-  onError
+  onError,
+  initialSelection = initialProject
 }: RenameSidebarProps) {
   const [error, setError] = useState<string | null>(null);
   const publishError = useCallback(
@@ -76,11 +92,15 @@ function RenameSidebar({
   useEffect(() => {
     if (state.projects.length === 0) return;
     void sessionRef.current.openProject(
-      targetProjectId === project.projectId ? initialProject : secondProject,
+      targetProjectId === project.projectId
+        ? initialSelection
+        : targetProjectId === secondProject.projectId
+          ? secondProject
+          : thirdProject,
       targetCanvasId,
       { recordCanvasSelection: false }
     );
-  }, [state.projects.length, targetProjectId, targetCanvasId]);
+  }, [initialSelection, state.projects.length, targetProjectId, targetCanvasId]);
   const actions = useDesktopProjectActions({
     clearReviewTaskSelection: ignore,
     createTaskCanvas: session.createTaskCanvas,
@@ -100,6 +120,16 @@ function RenameSidebar({
   return (
     <>
       {error ? <div role="alert">{error}</div> : null}
+      <output data-testid="rename-project-state">
+        {JSON.stringify({
+          selected: state.selectedProject?.projectId,
+          graph: state.graph?.projectTitle ?? null,
+          layout: state.layout?.projectId ?? null,
+          prompt: state.projectPromptMarkdown,
+          loading: state.projectLoading,
+          refreshing: state.projectRefreshing
+        })}
+      </output>
       <ProjectSidebar
         {...actions}
         activeView={activeView}
@@ -151,6 +181,7 @@ async function openRename(kind: RenameKind, target = "main") {
 export function sidebarRenameScenarios(bridgeState: RenameBridgeState) {
   let database: DesktopProjectSummary[];
   let api: DesktopBridgeApi;
+  let listeners: Set<(event: DesktopPackageFileChangeEvent) => void>;
   const onError = vi.fn();
   const persistProject: DesktopBridgeApi["renameProject"] = async (projectId, name) => {
     const current = database.find((item) => item.projectId === projectId);
@@ -194,9 +225,14 @@ export function sidebarRenameScenarios(bridgeState: RenameBridgeState) {
   };
   beforeEach(() => {
     database = [initialProject, secondProject];
+    listeners = new Set();
     onError.mockReset();
     api = createDesktopBridgeMock({
       listProjects: vi.fn(async () => database),
+      onPackageFileChanged: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
       renameProject: vi.fn(persistProject),
       renameTaskCanvas: vi.fn(persistCanvas),
       selectTaskCanvas: vi.fn(async (_root, id) => id),
@@ -212,6 +248,293 @@ export function sidebarRenameScenarios(bridgeState: RenameBridgeState) {
         disconnect() {}
       }
     );
+  });
+
+  it.each([
+    "selected managed",
+    "unselected"
+  ] as const)("restores the graph after renaming the %s project", async (target) => {
+    const managed = {
+      ...initialProject,
+      kind: "managed" as const,
+      sourceRoot: null,
+      rootPath: "/tmp/sidebar-rename-test/projects/P-001",
+      workspaceRoot: "/tmp/sidebar-rename-test/projects/P-001"
+    };
+    database[0] = managed;
+    render(<RenameSidebar onError={onError} initialSelection={managed} />);
+    const output = screen.getByTestId("rename-project-state");
+    await waitFor(() => expect(output).toHaveTextContent('"graph":"Demo project"'));
+    const oldReference = vi.mocked(api.watchPackageFiles).mock.calls.at(-1)?.[0];
+    if (!oldReference) throw new Error("Expected initial watch");
+    const observed = vi.fn();
+    const unsubscribe = desktopCommandBridge(api).onPackageFileChanged(observed);
+    const input = await openRename("project", target === "unselected" ? "other" : "main");
+    const gate = deferred<ReturnType<typeof projectSnapshot>>();
+    vi.mocked(api.getDesktopProjectSnapshot).mockImplementationOnce(() => gate.promise);
+    if (target === "selected managed") {
+      vi.mocked(api.renameProject).mockImplementationOnce(async (_id, name) => {
+        const updated = {
+          ...managed,
+          projectId: "managed-renamed",
+          name,
+          rootPath: "/tmp/sidebar-rename-test/projects/managed-renamed",
+          workspaceRoot: "/tmp/sidebar-rename-test/projects/managed-renamed"
+        };
+        database[0] = updated;
+        return updated;
+      });
+    }
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed project{Enter}");
+    const selected = target === "unselected" ? secondProject.projectId : "managed-renamed";
+    await waitFor(() => expect(output).toHaveTextContent(`"selected":"${selected}"`));
+    const event = {
+      ...oldReference,
+      paths: ["package/manifest.json"],
+      triggeredAt: "2026-10-30T00:00:00Z"
+    };
+    act(() => {
+      for (const listener of listeners) listener(event);
+    });
+    expect(observed).not.toHaveBeenCalled();
+    await act(async () =>
+      gate.resolve(
+        projectSnapshot({
+          graph: { ...graph, projectId: selected, projectTitle: "Renamed graph" },
+          layout: { ...layout, projectId: selected },
+          projectPromptMarkdown: "# Renamed prompt"
+        })
+      )
+    );
+    await waitFor(() => expect(output).toHaveTextContent('"graph":"Renamed graph"'));
+    expect(output).toHaveTextContent(`"layout":"${selected}"`);
+    expect(output).toHaveTextContent('"prompt":"# Renamed prompt"');
+    expect(output).toHaveTextContent('"loading":false');
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    const reference = vi.mocked(api.watchPackageFiles).mock.calls.at(-1)?.[0];
+    expect(reference).toMatchObject({
+      projectRoot: target === "unselected" ? secondProject.rootPath : database[0].rootPath,
+      canvasId: "canvas-main"
+    });
+    if (!reference) throw new Error("Expected migrated watch");
+    act(() => {
+      for (const listener of listeners) listener({ ...event, ...reference });
+    });
+    expect(observed).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it.each([
+    { transition: "project", completion: "resolve" },
+    { transition: "project", completion: "reject" },
+    { transition: "refresh", completion: "resolve" },
+    { transition: "refresh", completion: "reject" },
+    { transition: "rename", completion: "resolve" },
+    { transition: "rename", completion: "reject" },
+    { transition: "canvas-rename", completion: "resolve" },
+    { transition: "canvas-rename", completion: "reject" },
+    { transition: "navigation", completion: "resolve" },
+    { transition: "navigation", completion: "reject" },
+    { transition: "unmount", completion: "resolve" },
+    { transition: "unmount", completion: "reject" }
+  ] as const)("retires saved rename snapshot $completion after $transition", async ({
+    transition,
+    completion
+  }) => {
+    database.push(thirdProject);
+    const view = render(<RenameSidebar onError={onError} />);
+    const output = screen.getByTestId("rename-project-state");
+    await waitFor(() => expect(output).toHaveTextContent('"graph":"Demo project"'));
+    const input = await openRename("project", "other");
+    const gate = deferred<ReturnType<typeof projectSnapshot>>();
+    vi.mocked(api.getDesktopProjectSnapshot).mockImplementationOnce(() => gate.promise);
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed other{Enter}");
+    await waitFor(() => expect(output).toHaveTextContent('"selected":"P-002"'));
+    let newInput: HTMLElement | null = null;
+    if (transition === "project") {
+      vi.mocked(api.getDesktopProjectSnapshot).mockResolvedValueOnce(
+        projectSnapshot({
+          graph: { ...graph, projectTitle: "Current third graph" }
+        })
+      );
+      view.rerender(<RenameSidebar onError={onError} targetProjectId="P-003" />);
+      await waitFor(() => expect(output).toHaveTextContent('"graph":"Current third graph"'));
+    } else if (transition === "refresh") {
+      vi.mocked(api.getDesktopProjectSnapshot).mockResolvedValueOnce(
+        projectSnapshot({
+          graph: { ...graph, projectTitle: "Current refreshed graph" }
+        })
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Refresh projects" }));
+      await waitFor(() => expect(output).toHaveTextContent('"graph":"Current refreshed graph"'));
+    } else if (transition === "canvas-rename") {
+      const canvasInput = await openRename("canvas");
+      vi.mocked(api.getDesktopProjectSnapshot).mockResolvedValueOnce(
+        projectSnapshot({
+          graph: { ...graph, projectTitle: "Current canvas rename graph" }
+        })
+      );
+      await userEvent.clear(canvasInput);
+      await userEvent.type(canvasInput, "Replacement canvas{Enter}");
+      await waitFor(() =>
+        expect(output).toHaveTextContent('"graph":"Current canvas rename graph"')
+      );
+    } else if (transition === "rename") {
+      fireEvent.contextMenu(screen.getByRole("button", { name: "Renamed other" }));
+      await userEvent.click(await screen.findByText("Rename project"));
+      newInput = screen.getByRole("textbox", { name: "Project name" });
+      await userEvent.clear(newInput);
+      await userEvent.type(newInput, "New draft");
+      if (transition === "rename") {
+        vi.mocked(api.getDesktopProjectSnapshot).mockResolvedValueOnce(
+          projectSnapshot({
+            graph: { ...graph, projectTitle: "Current rename graph" }
+          })
+        );
+        await userEvent.type(newInput, "{Enter}");
+        await waitFor(() => expect(output).toHaveTextContent('"graph":"Current rename graph"'));
+        newInput = null;
+      }
+    } else if (transition === "navigation") {
+      view.rerender(<RenameSidebar onError={onError} activeView="settings" />);
+    } else view.unmount();
+    const currentState = output.textContent;
+    onError.mockClear();
+    await act(async () => {
+      if (completion === "resolve")
+        gate.resolve(projectSnapshot({ graph: { ...graph, projectTitle: "Obsolete graph" } }));
+      else gate.reject(new Error("Obsolete snapshot failure"));
+    });
+    if (
+      transition === "project" ||
+      transition === "refresh" ||
+      transition === "rename" ||
+      transition === "canvas-rename"
+    )
+      expect(output.textContent).toBe(currentState);
+    if (transition !== "unmount") expect(output).toHaveTextContent('"loading":false');
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(onError).not.toHaveBeenCalled();
+    if (newInput) expect(newInput).toHaveValue("New draft");
+  });
+
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("finishes the admitted snapshot %s while a new editor keeps its own draft", async (completion) => {
+    const view = render(<RenameSidebar onError={onError} />);
+    const output = screen.getByTestId("rename-project-state");
+    await waitFor(() => expect(output).toHaveTextContent('"graph":"Demo project"'));
+    const input = await openRename("project", "other");
+    const gate = deferred<ReturnType<typeof projectSnapshot>>();
+    vi.mocked(api.getDesktopProjectSnapshot).mockImplementationOnce(() => gate.promise);
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed other{Enter}");
+    await waitFor(() => expect(output).toHaveTextContent('"selected":"P-002"'));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Renamed other" }));
+    await userEvent.click(await screen.findByText("Rename project"));
+    const nextInput = screen.getByRole("textbox", { name: "Project name" });
+    await userEvent.clear(nextInput);
+    await userEvent.type(nextInput, "New draft");
+    const observed = vi.fn();
+    const unsubscribe = desktopCommandBridge(api).onPackageFileChanged(observed);
+    await act(async () => {
+      if (completion === "resolve") {
+        gate.resolve(
+          projectSnapshot({
+            graph: {
+              ...graph,
+              projectId: secondProject.projectId,
+              projectTitle: "Current B graph"
+            },
+            layout: { ...layout, projectId: secondProject.projectId },
+            projectPromptMarkdown: "# Current B prompt"
+          })
+        );
+      } else gate.reject(new Error("Current B snapshot failure"));
+    });
+    expect(nextInput).toHaveValue("New draft");
+    expect(nextInput).not.toHaveAttribute("readonly");
+    expect(nextInput).not.toHaveAttribute("aria-invalid", "true");
+    expect(output).toHaveTextContent('"selected":"P-002"');
+    expect(output).toHaveTextContent('"loading":false');
+    expect(output).toHaveTextContent('"refreshing":false');
+    if (completion === "resolve") {
+      expect(output).toHaveTextContent('"graph":"Current B graph"');
+      expect(output).toHaveTextContent('"layout":"P-002"');
+      expect(output).toHaveTextContent('"prompt":"# Current B prompt"');
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      const reference = vi.mocked(api.watchPackageFiles).mock.calls.at(-1)?.[0];
+      expect(reference).toMatchObject({
+        projectRoot: secondProject.rootPath,
+        canvasId: "canvas-main"
+      });
+      if (!reference) throw new Error("Expected a current B watch");
+      const event = {
+        ...reference,
+        paths: ["package/manifest.json"],
+        triggeredAt: "2026-10-30T00:00:00Z"
+      };
+      act(() => {
+        for (const listener of listeners) listener(event);
+      });
+      expect(observed).toHaveBeenCalledExactlyOnceWith(event);
+      view.unmount();
+      act(() => {
+        for (const listener of listeners) listener(event);
+      });
+      expect(observed).toHaveBeenCalledTimes(1);
+    } else {
+      expect(screen.getByRole("alert")).toHaveTextContent("Current B snapshot failure");
+      expect(output).toHaveTextContent('"graph":null');
+      expect(output).toHaveTextContent('"layout":null');
+      expect(output).toHaveTextContent('"prompt":null');
+    }
+    unsubscribe();
+  });
+
+  it("keeps the newer refresh error when an older rename snapshot resolves", async () => {
+    render(<RenameSidebar onError={onError} />);
+    const output = screen.getByTestId("rename-project-state");
+    await waitFor(() => expect(output).toHaveTextContent('"graph":"Demo project"'));
+    const input = await openRename("project");
+    const gate = deferred<ReturnType<typeof projectSnapshot>>();
+    vi.mocked(api.getDesktopProjectSnapshot).mockImplementationOnce(() => gate.promise);
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed selected{Enter}");
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Project name" })).toHaveAttribute("readonly")
+    );
+    vi.mocked(api.listProjects).mockRejectedValueOnce(new Error("Newer refresh failed"));
+    await userEvent.click(screen.getByRole("button", { name: "Refresh projects" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Newer refresh failed")
+    );
+    await act(async () =>
+      gate.resolve(projectSnapshot({ graph: { ...graph, projectTitle: "Obsolete graph" } }))
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Newer refresh failed");
+    expect(output).toHaveTextContent('"graph":"Demo project"');
+    expect(output).toHaveTextContent('"loading":false');
+  });
+
+  it("shows an admitted rename snapshot failure and ends loading", async () => {
+    render(<RenameSidebar onError={onError} />);
+    const output = screen.getByTestId("rename-project-state");
+    await waitFor(() => expect(output).toHaveTextContent('"graph":"Demo project"'));
+    const input = await openRename("project", "other");
+    const gate = deferred<ReturnType<typeof projectSnapshot>>();
+    vi.mocked(api.getDesktopProjectSnapshot).mockImplementationOnce(() => gate.promise);
+    await userEvent.clear(input);
+    await userEvent.type(input, "Renamed other{Enter}");
+    await waitFor(() => expect(output).toHaveTextContent('"selected":"P-002"'));
+    await act(async () => gate.reject(new Error("Current snapshot failure")));
+    expect(screen.getByRole("alert")).toHaveTextContent("Current snapshot failure");
+    expect(output).toHaveTextContent('"loading":false');
+    expect(output).toHaveTextContent('"refreshing":false');
+    expect(output).toHaveTextContent('"graph":null');
   });
 
   it.each([

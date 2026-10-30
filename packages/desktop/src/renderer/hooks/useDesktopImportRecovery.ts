@@ -5,7 +5,7 @@ import type { DesktopSelectionReceipt } from "./useDesktopProjectSnapshot";
 
 type UseDesktopImportRecoveryArgs = {
   captureProjectSelection: () => DesktopSelectionReceipt;
-  refreshProjects: (options?: { throwOnErrors?: boolean }) => Promise<void>;
+  refreshProjects: (options?: { throwOnErrors?: boolean }) => Promise<boolean>;
   refreshProjectDerivedState: (options?: {
     includeLayout?: boolean;
     includePrompt?: boolean;
