@@ -1,3 +1,5 @@
+import { Profiler } from "react";
+import { desktopRemoteAcpConversationPageSchema } from "../shared/remoteAcpConversation";
 import type { AcpPermissionOption } from "@planweave-ai/agent-host-protocol/browser";
 import { RemoteAcpRunConversation } from "../renderer/task-workspace/conversation/RemoteAcpRunConversation";
 import { remoteInteractionViewSchema } from "@planweave-ai/collaboration-protocol/remote-run";
@@ -657,5 +659,414 @@ describe("remote ACP execution permission choices", () => {
         }
       ])
     );
+  });
+});
+
+const timestamp = "2030-01-01T00:00:00.000Z";
+
+function message(turnId: string, sequence: number, content: string) {
+  return {
+    protocolVersion: 1,
+    type: "acp_conversation.event",
+    operationId: scope.operationId,
+    executionAttemptId: "attempt-one",
+    sessionId: "original-session",
+    turnId,
+    sequence,
+    messageId: `${turnId}-${sequence}`,
+    timestamp,
+    payload: {
+      kind: "runner",
+      fragment: {
+        kind: "runner_body",
+        body: {
+          kind: "message",
+          role: "assistant",
+          messageId: `${turnId}-${sequence}`,
+          chunk: false,
+          content,
+          redaction: { classes: [], replaced: 0 }
+        }
+      }
+    }
+  };
+}
+
+function initialPage() {
+  return desktopRemoteAcpConversationPageSchema.parse({
+    execution: { state: "completed", cancel: null, interactions: [] },
+    available: true,
+    canRestoreTask: false,
+    restoredOperationId: null,
+    reason: null,
+    executionAttemptId: "attempt-one",
+    sessionId: "original-session",
+    turns: ["first", "second"].map((turnId) => ({
+      turnId,
+      executionAttemptId: "attempt-one",
+      sessionId: "original-session",
+      status: "completed",
+      createdAt: timestamp,
+      error: null
+    })),
+    events: [message("first", 1, "First reply"), message("second", 1, "Second reply")],
+    cursor: 2,
+    hasMore: false
+  });
+}
+
+async function poll() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1500);
+  });
+}
+
+describe("remote ACP continuation incremental projection", () => {
+  it.each([
+    [1000, 1],
+    [1000, 10],
+    [10000, 1],
+    [10000, 100]
+  ])("avoids empty or duplicate page commits and limits append commits for %i events across %i turns", async (eventCount, turnCount) => {
+    vi.useFakeTimers();
+    const base = initialPage();
+    const turnIds = Array.from({ length: turnCount }, (_, index) => `turn-${index}`);
+    let page = desktopRemoteAcpConversationPageSchema.parse({
+      ...base,
+      turns: turnIds.map((turnId) => ({ ...base.turns[0], turnId })),
+      events: turnIds.flatMap((turnId) =>
+        Array.from({ length: eventCount / turnCount }, (_, index) =>
+          message(turnId, index + 1, `${turnId}:${index + 1}`)
+        )
+      ),
+      cursor: eventCount
+    });
+    const original = page;
+    const api = { remoteAcpConversation: vi.fn(async () => structuredClone(page)) };
+    const commits = vi.fn();
+    const { result } = renderHook(() => useRemoteAcpContinuation(api, scope), {
+      wrapper: ({ children }) => (
+        <Profiler id="continuation" onRender={commits}>
+          {children}
+        </Profiler>
+      )
+    });
+    await act(async () => {});
+    expect(result.current.turns[0].timeline[0]).toMatchObject({
+      kind: "message",
+      content: "turn-0:1"
+    });
+    const turns = result.current.turns;
+    const initialCommits = commits.mock.calls.length;
+    page = { ...page, events: [] };
+    await poll();
+    await poll();
+    expect(api.remoteAcpConversation).toHaveBeenCalledTimes(3);
+    expect(result.current.turns).toBe(turns);
+    expect(commits).toHaveBeenCalledTimes(initialCommits);
+    page = original;
+    await poll();
+    expect(result.current.turns).toBe(turns);
+    expect(commits).toHaveBeenCalledTimes(initialCommits);
+    page = {
+      ...page,
+      events: [message("turn-0", eventCount / turnCount + 1, "Append")],
+      cursor: eventCount + 1
+    };
+    await poll();
+    expect(result.current.turns[0].timeline.at(-1)).toMatchObject({ content: "Append" });
+    expect(commits.mock.calls.length - initialCommits).toBeGreaterThan(0);
+    expect(commits.mock.calls.length - initialCommits).toBeLessThanOrEqual(2);
+    console.info(
+      JSON.stringify({
+        events: eventCount,
+        turns: turnCount,
+        emptyPollReactCommits: 0,
+        duplicatePageReactCommits: 0,
+        appendReactCommits: commits.mock.calls.length - initialCommits,
+        appendCommitPhases: commits.mock.calls.slice(initialCommits).map((call) => call[1])
+      })
+    );
+  });
+
+  it("updates only the changed turn and publishes metadata changes without a new cursor", async () => {
+    vi.useFakeTimers();
+    let page: DesktopRemoteAcpConversationPage = initialPage();
+    const api = {
+      remoteAcpConversation: vi.fn(async () => desktopRemoteAcpConversationPageSchema.parse(page))
+    };
+    const { result } = renderHook(() => useRemoteAcpContinuation(api, scope));
+    await act(async () => {});
+    const first = result.current.turns[0];
+    const second = result.current.turns[1];
+    page = desktopRemoteAcpConversationPageSchema.parse({
+      ...page,
+      cursor: 3,
+      events: [message("second", 2, "Another reply")]
+    });
+    await poll();
+    expect(result.current.turns[0]).toBe(first);
+    expect(result.current.turns[1]).not.toBe(second);
+    expect(result.current.turns[1].timeline).toEqual([
+      expect.objectContaining({ kind: "message", content: "Second reply" }),
+      expect.objectContaining({ kind: "message", content: "Another reply" })
+    ]);
+    const timeline = result.current.turns[1].timeline;
+    page = {
+      ...page,
+      events: [],
+      available: false,
+      reason: "session_unavailable",
+      canRestoreTask: true,
+      turns: page.turns.map((turn) =>
+        turn.turnId === "second" ? { ...turn, status: "failed", error: "Agent failed" } : turn
+      )
+    };
+    await poll();
+    expect(result.current).toMatchObject({
+      available: false,
+      reason: "session_unavailable",
+      canRestoreTask: true
+    });
+    expect(result.current.turns[0]).toBe(first);
+    expect(result.current.turns[1]).toMatchObject({ status: "failed", error: "Agent failed" });
+    expect(result.current.turns[1].timeline).toBe(timeline);
+  });
+});
+
+describe("remote ACP continuation cache lifecycle", () => {
+  it("publishes each same-cursor metadata change and invalidates only a changed turn identity", async () => {
+    vi.useFakeTimers();
+    let page: DesktopRemoteAcpConversationPage = initialPage();
+    page.turns[1].status = "running";
+    const api = {
+      remoteAcpConversation: vi.fn(async (_input: DesktopRemoteAcpConversationInput) =>
+        structuredClone(page)
+      )
+    };
+    const { result } = renderHook(() => useRemoteAcpContinuation(api, scope));
+    await act(async () => {});
+    expect(result.current.active?.turnId).toBe("second");
+    const timeline = result.current.turns[1].timeline;
+    const first = result.current.turns[0];
+    page = {
+      ...page,
+      events: [],
+      turns: [page.turns[0], { ...page.turns[1], status: "completed" }]
+    };
+    await poll();
+    expect(result.current.active).toBeNull();
+    expect(result.current.turns[1].timeline).toBe(timeline);
+    page = {
+      ...page,
+      turns: [
+        page.turns[0],
+        { ...page.turns[1], createdAt: "2030-01-02T00:00:00.000Z", error: "updated detail" }
+      ]
+    };
+    await poll();
+    expect(result.current.turns[1]).toMatchObject({
+      createdAt: "2030-01-02T00:00:00.000Z",
+      error: "updated detail"
+    });
+    expect(result.current.turns[1].timeline).toBe(timeline);
+    page = { ...page, available: false };
+    await poll();
+    expect(result.current.available).toBe(false);
+    page = { ...page, reason: "session_unavailable" };
+    await poll();
+    expect(result.current.reason).toBe("session_unavailable");
+    page = { ...page, canRestoreTask: true };
+    await poll();
+    expect(result.current.canRestoreTask).toBe(true);
+    page = { ...page, restoredOperationId: "restored-operation" };
+    await poll();
+    expect(result.current.restoredOperationId).toBe("restored-operation");
+    page = { ...page, execution: { state: "cancelled", cancel: null, interactions: [] } };
+    await poll();
+    expect(result.current.execution?.state).toBe("cancelled");
+    page = {
+      ...page,
+      available: true,
+      executionAttemptId: "attempt-two",
+      sessionId: "session-two"
+    };
+    await poll();
+    await act(async () => {
+      expect(await result.current.restoreTask()).toBe(true);
+    });
+    expect(api.remoteAcpConversation.mock.calls.at(-1)?.[0].action).toMatchObject({
+      kind: "restore_task",
+      executionAttemptId: "attempt-two",
+      sessionId: "session-two"
+    });
+    page = {
+      ...page,
+      turns: [page.turns[0], { ...page.turns[1], executionAttemptId: "attempt-two" }]
+    };
+    await poll();
+    expect(result.current.turns[0]).toBe(first);
+    expect(result.current.turns[1]).toMatchObject({
+      executionAttemptId: "attempt-two",
+      sessionId: "original-session"
+    });
+    expect(result.current.turns[1].projected[0].executionAttemptId).toBe("attempt-two");
+    expect(result.current.turns[1].timeline).not.toBe(timeline);
+    const nextTimeline = result.current.turns[1].timeline;
+    page = { ...page, turns: [page.turns[0], { ...page.turns[1], sessionId: "session-three" }] };
+    await poll();
+    expect(result.current.turns[1].timeline).not.toBe(nextTimeline);
+    expect(result.current.turns[1].timeline).toEqual([
+      expect.objectContaining({ content: "Second reply" })
+    ]);
+    page = { ...page, sessionId: null };
+    await poll();
+    const requests = api.remoteAcpConversation.mock.calls.length;
+    await act(async () => {
+      expect(await result.current.send("No session")).toBe(false);
+    });
+    expect(api.remoteAcpConversation).toHaveBeenCalledTimes(requests);
+  });
+
+  it("clears optimistic text and replay on same-cursor compaction and never revives delayed payloads", async () => {
+    vi.useFakeTimers();
+    let page = initialPage();
+    const api = {
+      remoteAcpConversation: vi.fn(async (_input: DesktopRemoteAcpConversationInput) =>
+        structuredClone(page)
+      )
+    };
+    const { result } = renderHook(() => useRemoteAcpContinuation(api, scope));
+    await act(async () => {});
+    const second = result.current.turns[1];
+    await act(async () => {
+      expect(await result.current.send("Waiting for replay")).toBe(true);
+    });
+    const action = api.remoteAcpConversation.mock.calls.at(-1)?.[0].action;
+    if (action?.kind !== "prompt") throw new Error("Expected a prompt action");
+    expect(result.current.pendingMessages).toEqual([
+      expect.objectContaining({ text: "Waiting for replay" })
+    ]);
+    page = {
+      ...page,
+      events: [],
+      turns: [...page.turns, { ...page.turns[0], turnId: action.turnId }],
+      retention: { compactedTurnIds: ["first", action.turnId] }
+    };
+    await poll();
+    expect(result.current.pendingMessages).toEqual([]);
+    expect(result.current.turns[0]).toMatchObject({
+      history: "compacted",
+      timeline: [],
+      projected: []
+    });
+    expect(result.current.turns[2]).toMatchObject({
+      history: "compacted",
+      timeline: [],
+      projected: []
+    });
+    expect(result.current.turns[1]).toBe(second);
+    const { retention: _retention, ...withoutRetention } = page;
+    page = {
+      ...withoutRetention,
+      events: [message("first", 1, "Old body"), message(action.turnId, 1, "Late body")]
+    };
+    await poll();
+    expect(result.current.pendingMessages).toEqual([]);
+    expect(result.current.turns.map((turn) => turn.timeline.length)).toEqual([0, 1, 0]);
+    expect(result.current.turns[0].history).toBe("compacted");
+    expect(result.current.turns[1]).toBe(second);
+  });
+
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("releases the old scope cache and fences a delayed %s", async (outcome) => {
+    vi.useFakeTimers();
+    const oldPage = initialPage();
+    let resolve!: (value: DesktopRemoteAcpConversationPage) => void;
+    let reject!: (cause: Error) => void;
+    const delayed = new Promise<DesktopRemoteAcpConversationPage>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    const api = {
+      remoteAcpConversation: vi.fn(async (_input: DesktopRemoteAcpConversationInput) => oldPage)
+    };
+    const { result, rerender, unmount } = renderHook(
+      ({ input }) => useRemoteAcpContinuation(api, input),
+      { initialProps: { input: scope } }
+    );
+    await act(async () => {});
+    const oldTimeline = result.current.turns[0].timeline;
+    api.remoteAcpConversation.mockImplementationOnce(() => delayed);
+    await poll();
+    const newPage = { ...initialPage(), events: [] };
+    api.remoteAcpConversation.mockImplementation(async () => newPage);
+    rerender({ input: { ...scope, operationId: "operation-two" } });
+    await act(async () => {});
+    expect(result.current.turns[0].timeline).toEqual([]);
+    expect(result.current.turns[0].timeline).not.toBe(oldTimeline);
+    await act(async () => {
+      if (outcome === "resolve") resolve(oldPage);
+      else reject(new Error("old_scope_failure"));
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.turns.map((turn) => turn.timeline.length)).toEqual([0, 0]);
+    let finish!: (value: DesktopRemoteAcpConversationPage) => void;
+    const afterUnmount = new Promise<DesktopRemoteAcpConversationPage>((yes) => {
+      finish = yes;
+    });
+    api.remoteAcpConversation.mockImplementationOnce(() => afterUnmount);
+    await poll();
+    const calls = api.remoteAcpConversation.mock.calls.length;
+    unmount();
+    await act(async () => {
+      finish(oldPage);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(api.remoteAcpConversation).toHaveBeenCalledTimes(calls);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the action response when an older same-scope poll arrives later", async () => {
+    vi.useFakeTimers();
+    const initial = initialPage();
+    let resolve!: (value: DesktopRemoteAcpConversationPage) => void;
+    const delayed = new Promise<DesktopRemoteAcpConversationPage>((yes) => {
+      resolve = yes;
+    });
+    const api = {
+      remoteAcpConversation: vi.fn(async (_input: DesktopRemoteAcpConversationInput) => initial)
+    };
+    const { result } = renderHook(() => useRemoteAcpContinuation(api, scope));
+    await act(async () => {});
+    api.remoteAcpConversation.mockImplementationOnce(() => delayed);
+    await poll();
+    api.remoteAcpConversation.mockImplementationOnce(async (input) => {
+      const action = input.action;
+      if (action?.kind !== "prompt") throw new Error("Expected a prompt action");
+      return {
+        ...initial,
+        events: [message(action.turnId, 1, "Action reply")],
+        turns: [...initial.turns, { ...initial.turns[0], turnId: action.turnId, status: "running" }]
+      };
+    });
+    await act(async () => {
+      expect(await result.current.send("Accepted action")).toBe(true);
+    });
+    expect(result.current.active).not.toBeNull();
+    const turns = result.current.turns;
+    await act(async () => {
+      resolve({ ...initial, available: false, reason: "stale_response" });
+    });
+    expect(result.current.available).toBe(true);
+    expect(result.current.reason).toBeNull();
+    expect(result.current.turns).toBe(turns);
+    expect(result.current.turns.at(-1)?.timeline).toEqual([
+      expect.objectContaining({ content: "Action reply" })
+    ]);
   });
 });

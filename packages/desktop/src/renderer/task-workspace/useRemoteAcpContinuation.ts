@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  AcpConversationAction,
-  AcpConversationEvent
-} from "@planweave-ai/agent-host-protocol/browser";
-import { projectRemoteAcpReplay, projectRemoteAcpTelemetry } from "@planweave-ai/runtime/browser";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { AcpConversationAction } from "@planweave-ai/agent-host-protocol/browser";
 import type {
   DesktopRemoteAcpConversationInput,
   DesktopRemoteAcpConversationPage
 } from "../../shared/remoteAcpConversation";
 import type { PlanWeaveWorkspaceExecutionApi } from "../../shared/workspaceExecution";
+import {
+  RemoteAcpContinuationStore,
+  type RemoteAcpContinuationProjection
+} from "./remoteAcpContinuationStore";
+
+const emptyProjection: RemoteAcpContinuationProjection = {
+  turns: [],
+  interactions: [],
+  telemetry: null
+};
 
 function confirmsPrompt(
   page: DesktopRemoteAcpConversationPage | null,
@@ -40,15 +46,14 @@ export function useRemoteAcpContinuation(
   const sendingRef = useRef(false);
   const actionRevision = useRef(0);
   const pageRef = useRef<DesktopRemoteAcpConversationPage | null>(null);
-  const events = useRef(new Map<string, AcpConversationEvent>());
-  const compactedTurns = useRef(new Set<string>());
+  const store = useRef<RemoteAcpContinuationStore | null>(null);
   const cursor = useRef(0);
   const refreshRef = useRef<() => Promise<void>>(async () => {});
   const pendingPrompt = useRef<Extract<AcpConversationAction, { kind: "prompt" }> | null>(null);
   const [state, setState] = useState<{
     key: string;
     page: DesktopRemoteAcpConversationPage;
-    events: AcpConversationEvent[];
+    projection: RemoteAcpContinuationProjection;
   } | null>(null);
   const [restoreFailed, setRestoreFailed] = useState(false);
   const [actionError, setActionError] = useState<{
@@ -68,15 +73,16 @@ export function useRemoteAcpContinuation(
     }[]
   >([]);
   const acceptPage = useCallback((page: DesktopRemoteAcpConversationPage, scopeKey: string) => {
-    for (const turnId of page.retention?.compactedTurnIds ?? []) compactedTurns.current.add(turnId);
-    for (const [eventId, event] of events.current)
-      if (compactedTurns.current.has(event.turnId)) events.current.delete(eventId);
-    for (const event of page.events)
-      if (!compactedTurns.current.has(event.turnId))
-        events.current.set(`${event.turnId}:${event.sequence}`, event);
-    setLocalMessages((messages) =>
-      messages.filter((message) => !compactedTurns.current.has(message.turnId))
-    );
+    const current = store.current;
+    if (!current) return;
+    const previous = current.snapshot;
+    const compactedCount = current.compactedTurns.size;
+    const snapshot = current.accept(page);
+    if (current.compactedTurns.size !== compactedCount)
+      setLocalMessages((messages) => {
+        const remaining = messages.filter((message) => !current.compactedTurns.has(message.turnId));
+        return remaining.length === messages.length ? messages : remaining;
+      });
     cursor.current = Math.max(cursor.current, page.cursor);
     pageRef.current = page;
     const prompt = pendingPrompt.current;
@@ -84,14 +90,14 @@ export function useRemoteAcpContinuation(
       pendingPrompt.current = null;
       setActionError((current) => (current?.action === prompt ? null : current));
     }
-    setState({ key: scopeKey, page, events: [...events.current.values()] });
+    if (snapshot !== previous)
+      setState({ key: scopeKey, page: snapshot.page, projection: snapshot.projection });
     setError(null);
   }, []);
   useEffect(() => {
     const scope = inputRef.current;
     const generation = ++epoch.current;
-    events.current = new Map();
-    compactedTurns.current = new Set();
+    store.current = new RemoteAcpContinuationStore();
     cursor.current = 0;
     pendingPrompt.current = null;
     setLocalMessages([]);
@@ -134,6 +140,7 @@ export function useRemoteAcpContinuation(
     return () => {
       ++epoch.current;
       clearTimeout(timer);
+      store.current = null;
     };
   }, [api, key, acceptPage]);
   const page = state?.key === key ? state.page : null;
@@ -176,69 +183,11 @@ export function useRemoteAcpContinuation(
       }
     }
   };
-  const projection = useMemo(() => {
-    if (!state || state.key !== key) return { turns: [], telemetry: null, interactions: [] };
-    const pending = new Map<
-      string,
-      {
-        turnId: string;
-        request: Extract<AcpConversationEvent["payload"], { kind: "interaction" }>["request"];
-      }
-    >();
-    const turns = state.page.turns.map((turn) => {
-      const turnEvents = state.events.filter((event) => event.turnId === turn.turnId);
-      for (const event of turnEvents) {
-        const payload = event.payload;
-        if (payload.kind === "interaction")
-          pending.set(`${turn.turnId}:${payload.request.requestId}`, {
-            turnId: turn.turnId,
-            request: payload.request
-          });
-        if (payload.kind === "interaction_settled")
-          pending.delete(`${turn.turnId}:${payload.requestId}`);
-      }
-      const projected = projectRemoteAcpReplay({
-        executionAttemptId: turn.executionAttemptId,
-        eventProtocolVersion: 2,
-        events: turnEvents.flatMap((event) =>
-          event.payload.kind === "runner"
-            ? [
-                {
-                  eventVersion: 2 as const,
-                  cursor: event.sequence,
-                  sourceSequence: event.sequence,
-                  timestamp: event.timestamp,
-                  fragment: event.payload.fragment
-                }
-              ]
-            : []
-        )
-      });
-      return {
-        ...turn,
-        history: compactedTurns.current.has(turn.turnId)
-          ? ("compacted" as const)
-          : ("unknown" as const),
-        timeline: projected.timeline,
-        projected: projected.events
-      };
-    });
-    const latestRecord = turns.filter((turn) => turn.projected.length > 0).at(-1);
-    return {
-      turns,
-      telemetry: latestRecord ? projectRemoteAcpTelemetry(latestRecord.projected) : null,
-      interactions: [...pending.values()].filter((item) =>
-        state.page.turns.some(
-          (turn) =>
-            turn.turnId === item.turnId && (turn.status === "queued" || turn.status === "running")
-        )
-      )
-    };
-  }, [state, key]);
+  const projection = state?.key === key ? state.projection : emptyProjection;
   const isAwaitingReplay = useCallback(
     (message: (typeof localMessages)[number]) =>
       message.key === key &&
-      !compactedTurns.current.has(message.turnId) &&
+      !store.current?.compactedTurns.has(message.turnId) &&
       !projection.turns.some(
         (turn) =>
           turn.turnId === message.turnId &&

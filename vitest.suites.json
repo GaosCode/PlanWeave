@@ -245,6 +245,7 @@
         "serverManagementSnapshotRecovery.test.tsx",
         "executorServerSelector.test.tsx",
         "remoteAcpContinuation.test.tsx",
+        "remoteAcpContinuationStore.test.ts",
         "remoteAcpReconciliation.test.tsx",
         "remoteAgentManagementErrors.test.tsx",
         "remoteAgentCatalogPagination.test.tsx",
