@@ -4,7 +4,11 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
-import { useRemoteRunPanelController } from "../renderer/hooks/useRemoteRunPanelController";
+import {
+  type RemoteRunExecutionLocator,
+  type UseRemoteRunPanelControllerArgs,
+  useRemoteRunPanelController
+} from "../renderer/hooks/useRemoteRunPanelController";
 import { createTranslator } from "../renderer/i18n";
 import {
   desktopWorkspaceExecutionResponseSchema,
@@ -52,11 +56,13 @@ const runtimeRemoteExecution = {
 
 function remoteView(input?: {
   phase?: "running" | "blocked" | "completed" | "failed" | "stopped";
+  sessionId?: string;
   operationId?: string;
   blockRef?: string;
   includeInteraction?: boolean;
 }): DesktopWorkspaceExecutionResponse {
   const operationId = input?.operationId ?? "operation-1";
+  const sessionId = input?.sessionId ?? "SESSION-0001";
   const blockRef = input?.blockRef ?? blockItem.blockRef;
   const phase = input?.phase ?? "running";
   const source = {
@@ -68,7 +74,7 @@ function remoteView(input?: {
   const eventBase = {
     version: "planweave.execution-event/v1" as const,
     observedAt: "2030-01-01T00:00:01.000Z",
-    runSessionId: "SESSION-0001",
+    runSessionId: sessionId,
     scope: { kind: "block" as const, blockRef },
     source
   };
@@ -76,7 +82,7 @@ function remoteView(input?: {
     version: "planweave.workspace-execution-view/v1",
     handle: {
       version: "planweave.workspace-execution-handle/v1",
-      runSessionId: "SESSION-0001",
+      runSessionId: sessionId,
       authorityBindingId: `wxb:sha256:${"a".repeat(64)}`,
       scope: { kind: "block", blockRef },
       capabilities: { interactionResponse: true },
@@ -92,7 +98,7 @@ function remoteView(input?: {
       cursor: { target: "remote", executionAttemptId: "attempt-1", eventCursor: 1 }
     },
     session: {
-      sessionId: "SESSION-0001",
+      sessionId,
       stateVersion: 2,
       phase,
       scope: { kind: "block", blockRef },
@@ -158,15 +164,15 @@ function apiReturning(view: DesktopWorkspaceExecutionResponse) {
 
 function renderController(input: {
   api: PlanWeaveWorkspaceExecutionApi;
-  runtime?: typeof runtimeRemoteExecution | null;
-  executionLocator?: DesktopOwnerCanvasExecutionLocator;
+  runtime?: UseRemoteRunPanelControllerArgs["runtimeRemoteExecution"];
+  executionLocator?: RemoteRunExecutionLocator;
 }) {
   return renderHook(
-    ({ executionLocator, workItem }) =>
+    ({ executionLocator, workItem, runtime }) =>
       useRemoteRunPanelController({
         agentEndpoints: [endpoint],
         workItem,
-        runtimeRemoteExecution: input.runtime ?? null,
+        runtimeRemoteExecution: runtime,
         executionLocator,
         executionApi: input.api,
         open: true,
@@ -174,7 +180,13 @@ function renderController(input: {
         t: createTranslator("en"),
         createId: () => "action-cancel"
       }),
-    { initialProps: { executionLocator: input.executionLocator ?? locator, workItem: blockItem } }
+    {
+      initialProps: {
+        executionLocator: input.executionLocator ?? locator,
+        workItem: blockItem,
+        runtime: input.runtime ?? null
+      }
+    }
   );
 }
 
@@ -224,6 +236,106 @@ describe("useRemoteRunPanelController", () => {
       sessionId: "SESSION-0001"
     });
     expect(result.current.viewModel.events[0]?.summary).toBe("remote hello");
+  });
+
+  it("retires the previous session when the same block receives a new operation", async () => {
+    const fixture = apiReturning(remoteView({ phase: "blocked", includeInteraction: true }));
+    const { result, rerender } = renderController({
+      api: fixture.api,
+      runtime: runtimeRemoteExecution
+    });
+    await waitFor(() => expect(result.current.viewModel.pendingInteractions).toHaveLength(1));
+    act(() => result.current.setConfirmKind("cancel"));
+    fixture.follow.mockResolvedValueOnce(
+      remoteView({ operationId: "operation-2", sessionId: "SESSION-0002", phase: "completed" })
+    );
+    rerender({
+      executionLocator: locator,
+      workItem: blockItem,
+      runtime: { ...runtimeRemoteExecution, identity: { operationId: "operation-2" } }
+    });
+    expect(result.current.confirmKind).toBeNull();
+    expect(result.current.viewModel.pendingInteractions).toHaveLength(0);
+    expect(fixture.follow).toHaveBeenLastCalledWith({
+      locator,
+      blockRef: blockItem.blockRef,
+      operationId: "operation-2"
+    });
+    await waitFor(() => expect(result.current.viewModel.phase).toBe("terminal_success"));
+    fixture.follow.mockResolvedValueOnce(
+      remoteView({ operationId: "operation-2", sessionId: "SESSION-0002", phase: "completed" })
+    );
+    await act(async () => result.current.refresh());
+    expect(fixture.follow).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: "SESSION-0002" })
+    );
+    expect(result.current.viewModel.identity?.operationId).toBe("operation-2");
+  });
+
+  it("keeps an accepted start across old and empty Runtime echoes until acknowledgement", async () => {
+    const fixture = apiReturning(remoteView({ phase: "completed" }));
+    const { result, rerender } = renderController({
+      api: fixture.api,
+      runtime: runtimeRemoteExecution
+    });
+    await waitFor(() => expect(result.current.viewModel.phase).toBe("terminal_success"));
+    const started = remoteView({ operationId: "operation-2", sessionId: "SESSION-0002" });
+    const pendingStart = deferred<DesktopWorkspaceExecutionResponse>();
+    fixture.start.mockImplementationOnce(() => pendingStart.promise);
+    fixture.follow.mockResolvedValue(started);
+    const previousFollowCount = fixture.follow.mock.calls.length;
+    let startCall!: Promise<void>;
+    act(() => {
+      startCall = result.current.dispatch();
+      void result.current.refresh();
+    });
+    expect(fixture.follow).toHaveBeenCalledTimes(previousFollowCount);
+    await act(async () => {
+      pendingStart.resolve(started);
+      await startCall;
+    });
+    for (const runtime of [
+      null,
+      runtimeRemoteExecution,
+      { ...runtimeRemoteExecution, identity: { operationId: "operation-2" } }
+    ]) {
+      rerender({ executionLocator: locator, workItem: blockItem, runtime });
+      await act(async () => Promise.resolve());
+      expect(result.current.viewModel.identity?.operationId).toBe("operation-2");
+    }
+    await act(async () => result.current.refresh());
+    expect(fixture.follow).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: "SESSION-0002" })
+    );
+    rerender({ executionLocator: locator, workItem: blockItem, runtime: null });
+    expect(result.current.viewModel.identity).toBeNull();
+  });
+
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("ignores an older refresh %s within the same operation", async (settlement) => {
+    const fixture = apiReturning(remoteView());
+    const { result } = renderController({ api: fixture.api, runtime: runtimeRemoteExecution });
+    await waitFor(() => expect(result.current.viewModel.identity).not.toBeNull());
+    const old = deferred<DesktopWorkspaceExecutionResponse>();
+    fixture.follow
+      .mockImplementationOnce(() => old.promise)
+      .mockResolvedValueOnce(remoteView({ phase: "completed" }));
+    let oldCall!: Promise<void>;
+    act(() => {
+      oldCall = result.current.refresh();
+    });
+    await act(async () => result.current.refresh());
+    expect(result.current.viewModel.phase).toBe("terminal_success");
+    await act(async () => {
+      settlement === "resolve"
+        ? old.resolve(remoteView({ phase: "running" }))
+        : old.reject(new Error("obsolete refresh"));
+      await oldCall;
+    });
+    expect(result.current.viewModel.phase).toBe("terminal_success");
+    expect(result.current.actionError).toBeNull();
   });
 
   it("routes interaction response and cancellation through the Coordinator API", async () => {
@@ -288,7 +400,11 @@ describe("useRemoteRunPanelController", () => {
       respondWorkspaceExecution: vi.fn()
     };
     const { result, rerender } = renderController({ api, runtime: runtimeRemoteExecution });
-    rerender({ executionLocator: { ...locator, canvasId: "next" }, workItem: blockItem });
+    rerender({
+      executionLocator: { ...locator, canvasId: "next" },
+      workItem: blockItem,
+      runtime: runtimeRemoteExecution
+    });
 
     await waitFor(() =>
       expect(result.current.viewModel.identity?.operationId).toBe("operation-new")
@@ -317,7 +433,11 @@ describe("useRemoteRunPanelController", () => {
     });
     expect(result.current.actionInFlight).toBe("dispatch");
     expect(fixture.start).toHaveBeenCalledTimes(1);
-    rerender({ executionLocator: locator, workItem: { ...blockItem, blockRef: "T-1#B-2" } });
+    rerender({
+      executionLocator: locator,
+      workItem: { ...blockItem, blockRef: "T-1#B-2" },
+      runtime: null
+    });
     expect(result.current.actionInFlight).toBeNull();
     expect(result.current.confirmKind).toBeNull();
     expect(result.current.actionError).toBeNull();
@@ -379,7 +499,8 @@ describe("useRemoteRunPanelController", () => {
         ...locator,
         ...(boundary === "profile" ? { operatorProfileId: "profile-B" } : { canvasId: "B" })
       },
-      workItem: blockItem
+      workItem: blockItem,
+      runtime: runtimeRemoteExecution
     });
     expect(result.current.actionInFlight).toBeNull();
     expect(result.current.actionError).toBeNull();
@@ -452,5 +573,291 @@ describe("useRemoteRunPanelController", () => {
     expect(result.current.actionError).toBe("B failure");
     rerender({ blockRef: "T-1#B-3", active: false });
     expect(result.current.actionError).toBeNull();
+  });
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("keeps the new operation loading and its error after an old follow %s", async (settlement) => {
+    const fixture = apiReturning(remoteView());
+    const { result, rerender } = renderController({
+      api: fixture.api,
+      runtime: runtimeRemoteExecution
+    });
+    await waitFor(() => expect(result.current.viewModel.identity).not.toBeNull());
+    const old = deferred<DesktopWorkspaceExecutionResponse>();
+    const current = deferred<DesktopWorkspaceExecutionResponse>();
+    fixture.follow
+      .mockImplementationOnce(() => old.promise)
+      .mockImplementationOnce(() => current.promise);
+    let oldCall!: Promise<void>;
+    act(() => {
+      oldCall = result.current.refresh();
+    });
+    rerender({
+      executionLocator: locator,
+      workItem: blockItem,
+      runtime: { ...runtimeRemoteExecution, identity: { operationId: "operation-2" } }
+    });
+    expect(fixture.follow).toHaveBeenLastCalledWith({
+      locator,
+      blockRef: blockItem.blockRef,
+      operationId: "operation-2"
+    });
+    await act(async () => {
+      settlement === "resolve"
+        ? old.resolve(remoteView())
+        : old.reject(new Error("old follow failure"));
+      await oldCall;
+    });
+    expect(result.current.loading).toBe(true);
+    expect(result.current.actionError).toBeNull();
+    expect(result.current.viewModel.identity).toBeNull();
+    expect(result.current.viewModel.pendingInteractions).toHaveLength(0);
+    expect(result.current.viewModel.events).toHaveLength(0);
+    await act(async () => {
+      current.reject(new Error("new observe failure"));
+      await current.promise.catch(() => undefined);
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.actionError).toBe("new observe failure");
+    fixture.follow.mockResolvedValue(
+      remoteView({ operationId: "operation-2", sessionId: "SESSION-0002" })
+    );
+    await act(async () => result.current.refresh());
+    expect(fixture.follow).toHaveBeenLastCalledWith({
+      locator,
+      blockRef: blockItem.blockRef,
+      operationId: "operation-2"
+    });
+    expect(result.current.actionError).toBeNull();
+    await act(async () => result.current.refresh());
+    expect(fixture.follow).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: "SESSION-0002" })
+    );
+  });
+
+  it.each([
+    { kind: "cancel", settlement: "resolve", currentState: "busy" },
+    { kind: "cancel", settlement: "reject", currentState: "busy" },
+    { kind: "respond", settlement: "resolve", currentState: "busy" },
+    { kind: "respond", settlement: "reject", currentState: "busy" },
+    { kind: "cancel", settlement: "resolve", currentState: "error" },
+    { kind: "cancel", settlement: "reject", currentState: "error" },
+    { kind: "respond", settlement: "resolve", currentState: "error" },
+    { kind: "respond", settlement: "reject", currentState: "error" }
+  ] as const)("preserves new operation $currentState and confirmation after old $kind $settlement", async ({
+    kind,
+    settlement,
+    currentState
+  }) => {
+    const fixture = apiReturning(remoteView({ phase: "blocked", includeInteraction: true }));
+    const { result, rerender } = renderController({
+      api: fixture.api,
+      runtime: runtimeRemoteExecution
+    });
+    await waitFor(() => expect(result.current.viewModel.pendingInteractions).toHaveLength(1));
+    const old = deferred<DesktopWorkspaceExecutionResponse>();
+    const current = deferred<DesktopWorkspaceExecutionResponse>();
+    const method = kind === "cancel" ? fixture.cancel : fixture.respond;
+    method.mockImplementationOnce(() => old.promise);
+    let oldCall!: Promise<void>;
+    act(() => {
+      oldCall =
+        kind === "cancel"
+          ? result.current.cancel("stop old")
+          : result.current.answerInteraction({
+              type: "interaction.permission_response",
+              decision: "select_option",
+              optionId: "write-once",
+              actionId: "action-1",
+              dispatchId: "dispatch-1",
+              leaseId: "lease-1",
+              executionAttemptId: "attempt-1",
+              acpSessionId: "acp-session-1"
+            });
+    });
+    fixture.follow.mockResolvedValueOnce(
+      remoteView({ operationId: "operation-2", sessionId: "SESSION-0002", phase: "blocked" })
+    );
+    rerender({
+      executionLocator: locator,
+      workItem: blockItem,
+      runtime: { ...runtimeRemoteExecution, identity: { operationId: "operation-2" } }
+    });
+    await waitFor(() => expect(result.current.viewModel.identity?.operationId).toBe("operation-2"));
+    fixture.cancel.mockImplementationOnce(() => current.promise);
+    let currentCall!: Promise<void>;
+    act(() => {
+      result.current.setConfirmKind("cancel");
+      currentCall = result.current.cancel("stop new");
+    });
+    expect(fixture.cancel).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: "SESSION-0002", reason: "stop new" })
+    );
+    if (currentState === "error") {
+      await act(async () => {
+        current.reject(new Error("new cancel failure"));
+        await currentCall;
+      });
+    }
+    await act(async () => {
+      settlement === "resolve"
+        ? old.resolve(remoteView({ phase: "stopped" }))
+        : old.reject(new Error("old action failure"));
+      await oldCall;
+    });
+    expect(result.current.viewModel.identity?.operationId).toBe("operation-2");
+    expect(result.current.viewModel.phase).toBe("action_required");
+    expect(result.current.confirmKind).toBe("cancel");
+    expect(result.current.actionInFlight).toBe(currentState === "busy" ? "cancel" : null);
+    expect(result.current.actionError).toBe(currentState === "error" ? "new cancel failure" : null);
+    if (currentState === "busy") {
+      await act(async () => {
+        current.resolve(
+          remoteView({ operationId: "operation-2", sessionId: "SESSION-0002", phase: "stopped" })
+        );
+        await currentCall;
+      });
+      expect(result.current.actionInFlight).toBeNull();
+      expect(result.current.confirmKind).toBeNull();
+      expect(result.current.viewModel.phase).toBe("terminal_cancelled");
+    }
+  });
+
+  it.each([
+    {
+      boundary: "workspace connection",
+      from: {
+        kind: "workspace",
+        connectionProfileId: "connection-A",
+        workspaceId: "workspace-A",
+        projectId: "project-1",
+        canvasId: "default"
+      },
+      to: {
+        kind: "workspace",
+        connectionProfileId: "connection-B",
+        workspaceId: "workspace-A",
+        projectId: "project-1",
+        canvasId: "default"
+      }
+    },
+    {
+      boundary: "workspace ID",
+      from: {
+        kind: "workspace",
+        connectionProfileId: "connection-A",
+        workspaceId: "workspace-A",
+        projectId: "project-1",
+        canvasId: "default"
+      },
+      to: {
+        kind: "workspace",
+        connectionProfileId: "connection-A",
+        workspaceId: "workspace-B",
+        projectId: "project-1",
+        canvasId: "default"
+      }
+    },
+    {
+      boundary: "owner to workspace",
+      from: locator,
+      to: {
+        kind: "workspace",
+        connectionProfileId: "connection-A",
+        workspaceId: "workspace-A",
+        projectId: "project-1",
+        canvasId: "default"
+      }
+    },
+    {
+      boundary: "workspace to owner",
+      from: {
+        kind: "workspace",
+        connectionProfileId: "connection-A",
+        workspaceId: "workspace-A",
+        projectId: "project-1",
+        canvasId: "default"
+      },
+      to: locator
+    }
+  ] satisfies {
+    boundary: string;
+    from: RemoteRunExecutionLocator;
+    to: RemoteRunExecutionLocator;
+  }[])("observes the current authority after changing $boundary with the same operation ID", async ({
+    from,
+    to
+  }) => {
+    const old = deferred<DesktopWorkspaceExecutionResponse>();
+    const fixture = apiReturning(remoteView());
+    fixture.follow
+      .mockImplementationOnce(() => old.promise)
+      .mockResolvedValueOnce(remoteView({ sessionId: "SESSION-0002", phase: "completed" }));
+    const { result, rerender } = renderController({
+      api: fixture.api,
+      runtime: runtimeRemoteExecution,
+      executionLocator: from
+    });
+    rerender({ executionLocator: to, workItem: blockItem, runtime: runtimeRemoteExecution });
+    expect(fixture.follow).toHaveBeenLastCalledWith({
+      locator: to,
+      blockRef: blockItem.blockRef,
+      operationId: "operation-1"
+    });
+    await waitFor(() => expect(result.current.viewModel.phase).toBe("terminal_success"));
+    await act(async () => {
+      old.reject(new Error("previous authority unavailable"));
+      await old.promise.catch(() => undefined);
+    });
+    expect(result.current.actionError).toBeNull();
+    expect(result.current.viewModel.phase).toBe("terminal_success");
+    await act(async () => result.current.refresh());
+    expect(fixture.follow).toHaveBeenLastCalledWith(
+      expect.objectContaining({ locator: to, sessionId: "SESSION-0002" })
+    );
+  });
+
+  it("keeps an initially empty Runtime start until a different authoritative operation replaces it", async () => {
+    const fixture = apiReturning(
+      remoteView({ operationId: "operation-started", sessionId: "SESSION-0002" })
+    );
+    const { result, rerender } = renderController({ api: fixture.api });
+    await act(async () => result.current.dispatch());
+    rerender({ executionLocator: locator, workItem: blockItem, runtime: null });
+    expect(result.current.viewModel.identity?.operationId).toBe("operation-started");
+    fixture.follow.mockResolvedValueOnce(
+      remoteView({
+        operationId: "operation-authoritative",
+        sessionId: "SESSION-0003",
+        phase: "completed"
+      })
+    );
+    rerender({
+      executionLocator: locator,
+      workItem: blockItem,
+      runtime: { ...runtimeRemoteExecution, identity: { operationId: "operation-authoritative" } }
+    });
+    expect(fixture.follow).toHaveBeenLastCalledWith({
+      locator,
+      blockRef: blockItem.blockRef,
+      operationId: "operation-authoritative"
+    });
+    await waitFor(() => expect(result.current.viewModel.phase).toBe("terminal_success"));
+    expect(result.current.viewModel.identity?.operationId).toBe("operation-authoritative");
+    const followCount = fixture.follow.mock.calls.length;
+    act(() => result.current.setConfirmKind("cancel"));
+    rerender({
+      executionLocator: locator,
+      workItem: blockItem,
+      runtime: {
+        ...runtimeRemoteExecution,
+        identity: { operationId: "operation-authoritative" },
+        source: { ...runtimeRemoteExecution.source, revision: "rev-updated" }
+      }
+    });
+    expect(fixture.follow).toHaveBeenCalledTimes(followCount);
+    expect(result.current.confirmKind).toBe("cancel");
+    expect(result.current.viewModel.phase).toBe("terminal_success");
   });
 });

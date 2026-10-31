@@ -14,10 +14,14 @@ import {
   projectWorkspaceExecutionTimeline
 } from "@planweave-ai/runtime/browser";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type {
-  DesktopWorkspaceExecutionResponse,
-  DesktopOwnerCanvasExecutionLocator,
-  PlanWeaveWorkspaceExecutionApi
+import {
+  desktopWorkspaceExecutionStartInputSchema,
+  desktopWorkspaceExecutionFollowInputSchema,
+  desktopWorkspaceExecutionCancelInputSchema,
+  desktopWorkspaceExecutionRespondInputSchema,
+  type DesktopWorkspaceExecutionResponse,
+  type DesktopWorkspaceExecutionStartInput,
+  type PlanWeaveWorkspaceExecutionApi
 } from "../../shared/workspaceExecution.js";
 import { bridge, workspaceExecutionBridge } from "../bridge";
 import {
@@ -52,7 +56,7 @@ export function logicalExecutorsFromLocalAgentEndpoints(
   });
 }
 
-export type RemoteRunExecutionLocator = DesktopOwnerCanvasExecutionLocator;
+export type RemoteRunExecutionLocator = DesktopWorkspaceExecutionStartInput["locator"];
 
 export type UseRemoteRunPanelControllerArgs = {
   agentEndpoints?: readonly AvailableAgentEndpoint[];
@@ -214,11 +218,18 @@ export function useRemoteRunPanelController(
   const [actionInFlight, setActionInFlight] = useState<RemoteRunAuthorizedActionKind | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmKind, setConfirmKind] = useState<"cancel" | null>(null);
-  const existingOperationId = args.runtimeRemoteExecution?.identity.operationId;
+  const existingOperationId = args.runtimeRemoteExecution?.identity.operationId ?? null;
   const executionScopeKey = JSON.stringify([
-    args.executionLocator?.operatorProfileId ?? null,
-    args.executionLocator?.humanPrincipalId ?? null,
-    args.executionLocator?.projectRoot ?? null,
+    args.executionLocator?.kind ?? null,
+    args.executionLocator?.kind === "owner_canvas"
+      ? [
+          args.executionLocator.operatorProfileId,
+          args.executionLocator.humanPrincipalId,
+          args.executionLocator.projectRoot
+        ]
+      : args.executionLocator?.kind === "workspace"
+        ? [args.executionLocator.connectionProfileId, args.executionLocator.workspaceId]
+        : null,
     args.executionLocator?.projectId ?? null,
     args.executionLocator?.canvasId ?? null,
     args.canvasRef?.projectRoot ?? null,
@@ -227,26 +238,65 @@ export function useRemoteRunPanelController(
     args.workItem?.canvasId ?? null,
     args.workItem?.kind === "block" ? args.workItem.blockRef : null
   ]);
-  const scopeGenerationRef = useRef<{ key: string | null }>({ key: executionScopeKey });
-  const [stateScopeKey, setStateScopeKey] = useState(executionScopeKey);
-  const actionOwnerRef = useRef<object | null>(null);
+  const [identity, setIdentity] = useState<{
+    scopeKey: string;
+    runtimeOperationId: string | null;
+    operationId: string | null;
+    pendingStartPreviousOperationId?: string | null;
+    generation: object;
+  }>(() => ({
+    scopeKey: executionScopeKey,
+    runtimeOperationId: existingOperationId,
+    operationId: existingOperationId,
+    generation: {}
+  }));
+  const scopeGenerationRef = useRef<object | null>(identity.generation);
+  const actionOwnerRef = useRef<{ kind: RemoteRunAuthorizedActionKind } | null>(null);
   const followOwnerRef = useRef<object | null>(null);
-  if (stateScopeKey !== executionScopeKey) {
-    setStateScopeKey(executionScopeKey);
-    setView(null);
-    setActionError(null);
-    setLoading(false);
-    setActionInFlight(null);
-    setConfirmKind(null);
+  const responseOwnerRef = useRef<object | null>(null);
+  const scopeChanged = identity.scopeKey !== executionScopeKey;
+  const runtimeChanged = identity.runtimeOperationId !== existingOperationId;
+  const pendingStartEcho =
+    identity.pendingStartPreviousOperationId !== undefined &&
+    (existingOperationId === null ||
+      existingOperationId === identity.pendingStartPreviousOperationId);
+  const retireIdentity =
+    scopeChanged ||
+    (runtimeChanged && !pendingStartEcho && existingOperationId !== identity.operationId);
+  if (scopeChanged || runtimeChanged) {
+    setIdentity(
+      retireIdentity
+        ? {
+            scopeKey: executionScopeKey,
+            runtimeOperationId: existingOperationId,
+            operationId: existingOperationId,
+            generation: {}
+          }
+        : {
+            ...identity,
+            runtimeOperationId: existingOperationId,
+            pendingStartPreviousOperationId: pendingStartEcho
+              ? identity.pendingStartPreviousOperationId
+              : undefined
+          }
+    );
+    if (retireIdentity) {
+      setView(null);
+      setActionError(null);
+      setLoading(false);
+      setActionInFlight(null);
+      setConfirmKind(null);
+    }
   }
   useLayoutEffect(() => {
-    scopeGenerationRef.current = { key: executionScopeKey };
+    scopeGenerationRef.current = identity.generation;
     actionOwnerRef.current = null;
     followOwnerRef.current = null;
+    responseOwnerRef.current = null;
     return () => {
-      scopeGenerationRef.current = { key: null };
+      scopeGenerationRef.current = null;
     };
-  }, [executionScopeKey]);
+  }, [identity.generation]);
   const autoFollowKey = args.open ? `${executionScopeKey}\u0000${existingOperationId ?? ""}` : null;
   const logicalExecutors =
     args.logicalExecutors ??
@@ -296,30 +346,46 @@ export function useRemoteRunPanelController(
       selectedEndpoint)
     : selectedEndpoint;
   const follow = useCallback(async () => {
-    if (!executionApi || !args.executionLocator || args.workItem?.kind !== "block") return;
+    if (
+      !executionApi ||
+      !args.executionLocator ||
+      args.workItem?.kind !== "block" ||
+      actionOwnerRef.current?.kind === "dispatch"
+    )
+      return;
     const scopeGeneration = scopeGenerationRef.current;
     const owner = {};
     followOwnerRef.current = owner;
+    responseOwnerRef.current = owner;
     setLoading(true);
     setActionError(null);
     try {
       const next = view
-        ? await executionApi.followWorkspaceExecution({
-            locator: args.executionLocator,
-            blockRef: args.workItem.blockRef,
-            ...descriptor(endpointForView, args, currentRemoteEndpointId),
-            sessionId: view.session.sessionId
-          })
-        : existingOperationId
-          ? await executionApi.followWorkspaceExecution({
+        ? await executionApi.followWorkspaceExecution(
+            desktopWorkspaceExecutionFollowInputSchema.parse({
               locator: args.executionLocator,
               blockRef: args.workItem.blockRef,
-              operationId: existingOperationId
+              ...descriptor(endpointForView, args, currentRemoteEndpointId),
+              sessionId: view.session.sessionId
             })
+          )
+        : existingOperationId
+          ? await executionApi.followWorkspaceExecution(
+              desktopWorkspaceExecutionFollowInputSchema.parse({
+                locator: args.executionLocator,
+                blockRef: args.workItem.blockRef,
+                operationId: existingOperationId
+              })
+            )
           : null;
-      if (next && scopeGenerationRef.current === scopeGeneration) setView(next);
+      if (
+        next &&
+        scopeGenerationRef.current === scopeGeneration &&
+        responseOwnerRef.current === owner
+      )
+        setView(next);
     } catch (error) {
-      if (scopeGenerationRef.current === scopeGeneration) {
+      if (scopeGenerationRef.current === scopeGeneration && responseOwnerRef.current === owner) {
         setActionError(error instanceof Error ? error.message : String(error));
       }
     } finally {
@@ -342,19 +408,33 @@ export function useRemoteRunPanelController(
       call: () => Promise<DesktopWorkspaceExecutionResponse | undefined>
     ) => {
       if (actionOwnerRef.current) return;
-      const owner = {};
+      const owner = { kind };
       actionOwnerRef.current = owner;
+      responseOwnerRef.current = owner;
       const scopeGeneration = scopeGenerationRef.current;
       setActionInFlight(kind);
       setActionError(null);
       try {
         const next = await call();
-        if (scopeGenerationRef.current === scopeGeneration) {
-          if (next) setView(next);
+        if (scopeGenerationRef.current === scopeGeneration && responseOwnerRef.current === owner) {
+          if (next) {
+            setView(next);
+            if (kind === "dispatch" && next.handle.target === "remote") {
+              const operationId = next.handle.operationId;
+              setIdentity((current) => ({
+                ...current,
+                operationId,
+                pendingStartPreviousOperationId:
+                  current.runtimeOperationId === operationId
+                    ? undefined
+                    : current.runtimeOperationId
+              }));
+            }
+          }
           setConfirmKind(null);
         }
       } catch (error) {
-        if (scopeGenerationRef.current === scopeGeneration) {
+        if (scopeGenerationRef.current === scopeGeneration && responseOwnerRef.current === owner) {
           setActionError(error instanceof Error ? error.message : String(error));
         }
       } finally {
@@ -385,11 +465,13 @@ export function useRemoteRunPanelController(
     if (!executionApi || !args.executionLocator)
       return setActionError("workspace_execution_locator_unavailable");
     return run("dispatch", () =>
-      executionApi.startWorkspaceExecution({
-        locator: args.executionLocator!,
-        blockRef: workItem.blockRef,
-        ...descriptor(selectedEndpoint, args)
-      })
+      executionApi.startWorkspaceExecution(
+        desktopWorkspaceExecutionStartInputSchema.parse({
+          locator: args.executionLocator!,
+          blockRef: workItem.blockRef,
+          ...descriptor(selectedEndpoint, args)
+        })
+      )
     );
   }, [args, executionApi, run, selectedEndpoint]);
   const cancel = useCallback(
@@ -397,14 +479,16 @@ export function useRemoteRunPanelController(
       const workItem = args.workItem;
       if (!executionApi || !args.executionLocator || !view || workItem?.kind !== "block") return;
       return run("cancel", () =>
-        executionApi.cancelWorkspaceExecution({
-          locator: args.executionLocator!,
-          blockRef: workItem.blockRef,
-          ...descriptor(endpointForView, args, currentRemoteEndpointId),
-          sessionId: view.session.sessionId,
-          actionId: args.createId?.() ?? crypto.randomUUID(),
-          reason
-        })
+        executionApi.cancelWorkspaceExecution(
+          desktopWorkspaceExecutionCancelInputSchema.parse({
+            locator: args.executionLocator!,
+            blockRef: workItem.blockRef,
+            ...descriptor(endpointForView, args, currentRemoteEndpointId),
+            sessionId: view.session.sessionId,
+            actionId: args.createId?.() ?? crypto.randomUUID(),
+            reason
+          })
+        )
       );
     },
     [args, currentRemoteEndpointId, endpointForView, executionApi, run, view]
@@ -420,13 +504,15 @@ export function useRemoteRunPanelController(
       const workItem = args.workItem;
       if (!executionApi || !args.executionLocator || !view || workItem?.kind !== "block") return;
       return run("answer_interaction", () =>
-        executionApi.respondWorkspaceExecution({
-          locator: args.executionLocator!,
-          blockRef: workItem.blockRef,
-          ...descriptor(endpointForView, args, currentRemoteEndpointId),
-          sessionId: view.session.sessionId,
-          response
-        })
+        executionApi.respondWorkspaceExecution(
+          desktopWorkspaceExecutionRespondInputSchema.parse({
+            locator: args.executionLocator!,
+            blockRef: workItem.blockRef,
+            ...descriptor(endpointForView, args, currentRemoteEndpointId),
+            sessionId: view.session.sessionId,
+            response
+          })
+        )
       );
     },
     [args, currentRemoteEndpointId, endpointForView, executionApi, run, view]

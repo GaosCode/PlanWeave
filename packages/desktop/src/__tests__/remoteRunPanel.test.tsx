@@ -136,16 +136,16 @@ function createApi(options: AcpPermissionOption[] | null = exactOptions) {
     cancelWorkspaceExecution: cancel,
     respondWorkspaceExecution: respond
   };
-  return { api, cancel, respond };
+  return { api, cancel, respond, follow: api.followWorkspaceExecution };
 }
 
-function renderPanel(api: PlanWeaveWorkspaceExecutionApi) {
-  return render(
+function panel(api: PlanWeaveWorkspaceExecutionApi, operationId = "operation-1") {
+  return (
     <RemoteRunPanel
       agentEndpoints={[endpoint]}
       workItem={{ kind: "block", canvasId: "default", blockRef: "T-1#B-1" }}
       runtimeRemoteExecution={{
-        identity: { operationId: "operation-1" },
+        identity: { operationId },
         phase: "active",
         status: "owned",
         actionRequired: false,
@@ -159,6 +159,10 @@ function renderPanel(api: PlanWeaveWorkspaceExecutionApi) {
       t={createTranslator("en")}
     />
   );
+}
+
+function renderPanel(api: PlanWeaveWorkspaceExecutionApi) {
+  return render(panel(api));
 }
 
 afterEach(cleanup);
@@ -228,6 +232,79 @@ describe("RemoteRunPanel navigation", () => {
     expect(screen.queryByTestId("remote-run-confirm-yes")).toBeNull();
     expect(screen.getByTestId("remote-run-action-dispatch")).toBeEnabled();
     expect(cancel).not.toHaveBeenCalled();
+  });
+});
+
+describe("RemoteRunPanel operation routing", () => {
+  it("retires old confirmation and sends refresh, permission, and cancellation to the new session", async () => {
+    const user = userEvent.setup();
+    const { api, cancel, respond, follow } = createApi();
+    const { rerender } = renderPanel(api);
+    await user.click(await screen.findByTestId("remote-run-action-cancel"));
+    expect(screen.getByTestId("remote-run-confirm-yes")).toBeInTheDocument();
+    const next = desktopWorkspaceExecutionResponseSchema.parse({
+      ...view,
+      handle: { ...view.handle, operationId: "operation-2", runSessionId: "SESSION-0002" },
+      session: { ...view.session, sessionId: "SESSION-0002" },
+      events: view.events.map((event) => ({
+        ...event,
+        runSessionId: "SESSION-0002",
+        source: { ...event.source, operationId: "operation-2" },
+        data:
+          event.type === "interaction_required"
+            ? {
+                ...event.data,
+                actionId: "action-2",
+                acpSessionId: "acp-session-2",
+                options: exactOptions
+              }
+            : event.data
+      }))
+    });
+    vi.mocked(follow).mockResolvedValue(next);
+    respond.mockResolvedValue(next);
+    cancel.mockResolvedValue(next);
+    rerender(panel(api, "operation-2"));
+    expect(screen.queryByTestId("remote-run-confirm-yes")).toBeNull();
+    await waitFor(() => expect(screen.getByText("operation-2")).toBeInTheDocument());
+    expect(screen.queryByText("operation-1")).toBeNull();
+    expect(follow).toHaveBeenLastCalledWith({
+      locator,
+      blockRef: "T-1#B-1",
+      operationId: "operation-2"
+    });
+    await user.click(screen.getByTestId("remote-run-refresh"));
+    expect(follow).toHaveBeenLastCalledWith({
+      locator,
+      blockRef: "T-1#B-1",
+      sessionId: "SESSION-0002",
+      agentEndpointId: "endpoint-vps",
+      effectiveExecutor: { name: "codex-acp", agentId: "codex" }
+    });
+    await user.click(screen.getByRole("button", { name: "Write — Allow once" }));
+    expect(respond).toHaveBeenCalledWith({
+      locator,
+      blockRef: "T-1#B-1",
+      sessionId: "SESSION-0002",
+      agentEndpointId: "endpoint-vps",
+      effectiveExecutor: { name: "codex-acp", agentId: "codex" },
+      response: {
+        type: "interaction.permission_response",
+        decision: "select_option",
+        optionId: "once-write",
+        actionId: "action-2",
+        dispatchId: "dispatch-1",
+        leaseId: "lease-1",
+        executionAttemptId: "attempt-1",
+        acpSessionId: "acp-session-2"
+      }
+    });
+    await user.click(screen.getByTestId("remote-run-action-cancel"));
+    await user.click(screen.getByTestId("remote-run-confirm-yes"));
+    expect(cancel).toHaveBeenCalledWith(
+      expect.objectContaining({ locator, blockRef: "T-1#B-1", sessionId: "SESSION-0002" })
+    );
+    expect(cancel).toHaveBeenCalledOnce();
   });
 });
 
