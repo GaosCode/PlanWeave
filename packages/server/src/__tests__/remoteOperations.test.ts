@@ -15,27 +15,11 @@ import { RemoteOperationRepository } from "../remoteOperations.js";
 import { RemoteExecutionActionRepository } from "../remoteExecutionActions.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { canvasRuntimeOperationAttachmentMigration } from "../migrations/canvasRuntimeOperationAttachment.js";
+import { applyMigrationsThroughVersion } from "./support/migrationFixture.js";
 
 const directories: string[] = [];
 const servers: PlanweaveServer[] = [];
 const databases: SqliteDatabase[] = [];
-
-const preRunnerEventTablesSql = `
-  CREATE TABLE remote_acp_event_streams (
-    execution_attempt_id TEXT PRIMARY KEY REFERENCES remote_execution_attempts(execution_attempt_id),
-    operation_id TEXT NOT NULL REFERENCES remote_operations(id),dispatch_id TEXT NOT NULL,
-    lease_id TEXT NOT NULL,host_id TEXT NOT NULL REFERENCES agent_hosts(id),
-    acp_session_id TEXT NOT NULL,latest_cursor INTEGER NOT NULL DEFAULT 0,
-    retained_from_cursor INTEGER NOT NULL DEFAULT 1,retained_count INTEGER NOT NULL DEFAULT 0,
-    retained_bytes INTEGER NOT NULL DEFAULT 0,dropped_count INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL
-  );
-  CREATE TABLE remote_acp_events (
-    execution_attempt_id TEXT NOT NULL REFERENCES remote_acp_event_streams(execution_attempt_id),
-    cursor INTEGER NOT NULL,event_json TEXT NOT NULL,encoded_bytes INTEGER NOT NULL,
-    received_at TEXT NOT NULL,PRIMARY KEY(execution_attempt_id,cursor)
-  );
-`;
 
 afterEach(async () => {
   for (const server of servers.splice(0)) server.close();
@@ -675,73 +659,24 @@ describe("remote recovery migration v13", () => {
     directories.push(directory);
     const database = await openServerDatabase(join(directory, "server.sqlite"), 5_000);
     databases.push(database);
+    applyMigrationsThroughVersion(database, 12);
     database.exec(`
-      CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);
-      INSERT INTO schema_migrations(version,applied_at) VALUES
-        (1,'2020-01-01T00:00:00.000Z'),(2,'2020-01-01T00:00:00.000Z'),
-        (3,'2020-01-01T00:00:00.000Z'),(4,'2020-01-01T00:00:00.000Z'),
-        (5,'2020-01-01T00:00:00.000Z'),(6,'2020-01-01T00:00:00.000Z'),
-        (7,'2020-01-01T00:00:00.000Z'),(8,'2020-01-01T00:00:00.000Z'),
-        (9,'2020-01-01T00:00:00.000Z'),(10,'2020-01-01T00:00:00.000Z'),
-        (11,'2020-01-01T00:00:00.000Z'),(12,'2020-01-01T00:00:00.000Z');
-      CREATE TABLE dispatches(
-        id TEXT PRIMARY KEY,project_id TEXT NOT NULL,block_ref TEXT NOT NULL,
-        package_ref TEXT NOT NULL,host_id TEXT NOT NULL,required_capabilities_json TEXT NOT NULL,
-        status TEXT NOT NULL,lease_id TEXT NOT NULL UNIQUE,execution_attempt_id TEXT NOT NULL,
-        lease_expires_at TEXT NOT NULL,created_at TEXT NOT NULL,accepted_at TEXT,finished_at TEXT,
-        result_json TEXT,failure_json TEXT,interruption_reason TEXT,
-        interruption_resumable INTEGER,interruption_recovery_json TEXT
-      );
-      CREATE TABLE agent_hosts(
-        id TEXT PRIMARY KEY,display_name TEXT NOT NULL,credential_hash TEXT NOT NULL,
-        capabilities_json TEXT NOT NULL,capacity INTEGER NOT NULL,last_seen_at TEXT,
-        last_acknowledged_sequence INTEGER NOT NULL DEFAULT 0,revoked_at TEXT,
-        created_at TEXT NOT NULL,credential_expires_at TEXT
-      );
       INSERT INTO agent_hosts(
         id,display_name,credential_hash,capabilities_json,capacity,created_at
       ) VALUES ('host-1','Host','${"a".repeat(64)}','["acp.codex"]',1,'2020-01-01T00:00:00.000Z');
-      CREATE TABLE remote_operations(
-        id TEXT PRIMARY KEY,project_id TEXT NOT NULL,canvas_id TEXT NOT NULL,
-        block_ref TEXT NOT NULL,ownership_generation TEXT NOT NULL,idempotency_key TEXT NOT NULL,
-        request_fingerprint TEXT NOT NULL,source_fingerprint TEXT NOT NULL,
-        required_capabilities_json TEXT NOT NULL,state TEXT NOT NULL,dispatch_id TEXT NOT NULL UNIQUE,
-        execution_attempt_id TEXT NOT NULL UNIQUE,envelope_digest TEXT,envelope_reference TEXT,
-        created_at TEXT NOT NULL,updated_at TEXT NOT NULL,terminal_at TEXT,
-        diagnostic_code TEXT,diagnostic_message TEXT
-      );
       INSERT INTO remote_operations VALUES (
         'operation-1','project-1','default','RC-003#B-001','generation-1','request-1',
         '${"b".repeat(64)}','graph-1','["acp.codex"]','interrupted','dispatch-1','attempt-1',
         NULL,NULL,'2020-01-01T00:00:00.000Z','2020-01-01T00:00:01.000Z',NULL,NULL,NULL
-      );
-      CREATE TABLE remote_execution_attempts(
-        execution_attempt_id TEXT PRIMARY KEY,operation_id TEXT NOT NULL UNIQUE REFERENCES remote_operations(id),
-        dispatch_id TEXT NOT NULL UNIQUE,project_id TEXT NOT NULL,canvas_id TEXT NOT NULL,
-        block_ref TEXT NOT NULL,ownership_generation TEXT NOT NULL,status TEXT NOT NULL,
-        host_id TEXT REFERENCES agent_hosts(id),lease_id TEXT UNIQUE,lease_fencing_token INTEGER NOT NULL,
-        lease_expires_at TEXT,state_version INTEGER NOT NULL,created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,terminal_at TEXT
       );
       INSERT INTO remote_execution_attempts VALUES (
         'attempt-1','operation-1','dispatch-1','project-1','default','RC-003#B-001',
         'generation-1','interrupted','host-1','lease-1',1,'2020-01-01T00:00:01.000Z',4,
         '2020-01-01T00:00:00.000Z','2020-01-01T00:00:01.000Z',NULL
       );
-      CREATE TABLE host_capacity_reservations(
-        lease_id TEXT PRIMARY KEY,execution_attempt_id TEXT NOT NULL UNIQUE REFERENCES remote_execution_attempts(execution_attempt_id),
-        host_id TEXT NOT NULL REFERENCES agent_hosts(id),fencing_token INTEGER NOT NULL,
-        status TEXT NOT NULL,lease_expires_at TEXT NOT NULL,version INTEGER NOT NULL,
-        created_at TEXT NOT NULL,released_at TEXT
-      );
       INSERT INTO host_capacity_reservations VALUES (
         'lease-1','attempt-1','host-1',1,'expired','2020-01-01T00:00:01.000Z',1,
         '2020-01-01T00:00:00.000Z','2020-01-01T00:00:01.000Z'
-      );
-      CREATE TABLE remote_operation_events(
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT,operation_id TEXT NOT NULL REFERENCES remote_operations(id),
-        execution_attempt_id TEXT REFERENCES remote_execution_attempts(execution_attempt_id),
-        type TEXT NOT NULL,occurred_at TEXT NOT NULL
       );
       INSERT INTO remote_operation_events(operation_id,execution_attempt_id,type,occurred_at)
       VALUES ('operation-1','attempt-1','remote.attempt.interrupted','2020-01-01T00:00:01.000Z');
@@ -848,33 +783,9 @@ describe("remote recovery migration v13", () => {
     directories.push(directory);
     const database = await openServerDatabase(join(directory, "server.sqlite"), 5_000);
     databases.push(database);
+    applyMigrationsThroughVersion(database, 14);
     database.exec(`
-      CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);
-      INSERT INTO schema_migrations(version,applied_at)
-        SELECT value,'2020-01-01T00:00:00.000Z' FROM json_each('[1,2,3,4,5,6,7,8,9,10,11,12,13,14]');
-      CREATE TABLE dispatches(
-        id TEXT PRIMARY KEY,project_id TEXT NOT NULL,block_ref TEXT NOT NULL,
-        package_ref TEXT NOT NULL,host_id TEXT NOT NULL,required_capabilities_json TEXT NOT NULL,
-        status TEXT NOT NULL,lease_id TEXT NOT NULL UNIQUE,execution_attempt_id TEXT NOT NULL,
-        lease_expires_at TEXT NOT NULL,created_at TEXT NOT NULL,accepted_at TEXT,finished_at TEXT,
-        result_json TEXT,failure_json TEXT,interruption_reason TEXT,
-        interruption_resumable INTEGER,interruption_recovery_json TEXT
-      );
-      CREATE TABLE agent_hosts(
-        id TEXT PRIMARY KEY,display_name TEXT NOT NULL,credential_hash TEXT NOT NULL,
-        capabilities_json TEXT NOT NULL,capacity INTEGER NOT NULL,last_seen_at TEXT,
-        last_acknowledged_sequence INTEGER NOT NULL DEFAULT 0,revoked_at TEXT,
-        created_at TEXT NOT NULL
-      );
-      CREATE TABLE remote_operations(
-        id TEXT PRIMARY KEY,project_id TEXT NOT NULL,canvas_id TEXT NOT NULL,
-        block_ref TEXT NOT NULL,ownership_generation TEXT NOT NULL,idempotency_key TEXT NOT NULL,
-        request_fingerprint TEXT NOT NULL,source_fingerprint TEXT NOT NULL,
-        required_capabilities_json TEXT NOT NULL,state TEXT NOT NULL,dispatch_id TEXT NOT NULL UNIQUE,
-        execution_attempt_id TEXT NOT NULL UNIQUE,envelope_digest TEXT,envelope_reference TEXT,
-        created_at TEXT NOT NULL,updated_at TEXT NOT NULL,terminal_at TEXT,
-        diagnostic_code TEXT,diagnostic_message TEXT
-      );
+      DROP TABLE remote_execution_attempts;
       CREATE TABLE remote_execution_attempts(
         execution_attempt_id TEXT PRIMARY KEY,operation_id TEXT NOT NULL,dispatch_id TEXT NOT NULL,
         project_id TEXT NOT NULL,canvas_id TEXT NOT NULL,block_ref TEXT NOT NULL,
@@ -890,7 +801,6 @@ describe("remote recovery migration v13", () => {
         ('attempt-2','operation-2','dispatch-shared','project-2','default','TASK#B-002',
          'generation-2','prepared',NULL,'lease-2',0,NULL,0,
          '2020-01-01T00:00:00.000Z','2020-01-01T00:00:00.000Z',NULL);
-      ${preRunnerEventTablesSql}
     `);
     expect(() => applyMigrations(database)).toThrowError(
       "migration_duplicate_remote_attempt_dispatch_identity"
@@ -912,77 +822,22 @@ describe("remote operation host_selection migration v18", () => {
     databases.push(database);
 
     // Pre-v18 shape: remote_operations present without host_selection_json, with a pending row.
+    applyMigrationsThroughVersion(database, 17);
     database.exec(`
-      CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);
-      INSERT INTO schema_migrations(version,applied_at)
-        SELECT value,'2020-01-01T00:00:00.000Z' FROM json_each('[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]');
-      CREATE TABLE dispatches(
-        id TEXT PRIMARY KEY,project_id TEXT NOT NULL,block_ref TEXT NOT NULL,
-        package_ref TEXT NOT NULL,host_id TEXT NOT NULL,required_capabilities_json TEXT NOT NULL,
-        status TEXT NOT NULL,lease_id TEXT NOT NULL UNIQUE,execution_attempt_id TEXT NOT NULL,
-        lease_expires_at TEXT NOT NULL,created_at TEXT NOT NULL,accepted_at TEXT,finished_at TEXT,
-        result_json TEXT,failure_json TEXT,interruption_reason TEXT,
-        interruption_resumable INTEGER,interruption_recovery_json TEXT
-      );
-      CREATE TABLE human_principals(
-        human_principal_id TEXT PRIMARY KEY,display_name TEXT NOT NULL,created_at TEXT NOT NULL
-      );
-      CREATE TABLE project_memberships(
-        membership_id TEXT PRIMARY KEY,project_id TEXT NOT NULL,
-        human_principal_id TEXT NOT NULL REFERENCES human_principals(human_principal_id),
-        role TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,revoked_at TEXT
-      );
-      CREATE TABLE human_device_credentials(
-        device_credential_id TEXT PRIMARY KEY,
-        human_principal_id TEXT NOT NULL REFERENCES human_principals(human_principal_id),
-        minted_for_project_id TEXT NOT NULL,label TEXT,token_sha256 TEXT NOT NULL,
-        created_at TEXT NOT NULL,expires_at TEXT,revoked_at TEXT,last_used_at TEXT
-      );
-      CREATE TABLE agent_hosts(
-        id TEXT PRIMARY KEY,display_name TEXT NOT NULL,credential_hash TEXT NOT NULL,
-        capabilities_json TEXT NOT NULL,capacity INTEGER NOT NULL,last_seen_at TEXT,
-        last_acknowledged_sequence INTEGER NOT NULL DEFAULT 0,revoked_at TEXT,
-        created_at TEXT NOT NULL,credential_expires_at TEXT
-      );
       INSERT INTO agent_hosts(
         id,display_name,credential_hash,capabilities_json,capacity,created_at
       ) VALUES (
         'host-1','Host','${"a".repeat(64)}','["acp.codex"]',1,'2020-01-01T00:00:00.000Z'
-      );
-      CREATE TABLE remote_operations(
-        id TEXT PRIMARY KEY,project_id TEXT NOT NULL,canvas_id TEXT NOT NULL,
-        block_ref TEXT NOT NULL,ownership_generation TEXT NOT NULL,idempotency_key TEXT NOT NULL,
-        request_fingerprint TEXT NOT NULL,source_fingerprint TEXT NOT NULL,
-        required_capabilities_json TEXT NOT NULL,state TEXT NOT NULL,dispatch_id TEXT NOT NULL UNIQUE,
-        execution_attempt_id TEXT NOT NULL UNIQUE,envelope_digest TEXT,envelope_reference TEXT,
-        created_at TEXT NOT NULL,updated_at TEXT NOT NULL,terminal_at TEXT,
-        diagnostic_code TEXT,diagnostic_message TEXT
       );
       INSERT INTO remote_operations VALUES (
         'operation-pending','project-1','default','FIX-HC-002#B-001','generation-1','request-1',
         '${"b".repeat(64)}','graph-1','["acp.codex"]','claimed','dispatch-pending','attempt-pending',
         NULL,NULL,'2020-01-01T00:00:00.000Z','2020-01-01T00:00:01.000Z',NULL,NULL,NULL
       );
-      CREATE TABLE remote_execution_attempts(
-        execution_attempt_id TEXT PRIMARY KEY,operation_id TEXT NOT NULL REFERENCES remote_operations(id),
-        dispatch_id TEXT NOT NULL UNIQUE,project_id TEXT NOT NULL,canvas_id TEXT NOT NULL,
-        block_ref TEXT NOT NULL,ownership_generation TEXT NOT NULL,status TEXT NOT NULL,
-        host_id TEXT REFERENCES agent_hosts(id),lease_id TEXT UNIQUE,lease_fencing_token INTEGER NOT NULL DEFAULT 0,
-        lease_expires_at TEXT,state_version INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,terminal_at TEXT
-      );
       INSERT INTO remote_execution_attempts VALUES (
         'attempt-pending','operation-pending','dispatch-pending','project-1','default','FIX-HC-002#B-001',
         'generation-1','prepared',NULL,NULL,0,NULL,0,
         '2020-01-01T00:00:00.000Z','2020-01-01T00:00:00.000Z',NULL
-      );
-      ${preRunnerEventTablesSql}
-      CREATE TABLE work_assignments(
-        project_id TEXT NOT NULL,canvas_id TEXT NOT NULL,work_item_kind TEXT NOT NULL,
-        work_item_key TEXT NOT NULL,target_kind TEXT NOT NULL,target_human_principal_id TEXT,
-        target_host_id TEXT,revision INTEGER NOT NULL,updated_by_kind TEXT NOT NULL,
-        updated_by_id TEXT NOT NULL,updated_by_display_name TEXT,updated_at TEXT NOT NULL,
-        reason TEXT,PRIMARY KEY(project_id,canvas_id,work_item_kind,work_item_key)
       );
       INSERT INTO human_principals(human_principal_id,display_name,created_at)
       VALUES ('principal-1','Owner','2020-01-01T00:00:00.000Z');

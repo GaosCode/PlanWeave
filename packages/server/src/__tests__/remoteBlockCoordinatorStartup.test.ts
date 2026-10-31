@@ -21,6 +21,7 @@ import {
   type RemoteBlockCoordinationOptions
 } from "../distributedCoordination.js";
 import type { PlanweaveServer } from "../lifecycle.js";
+import { restoreStartupV17Schema } from "./support/legacyStartupMigrationFixture.js";
 import { centralSchemaVersion, latestCentralSchemaVersion } from "../migrations.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { ProjectAccessRepository } from "../projectAccessRepository.js";
@@ -393,55 +394,7 @@ class StartupHarness {
 
   restoreV17Schema(): void {
     const database = this.requireServer().database;
-    database.exec(`
-      DROP INDEX idx_package_snapshots_pending_cleanup;
-      DROP TABLE package_snapshot_cleanup_cursors;
-      ALTER TABLE package_snapshots DROP COLUMN backing_cleanup_completed_at;
-      DROP TABLE operator_management_sessions;
-      DROP TABLE operator_management_recovery_codes;
-      DROP TABLE operator_management_devices;
-      DROP TABLE acp_task_restorations;
-      DROP TABLE acp_conversation_event_digests;
-      DROP TABLE acp_conversation_action_digests;
-      DROP TABLE acp_conversation_replay_receipts;
-      DROP TABLE acp_conversation_events;
-      DROP TABLE acp_conversation_actions;
-      DROP TABLE acp_conversation_turns;
-      DROP TABLE human_observer_events;
-      DROP TABLE human_observer_retention;
-      DROP TABLE activity_projection_outbox;
-      DROP TABLE activity_records;
-      DROP TABLE comments;
-      DROP TABLE comment_attachment_bindings;
-      DROP TABLE comment_pending_uploads;
-      DROP TABLE comment_attachment_blobs;
-      DROP TABLE work_assignments_unscoped_legacy;
-      DROP TABLE human_observer_events_unscoped_legacy;
-      DROP TABLE comment_pending_uploads_unscoped_legacy;
-      DROP TABLE comment_attachment_bindings_unscoped_legacy;
-      DROP TABLE remote_operations_unscoped_legacy;
-      DROP TABLE dispatches_unscoped_legacy;
-      DROP TABLE server_exposure_leases;
-      DROP TABLE canvas_runtime_reset_operations;
-      DROP TABLE canvas_runtime_status_snapshots;
-      DROP TABLE canvas_workspace_publish_operations;
-      DROP TABLE canvas_runtime_artifact_grants;
-      DROP TABLE canvas_runtime_leases;
-      DROP TABLE canvas_runtime_operation_attachments;
-      DROP TABLE canvas_runtime_host_bindings;
-      DELETE FROM project_access_grants;
-      DELETE FROM canvas_registry;
-      DELETE FROM project_registry;
-      DELETE FROM acl_registry_migrations;
-      DELETE FROM execution_target_records;
-      DELETE FROM responsibility_records;
-      DELETE FROM review_assignment_records;
-      DELETE FROM assignment_authority_migrations;
-      ALTER TABLE dispatches ADD COLUMN package_ref TEXT NOT NULL DEFAULT '';
-      ALTER TABLE remote_operations DROP COLUMN endpoint_selection_json;
-      ALTER TABLE remote_operations DROP COLUMN host_selection_json;
-      DELETE FROM schema_migrations WHERE version >= 18;
-    `);
+    restoreStartupV17Schema(database);
     expect(centralSchemaVersion(database)).toBe(17);
     expect(
       database
@@ -453,7 +406,7 @@ class StartupHarness {
     expect(
       database
         .prepare(
-          "SELECT name FROM sqlite_master WHERE name IN ('idx_package_snapshots_pending_cleanup','package_snapshot_cleanup_cursors')"
+          "SELECT name FROM sqlite_master WHERE name IN ('idx_mailbox_host_execution_attempt_sequence','idx_package_snapshots_pending_cleanup','package_snapshot_cleanup_cursors')"
         )
         .all()
     ).toEqual([]);
