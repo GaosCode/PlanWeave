@@ -19,6 +19,7 @@ import {
 } from "../workspaceExecution/session.js";
 import { WorkspaceExecutionCliError } from "../workspaceExecution/errors.js";
 import { formatRemoteInteraction } from "./remoteInteractionOutput.js";
+import { terminalCommandExamples, terminalField } from "./terminalCommandOutput.js";
 
 type InteractionListOptions = CanvasCommandOptions & {
   json?: boolean;
@@ -49,16 +50,47 @@ async function interactionCanvasRef(options: CanvasCommandOptions) {
   };
 }
 
-function formatInteractionList(interactions: RunnerInteractionSnapshot[]): string {
+function formatInteractionList(
+  interactions: RunnerInteractionSnapshot[],
+  projectRoot: string
+): string {
   if (interactions.length === 0) return "No actionable runner interactions.";
   return interactions
     .map(({ request }) => {
-      const recordId = `${request.identity.claimRef}::${request.identity.executorRunId}`;
+      const { identity } = request;
+      const recordId = `${identity.claimRef}::${identity.executorRunId}`;
+      const responseArgv = [
+        "planweave",
+        `--project-root=${projectRoot}`,
+        "interaction",
+        "respond",
+        `--canvas=${identity.canvasId}`,
+        `--record=${recordId}`,
+        `--request=${identity.requestId}`,
+        `--lease=${identity.ownerLeaseId}`,
+        "--source=cli.interaction-list"
+      ];
       return [
-        `${recordId} ${request.identity.requestId}: ${request.summary}`,
-        ...request.options.map(
-          (option) => `  ${option.optionId}: ${option.label} (${option.decision})`
-        )
+        terminalField("Project", identity.projectId),
+        terminalField("Project root", projectRoot),
+        terminalField("Canvas", identity.canvasId),
+        terminalField("Record", recordId),
+        terminalField("Request", identity.requestId),
+        terminalField("Owner lease", identity.ownerLeaseId),
+        terminalField("Summary", request.summary),
+        "Decision source: cli.interaction-list",
+        ...request.options.flatMap((option) => [
+          terminalField("Option ID", option.optionId),
+          terminalField("Label", option.label),
+          terminalField("Decision", option.decision),
+          ...terminalCommandExamples("Response:", [...responseArgv, `--option=${option.optionId}`])
+        ]),
+        "Cancel requires a non-empty reason. Replace <REPLACE_WITH_YOUR_REASON> before running:",
+        ...terminalCommandExamples("Cancel:", [
+          ...responseArgv,
+          "--cancel",
+          "--reason=<REPLACE_WITH_YOUR_REASON>"
+        ])
       ].join("\n");
     })
     .join("\n");
@@ -122,12 +154,13 @@ export function registerInteractionCommand(program: Command): void {
       return;
     }
     try {
-      const interactions = await listPendingRunnerInteractions(await interactionCanvasRef(options));
+      const ref = await interactionCanvasRef(options);
+      const interactions = await listPendingRunnerInteractions(ref);
       if (options.json) {
         console.log(JSON.stringify(interactions, null, 2));
         return;
       }
-      console.log(formatInteractionList(interactions));
+      console.log(formatInteractionList(interactions, ref.projectRoot));
     } catch (error) {
       if (options.json && error instanceof RunnerInteractionApiError) {
         printInteractionError(error);
