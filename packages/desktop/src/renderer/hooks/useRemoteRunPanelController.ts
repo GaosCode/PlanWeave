@@ -62,6 +62,7 @@ export type UseRemoteRunPanelControllerArgs = {
   agentEndpoints?: readonly AvailableAgentEndpoint[];
   workItem: WorkItemRef | null;
   runtimeRemoteExecution?: RemoteBlockExecutionReadModel | null;
+  refreshRuntimeRemoteExecution?: () => Promise<RemoteBlockExecutionReadModel | null>;
   localAutoRunActive?: boolean;
   canvasRef?: DesktopCanvasReference | null;
   executionLocator?: RemoteRunExecutionLocator | null;
@@ -395,6 +396,23 @@ export function useRemoteRunPanelController(
       }
     }
   }, [args, currentRemoteEndpointId, endpointForView, executionApi, existingOperationId, view]);
+  const refresh = useCallback(async () => {
+    const generation = scopeGenerationRef.current;
+    try {
+      if (args.refreshRuntimeRemoteExecution) {
+        const current = await args.refreshRuntimeRemoteExecution();
+        if (
+          scopeGenerationRef.current !== generation ||
+          (current?.identity.operationId ?? null) !== existingOperationId
+        )
+          return;
+      }
+      if (scopeGenerationRef.current === generation) await follow();
+    } catch (caught) {
+      if (scopeGenerationRef.current === generation)
+        setActionError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, [args.refreshRuntimeRemoteExecution, existingOperationId, follow]);
   const followRef = useRef(follow);
   useEffect(() => {
     followRef.current = follow;
@@ -615,7 +633,7 @@ export function useRemoteRunPanelController(
     refreshAgentEndpoints,
     confirmKind,
     setConfirmKind,
-    refresh: follow,
+    refresh,
     loadMoreEvents: follow,
     dispatch,
     cancel,

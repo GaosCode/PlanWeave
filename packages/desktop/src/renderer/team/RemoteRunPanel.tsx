@@ -37,6 +37,7 @@ export type RemoteRunPanelProps = {
   agentEndpoints?: readonly AvailableAgentEndpoint[];
   workItem: WorkItemRef | null;
   runtimeRemoteExecution?: RemoteBlockExecutionReadModel | null;
+  refreshRuntimeRemoteExecution?: () => Promise<RemoteBlockExecutionReadModel | null>;
   localAutoRunActive?: boolean;
   canvasRef?: DesktopCanvasReference | null;
   executionLocator?: RemoteRunExecutionLocator | null;
@@ -82,6 +83,7 @@ export function RemoteRunPanel({
   agentEndpoints,
   workItem,
   runtimeRemoteExecution = null,
+  refreshRuntimeRemoteExecution,
   localAutoRunActive = false,
   canvasRef = null,
   executionLocator = null,
@@ -104,6 +106,7 @@ export function RemoteRunPanel({
     agentEndpoints,
     workItem,
     runtimeRemoteExecution,
+    refreshRuntimeRemoteExecution,
     localAutoRunActive,
     canvasRef,
     executionLocator,

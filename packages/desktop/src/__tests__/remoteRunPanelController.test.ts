@@ -2,6 +2,7 @@
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { RemoteBlockExecutionReadModel } from "@planweave-ai/runtime";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
 import {
@@ -166,6 +167,7 @@ function renderController(input: {
   api: PlanWeaveWorkspaceExecutionApi;
   runtime?: UseRemoteRunPanelControllerArgs["runtimeRemoteExecution"];
   executionLocator?: RemoteRunExecutionLocator;
+  refreshRuntimeRemoteExecution?: () => Promise<RemoteBlockExecutionReadModel | null>;
 }) {
   return renderHook(
     ({ executionLocator, workItem, runtime }) =>
@@ -173,6 +175,7 @@ function renderController(input: {
         agentEndpoints: [endpoint],
         workItem,
         runtimeRemoteExecution: runtime,
+        refreshRuntimeRemoteExecution: input.refreshRuntimeRemoteExecution,
         executionLocator,
         executionApi: input.api,
         open: true,
@@ -860,4 +863,96 @@ describe("useRemoteRunPanelController", () => {
     expect(result.current.confirmKind).toBe("cancel");
     expect(result.current.viewModel.phase).toBe("terminal_success");
   });
+});
+
+describe("Remote Run runtime refresh ownership", () => {
+  it.each([
+    false,
+    true
+  ])("reads the current runtime before following a changed operation (initial=%s)", async (hasInitial) => {
+    const fixture = apiReturning(remoteView());
+    const next: RemoteBlockExecutionReadModel = {
+      ...runtimeRemoteExecution,
+      controlPlane: "owner",
+      identity: { operationId: "operation-2" }
+    };
+    const reader = vi.fn().mockResolvedValue(next);
+    const { result, rerender } = renderController({
+      api: fixture.api,
+      runtime: hasInitial ? { ...runtimeRemoteExecution, controlPlane: "owner" } : null,
+      refreshRuntimeRemoteExecution: reader
+    });
+    if (hasInitial)
+      await waitFor(() =>
+        expect(result.current.viewModel.identity?.operationId).toBe("operation-1")
+      );
+    fixture.follow.mockClear();
+    await act(async () => result.current.refresh());
+    expect(reader).toHaveBeenCalledOnce();
+    expect(fixture.follow).not.toHaveBeenCalled();
+    fixture.follow.mockResolvedValue(
+      remoteView({ operationId: "operation-2", sessionId: "SESSION-0002" })
+    );
+    rerender({ executionLocator: locator, workItem: blockItem, runtime: next });
+    await waitFor(() => expect(result.current.viewModel.identity?.operationId).toBe("operation-2"));
+    expect(fixture.follow).toHaveBeenCalledWith({
+      locator,
+      blockRef: blockItem.blockRef,
+      operationId: "operation-2"
+    });
+    await act(async () => result.current.refresh());
+    expect(fixture.follow).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: "SESSION-0002" })
+    );
+  });
+
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("retires a runtime reader that later %s after authority changes", async (completion) => {
+    const fixture = apiReturning(remoteView());
+    const pending = deferred<RemoteBlockExecutionReadModel | null>();
+    const reader = vi.fn(() => pending.promise);
+    const { result, rerender } = renderController({
+      api: fixture.api,
+      runtime: { ...runtimeRemoteExecution, controlPlane: "owner" },
+      refreshRuntimeRemoteExecution: reader
+    });
+    await waitFor(() => expect(result.current.viewModel.identity?.operationId).toBe("operation-1"));
+    let refreshing!: Promise<void>;
+    act(() => {
+      refreshing = result.current.refresh();
+    });
+    expect(reader).toHaveBeenCalledOnce();
+    fixture.follow.mockResolvedValue(remoteView({ sessionId: "SESSION-0009" }));
+    rerender({
+      executionLocator: { ...locator, operatorProfileId: "different-authority" },
+      workItem: blockItem,
+      runtime: { ...runtimeRemoteExecution, controlPlane: "owner" }
+    });
+    await waitFor(() => expect(result.current.viewModel.identity?.operationId).toBe("operation-1"));
+    fixture.follow.mockClear();
+    await act(async () => {
+      if (completion === "resolve")
+        pending.resolve({ ...runtimeRemoteExecution, controlPlane: "owner" });
+      else pending.reject(new Error("retired runtime reader"));
+      await refreshing;
+    });
+    expect(fixture.follow).not.toHaveBeenCalled();
+    expect(result.current.actionError).not.toBe("retired runtime reader");
+  });
+});
+
+it("shows a current runtime reader failure without following the cached session", async () => {
+  const fixture = apiReturning(remoteView());
+  const { result } = renderController({
+    api: fixture.api,
+    runtime: { ...runtimeRemoteExecution, controlPlane: "owner" },
+    refreshRuntimeRemoteExecution: vi.fn().mockRejectedValue(new Error("runtime read failed"))
+  });
+  await waitFor(() => expect(result.current.viewModel.identity?.operationId).toBe("operation-1"));
+  fixture.follow.mockClear();
+  await act(async () => result.current.refresh());
+  expect(result.current.actionError).toBe("runtime read failed");
+  expect(fixture.follow).not.toHaveBeenCalled();
 });

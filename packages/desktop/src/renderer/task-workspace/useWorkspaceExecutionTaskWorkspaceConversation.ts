@@ -207,8 +207,13 @@ export function useWorkspaceExecutionTaskWorkspaceConversation(input: {
         } else {
           noProgressCount += 1;
         }
-        const state =
-          observedState === "interrupted"
+        const terminal =
+          view.session.phase === "completed" ||
+          view.session.phase === "failed" ||
+          view.session.phase === "stopped";
+        const state = terminal
+          ? conversationState(view.session.phase)
+          : observedState === "interrupted"
             ? "interrupted"
             : timeline.pendingInteractions.length > 0
               ? "action_required"
@@ -231,12 +236,7 @@ export function useWorkspaceExecutionTaskWorkspaceConversation(input: {
           key,
           value: cache.value
         });
-        if (
-          timeline.terminalOutcome ||
-          view.session.phase === "completed" ||
-          view.session.phase === "failed" ||
-          view.session.phase === "stopped"
-        ) {
+        if (timeline.terminalOutcome || terminal) {
           refreshStopped = true;
           if (!terminalReported) onTerminalRef.current();
           terminalReported = true;

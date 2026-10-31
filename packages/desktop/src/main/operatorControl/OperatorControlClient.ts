@@ -63,6 +63,7 @@ import {
   type OwnerCanvasMaterializationRequest,
   type OwnerCanvasMaterializationScope
 } from "@planweave-ai/collaboration-protocol/owner-canvas/materialization";
+import { COLLABORATION_JSON_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 import { humanIdentityTokenSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { z, type ZodType } from "zod";
 import {
@@ -476,7 +477,11 @@ export class OperatorControlClient {
       action ? "POST" : "GET",
       `/api/v1/remote-operations/${encodeURIComponent(id)}/conversation${action ? "" : `?afterCursor=${afterCursor}`}`,
       acpConversationPageSchema,
-      { humanPrincipalId, ...(action ? { body: action } : {}) }
+      {
+        humanPrincipalId,
+        responseMaxBytes: COLLABORATION_JSON_RESPONSE_MAX_BYTES,
+        ...(action ? { body: action } : {})
+      }
     );
   }
 
@@ -740,6 +745,7 @@ export class OperatorControlClient {
       contentType?: string;
       accept?: string;
       humanPrincipalId?: string;
+      responseMaxBytes?: number;
     } = {}
   ): Promise<T> {
     this.ensureOpen();
@@ -764,7 +770,10 @@ export class OperatorControlClient {
           options.rawBody ?? (options.body === undefined ? undefined : JSON.stringify(options.body))
       },
       async (response) => {
-        const text = await this.readTextLimited(response);
+        const text = await this.readTextLimited(
+          response,
+          response.ok ? options.responseMaxBytes : undefined
+        );
         this.ensureOpen();
         if (!response.ok) throw errorFromHttp(response.status, text);
         let value: unknown;
@@ -862,12 +871,11 @@ export class OperatorControlClient {
     }
   }
 
-  private async readTextLimited(response: Response): Promise<string> {
-    const bytes = await this.readBytesLimited(
-      response,
-      OPERATOR_JSON_BODY_MAX_BYTES,
-      "operator_response_too_large"
-    );
+  private async readTextLimited(
+    response: Response,
+    maxBytes = OPERATOR_JSON_BODY_MAX_BYTES
+  ): Promise<string> {
+    const bytes = await this.readBytesLimited(response, maxBytes, "operator_response_too_large");
     return Buffer.from(bytes).toString("utf8");
   }
 

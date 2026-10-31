@@ -1,19 +1,22 @@
 /* @vitest-environment jsdom */
 
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import type {
   DesktopAutoRunEvent,
   DesktopBlockDetail,
   DesktopBridgeApi,
-  DesktopRunRecord
+  DesktopRunRecord,
+  DesktopRuntimeStateChangeEvent,
+  DesktopWatchRegistration,
+  DesktopBlockRunRecordSummary
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BlockInspector } from "../renderer/inspector/BlockInspector";
 import { defaultDesktopSettings } from "../shared/desktopSettings";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { selectedBlock, autoRunEvent, autoRunState } from "./helpers/autoRunControlHarness";
-import { deferred } from "./helpers/desktopProjectFixtures";
+import { deferred, project } from "./helpers/desktopProjectFixtures";
 import { graph } from "./helpers/graphFixtures";
 import { record } from "./helpers/taskWorkspaceConversationFixture";
 
@@ -64,6 +67,9 @@ function run(runId: string): DesktopRunRecord {
 
 async function openWindow(overrides: Partial<DesktopBridgeApi> = {}) {
   const bridge = createDesktopBridgeMock({
+    listProjects: vi.fn().mockResolvedValue([]),
+    watchRuntimeState: vi.fn().mockResolvedValue(undefined),
+    unwatchRuntimeState: vi.fn().mockResolvedValue(undefined),
     getGraphViewModel: vi.fn().mockResolvedValue(graph),
     getBlockDetail: vi.fn((_canvas, ref) => Promise.resolve(ref === beta.ref ? beta : alpha)),
     listBlockRunRecords: vi.fn().mockResolvedValue([]),
@@ -372,4 +378,346 @@ describe("Block Inspector window selection ownership", () => {
     });
     expect(bridge.getBlockDetail).toHaveBeenCalledTimes(2);
   });
+});
+
+describe("Block Inspector external runtime ownership", () => {
+  it("follows an externally published operation without losing drafts or selected history", async () => {
+    let listener: ((event: DesktopRuntimeStateChangeEvent) => void) | undefined;
+    let registration: DesktopWatchRegistration | undefined;
+    let canonical = alpha;
+    const unsubscribe = vi.fn();
+    const { bridge, unmount } = await openWindow({
+      listProjects: vi.fn().mockResolvedValue([project]),
+      getBlockDetail: vi.fn(() => Promise.resolve(canonical)),
+      watchRuntimeState: vi.fn(async (value) => {
+        registration = value;
+      }),
+      unwatchRuntimeState: vi.fn().mockResolvedValue(undefined),
+      onRuntimeStateChanged: vi.fn((callback) => {
+        listener = callback;
+        return unsubscribe;
+      }),
+      getRunRecord: vi.fn().mockResolvedValue(run("RUN-selected"))
+    });
+    await waitFor(() => expect(registration).toBeDefined());
+    await act(async () => {
+      await inspector.handleOpenRunRecord(run("RUN-selected").recordId);
+    });
+    act(() => {
+      inspector.setSelectedBlock({
+        ...alpha,
+        title: "Unsaved title",
+        promptMarkdown: "# Unsaved draft"
+      });
+      inspector.onDraftDirtyChange?.(true);
+    });
+    canonical = {
+      ...alpha,
+      status: "in_progress",
+      remoteExecution: {
+        identity: { operationId: "operation-external-B" },
+        controlPlane: "owner",
+        phase: "active",
+        status: "owned",
+        actionRequired: false,
+        source: { revision: "revision-B", graphFingerprint: "fingerprint-B" },
+        dispatchAttempt: { dispatchId: "dispatch-B", executionAttemptId: "attempt-B" }
+      }
+    };
+    const before = vi.mocked(bridge.getBlockDetail).mock.calls.length;
+    await act(async () => {
+      listener?.({
+        ...registration!,
+        canvasId: "different",
+        stateFile: "/tmp/state.json",
+        changedAt: "2026-10-31T00:00:00Z"
+      });
+    });
+    expect(bridge.getBlockDetail).toHaveBeenCalledTimes(before);
+    await act(async () => {
+      listener?.({
+        ...registration!,
+        stateFile: "/tmp/state.json",
+        changedAt: "2026-10-31T00:00:01Z"
+      });
+    });
+    await waitFor(() =>
+      expect(inspector.selectedBlock?.remoteExecution?.identity.operationId).toBe(
+        "operation-external-B"
+      )
+    );
+    expect(inspector.selectedBlock).toMatchObject({
+      title: "Unsaved title",
+      promptMarkdown: "# Unsaved draft"
+    });
+    expect(inspector.selectedRunRecord?.recordId).toBe(run("RUN-selected").recordId);
+    unmount();
+    expect(unsubscribe).toHaveBeenCalled();
+    expect(bridge.unwatchRuntimeState).toHaveBeenCalledWith(registration);
+  });
+
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("retires an external runtime read that later %s after scope change", async (completion) => {
+    let listener: ((event: DesktopRuntimeStateChangeEvent) => void) | undefined;
+    let registration: DesktopWatchRegistration | undefined;
+    let next: Promise<DesktopBlockDetail> = Promise.resolve(alpha);
+    const pending = deferred<DesktopBlockDetail>();
+    const { rerender, Window } = await openWindow({
+      listProjects: vi
+        .fn()
+        .mockResolvedValue([
+          project,
+          { ...project, rootPath: "/tmp/other", workspaceRoot: "/tmp/other" }
+        ]),
+      getBlockDetail: vi.fn(() => next),
+      watchRuntimeState: vi.fn(async (value) => {
+        registration = value;
+      }),
+      unwatchRuntimeState: vi.fn().mockResolvedValue(undefined),
+      onRuntimeStateChanged: vi.fn((callback) => {
+        listener = callback;
+        return () => undefined;
+      })
+    });
+    await waitFor(() => expect(registration).toBeDefined());
+    next = pending.promise;
+    await act(async () => {
+      listener?.({
+        ...registration!,
+        stateFile: "/tmp/state.json",
+        changedAt: "2026-10-31T00:00:00Z"
+      });
+    });
+    next = Promise.resolve(beta);
+    window.history.replaceState(
+      {},
+      "",
+      `/?projectRoot=/tmp/other&canvasId=canvas-other&blockRef=${encodeURIComponent(beta.ref)}`
+    );
+    await act(async () => {
+      rerender(<Window />);
+    });
+    await waitFor(() => expect(inspector.selectedBlock?.ref).toBe(beta.ref));
+    await act(async () => {
+      if (completion === "resolve") pending.resolve(alpha);
+      else pending.reject(new Error("retired runtime read"));
+    });
+    expect(inspector.selectedBlock?.ref).toBe(beta.ref);
+    expect(inspector.error).not.toBe("retired runtime read");
+  });
+});
+
+it.each([
+  "resolve",
+  "reject"
+] as const)("cancels a pending runtime watch when the inspector unmounts before it %s", async (completion) => {
+  const watching = deferred<void>();
+  let listener: ((event: DesktopRuntimeStateChangeEvent) => void) | undefined;
+  let registration: DesktopWatchRegistration | undefined;
+  const unsubscribe = vi.fn();
+  const { bridge, unmount } = await openWindow({
+    listProjects: vi.fn().mockResolvedValue([project]),
+    watchRuntimeState: vi.fn((value) => {
+      registration = value;
+      return watching.promise;
+    }),
+    onRuntimeStateChanged: vi.fn((callback) => {
+      listener = callback;
+      return unsubscribe;
+    })
+  });
+  await waitFor(() => expect(registration).toBeDefined());
+  unmount();
+  const reads = vi.mocked(bridge.getBlockDetail).mock.calls.length;
+  await act(async () => {
+    listener?.({
+      ...registration!,
+      stateFile: "/tmp/state.json",
+      changedAt: "2026-10-31T00:00:00Z"
+    });
+    if (completion === "resolve") watching.resolve();
+    else watching.reject(new Error("retired watch registration"));
+  });
+  expect(unsubscribe).toHaveBeenCalledOnce();
+  expect(bridge.unwatchRuntimeState).toHaveBeenCalledExactlyOnceWith(registration);
+  expect(bridge.getBlockDetail).toHaveBeenCalledTimes(reads);
+});
+
+it.each([
+  "resolve",
+  "reject"
+] as const)("replays the external runtime change after a foreground read of the old operation %s", async (completion) => {
+  const projects = deferred<(typeof project)[]>();
+  const records = deferred<DesktopBlockRunRecordSummary[]>();
+  let canonical = alpha;
+  let registration: DesktopWatchRegistration | undefined;
+  let listener: ((event: DesktopRuntimeStateChangeEvent) => void) | undefined;
+  const opening = openWindow({
+    listProjects: vi.fn(() => projects.promise),
+    getBlockDetail: vi.fn(() => Promise.resolve(canonical)),
+    listBlockRunRecords: vi.fn().mockReturnValueOnce(records.promise).mockResolvedValue([]),
+    watchRuntimeState: vi.fn(async (value) => {
+      registration = value;
+    }),
+    onRuntimeStateChanged: vi.fn((callback) => {
+      listener = callback;
+      return () => undefined;
+    })
+  });
+  await act(async () => {
+    projects.resolve([project]);
+  });
+  await waitFor(() => expect(registration).toBeDefined());
+  canonical = { ...alpha, status: "blocked" };
+  await act(async () => {
+    listener?.({
+      ...registration!,
+      stateFile: "/tmp/state.json",
+      changedAt: "2026-10-31T00:00:00Z"
+    });
+    if (completion === "resolve") records.resolve([]);
+    else records.reject(new Error("old sibling read failed"));
+  });
+  await opening;
+  await waitFor(() => expect(inspector.selectedBlock?.status).toBe("blocked"));
+});
+
+it("keeps a dirty prompt conflict baseline when runtime refresh accepts a newer remote identity", async () => {
+  let canonical = alpha;
+  const { bridge } = await openWindow({
+    getBlockDetail: vi.fn(() => Promise.resolve(canonical)),
+    updateBlockPrompt: vi
+      .fn()
+      .mockResolvedValue({ ok: false, diagnostics: [{ message: "graph_version_conflict" }] })
+  });
+  act(() => {
+    inspector.setSelectedBlock({ ...alpha, promptMarkdown: "# My unsaved draft" });
+    inspector.onDraftDirtyChange?.(true);
+  });
+  canonical = {
+    ...alpha,
+    promptMarkdown: "# Another client update",
+    graphVersion: "pgv-external",
+    promptHash: "hash-external"
+  };
+  await act(async () => {
+    await inspector.refreshRuntimeRemoteExecution?.();
+  });
+  expect(inspector.selectedBlock).toMatchObject({
+    promptMarkdown: "# My unsaved draft",
+    graphVersion: "pgv-before",
+    promptHash: "hash-before"
+  });
+  await act(async () => {
+    await inspector.saveSelectedBlockPrompt();
+  });
+  expect(bridge.updateBlockPrompt).toHaveBeenCalledWith(
+    { projectRoot: "/tmp/demo", canvasId: "canvas-main" },
+    alpha.ref,
+    "# My unsaved draft",
+    { baseGraphVersion: "pgv-before", basePromptHash: "hash-before" }
+  );
+  expect(inspector.error).toContain("graph_version_conflict");
+});
+
+it("retries a failed runtime subscription on manual refresh and receives the next external event", async () => {
+  let canonical = alpha;
+  let registration: DesktopWatchRegistration | undefined;
+  let listener: ((event: DesktopRuntimeStateChangeEvent) => void) | undefined;
+  const { bridge } = await openWindow({
+    listProjects: vi.fn().mockResolvedValue([project]),
+    getBlockDetail: vi.fn(() => Promise.resolve(canonical)),
+    watchRuntimeState: vi
+      .fn()
+      .mockRejectedValueOnce(new Error("watch unavailable"))
+      .mockImplementation(async (value) => {
+        registration = value;
+      }),
+    onRuntimeStateChanged: vi.fn((callback) => {
+      listener = callback;
+      return () => undefined;
+    })
+  });
+  await waitFor(() => expect(inspector.error).toBe("watch unavailable"));
+  await act(async () => {
+    await inspector.refreshRuntimeRemoteExecution?.();
+  });
+  expect(bridge.watchRuntimeState).toHaveBeenCalledTimes(2);
+  canonical = { ...alpha, status: "blocked" };
+  await act(async () => {
+    listener?.({
+      ...registration!,
+      stateFile: "/tmp/state.json",
+      changedAt: "2026-10-31T00:00:00Z"
+    });
+  });
+  await waitFor(() => expect(inspector.selectedBlock?.status).toBe("blocked"));
+});
+
+it.each([
+  "detail",
+  "sibling"
+] as const)("does not follow cached identity after the real window %s read fails", async (failure) => {
+  const remote = {
+    identity: { operationId: "operation-current" },
+    controlPlane: "owner" as const,
+    phase: "active" as const,
+    status: "owned" as const,
+    actionRequired: false,
+    source: { revision: "revision-A", graphFingerprint: "fingerprint-A" },
+    dispatchAttempt: { dispatchId: "dispatch-A", executionAttemptId: "attempt-A" }
+  };
+  let failing = false;
+  await openWindow({
+    listProjects: vi.fn().mockResolvedValue([project]),
+    getBlockDetail: vi.fn(() =>
+      failing && failure === "detail"
+        ? Promise.reject(new Error("current runtime read failed"))
+        : Promise.resolve({ ...alpha, remoteExecution: remote })
+    ),
+    getReviewAttempts: vi.fn(() =>
+      failing && failure === "sibling"
+        ? Promise.reject(new Error("current runtime read failed"))
+        : Promise.resolve([])
+    )
+  });
+  const { useRemoteRunPanelController } = await import(
+    "../renderer/hooks/useRemoteRunPanelController"
+  );
+  const follow = vi.fn().mockRejectedValue(new Error("initial follow unavailable"));
+  const unused = vi.fn().mockRejectedValue(new Error("unexpected action"));
+  const { result } = renderHook(() =>
+    useRemoteRunPanelController({
+      workItem: { kind: "block", canvasId: "canvas-main", blockRef: alpha.ref },
+      runtimeRemoteExecution: remote,
+      refreshRuntimeRemoteExecution: inspector.refreshRuntimeRemoteExecution,
+      executionLocator: {
+        kind: "owner_canvas",
+        projectRoot: project.rootPath,
+        projectId: project.projectId,
+        canvasId: "canvas-main",
+        operatorProfileId: "operator-A",
+        humanPrincipalId: "human-A"
+      },
+      executionApi: {
+        startWorkspaceExecution: unused,
+        followWorkspaceExecution: follow,
+        cancelWorkspaceExecution: unused,
+        respondWorkspaceExecution: unused
+      },
+      open: true,
+      t: inspector.t
+    })
+  );
+  await waitFor(() => expect(result.current.actionError).toBe("initial follow unavailable"));
+  follow.mockClear();
+  failing = true;
+  await act(async () => {
+    await result.current.refresh();
+  });
+  expect(inspector.error).toBe("current runtime read failed");
+  expect(follow).not.toHaveBeenCalled();
+  expect(result.current.actionError).toBe("current runtime read failed");
 });

@@ -25,6 +25,7 @@ import { changeAgentEndpointSelection } from "./collaboration/changeAgentEndpoin
 import { createTranslator, type Language } from "./i18n";
 import { BlockInspector } from "./inspector/BlockInspector";
 import { useAutoRunSelectionGuard } from "./hooks/useAutoRunSelectionGuard";
+import { useBlockInspectorRuntimeSubscription } from "./hooks/useBlockInspectorRuntimeSubscription";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
 import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
 import { useOwnerControlPlaneAvailability } from "./hooks/useOwnerControlPlaneAvailability";
@@ -69,7 +70,11 @@ export function BlockInspectorWindow() {
     value: DesktopGraphViewModel;
   } | null>(null);
   const graph = loadedGraph?.scopeKey === graphScopeKey ? loadedGraph.value : null;
-  const loadRequestRef = useRef({ sequence: 0, foreground: null as number | null });
+  const loadRequestRef = useRef({
+    sequence: 0,
+    foreground: null as number | null,
+    pendingRuntime: null as { isCurrent: () => boolean; retry: () => void } | null
+  });
   const [blockRunRecords, setBlockRunRecords] = useState<DesktopBlockRunRecordSummary[]>([]);
   const [blockReviewAttempts, setBlockReviewAttempts] = useState<DesktopReviewAttemptSummary[]>([]);
   const [blockFeedbackRecords, setBlockFeedbackRecords] = useState<DesktopFeedbackRecord[]>([]);
@@ -230,10 +235,12 @@ export function BlockInspectorWindow() {
       options: {
         resetSelectedRunRecord?: boolean;
         skipCommitWhenDirty?: boolean;
+        preserveDirtyDraft?: boolean;
+        propagateReadError?: boolean;
         preserveEditsSince?: DesktopBlockDetail;
         isOwnerCurrent?: () => boolean;
       } = {}
-    ) => {
+    ): Promise<DesktopBlockDetail | undefined> => {
       if (!bridge || !projectRoot || !ref) {
         return;
       }
@@ -244,7 +251,16 @@ export function BlockInspectorWindow() {
         options.isOwnerCurrent?.() === false
       )
         return;
-      if (options.skipCommitWhenDirty && loadRequestRef.current.foreground !== null) return;
+      if (options.skipCommitWhenDirty && loadRequestRef.current.foreground !== null) {
+        if (options.preserveDirtyDraft)
+          loadRequestRef.current.pendingRuntime = {
+            isCurrent: owner.isCurrent,
+            retry: () => {
+              void loadBlock(ref, options);
+            }
+          };
+        return;
+      }
       const request = ++loadRequestRef.current.sequence;
       if (!options.skipCommitWhenDirty) loadRequestRef.current.foreground = request;
       const runOperation = selection.current.runOperation;
@@ -263,7 +279,7 @@ export function BlockInspectorWindow() {
           bridge.getFeedbackRecords(canvas, ref)
         ]);
         if (!isCurrent()) return;
-        if (options.skipCommitWhenDirty && draftDirtyRef.current) {
+        if (options.skipCommitWhenDirty && draftDirtyRef.current && !options.preserveDirtyDraft) {
           return;
         }
         setLoadedGraph({ scopeKey: graphScopeKey, value: nextGraph });
@@ -272,8 +288,21 @@ export function BlockInspectorWindow() {
           current?.ref === ref && draftBefore?.ref === ref
             ? {
                 ...block,
-                title: current.title !== draftBefore.title ? current.title : block.title,
+                graphVersion:
+                  options.preserveDirtyDraft && draftDirtyRef.current
+                    ? current.graphVersion
+                    : block.graphVersion,
+                promptHash:
+                  options.preserveDirtyDraft && draftDirtyRef.current
+                    ? current.promptHash
+                    : block.promptHash,
+                title:
+                  (options.preserveDirtyDraft && draftDirtyRef.current) ||
+                  current.title !== draftBefore.title
+                    ? current.title
+                    : block.title,
                 promptMarkdown:
+                  (options.preserveDirtyDraft && draftDirtyRef.current) ||
                   current.promptMarkdown !== draftBefore.promptMarkdown
                     ? current.promptMarkdown
                     : block.promptMarkdown
@@ -291,12 +320,19 @@ export function BlockInspectorWindow() {
           setSelectedRunRecord(null);
         }
         setError(null);
+        return nextBlock;
       } catch (caught) {
         if (!isCurrent()) return;
         setLoadedGraph(null);
         setError(caught instanceof Error ? caught.message : String(caught));
+        if (options.propagateReadError) throw caught;
       } finally {
-        if (loadRequestRef.current.foreground === request) loadRequestRef.current.foreground = null;
+        if (loadRequestRef.current.foreground === request) {
+          loadRequestRef.current.foreground = null;
+          const pending = loadRequestRef.current.pendingRuntime;
+          loadRequestRef.current.pendingRuntime = null;
+          if (pending?.isCurrent()) pending.retry();
+        }
       }
     },
     [canvasId, captureBlockSelection, graphScopeKey, projectRoot, setSelectedRunRecord]
@@ -306,6 +342,32 @@ export function BlockInspectorWindow() {
     beginBlockSelection(initialBlockRef);
     void loadBlock(initialBlockRef);
   }, [beginBlockSelection, initialBlockRef, loadBlock]);
+
+  const refreshExternalRuntime = useCallback(async () => {
+    await loadBlock(blockRef, {
+      resetSelectedRunRecord: false,
+      skipCommitWhenDirty: true,
+      preserveDirtyDraft: true
+    });
+  }, [blockRef, loadBlock]);
+  const retryRuntimeSubscription = useBlockInspectorRuntimeSubscription({
+    projectRoot,
+    canvasId,
+    refresh: refreshExternalRuntime,
+    setError
+  });
+
+  const refreshRuntimeRemoteExecution = useCallback(async () => {
+    const owner = captureBlockSelection();
+    await loadBlock(blockRef, {
+      resetSelectedRunRecord: false,
+      preserveDirtyDraft: true,
+      propagateReadError: true
+    });
+    if (!owner.isCurrent()) return null;
+    await retryRuntimeSubscription();
+    return owner.isCurrent() ? (selection.current.block?.remoteExecution ?? null) : null;
+  }, [blockRef, captureBlockSelection, loadBlock, retryRuntimeSubscription]);
 
   const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
@@ -709,6 +771,7 @@ export function BlockInspectorWindow() {
       agentDetections={agentDetections}
       canvasRef={{ projectRoot, canvasId }}
       executionLocator={executionLocator}
+      refreshRuntimeRemoteExecution={refreshRuntimeRemoteExecution}
       className="inset-0 h-screen w-screen min-w-0 rounded-none border-0 shadow-none ring-0"
       error={error}
       executorOptions={graph?.executorOptions ?? []}

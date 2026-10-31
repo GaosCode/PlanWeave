@@ -8,6 +8,7 @@ import type {
   DesktopFeedbackRecord,
   DesktopGraphViewModel,
   DesktopReviewAttemptSummary,
+  RemoteBlockExecutionReadModel,
   DesktopRunTerminalAvailability,
   DesktopRunRecord,
   DesktopTerminalAppDetection,
@@ -75,6 +76,7 @@ type BlockInspectorProps = {
   onTerminalDefaultAppChange?: (appId: DesktopTerminalAppId) => Promise<void> | void;
   onRefreshAgentEndpoints?: () => Promise<void>;
   refreshingAgentEndpoints?: boolean;
+  refreshRuntimeRemoteExecution?: () => Promise<RemoteBlockExecutionReadModel | null>;
   saveSelectedBlockPrompt: () => Promise<void>;
   saveSelectedBlockTitle: () => Promise<void>;
   selectedBlock: DesktopBlockDetail | null;
@@ -116,6 +118,7 @@ export function BlockInspector({
   onTerminalDefaultAppChange,
   onRefreshAgentEndpoints,
   refreshingAgentEndpoints,
+  refreshRuntimeRemoteExecution,
   saveSelectedBlockPrompt,
   saveSelectedBlockTitle,
   selectedBlock,
@@ -444,6 +447,7 @@ export function BlockInspector({
                   : null
               }
               runtimeRemoteExecution={selectedBlock.remoteExecution}
+              refreshRuntimeRemoteExecution={refreshRuntimeRemoteExecution}
               localAutoRunActive={localAutoRunActive}
               canvasRef={canvasRef}
               executionLocator={executionLocator}
