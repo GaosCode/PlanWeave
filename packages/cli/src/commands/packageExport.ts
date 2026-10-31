@@ -223,7 +223,7 @@ export function registerPackageExportSubcommand(packageCommand: Command): void {
     await assertSafeExportTarget(resolvedTarget, protections);
     const files = await exportCanvasPackageFiles(workspace);
     await assertExportTarget(resolvedTarget, options.force === true);
-    await replacePackageFiles(resolvedTarget, files);
+    await replacePackageFiles(resolvedTarget, files, { overwrite: options.force === true });
     const result = {
       ok: true as const,
       target,

@@ -781,6 +781,7 @@
         "packageFileChanges.test.ts",
         "packageFileReadIntents.test.ts",
         "packageFiles.test.ts",
+        "packageReplacementPolicy.test.ts",
         "packageSnapshot.test.ts",
         "packageSnapshotConsistency.test.ts",
         "paths.test.ts",

@@ -187,15 +187,24 @@ async function readSelectedPackageFilesBatch(
   });
 }
 
-export async function replacePackageFiles(root: string, files: PackageFileEntry[]): Promise<void> {
-  await replacePackageFilesWithFileSystem(root, files, packageFileSystem);
+type PackageReplacementOptions = {
+  overwrite?: boolean;
+};
+
+export async function replacePackageFiles(
+  root: string,
+  files: PackageFileEntry[],
+  options: PackageReplacementOptions = {}
+): Promise<void> {
+  await replacePackageFilesWithFileSystem(root, files, packageFileSystem, options);
 }
 
 /** @internal Kept out of the runtime index for filesystem fault-injection tests. */
 export async function replacePackageFilesWithFileSystem(
   root: string,
   files: PackageFileEntry[],
-  fileSystem: PackageFileSystem
+  fileSystem: PackageFileSystem,
+  options: PackageReplacementOptions = {}
 ): Promise<void> {
   const targetRoot = resolve(root);
   const preparedFiles = preparePackageFiles(targetRoot, files);
@@ -217,6 +226,9 @@ export async function replacePackageFilesWithFileSystem(
             workspaceRoot: parent,
             target: targetRoot
           });
+          if (options.overwrite === false) {
+            await assertEmptyReplacementTarget(fs, targetRoot);
+          }
           await replacePreparedPackageFiles(fs, targetRoot, parent, preparedFiles);
         });
       });
@@ -242,6 +254,26 @@ export async function replacePackageFilesWithFileSystem(
     throw failuresError(
       `Package replacement completed at '${targetRoot}', but lock cleanup failed; inspect '${lockPath}' before another replacement.`,
       lockCleanupFailures
+    );
+  }
+}
+
+async function assertEmptyReplacementTarget(fs: PackageFileSystem, target: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(target);
+  } catch (error) {
+    if (error instanceof Error && "code" in error) {
+      if (error.code === "ENOENT") return;
+      if (error.code === "ENOTDIR") {
+        throw new Error(`Package replacement target '${target}' exists and is not a directory.`);
+      }
+    }
+    throw error;
+  }
+  if (entries.length > 0) {
+    throw new Error(
+      `Package replacement target '${target}' is not empty; overwrite was not allowed.`
     );
   }
 }
@@ -331,6 +363,7 @@ export type PackageFileSystem = {
   mkdir: typeof mkdir;
   mkdtemp: typeof mkdtemp;
   open: typeof open;
+  readdir: typeof readdir;
   rename: typeof rename;
   rm: typeof rm;
   unlink: typeof unlink;
@@ -344,6 +377,7 @@ const packageFileSystem: PackageFileSystem = {
   mkdir,
   mkdtemp,
   open,
+  readdir,
   rename,
   rm,
   unlink,

@@ -39,6 +39,7 @@ const nodePackageFileSystem: PackageFileSystem = {
   mkdir,
   mkdtemp,
   open,
+  readdir,
   rename,
   rm,
   unlink,

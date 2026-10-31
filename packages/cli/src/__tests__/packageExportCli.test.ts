@@ -1,3 +1,4 @@
+import { fork } from "node:child_process";
 import {
   cp,
   lstat,
@@ -11,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   runCli,
@@ -77,6 +79,110 @@ async function expectProtectedExportTarget(
 }
 
 describe("CLI package export", () => {
+  it(
+    "refuses a non-force export if another process publishes after its empty-target check",
+    async () => {
+      const project = await createTestProject("planweave-export-race-");
+      const target = join(project.sandboxRoot, "export");
+      await mkdir(target);
+      const preload = join(project.sandboxRoot, "pause-export.mjs");
+      await writeFile(
+        preload,
+        `
+      import fs from "node:fs/promises";
+      import { syncBuiltinESMExports } from "node:module";
+      const originalReaddir = fs.readdir;
+      const originalMkdir = fs.mkdir;
+      let emptyTargetObserved = false;
+      let paused = false;
+      fs.readdir = async function(path, ...options) {
+        const entries = await originalReaddir.call(this, path, ...options);
+        if (String(path) === ${JSON.stringify(target)} && entries.length === 0) {
+          emptyTargetObserved = true;
+        }
+        return entries;
+      };
+      fs.mkdir = async function(path, ...options) {
+        if (emptyTargetObserved && !paused && String(path) === ${JSON.stringify(dirname(target))}) {
+          paused = true;
+          await new Promise((resolve) => {
+            process.once("message", resolve);
+            process.send("empty-target-checked");
+          });
+        }
+        return originalMkdir.call(this, path, ...options);
+      };
+      syncBuiltinESMExports();
+    `
+      );
+      const child = fork(
+        join(cliPackageRoot, "src", "index.ts"),
+        projectArgs(project, ["package", "export", "--target", target, "--json"]),
+        {
+          execArgv: ["--import", "tsx", "--import", pathToFileURL(preload).href],
+          cwd: repoRoot,
+          env: project.env,
+          silent: true
+        }
+      );
+      let stdout = "";
+      let stderr = "";
+      child.stdout?.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString();
+      });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+      const completed = new Promise<number | null>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("exit", resolve);
+      });
+      child.stdin?.end();
+      const timeout = setTimeout(() => child.kill("SIGKILL"), 15_000);
+      try {
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            child.once("message", (message) => {
+              expect(message).toBe("empty-target-checked");
+              resolve();
+            });
+          }),
+          completed.then((code) => {
+            throw new Error(`Export exited before target check (${code}): ${stderr}`);
+          })
+        ]);
+        await writeFile(join(project.init.workspace.packageDir, "late.txt"), "later publisher");
+        const published = JSON.parse(
+          (
+            await runCli(
+              projectArgs(project, ["package", "export", "--target", target, "--json"]),
+              project.env
+            )
+          ).stdout
+        ) as { ok: boolean };
+        expect(published.ok).toBe(true);
+        const paths = await listRelativeFiles(target);
+        const before = await Promise.all(paths.map((path) => readFile(join(target, path))));
+        child.send("resume");
+        child.disconnect();
+        expect(await completed, `${stdout}\n${stderr}`).toBe(1);
+        expect(`${stdout}\n${stderr}`).toMatch(nonEmptyTargetErrorPattern);
+        expect(await listRelativeFiles(target)).toEqual(paths);
+        expect(await Promise.all(paths.map((path) => readFile(join(target, path))))).toEqual(
+          before
+        );
+        expect(
+          (await readdir(project.sandboxRoot)).filter((path) => path.startsWith(".export."))
+        ).toEqual([]);
+      } finally {
+        clearTimeout(timeout);
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        await completed;
+      }
+    },
+    roundTripTimeoutMs
+  );
+
   it("protects every registered canvas before force replacement and preserves safe exports", async () => {
     const project = await createTestProject("planweave-export-all-canvases-");
     const second = JSON.parse(
