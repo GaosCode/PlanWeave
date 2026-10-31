@@ -2,7 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyMigrations, centralSchemaVersion } from "../migrations.js";
+import {
+  applyMigrations,
+  centralSchemaVersion,
+  latestCentralSchemaVersion
+} from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { applyMigrationsThroughVersion } from "./support/migrationFixture.js";
 
@@ -48,7 +52,7 @@ describe("ACP conversation retention migration", () => {
     const before = Date.now();
     applyMigrations(f.database);
     const after = Date.now();
-    expect(centralSchemaVersion(f.database)).toBe(78);
+    expect(centralSchemaVersion(f.database)).toBe(latestCentralSchemaVersion);
     const upgraded = f.database
       .prepare("SELECT * FROM acp_conversation_turns ORDER BY turn_id")
       .all();
@@ -97,6 +101,6 @@ describe("ACP conversation retention migration", () => {
     ).toEqual([]);
     f.database.exec("DROP TRIGGER reject_retention_version");
     applyMigrations(f.database);
-    expect(centralSchemaVersion(f.database)).toBe(78);
+    expect(centralSchemaVersion(f.database)).toBe(latestCentralSchemaVersion);
   });
 });

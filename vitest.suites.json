@@ -1062,6 +1062,7 @@
         "acpConversationRetentionMigration.test.ts",
         "acpConversationRetention.test.ts",
         "acpConversationService.test.ts",
+        "acpConversationSourceMigration.test.ts",
         "accessHttp.test.ts",
         "aclRegistryMigration.test.ts",
         "activityRetention.test.ts",

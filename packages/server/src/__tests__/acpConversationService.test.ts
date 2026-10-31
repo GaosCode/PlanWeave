@@ -2,9 +2,11 @@ import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ACP_CONVERSATION_CAPABILITY,
-  ACP_TASK_RESTORE_CAPABILITY
+  ACP_TASK_RESTORE_CAPABILITY,
+  hashExecutionEnvelope
 } from "@planweave-ai/agent-host-protocol";
 import { RemoteOperationRepository } from "../remoteOperations.js";
+import { inWriteTransaction } from "../sqlite.js";
 import { createAcpConversationFixture } from "./support/acpConversationFixture.js";
 const fixtures: Awaited<ReturnType<typeof createAcpConversationFixture>>[] = [];
 afterEach(async () => {
@@ -21,6 +23,111 @@ async function setup(
   return f;
 }
 describe("durable remote ACP continuation", () => {
+  it.each([
+    1_000, 10_000
+  ])("locates the source after %i Host messages with an indexed attempt lookup", async (history) => {
+    const f = await setup();
+    const source = f.mailbox.listAfter(f.host.id, 0)[0]!;
+    f.db.prepare("DELETE FROM mailbox_messages WHERE message_id=?").run(source.messageId);
+    const insert =
+      f.db.prepare(`INSERT INTO mailbox_messages(message_id,host_id,command_json,created_at)
+      VALUES(?,?,?,'2030-01-01')`);
+    inWriteTransaction(f.db, () => {
+      for (let index = 0; index < history; index += 1)
+        insert.run(
+          `history-${index}`,
+          f.host.id,
+          JSON.stringify({
+            ...source.command,
+            executionAttemptId: `other-attempt-${index}`
+          })
+        );
+    });
+    f.mailbox.enqueue(f.host.id, source.command);
+    const prepare = f.db.prepare.bind(f.db);
+    const plans: string[] = [];
+    const spy = vi.spyOn(f.db, "prepare").mockImplementation((sql) => {
+      if (/SELECT command_json FROM mailbox_messages/i.test(sql)) {
+        plans.push(
+          ...prepare(`EXPLAIN QUERY PLAN ${sql}`)
+            .all(f.host.id, f.operation.executionAttemptId)
+            .map((row) => String(row.detail))
+        );
+      }
+      return prepare(sql);
+    });
+    try {
+      expect(f.service.page(f.operation, "actor").available).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(plans).toEqual([expect.stringMatching(/SEARCH .*USING INDEX.*host_id=\?.*<expr>=\?/)]);
+  });
+
+  it("isolates Hosts, skips other command types, and uses the earliest execute command", async () => {
+    const f = await setup();
+    const source = f.mailbox.listAfter(f.host.id, 0)[0]!;
+    if (source.command.type !== "execute_block") throw new Error("expected_execute_source");
+    const original = source.command;
+    const otherEnvelope = { ...original.envelope, renderedPrompt: "Different source command" };
+    const other = {
+      ...original,
+      envelope: otherEnvelope,
+      envelopeDigest: hashExecutionEnvelope(otherEnvelope)
+    };
+    f.db.prepare("DELETE FROM mailbox_messages WHERE message_id=?").run(source.messageId);
+    const otherHost = f.hosts.register("Another Host").host;
+    f.mailbox.enqueue(otherHost.id, other);
+    f.mailbox.enqueue(f.host.id, {
+      type: "cancel_execution",
+      protocolVersion: 1,
+      dispatchId: original.dispatchId,
+      executionAttemptId: original.executionAttemptId,
+      leaseId: original.leaseId,
+      reason: "cancel"
+    });
+    f.mailbox.enqueue(f.host.id, original);
+    f.mailbox.enqueue(f.host.id, other);
+
+    expect(f.service.act(f.operation, "actor", f.prompt).available).toBe(true);
+    const prompts = f.mailbox
+      .listAfter(f.host.id, 0)
+      .filter((message) => message.command.type === "acp_conversation.prompt");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!.command).toMatchObject({ sourceEnvelope: original.envelope });
+    f.db
+      .prepare(`UPDATE mailbox_messages SET command_json=json_set(command_json,'$.executionAttemptId','another-attempt')
+      WHERE host_id=? AND json_extract(command_json,'$.type')='execute_block'`)
+      .run(f.host.id);
+    const missingBefore = f.db.prepare("SELECT * FROM mailbox_messages ORDER BY sequence").all();
+    expect(f.service.page(f.operation, "actor")).toMatchObject({
+      available: false,
+      reason: "acp_conversation_session_unavailable"
+    });
+    expect(() =>
+      f.service.act(f.operation, "actor", { ...f.prompt, turnId: "missing-source" })
+    ).toThrow("acp_conversation_session_unavailable");
+    expect(f.db.prepare("SELECT * FROM mailbox_messages ORDER BY sequence").all()).toEqual(
+      missingBefore
+    );
+  });
+
+  it("validates the selected legacy execute command even when the index matches its identity", async () => {
+    const f = await setup();
+    f.db.prepare(`UPDATE mailbox_messages SET command_json=? WHERE host_id=?`).run(
+      JSON.stringify({
+        type: "execute_block",
+        executionAttemptId: f.operation.executionAttemptId
+      }),
+      f.host.id
+    );
+    expect(() => f.service.page(f.operation, "actor")).toThrow(/protocolVersion/);
+    f.authorize.mockImplementation(() => {
+      throw new Error("forbidden");
+    });
+    expect(() => f.service.page(f.operation, "actor")).toThrow("forbidden");
+  });
+
   it("reserves the same session for an explicit restore and deduplicates repeated clicks", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
