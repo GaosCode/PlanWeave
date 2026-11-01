@@ -90,7 +90,8 @@ const displayNames: Readonly<Record<string, string>> = {
   opencode: "OpenCode",
   "claude-code": "Claude Code",
   pi: "Pi",
-  grok: "Grok"
+  grok: "Grok",
+  codebuddy: "CodeBuddy"
 };
 
 /** Official Pi / pi-acp names. Present values are forwarded; absence is not a resolution error. */

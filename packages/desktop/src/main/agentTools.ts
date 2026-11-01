@@ -123,6 +123,16 @@ const agentProfiles: DesktopAgentToolProfile[] = [
     execArgs: ["--no-auto-update", "agent", "stdio"],
     fullAccessArgs: [],
     loginCommands: ["grok auth login"]
+  },
+  {
+    kind: "codebuddy",
+    runnerKind: "acp",
+    name: "CodeBuddy",
+    command: "codebuddy-code",
+    versionArgs: ["--version"],
+    execArgs: ["--acp"],
+    fullAccessArgs: [],
+    loginCommands: ["codebuddy-code"]
   }
 ];
 

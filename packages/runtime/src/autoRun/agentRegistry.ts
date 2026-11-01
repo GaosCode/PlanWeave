@@ -8,6 +8,7 @@ import { agentFamilySchema } from "../types.js";
 import type { AgentDefinition } from "./agentRunner.js";
 import { claudeCodeAgentDefinition } from "./claudeCodeIntegration.js";
 import { codexAgentDefinition } from "./codexIntegration.js";
+import { codebuddyAgentDefinition } from "./codebuddyIntegration.js";
 import { grokAgentDefinition } from "./grokIntegration.js";
 import { opencodeAgentDefinition } from "./opencodeIntegration.js";
 import { piAgentDefinition } from "./piIntegration.js";
@@ -17,7 +18,8 @@ const definitions = {
   opencode: opencodeAgentDefinition,
   "claude-code": claudeCodeAgentDefinition,
   pi: piAgentDefinition,
-  grok: grokAgentDefinition
+  grok: grokAgentDefinition,
+  codebuddy: codebuddyAgentDefinition
 } as const satisfies Record<AgentFamily, AgentDefinition>;
 
 export function resolveAgentDefinition(agent: AgentFamily): AgentDefinition {
@@ -50,7 +52,8 @@ export function registeredAgentDefinitions(): readonly AgentDefinition[] {
     definitions.opencode,
     definitions["claude-code"],
     definitions.pi,
-    definitions.grok
+    definitions.grok,
+    definitions.codebuddy
   ];
 }
 
