@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   acpConversationPromptCommandSchema,
+  acpConversationEventSchema,
   canvasRuntimeRequestCommandSchema,
   canvasRuntimeResponsePayloadSchema,
   exampleExecuteDelivery,
@@ -203,7 +204,8 @@ describe("Host complete wire frame admission", () => {
     "message"
   ] as const)("persists ordered lossless %s chunks and replays remaining chunks after partial ACK/restart", async (kind) => {
     const f = await seed();
-    const content = '中😀"\\\n\u0000'.repeat(4000);
+    const prefix = '中😀"\\\n\u0000'.repeat(100);
+    let content = prefix;
     const body =
       kind === "message"
         ? {
@@ -228,11 +230,36 @@ describe("Host complete wire frame admission", () => {
         body
       }
     };
+    const previous = f.state
+      .pendingEvents()
+      .slice()
+      .reverse()
+      .find((event) => event.type === "acp.events");
+    if (!previous || previous.type !== "acp.events") throw new Error("expected_acp_events");
+    const probe = {
+      ...previous,
+      afterCursor: 2,
+      cursor: 3,
+      events: [
+        {
+          eventVersion: 2,
+          cursor: 3,
+          sourceSequence: 3,
+          timestamp: source.event.timestamp,
+          fragment: { kind: "runner_body", body }
+        }
+      ]
+    };
+    content +=
+      "a".repeat(64 * 1024 - Buffer.byteLength(JSON.stringify(probe)) - 1) + "xtoken=value";
+    body.content = content;
+    expect(hostEventSchema.safeParse(probe).success).toBe(true);
     f.state.append(source);
     const chunks = f.state
       .pendingEvents()
       .filter((entry) => entry.type === "acp.events" && entry.events[0]?.sourceSequence === 3);
     expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((event) => hostEventSchema.safeParse(event).success)).toBe(true);
     expect(
       chunks
         .flatMap((entry) => entry.events)
@@ -296,6 +323,7 @@ describe("Host complete wire frame admission", () => {
     f.state.queueHeartbeat(activeLeases, emptyReadiness);
     const events = f.state.pendingEvents().filter((entry) => entry.type === "host.heartbeat");
     expect(events.length).toBeGreaterThan(1);
+    expect(events.every((event) => hostEventSchema.safeParse(event).success)).toBe(true);
     expect(events.flatMap((entry) => entry.activeLeases)).toEqual(activeLeases);
     expect(events[0]?.readiness).toEqual(emptyReadiness);
     expect(events.every((entry) => Buffer.byteLength(JSON.stringify(entry)) <= 1024)).toBe(true);
@@ -438,7 +466,11 @@ describe("Host complete wire frame admission", () => {
     expect(f.state.pendingEvents()).toEqual([]);
   });
 
-  it("uses the same complete-frame split policy for conversation streams", async () => {
+  it.each([
+    "output",
+    "terminal_output",
+    "message"
+  ] as const)("preserves schema-sensitive %s conversation text through complete-frame splitting", async (kind) => {
     const f = await setup();
     const command = acpConversationPromptCommandSchema.parse({
       type: "acp_conversation.prompt",
@@ -452,23 +484,64 @@ describe("Host complete wire frame admission", () => {
       sourceEnvelope: exampleExecutionEnvelopeInput
     });
     f.state.conversations.accept(command);
-    const content = "\u0000😀".repeat(10000);
-    f.state.conversations.append(command.turnId, {
-      kind: "runner",
-      fragment: {
-        kind: "runner_body",
-        body: {
-          kind: "terminal_output",
-          terminalId: "terminal",
-          content,
-          redaction: { classes: [], replaced: 0 }
+    const event = {
+      type: "acp_conversation.event" as const,
+      protocolVersion: 1 as const,
+      operationId: command.operationId,
+      turnId: command.turnId,
+      executionAttemptId: command.executionAttemptId,
+      sessionId: command.sessionId,
+      messageId: "00000000-0000-0000-0000-000000000000",
+      sequence: 1,
+      timestamp: "2030-01-01T00:00:00.000Z",
+      payload: {
+        kind: "runner" as const,
+        fragment: {
+          kind: "runner_body" as const,
+          body:
+            kind === "message"
+              ? {
+                  kind,
+                  role: "assistant" as const,
+                  messageId: "message",
+                  chunk: true,
+                  content: "",
+                  redaction: { classes: [], replaced: 0 }
+                }
+              : kind === "terminal_output"
+                ? {
+                    kind,
+                    terminalId: "terminal",
+                    content: "",
+                    redaction: { classes: [], replaced: 0 }
+                  }
+                : {
+                    kind,
+                    stream: "stdout" as const,
+                    content: "",
+                    redaction: { classes: [], replaced: 0 }
+                  }
         }
       }
-    });
+    };
+    const prefix = '\u0000😀"\\\n';
+    const content =
+      prefix +
+      "a".repeat(
+        64 * 1024 -
+          Buffer.byteLength(JSON.stringify(event)) -
+          Buffer.byteLength(JSON.stringify(prefix)) +
+          1
+      ) +
+      "xtoken=value";
+    event.payload.fragment.body.content = content;
+    expect(acpConversationEventSchema.safeParse(event).success).toBe(true);
+    f.state.conversations.append(command.turnId, event.payload);
     const events = f.state
       .pendingEvents()
       .filter((entry) => entry.type === "acp_conversation.event");
     expect(events.length).toBeGreaterThan(1);
+    expect(events.every((event) => hostEventSchema.safeParse(event).success)).toBe(true);
     expect(
       events
         .map((entry) =>

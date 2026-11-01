@@ -158,7 +158,7 @@ export class AcpConversationRepository {
         .prepare("SELECT last_sequence FROM agent_host_conversation_turns WHERE turn_id=?")
         .get(turnId);
       const chunks = remoteRunnerWireChunks(payload.fragment, (fragment, index) => {
-        const event = acpConversationEventSchema.parse({
+        const parsed = acpConversationEventSchema.safeParse({
           type: "acp_conversation.event",
           protocolVersion: 1,
           operationId: command.operationId,
@@ -170,6 +170,8 @@ export class AcpConversationRepository {
           timestamp: new Date().toISOString(),
           payload: { kind: "runner", fragment }
         });
+        if (!parsed.success) return false;
+        const event = parsed.data;
         if (acpConversationEventPageBytes(event) > ACP_CONVERSATION_RESPONSE_MAX_BYTES)
           return false;
         try {

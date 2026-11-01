@@ -1003,6 +1003,7 @@
       "unit": [],
       "integration": [
         "acpConversationDelivery.test.ts",
+        "wireChunkConversationProjection.test.ts",
         "hostEnrollmentUnknownOutcome.test.ts",
         "exactPermissionHandshake.test.ts",
         "historicalPermissionReplay.test.ts",

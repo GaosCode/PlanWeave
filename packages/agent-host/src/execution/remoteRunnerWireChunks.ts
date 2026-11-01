@@ -1,9 +1,13 @@
-import type { RemoteRunnerEventFragment } from "@planweave-ai/agent-host-protocol";
+import {
+  remoteRunnerEventFragmentSchema,
+  type RemoteRunnerEventFragment
+} from "@planweave-ai/agent-host-protocol";
 
 export function remoteRunnerWireChunks(
   fragment: RemoteRunnerEventFragment,
   fits: (fragment: RemoteRunnerEventFragment, index: number) => boolean
 ): RemoteRunnerEventFragment[] {
+  remoteRunnerEventFragmentSchema.parse(fragment);
   if (fits(fragment, 0)) return [fragment];
   if (fragment.kind !== "runner_body") throw new Error("agent_host_outbound_payload_too_large");
   const body = fragment.body;
@@ -15,23 +19,24 @@ export function remoteRunnerWireChunks(
     throw new Error("agent_host_outbound_payload_too_large");
   const characters = Array.from(body.content);
   const chunks: RemoteRunnerEventFragment[] = [];
-  let offset = 0;
-  while (offset < characters.length) {
-    const candidate = (length: number): RemoteRunnerEventFragment => ({
+  const split = (start: number, end: number): void => {
+    const candidate: RemoteRunnerEventFragment = {
       kind: "runner_body",
-      body: { ...body, content: characters.slice(offset, offset + length).join("") }
-    });
-    let low = 0;
-    let high = characters.length - offset;
-    while (low < high) {
-      const length = Math.ceil((low + high) / 2);
-      if (fits(candidate(length), chunks.length)) low = length;
-      else high = length - 1;
+      body: { ...body, content: characters.slice(start, end).join("") }
+    };
+    if (fits(candidate, chunks.length)) {
+      chunks.push(candidate);
+      return;
     }
-    if (low === 0) throw new Error("agent_host_outbound_payload_too_large");
-    chunks.push(candidate(low));
-    offset += low;
-  }
-  if (chunks.length === 0) throw new Error("agent_host_outbound_payload_too_large");
+    if (end - start <= 1) throw new Error("agent_host_outbound_payload_too_large");
+    const middle = start + Math.floor((end - start) / 2);
+    split(start, middle);
+    split(middle, end);
+  };
+  if (characters.length === 0) throw new Error("agent_host_outbound_payload_too_large");
+  const middle = Math.floor(characters.length / 2);
+  if (middle === 0) throw new Error("agent_host_outbound_payload_too_large");
+  split(0, middle);
+  split(middle, characters.length);
   return chunks;
 }

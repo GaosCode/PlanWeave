@@ -182,6 +182,105 @@ describe("Host conversation single-event wire admission", () => {
     expect(f.state.pendingEvents()).toEqual([]);
   });
 
+  it("rejects original credential text and rolls back every chunk when no wire fragment can fit", async () => {
+    const f = await setup();
+    const runner = (content: string) => ({
+      kind: "runner" as const,
+      fragment: {
+        kind: "runner_body" as const,
+        body: {
+          kind: "output" as const,
+          stream: "stdout" as const,
+          content,
+          redaction: { classes: [], replaced: 0 }
+        }
+      }
+    });
+    expect(() => f.state.conversations.append(f.command.turnId, runner("token=value"))).toThrow(
+      "unredacted credential"
+    );
+    expect(f.state.pendingEvents()).toEqual([]);
+    expect(() =>
+      f.state.conversations.append(f.command.turnId, runner("a".repeat(80000) + " token=value"))
+    ).toThrow("unredacted credential");
+    expect(f.state.pendingEvents()).toEqual([]);
+    f.state.setHostEventMaxPayloadBytes(1);
+    expect(() => f.state.conversations.append(f.command.turnId, runner("safe"))).toThrow(
+      "agent_host_outbound_payload_too_large"
+    );
+    expect(f.state.pendingEvents()).toEqual([]);
+    f.state.setHostEventMaxPayloadBytes(64 * 1024);
+    f.state.conversations.append(f.command.turnId, runner("safe"));
+    expect(f.state.pendingEvents()).toEqual([expect.objectContaining({ sequence: 1 })]);
+  });
+
+  it("rolls back earlier chunks and sequence when durable outbox capacity fails mid-publication", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "conversation-chunk-rollback-"));
+    const state = await openAgentHostState(join(directory, "state.sqlite"), 5000, {
+      maxPendingEvents: 1
+    });
+    fixtures.push({ directory, state });
+    const f = await setup();
+    state.conversations.accept(f.command);
+    state.setHostEventMaxPayloadBytes(32 * 1024);
+    expect(() =>
+      state.conversations.append(f.command.turnId, {
+        kind: "runner",
+        fragment: {
+          kind: "runner_body",
+          body: {
+            kind: "output",
+            stream: "stdout",
+            content: "a".repeat(65000),
+            redaction: { classes: [], replaced: 0 }
+          }
+        }
+      })
+    ).toThrow("agent_host_pending_event_capacity_exceeded");
+    expect(state.pendingEvents()).toEqual([]);
+    state.conversations.append(f.command.turnId, {
+      kind: "status",
+      status: "failed",
+      error: "publication_failed"
+    });
+    expect(state.pendingEvents()).toEqual([expect.objectContaining({ sequence: 1 })]);
+  });
+
+  it("splits a nonmonotonic credential-like suffix without changing text or escaping", async () => {
+    const f = await setup();
+    f.state.setHostEventMaxPayloadBytes(32 * 1024);
+    const content = "a".repeat(25000) + "xtoken=value" + "a".repeat(24986) + '\u0000😀"\\\n';
+    f.state.conversations.append(f.command.turnId, {
+      kind: "runner",
+      fragment: {
+        kind: "runner_body",
+        body: { kind: "output", stream: "stdout", content, redaction: { classes: [], replaced: 0 } }
+      }
+    });
+    const events = f.state
+      .pendingEvents()
+      .filter((event) => event.type === "acp_conversation.event");
+    expect(events.length).toBeGreaterThan(1);
+    expect(
+      events.every(
+        (event) =>
+          acpConversationEventSchema.safeParse(event).success &&
+          Buffer.byteLength(JSON.stringify(event)) <= 32 * 1024
+      )
+    ).toBe(true);
+    expect(
+      events
+        .map((event) =>
+          event.payload.kind === "runner" &&
+          event.payload.fragment.kind === "runner_body" &&
+          "content" in event.payload.fragment.body
+            ? event.payload.fragment.body.content
+            : ""
+        )
+        .join("")
+    ).toBe(content);
+  });
+
   it("keeps the sequence available after a pre-outbox rejection for a subsequent explicit terminal", async () => {
     const f = await setup();
     f.state.setHostEventMaxPayloadBytes(8 * 1024 * 1024);
