@@ -69,6 +69,7 @@ export function snapshotFromWorkspaceProjection(
 }
 
 export type WorkspaceCanvasSessionView = {
+  sessionAuthority: object;
   snapshot: WorkspaceCanvasCommandSnapshot;
   projection: CollaborationCanvasBindingReplicaProjection | null;
   projectionStatus: WorkspaceCanvasProjectionStatus | null;
@@ -237,7 +238,13 @@ export function useWorkspaceCanvasSession(input: {
         setWorkspaceView({ authority, projection });
         setSnapshot(nextSnapshot);
         if (projection.status === "accepted") {
-          return { status: "completed", ok: true, error: null, staleConflict: null };
+          return {
+            status: "completed",
+            ok: true,
+            error: null,
+            staleConflict: null,
+            confirmedProjection: projection.replica
+          };
         }
         return {
           status: "completed",
@@ -291,8 +298,19 @@ export function useWorkspaceCanvasSession(input: {
     [replica, snapshot.connectionPhase]
   );
 
+  const sessionAuthority = useMemo(
+    () => ({
+      authority,
+      readOnly: activeWorkspaceProjection?.readOnly,
+      authorityId: replica?.authorityId,
+      canEdit: replica?.canEdit
+    }),
+    [authority, activeWorkspaceProjection?.readOnly, replica?.authorityId, replica?.canEdit]
+  );
+
   return useMemo(
     () => ({
+      sessionAuthority,
       snapshot,
       projection,
       projectionStatus: activeWorkspaceProjection?.status ?? null,
@@ -304,6 +322,7 @@ export function useWorkspaceCanvasSession(input: {
     }),
     [
       input.sessionConnected,
+      sessionAuthority,
       projection,
       reconnect,
       snapshot,

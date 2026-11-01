@@ -1,4 +1,8 @@
 import { useCallback } from "react";
+import {
+  useTaskWorkspacePromptDrafts,
+  type TaskWorkspacePromptAuthority
+} from "./useTaskWorkspacePromptDrafts";
 import type { DesktopBridgeApi, TaskWorkspace } from "@planweave-ai/runtime";
 import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
 import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasCommands";
@@ -26,12 +30,19 @@ function graphEditError(result: Awaited<ReturnType<DesktopBridgeApi["updateTaskP
 
 export function useTaskWorkspacePromptActions(options: {
   api: TaskWorkspacePromptApi | null | undefined;
+  authority: TaskWorkspacePromptAuthority;
   navigation: TaskWorkspaceNavigationIdentity | null;
   onLocalSaved: () => void;
   workspace: TaskWorkspace | null;
   workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
-}): Pick<TaskWorkspaceController, "saveBlockPrompt" | "saveTaskPrompt"> {
+}): Pick<TaskWorkspaceController, "saveBlockPrompt" | "saveTaskPrompt" | "getPromptDraft"> {
   const { api, navigation, onLocalSaved, workspace, workspaceCanvas = null } = options;
+  const { confirmProjection, getProjection, getPromptDraft, getWriteContext } =
+    useTaskWorkspacePromptDrafts({
+      authority: options.authority,
+      navigation,
+      workspaceCanvas
+    });
   const localNavigation =
     navigation && !isWorkspaceTaskWorkspaceNavigation(navigation) ? navigation : null;
   const localCanvasRef = localNavigation
@@ -40,17 +51,21 @@ export function useTaskWorkspacePromptActions(options: {
 
   const saveTaskPrompt = useCallback<TaskWorkspaceController["saveTaskPrompt"]>(
     async ({ baseMarkdown, markdown }) => {
+      const context = getWriteContext();
+      if (!context) return "retired";
+      const workspaceCanvas = context.workspaceCanvas;
       if (!api || !navigation || !workspace) {
         throw new Error("Cannot save a Task prompt without a Task Workspace bridge and identity.");
       }
       const sharedPrompt = workspaceCanvas?.enabled
-        ? sharedTaskPromptMarkdown(workspaceCanvas.projection, workspace, navigation.taskId)
+        ? sharedTaskPromptMarkdown(getProjection(), workspace, navigation.taskId)
         : null;
       const current = workspaceCanvas?.enabled
         ? null
         : localCanvasRef
           ? await api.getTaskDetail(localCanvasRef, navigation.taskId)
           : null;
+      if (!getWriteContext()) return "retired";
       if (workspaceCanvas?.enabled && sharedPrompt === null) {
         throw new Error("The shared Task prompt authority is unavailable.");
       }
@@ -70,6 +85,15 @@ export function useTaskWorkspacePromptActions(options: {
       let sharedError: string | null = null;
       const mode = await runDurablePackageWrite({
         workspaceCanvas,
+        onSharedSaved: (projection) => {
+          if (
+            !projection ||
+            sharedTaskPromptMarkdown(projection, workspace, navigation.taskId) !== markdown
+          ) {
+            throw new Error("The shared Task prompt changed before its save was confirmed.");
+          }
+          confirmProjection(projection);
+        },
         intent: {
           kind: "update_task_prompt",
           taskId: navigation.taskId,
@@ -91,25 +115,38 @@ export function useTaskWorkspacePromptActions(options: {
       });
       if (mode === "retired") return "retired";
       if (mode === "failed") throw new Error(sharedError ?? "Shared canvas command failed.");
-      if (mode === "local") onLocalSaved();
+      if (mode === "local" && getWriteContext()) onLocalSaved();
       return "saved";
     },
-    [api, localCanvasRef, navigation, onLocalSaved, workspace, workspaceCanvas]
+    [
+      api,
+      confirmProjection,
+      getProjection,
+      getWriteContext,
+      localCanvasRef,
+      navigation,
+      onLocalSaved,
+      workspace
+    ]
   );
 
   const saveBlockPrompt = useCallback<TaskWorkspaceController["saveBlockPrompt"]>(
     async (blockRef, { baseMarkdown, markdown }) => {
+      const context = getWriteContext();
+      if (!context) return "retired";
+      const workspaceCanvas = context.workspaceCanvas;
       if (!api || !navigation || !workspace) {
         throw new Error("Cannot save a Block prompt without a Task Workspace bridge and identity.");
       }
       const sharedPrompt = workspaceCanvas?.enabled
-        ? sharedBlockPromptMarkdown(workspaceCanvas.projection, workspace, blockRef)
+        ? sharedBlockPromptMarkdown(getProjection(), workspace, blockRef)
         : null;
       const current = workspaceCanvas?.enabled
         ? null
         : localCanvasRef
           ? await api.getBlockDetail(localCanvasRef, blockRef)
           : null;
+      if (!getWriteContext()) return "retired";
       if (workspaceCanvas?.enabled && sharedPrompt === null) {
         throw new Error("The shared Block prompt authority is unavailable.");
       }
@@ -129,6 +166,15 @@ export function useTaskWorkspacePromptActions(options: {
       let sharedError: string | null = null;
       const mode = await runDurablePackageWrite({
         workspaceCanvas,
+        onSharedSaved: (projection) => {
+          if (
+            !projection ||
+            sharedBlockPromptMarkdown(projection, workspace, blockRef) !== markdown
+          ) {
+            throw new Error("The shared Block prompt changed before its save was confirmed.");
+          }
+          confirmProjection(projection);
+        },
         intent: { kind: "update_block_prompt", blockRef, promptMarkdown: markdown },
         onError: (message) => {
           sharedError = message;
@@ -146,11 +192,20 @@ export function useTaskWorkspacePromptActions(options: {
       });
       if (mode === "retired") return "retired";
       if (mode === "failed") throw new Error(sharedError ?? "Shared canvas command failed.");
-      if (mode === "local") onLocalSaved();
+      if (mode === "local" && getWriteContext()) onLocalSaved();
       return "saved";
     },
-    [api, localCanvasRef, navigation, onLocalSaved, workspace, workspaceCanvas]
+    [
+      api,
+      confirmProjection,
+      getProjection,
+      getWriteContext,
+      localCanvasRef,
+      navigation,
+      onLocalSaved,
+      workspace
+    ]
   );
 
-  return { saveBlockPrompt, saveTaskPrompt };
+  return { getPromptDraft, saveBlockPrompt, saveTaskPrompt };
 }

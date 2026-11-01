@@ -299,6 +299,8 @@
         "taskWorkspaceLiveDuration.test.ts",
         "taskWorkspaceNavigation.test.ts",
         "taskWorkspacePromptEditing.test.tsx",
+        "taskWorkspacePromptSaveLifecycle.test.tsx",
+        "taskWorkspacePromptSharedSaveLifecycle.test.tsx",
         "taskWorkspaceRecordCache.test.ts",
         "taskWorkspaceRecordRefresh.test.tsx",
         "taskWorkspaceRenderBenchmark.test.ts",

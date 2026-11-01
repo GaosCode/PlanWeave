@@ -444,6 +444,7 @@ describe("desktop renderer hook interfaces", () => {
       .mockReturnValueOnce(submitted.promise)
       .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const workspaceCanvas: WorkspaceCanvasCommandsResult = {
+      sessionAuthority: {},
       enabled: true,
       snapshot: {
         session: null,

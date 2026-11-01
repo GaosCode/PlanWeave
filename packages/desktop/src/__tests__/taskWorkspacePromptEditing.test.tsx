@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   TaskWorkspaceBlockPrompts,
   TaskWorkspaceTaskPrompt
-} from "../renderer/task-workspace/TaskWorkspacePrompts";
+} from "./helpers/taskWorkspacePromptOwnerFixture";
 import type { TaskWorkspacePromptLabels } from "../renderer/task-workspace/contracts";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import { taskWorkspaceInspectorFixture } from "./helpers/taskWorkspaceInspectorFixture";

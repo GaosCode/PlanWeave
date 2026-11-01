@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 
+import { taskWorkspacePromptOwnerFixture } from "./helpers/taskWorkspacePromptOwnerFixture";
 import "@testing-library/jest-dom/vitest";
 import {
   act,
@@ -245,6 +246,7 @@ function controller(patch: Partial<TaskWorkspaceController> = {}): TaskWorkspace
     agentEndpointsForBlock: () => agentEndpoints,
     agentEndpointsForTask: agentEndpoints,
     error: null,
+    getPromptDraft: taskWorkspacePromptOwnerFixture(),
     getRunScrollTop: () => 0,
     hasMoreRuns: false,
     liveStatus: "idle",

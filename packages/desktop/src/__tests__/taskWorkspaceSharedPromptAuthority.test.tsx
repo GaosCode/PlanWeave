@@ -152,6 +152,7 @@ function workspaceCanvasWithProjection(
   projection = sharedPromptProjection()
 ): WorkspaceCanvasCommandsResult {
   return {
+    sessionAuthority: {},
     enabled: true,
     authorityMode: "shared",
     snapshot: {
@@ -173,9 +174,24 @@ function workspaceCanvasWithProjection(
     projection,
     projectionStatus: null,
     offline: false,
-    submit: vi
-      .fn()
-      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null }),
+    submit: vi.fn<WorkspaceCanvasCommandsResult["submit"]>(async ({ intent }) => {
+      projection = structuredClone(projection);
+      projection.revision += 1;
+      if (intent.kind === "update_task_prompt") {
+        const task = projection.content.tasks.find((item) => item.taskId === intent.taskId);
+        if (!task) throw new Error("Missing shared Task fixture");
+        task.promptMarkdown = intent.promptMarkdown;
+      }
+      if (intent.kind === "update_block_prompt")
+        projection.content.blockPromptMarkdownByRef[intent.blockRef] = intent.promptMarkdown;
+      return {
+        status: "completed",
+        ok: true,
+        error: null,
+        staleConflict: null,
+        confirmedProjection: projection
+      };
+    }),
     reconnect: vi.fn().mockResolvedValue(true)
   };
 }

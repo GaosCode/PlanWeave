@@ -16,17 +16,46 @@ import type { WorkspaceCanvasCommandsResult } from "../renderer/hooks/useWorkspa
 
 afterEach(cleanupRendererTestEnvironment);
 
+const confirmedProjection: NonNullable<WorkspaceCanvasCommandsResult["projection"]> = {
+  bindingKind: "remote",
+  authorityId: "shared-test-authority",
+  workspaceId: "workspace-1",
+  projectId: "project-1",
+  canvasId: "canvas-main",
+  revision: 1,
+  contentDigest: "a".repeat(64),
+  canEdit: true,
+  optimisticOperationIds: [],
+  rejections: [],
+  content: {
+    projectTitle: graph.projectTitle,
+    graphVersion: graph.graphVersion,
+    packageFingerprint: `pkg-${"b".repeat(64)}`,
+    tasks: graph.tasks,
+    edges: [],
+    sharedResourceGroups: [],
+    diagnostics: [],
+    layout,
+    blockDependenciesByRef: {},
+    taskOpenFeedbackCountByTaskId: {},
+    blockPromptMarkdownByRef: {}
+  }
+};
+
 function workspaceCanvasMock(
-  submit: WorkspaceCanvasCommandsResult["submit"] = vi.fn().mockResolvedValue({
-    status: "completed",
-    ok: true,
-    error: null,
-    staleConflict: null
-  })
+  submit: WorkspaceCanvasCommandsResult["submit"] = vi
+    .fn<WorkspaceCanvasCommandsResult["submit"]>()
+    .mockResolvedValue({
+      status: "completed",
+      ok: true,
+      error: null,
+      staleConflict: null,
+      confirmedProjection
+    })
 ): WorkspaceCanvasCommandsResult {
   return {
+    sessionAuthority: {},
     enabled: true,
-    authorityMode: "shared",
     snapshot: {
       session: {
         canvasId: "canvas-main",
@@ -45,6 +74,7 @@ function workspaceCanvasMock(
     },
     projection: null,
     projectionStatus: null,
+    initialRuntimeAvailability: null,
     offline: false,
     submit,
     reconnect: vi.fn().mockResolvedValue(true)
@@ -62,9 +92,13 @@ const paletteSettings = {
 
 describe("shared-mode package write gate", () => {
   it("routes prompt/title saves through shared intents and skips bridge writers", async () => {
-    const submit = vi
-      .fn()
-      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
+    const submit = vi.fn<WorkspaceCanvasCommandsResult["submit"]>().mockResolvedValue({
+      status: "completed",
+      ok: true,
+      error: null,
+      staleConflict: null,
+      confirmedProjection
+    });
     const bridge = createDesktopBridgeMock({
       updateTaskTitle: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] }),
       updateTaskPrompt: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
@@ -104,9 +138,13 @@ describe("shared-mode package write gate", () => {
   });
 
   it("routes selected-block field writes through shared intents", async () => {
-    const submit = vi
-      .fn()
-      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
+    const submit = vi.fn<WorkspaceCanvasCommandsResult["submit"]>().mockResolvedValue({
+      status: "completed",
+      ok: true,
+      error: null,
+      staleConflict: null,
+      confirmedProjection
+    });
     const bridge = createDesktopBridgeMock({
       updateBlockTitle: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] }),
       updateBlockExecutor: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] }),
@@ -185,9 +223,13 @@ describe("shared-mode package write gate", () => {
   });
 
   it("routes task executor changes through shared intents", async () => {
-    const submit = vi
-      .fn()
-      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
+    const submit = vi.fn<WorkspaceCanvasCommandsResult["submit"]>().mockResolvedValue({
+      status: "completed",
+      ok: true,
+      error: null,
+      staleConflict: null,
+      confirmedProjection
+    });
     const bridge = createDesktopBridgeMock({
       updateTaskExecutor: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
     });
@@ -219,9 +261,13 @@ describe("shared-mode package write gate", () => {
   });
 
   it("routes pathless Workspace task executor changes through shared intents", async () => {
-    const submit = vi
-      .fn()
-      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
+    const submit = vi.fn<WorkspaceCanvasCommandsResult["submit"]>().mockResolvedValue({
+      status: "completed",
+      ok: true,
+      error: null,
+      staleConflict: null,
+      confirmedProjection
+    });
     const bridge = createDesktopBridgeMock({
       updateTaskExecutor: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] })
     });
@@ -253,9 +299,13 @@ describe("shared-mode package write gate", () => {
   });
 
   it("refuses review-pipeline local writes while shared is enabled", async () => {
-    const submit = vi
-      .fn()
-      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
+    const submit = vi.fn<WorkspaceCanvasCommandsResult["submit"]>().mockResolvedValue({
+      status: "completed",
+      ok: true,
+      error: null,
+      staleConflict: null,
+      confirmedProjection
+    });
     const bridge = createDesktopBridgeMock({
       updateReviewPipeline: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] }),
       getReviewPipeline: vi.fn().mockResolvedValue(null)
@@ -287,9 +337,13 @@ describe("shared-mode package write gate", () => {
   });
 
   it("routes resetLayout through update_layout and skips resetDesktopLayout", async () => {
-    const submit = vi
-      .fn()
-      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
+    const submit = vi.fn<WorkspaceCanvasCommandsResult["submit"]>().mockResolvedValue({
+      status: "completed",
+      ok: true,
+      error: null,
+      staleConflict: null,
+      confirmedProjection
+    });
     const bridge = createDesktopBridgeMock({
       resetDesktopLayout: vi.fn().mockResolvedValue(layout)
     });
@@ -333,9 +387,13 @@ describe("shared-mode package write gate", () => {
   });
 
   it("routes task-workspace prompt/executor writes through shared intents", async () => {
-    const submit = vi
-      .fn()
-      .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
+    const submit = vi.fn<WorkspaceCanvasCommandsResult["submit"]>().mockResolvedValue({
+      status: "completed",
+      ok: true,
+      error: null,
+      staleConflict: null,
+      confirmedProjection
+    });
     const updateTaskPrompt = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });
     const updateTaskExecutor = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });
     const updateBlockPrompt = vi.fn().mockResolvedValue({ ok: true, diagnostics: [] });

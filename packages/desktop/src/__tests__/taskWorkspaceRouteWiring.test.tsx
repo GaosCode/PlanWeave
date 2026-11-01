@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 
+import { taskWorkspacePromptOwnerFixture } from "./helpers/taskWorkspacePromptOwnerFixture";
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -46,6 +47,7 @@ function readyTaskWorkspace(
     agentEndpointsForBlock: () => agentEndpoints,
     agentEndpointsForTask: agentEndpoints,
     error: null,
+    getPromptDraft: taskWorkspacePromptOwnerFixture(),
     getRunScrollTop: vi.fn(() => 0),
     hasMoreRuns: false,
     liveStatus: "live",

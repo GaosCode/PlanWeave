@@ -263,6 +263,7 @@ export function TaskWorkspaceRoute({
       agentEndpointsForBlock={controller.agentEndpointsForBlock}
       agentEndpointsForTask={controller.agentEndpointsForTask}
       focusedBlockRef={controller.navigation?.blockRef ?? null}
+      getPromptDraft={controller.getPromptDraft}
       labels={labels}
       onSaveBlockAgentEndpoint={controller.saveBlockAgentEndpoint}
       onSaveBlockPrompt={controller.saveBlockPrompt}

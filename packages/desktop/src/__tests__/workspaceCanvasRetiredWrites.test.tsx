@@ -132,7 +132,7 @@ afterEach(() => {
 });
 
 describe("Workspace command result retirement", () => {
-  it("keeps the real Task Workspace prompt editor dirty after A's save is accepted in B", async () => {
+  it("keeps A's draft recoverable while isolating B after A's save is accepted", async () => {
     const port = commandBridge();
     const api = createDesktopBridgeMock();
     const onLocalSaved = vi.fn();
@@ -180,7 +180,8 @@ describe("Workspace command result retirement", () => {
         sessionConnected: true,
         t
       });
-      const { saveTaskPrompt } = useTaskWorkspacePromptActions({
+      const { getPromptDraft, saveTaskPrompt } = useTaskWorkspacePromptActions({
+        authority: { workspaceRoot: null, projectRoot: null, canvasLocator: locator },
         api,
         navigation: {
           authority: "workspace",
@@ -208,7 +209,7 @@ describe("Workspace command result retirement", () => {
           <output data-testid="active-canvas">{commands.projection?.canvasId}</output>
           <TaskWorkspaceTaskPrompt
             labels={labels}
-            onSave={saveTaskPrompt}
+            owner={getPromptDraft(null, fixture.workspace.task.promptMarkdown, saveTaskPrompt)}
             task={fixture.workspace.task}
           />
         </>
@@ -236,11 +237,16 @@ describe("Workspace command result retirement", () => {
     });
     expect(screen.queryByText("Saved")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(input).toHaveValue("# Pending Workspace A prompt");
-    expect(screen.getByRole("button", { name: "Save Prompt" })).toBeEnabled();
+    expect(input).toHaveValue(fixture.workspace.task.promptMarkdown);
+    expect(screen.getByRole("button", { name: "Save Prompt" })).toBeDisabled();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_100);
     });
+    vi.useRealTimers();
+    view.rerender(<PromptWorkspace locator={locatorA} />);
+    await waitFor(() => expect(screen.getByTestId("active-canvas")).toHaveTextContent("canvas-a"));
+    expect(input).toHaveValue("# Pending Workspace A prompt");
+    expect(screen.getByRole("button", { name: "Save Prompt" })).toBeEnabled();
     expect(port.submitWorkspaceCanvasCommand).toHaveBeenCalledTimes(1);
     expect(api.updateTaskPrompt).not.toHaveBeenCalled();
     expect(onLocalSaved).not.toHaveBeenCalled();

@@ -1,3 +1,4 @@
+import type { TaskWorkspacePromptDraft } from "../taskWorkspacePromptDraft";
 import type { TaskWorkspace } from "@planweave-ai/runtime";
 import { ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
@@ -41,7 +42,7 @@ function BlockPromptDisclosure({
   block,
   onSaveExecutor,
   selectedEndpointId,
-  onSavePrompt
+  promptDraft
 }: {
   initiallyOpen: boolean;
   endpoints: readonly AvailableAgentEndpoint[];
@@ -49,7 +50,7 @@ function BlockPromptDisclosure({
   block: TaskWorkspace["blocks"][number];
   onSaveExecutor: (endpointId: string | null) => Promise<void>;
   selectedEndpointId: string | null;
-  onSavePrompt: TaskWorkspaceController["saveTaskPrompt"];
+  promptDraft: TaskWorkspacePromptDraft;
 }) {
   const [open, setOpen] = useState(initiallyOpen);
 
@@ -90,11 +91,7 @@ function BlockPromptDisclosure({
         </Badge>
       </summary>
       <div className="border-t border-border/80 p-4">
-        <TaskWorkspaceBlockPrompts
-          block={block}
-          labels={labels.promptLabels}
-          onSave={onSavePrompt}
-        />
+        <TaskWorkspaceBlockPrompts block={block} labels={labels.promptLabels} owner={promptDraft} />
       </div>
     </details>
   );
@@ -168,6 +165,7 @@ export function TaskWorkspaceOverviewPanel({
   agentEndpointsForBlock,
   agentEndpointsForTask,
   focusedBlockRef,
+  getPromptDraft,
   labels,
   onSaveBlockAgentEndpoint,
   onSaveBlockPrompt,
@@ -180,6 +178,7 @@ export function TaskWorkspaceOverviewPanel({
   agentEndpointsForBlock: (blockRef: string) => AvailableAgentEndpoint[];
   agentEndpointsForTask: readonly AvailableAgentEndpoint[];
   focusedBlockRef: string | null;
+  getPromptDraft: TaskWorkspaceController["getPromptDraft"];
   labels: TaskWorkspaceLabels;
   onSaveBlockAgentEndpoint: (blockRef: string, endpointId: string | null) => Promise<void>;
   onSaveBlockPrompt: TaskWorkspaceController["saveBlockPrompt"];
@@ -268,7 +267,7 @@ export function TaskWorkspaceOverviewPanel({
         <section className="space-y-3">
           <TaskWorkspaceTaskPrompt
             labels={labels.promptLabels}
-            onSave={onSaveTaskPrompt}
+            owner={getPromptDraft(null, workspace.task.promptMarkdown, onSaveTaskPrompt)}
             task={workspace.task}
           />
         </section>
@@ -306,7 +305,9 @@ export function TaskWorkspaceOverviewPanel({
                   key={`${block.ref}:${initiallyOpen}`}
                   labels={labels}
                   onSaveExecutor={(endpointId) => onSaveBlockAgentEndpoint(block.ref, endpointId)}
-                  onSavePrompt={(input) => onSaveBlockPrompt(block.ref, input)}
+                  promptDraft={getPromptDraft(block.ref, block.promptMarkdown, (input) =>
+                    onSaveBlockPrompt(block.ref, input)
+                  )}
                   selectedEndpointId={selectedAgentEndpointIdForBlock(block.ref)}
                 />
               );

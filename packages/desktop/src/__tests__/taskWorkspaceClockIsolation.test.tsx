@@ -421,6 +421,11 @@ function useControllerHarness(api: ReturnType<typeof controllerApi>) {
     [currentNavigation]
   );
   return useTaskWorkspaceController({
+    promptAuthority: {
+      workspaceRoot: null,
+      projectRoot: "/projects/demo",
+      canvasLocator: { kind: "local", projectId: "project-1", canvasId: "canvas-main" }
+    },
     selectedWorkspaceRoot: null,
     agentEndpointCatalog: [],
     agentEndpointPreferences: {},

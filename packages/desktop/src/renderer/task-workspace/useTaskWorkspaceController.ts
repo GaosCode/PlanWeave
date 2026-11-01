@@ -43,6 +43,7 @@ import {
 import type { TaskWorkspaceController, TaskWorkspaceLiveStatus } from "./contracts";
 import { projectSharedTaskWorkspace } from "./taskWorkspaceSharedProjection";
 import { useTaskWorkspaceExecutorActions } from "./useTaskWorkspaceExecutorActions";
+import type { TaskWorkspacePromptAuthority } from "./useTaskWorkspacePromptDrafts";
 import { useTaskWorkspacePromptActions } from "./useTaskWorkspacePromptActions";
 import {
   type TaskWorkspaceRecordLoad,
@@ -130,6 +131,7 @@ function navigationTargetWithSelection(
 }
 
 export function useTaskWorkspaceController(options: {
+  promptAuthority: TaskWorkspacePromptAuthority;
   agentEndpointCatalog: readonly AvailableAgentEndpoint[];
   agentEndpointPreferences: Record<string, DesktopAgentEndpointPreference>;
   api?: TaskWorkspaceApi | null;
@@ -909,7 +911,8 @@ export function useTaskWorkspaceController(options: {
     }
   }, [api, key, localNavigation, runFreshness.append]);
 
-  const { saveBlockPrompt, saveTaskPrompt } = useTaskWorkspacePromptActions({
+  const { getPromptDraft, saveBlockPrompt, saveTaskPrompt } = useTaskWorkspacePromptActions({
+    authority: options.promptAuthority,
     api,
     navigation,
     onLocalSaved: refresh,
@@ -1097,6 +1100,7 @@ export function useTaskWorkspaceController(options: {
       agentEndpointsForBlock,
       agentEndpointsForTask,
       error,
+      getPromptDraft,
       getRunScrollTop,
       hasMoreRuns,
       liveStatus,
@@ -1132,6 +1136,7 @@ export function useTaskWorkspaceController(options: {
       error,
       agentEndpointsForBlock,
       agentEndpointsForTask,
+      getPromptDraft,
       getRunScrollTop,
       hasMoreRuns,
       history.returnToTaskWorkspaceSource,

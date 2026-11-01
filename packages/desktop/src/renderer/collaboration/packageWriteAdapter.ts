@@ -1,4 +1,5 @@
 import type { CanvasCommandIntent } from "@planweave-ai/collaboration-protocol/canvas/commands";
+import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc";
 import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasCommands";
 
 /**
@@ -19,6 +20,7 @@ export async function runDurablePackageWrite(options: {
   intent: CanvasCommandIntent;
   onError?: (message: string | null) => void;
   localWrite: () => Promise<void>;
+  onSharedSaved?: (projection: CollaborationCanvasBindingReplicaProjection) => void;
 }): Promise<DurablePackageWriteResult> {
   if (options.workspaceCanvas?.enabled) {
     const result = await options.workspaceCanvas.submit({ intent: options.intent });
@@ -27,6 +29,7 @@ export async function runDurablePackageWrite(options: {
       options.onError?.(result.error);
       return "failed";
     }
+    options.onSharedSaved?.(result.confirmedProjection);
     return "shared";
   }
   await options.localWrite();

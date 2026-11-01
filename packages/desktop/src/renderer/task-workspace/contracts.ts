@@ -6,6 +6,7 @@ import type {
   TaskWorkspaceBlock
 } from "@planweave-ai/runtime";
 import type { ReactNode } from "react";
+import type { TaskWorkspacePromptDraft } from "./taskWorkspacePromptDraft";
 import type { AvailableAgentEndpoint } from "../collaboration/agentEndpointViewModel";
 import type { TaskWorkspaceNavigationIdentity } from "../taskWorkspaceNavigation";
 import type { TaskWorkspaceLayout } from "./useTaskWorkspaceLayout";
@@ -106,6 +107,11 @@ export type TaskWorkspaceController = {
   agentEndpointsForBlock: (blockRef: string) => AvailableAgentEndpoint[];
   agentEndpointsForTask: AvailableAgentEndpoint[];
   error: string | null;
+  getPromptDraft: (
+    blockRef: string | null,
+    markdown: string,
+    writer: TaskWorkspaceController["saveTaskPrompt"]
+  ) => TaskWorkspacePromptDraft;
   getRunScrollTop: (recordId: string) => number;
   /** True when listTaskWorkspaceRuns returned a nextCursor that has not been exhausted. */
   hasMoreRuns: boolean;

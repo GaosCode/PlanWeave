@@ -25,7 +25,14 @@ export type WorkspaceCanvasCommandBridge = Pick<
 export type WorkspaceCanvasSubmitResult =
   | {
       status: "completed";
-      ok: boolean;
+      ok: true;
+      error: null;
+      staleConflict: null;
+      confirmedProjection: CollaborationCanvasBindingReplicaProjection;
+    }
+  | {
+      status: "completed";
+      ok: false;
       error: string | null;
       staleConflict: WorkspaceCanvasCommandSnapshot["lastStaleConflict"];
     }
@@ -37,6 +44,7 @@ export type WorkspaceCanvasSubmitResult =
     };
 
 export type WorkspaceCanvasCommandsResult = {
+  sessionAuthority: object;
   /** Workspace authority always routes durable mutations through the Server command session. */
   enabled: boolean;
   snapshot: WorkspaceCanvasCommandSnapshot;
@@ -80,6 +88,7 @@ export function useWorkspaceCanvasCommands(input: {
 
   return useMemo(
     () => ({
+      sessionAuthority: session.sessionAuthority,
       enabled: input.locator !== null,
       snapshot: session.snapshot,
       projection: session.projection,

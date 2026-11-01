@@ -1,21 +1,13 @@
 import type { TaskWorkspace, TaskWorkspaceBlock } from "@planweave-ai/runtime";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
+import type { TaskWorkspacePromptDraft } from "./taskWorkspacePromptDraft";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { TaskWorkspaceController, TaskWorkspacePromptLabels } from "./contracts";
+import type { TaskWorkspacePromptLabels } from "./contracts";
 
 type PromptSaveStatus = "idle" | "saving" | "saved" | "error" | "retired";
-
-const promptAutosaveDelayMs = 700;
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
 
 function PromptStateBadge({
   empty,
@@ -86,86 +78,23 @@ function EditablePromptBody({
   markdown,
   missing,
   labels,
-  onSave
+  owner
 }: {
   label: string;
   markdown: string;
   missing: boolean;
   labels: TaskWorkspacePromptLabels;
-  onSave: TaskWorkspaceController["saveTaskPrompt"];
+  owner: TaskWorkspacePromptDraft;
 }) {
-  const [baseline, setBaseline] = useState(markdown);
-  const [draft, setDraft] = useState(markdown);
-  const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<PromptSaveStatus>("idle");
-  const [composing, setComposing] = useState(false);
-  const revision = useRef(0);
-  const saving = useRef(false);
-  const pendingSourceMarkdown = useRef<string | null>(null);
-  const sourceMarkdown = useRef(markdown);
+  const draftOwner = owner;
+  const { baseline, draft, composing, error, pending, status } = useSyncExternalStore(
+    draftOwner.subscribe,
+    draftOwner.getSnapshot
+  );
   const dirty = draft !== baseline;
-
-  useEffect(() => {
-    if (sourceMarkdown.current !== markdown) {
-      sourceMarkdown.current = markdown;
-      if (dirty) {
-        pendingSourceMarkdown.current = markdown === baseline ? null : markdown;
-        return;
-      }
-      pendingSourceMarkdown.current = null;
-      setBaseline(markdown);
-      setDraft(markdown);
-      setError(null);
-      setStatus("idle");
-      return;
-    }
-    if (!dirty && pendingSourceMarkdown.current !== null) {
-      const pendingMarkdown = pendingSourceMarkdown.current;
-      pendingSourceMarkdown.current = null;
-      setBaseline(pendingMarkdown);
-      setDraft(pendingMarkdown);
-      setError(null);
-      setStatus("idle");
-    }
-  }, [baseline, dirty, markdown]);
-
-  const save = useCallback(async () => {
-    if (!dirty || saving.current || composing) {
-      return;
-    }
-    const submitted = draft;
-    const submittedRevision = revision.current;
-    saving.current = true;
-    setError(null);
-    setStatus("saving");
-    try {
-      const result = await onSave({ baseMarkdown: baseline, markdown: submitted });
-      if (result === "retired") {
-        setStatus("retired");
-        return;
-      }
-      if (pendingSourceMarkdown.current === submitted) {
-        pendingSourceMarkdown.current = null;
-      }
-      setBaseline(submitted);
-      setStatus(revision.current === submittedRevision ? "saved" : "idle");
-    } catch (saveError: unknown) {
-      setError(errorMessage(saveError));
-      setStatus("error");
-    } finally {
-      saving.current = false;
-    }
-  }, [baseline, composing, dirty, draft, onSave]);
-
-  useEffect(() => {
-    if (!dirty || composing || status !== "idle") {
-      return undefined;
-    }
-    const timer = window.setTimeout(() => {
-      void save();
-    }, promptAutosaveDelayMs);
-    return () => window.clearTimeout(timer);
-  }, [composing, dirty, save, status]);
+  const save = draftOwner.save;
+  useEffect(() => draftOwner.updateSource(markdown), [draftOwner, markdown]);
+  useEffect(() => () => draftOwner.setComposing(false), [draftOwner]);
 
   return (
     <form
@@ -185,7 +114,7 @@ function EditablePromptBody({
             {promptStatusText(status, labels)}
           </span>
           <Button
-            disabled={!dirty || composing || status === "saving"}
+            disabled={!dirty || composing || pending}
             size="sm"
             type="submit"
             variant="outline"
@@ -197,14 +126,9 @@ function EditablePromptBody({
       <Textarea
         aria-label={label}
         className="min-h-48 resize-y bg-app-panel font-mono text-xs leading-relaxed"
-        onChange={(event) => {
-          revision.current += 1;
-          setDraft(event.target.value);
-          setError(null);
-          setStatus(saving.current ? "saving" : "idle");
-        }}
-        onCompositionStart={() => setComposing(true)}
-        onCompositionEnd={() => setComposing(false)}
+        onChange={(event) => draftOwner.edit(event.target.value)}
+        onCompositionStart={() => draftOwner.setComposing(true)}
+        onCompositionEnd={() => draftOwner.setComposing(false)}
         onBlur={() => {
           void save();
         }}
@@ -257,22 +181,22 @@ function PromptSources({
 export function TaskWorkspaceTaskPrompt({
   compact,
   labels,
-  onSave,
+  owner,
   task
 }: {
   compact?: boolean;
   labels: TaskWorkspacePromptLabels;
-  onSave?: TaskWorkspaceController["saveTaskPrompt"];
+  owner?: TaskWorkspacePromptDraft;
   task: TaskWorkspace["task"];
 }) {
-  if (onSave) {
+  if (owner) {
     return (
       <EditablePromptBody
         label={labels.taskPrompt}
         labels={labels}
         markdown={task.promptMarkdown}
         missing={task.promptMissing}
-        onSave={onSave}
+        owner={owner}
       />
     );
   }
@@ -291,12 +215,12 @@ export function TaskWorkspaceBlockPrompts({
   block,
   compact,
   labels,
-  onSave
+  owner
 }: {
   block: TaskWorkspaceBlock;
   compact?: boolean;
   labels: TaskWorkspacePromptLabels;
-  onSave?: TaskWorkspaceController["saveTaskPrompt"];
+  owner?: TaskWorkspacePromptDraft;
 }) {
   let blockPrompt = (
     <PromptBody
@@ -307,14 +231,14 @@ export function TaskWorkspaceBlockPrompts({
       missing={block.promptMissing}
     />
   );
-  if (onSave) {
+  if (owner) {
     blockPrompt = (
       <EditablePromptBody
         label={labels.blockPrompt}
         labels={labels}
         markdown={block.promptMarkdown}
         missing={block.promptMissing}
-        onSave={onSave}
+        owner={owner}
       />
     );
   }

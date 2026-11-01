@@ -221,6 +221,11 @@ function useControllerHarness(
     [currentNavigation, replaceTaskWorkspaceTarget]
   );
   return useTaskWorkspaceController({
+    promptAuthority: {
+      workspaceRoot: null,
+      projectRoot: "/projects/demo",
+      canvasLocator: { kind: "local", projectId: "project-1", canvasId: "canvas-main" }
+    },
     selectedWorkspaceRoot: null,
     agentEndpointCatalog: endpoints,
     agentEndpointPreferences: {},
@@ -252,6 +257,11 @@ function useControlledNavigationHarness(
     [currentNavigation]
   );
   return useTaskWorkspaceController({
+    promptAuthority: {
+      workspaceRoot: null,
+      projectRoot: "/projects/demo",
+      canvasLocator: { kind: "local", projectId: "project-1", canvasId: "canvas-main" }
+    },
     selectedWorkspaceRoot: null,
     agentEndpointCatalog,
     agentEndpointPreferences: {},
