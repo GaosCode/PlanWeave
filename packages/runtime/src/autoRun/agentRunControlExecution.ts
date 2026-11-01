@@ -78,7 +78,11 @@ export async function dispatchAgentRunControlCommand(options: {
       options.command.kind === "cancel"
         ? await options.target.cancel(options.command.identity)
         : options.command.kind === "respond"
-          ? await options.target.respond(options.command.identity, options.command.outcome)
+          ? await options.target.respond(
+              options.command.identity,
+              options.command.outcome,
+              options.command.audit
+            )
           : await options.target.followUp(options.command.identity, options.command.prompt);
     return agentRunControlSuccessReceiptSchema.parse({
       version: AGENT_RUN_CONTROL_PROTOCOL_VERSION,

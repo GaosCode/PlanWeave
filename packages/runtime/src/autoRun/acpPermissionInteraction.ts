@@ -9,6 +9,7 @@ import {
   type RunnerPermissionChannelDecision
 } from "./persistentRunnerInteractionChannel.js";
 import {
+  runnerInteractionAuditSchema,
   runnerPermissionInteractionRequestSchema,
   runnerPermissionInteractionResponseSchema,
   type RunnerPermissionOption
@@ -141,7 +142,12 @@ export function createPersistentAcpPermissionHandler(context: PermissionInteract
         requestedAt: request.requestedAt,
         summary: request.summary,
         permissionOptions: request.options,
-        respond: async (value) => {
+        respond: async (value, rawAudit) => {
+          const audit = runnerInteractionAuditSchema.parse(
+            rawAudit === undefined
+              ? { decisionSource: "planweave-desktop", reason: null }
+              : rawAudit
+          );
           if (typeof value !== "string") {
             throw new Error(
               `Permission response for '${request.identity.requestId}' must select an advertised option id.`
@@ -153,20 +159,21 @@ export function createPersistentAcpPermissionHandler(context: PermissionInteract
               identity: request.identity,
               decision: { kind: "select", optionId: value },
               respondedAt: new Date().toISOString(),
-              decisionSource: "planweave-desktop",
-              reason: null
+              ...audit
             })
           );
         },
-        reject: async (reason) => {
+        reject: async (reason, rawAudit) => {
+          const audit = runnerInteractionAuditSchema.parse(
+            rawAudit === undefined ? { decisionSource: "planweave-desktop", reason } : rawAudit
+          );
           await store.createResponse(
             runnerPermissionInteractionResponseSchema.parse({
               version: "planweave.runner-interaction-response/v1",
               identity: request.identity,
               decision: { kind: "cancel" },
               respondedAt: new Date().toISOString(),
-              decisionSource: "planweave-desktop",
-              reason: redactRunnerEventText(reason).text || "Permission request was cancelled."
+              ...audit
             })
           );
         },

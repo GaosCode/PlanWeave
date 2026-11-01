@@ -60,12 +60,15 @@ async function createFeedbackWorkspace(runId = "RUN-FEEDBACK") {
 function startOwner(
   fixture: Awaited<ReturnType<typeof createFeedbackWorkspace>>,
   scenario: "permission-secret" | "permission-deny" | "artifact-review" = "permission-secret",
-  onMetadataPersisted?: () => void
+  onMetadataPersisted?: () => void,
+  kind: "feedback" | "implementation" = "feedback"
 ) {
   const review = scenario === "artifact-review";
   const runDir = review
     ? join(fixture.init.workspace.resultsDir, "T-001", "blocks", "R-001", "runs", fixture.runId)
-    : fixture.runDir;
+    : kind === "implementation"
+      ? join(fixture.init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", fixture.runId)
+      : fixture.runDir;
   const abort = new AbortController();
   const events: RunEvent[] = [];
   const execution = new AcpSessionController(
@@ -75,13 +78,13 @@ function startOwner(
   )
     .execute(
       {
-        kind: review ? "review" : "feedback",
+        kind: review ? "review" : kind,
         identity: {
           scope: runDir,
           desktopRunId: null,
           runSessionId: "CLI-FEEDBACK",
           executorRunId: fixture.runId,
-          claimRef: "T-001#R-001"
+          claimRef: kind === "implementation" && !review ? "T-001#B-001" : "T-001#R-001"
         },
         runDir,
         metadataPath: join(runDir, "metadata.json"),
@@ -91,7 +94,7 @@ function startOwner(
           command: process.execPath,
           args: [
             join(repoRoot, "packages/runtime/src/__tests__/support/acpMockAgent.mjs"),
-            review ? scenario : `feedback-${scenario}`
+            review || kind === "implementation" ? scenario : `feedback-${scenario}`
           ]
         }),
         executorName: "mock-acp",
@@ -99,7 +102,9 @@ function startOwner(
         taskId: "T-001",
         metadataIdentity: review
           ? { blockId: "R-001" }
-          : { feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001" },
+          : kind === "implementation"
+            ? { blockId: "B-001" }
+            : { feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001" },
         projectId: fixture.init.workspace.id,
         canvasId: "default"
       },
@@ -121,7 +126,7 @@ function startOwner(
       (result) => ({ result, error: undefined }),
       (error: unknown) => ({ result: undefined, error })
     );
-  return { abort, execution, events };
+  return { abort, execution, events, runDir };
 }
 
 async function waitForHumanList(env: NodeJS.ProcessEnv): Promise<string> {
@@ -233,62 +238,119 @@ describe("feedback interaction CLI commands", () => {
     workflowTimeoutMs
   );
 
-  it.each([
-    ["approve", "permission-secret", "token=opaque-action-id", "approved"],
-    ["deny", "permission-deny", "deny", "denied"],
-    ["cancel", "permission-secret", null, "cancelled"]
-  ] as const)(
-    "delivers the printed %s command to the real feedback ACP owner",
-    async (decision, scenario, optionId, outcome) => {
-      const fixture = await createFeedbackWorkspace();
-      const owner = startOwner(fixture, scenario);
-      try {
-        const human = await waitForHumanList(fixture.env);
-        const store = new PersistentRunnerInteractionStore(fixture.runDir);
-        const snapshot = await store.readSnapshot("permission:1");
-        const json = (await runCli(["interaction", "list", "--json"], fixture.env)).stdout;
-        expect(json).toBe(`${JSON.stringify([snapshot], null, 2)}\n`);
-        const command = printedCommand(
-          human,
-          decision === "cancel" ? "cancel" : "response"
-        ).replace("<REPLACE_WITH_YOUR_REASON>", "Operator cancelled feedback");
-        const receipt = JSON.parse(
-          (await runShellCommand(`${command} --json`, fixture.env, fixture.projectRoot)).stdout
-        );
-        expect(receipt).toMatchObject({
-          identity: snapshot.request.identity,
-          decisionSource: "cli.interaction-list",
-          decision: optionId === null ? { kind: "cancel" } : { kind: "select", optionId }
-        });
-        expect(human).toContain("Record: FE-001::RUN-FEEDBACK");
-        expect((await owner.execution).error).toBeUndefined();
-        const protocol = await readFile(join(fixture.runDir, "protocol.ndjson"), "utf8");
-        expect(protocol).toContain(
-          optionId === null ? '"outcome":"cancelled"' : `"optionId":"${optionId}"`
-        );
-        const history = await readFile(join(fixture.runDir, "events.ndjson"), "utf8");
-        expect(history).toContain(`"outcome":"${outcome}"`);
-        expect(owner.events).toMatchObject([
-          { type: "interaction_required", interaction: { recordId: "FE-001::RUN-FEEDBACK" } },
-          {
-            type: "interaction_resolved",
-            interaction: { recordId: "FE-001::RUN-FEEDBACK", outcome }
-          }
-        ]);
-        await expect(store.readSnapshot("permission:1")).resolves.toMatchObject({
-          status: "answered",
-          response: { decision: receipt.decision }
-        });
-        expect((await runCli(["interaction", "list"], fixture.env)).stdout).toBe(
-          "No actionable runner interactions.\n"
-        );
-      } finally {
-        owner.abort.abort();
-        await owner.execution;
-      }
-    },
-    workflowTimeoutMs
-  );
+  describe.each(["feedback", "implementation"] as const)("persists %s CLI audit", (kind) => {
+    it.each([
+      ["approve", "permission-secret", "token=opaque-action-id", "approved"],
+      ["deny", "permission-deny", "deny", "denied"],
+      ["cancel", "permission-secret", null, "cancelled"]
+    ] as const)(
+      "delivers the printed %s command to the real feedback ACP owner",
+      async (decision, scenario, optionId, outcome) => {
+        const fixture = await createFeedbackWorkspace();
+        const owner = startOwner(fixture, scenario, undefined, kind);
+        try {
+          const human = await waitForHumanList(fixture.env);
+          const store = new PersistentRunnerInteractionStore(owner.runDir);
+          const snapshot = await store.readSnapshot("permission:1");
+          const json = (await runCli(["interaction", "list", "--json"], fixture.env)).stdout;
+          expect(json).toBe(`${JSON.stringify([snapshot], null, 2)}\n`);
+          const recordId =
+            kind === "feedback" ? "FE-001::RUN-FEEDBACK" : "T-001#B-001::RUN-FEEDBACK";
+          const actionArgs = [
+            "interaction",
+            "respond",
+            "--record",
+            recordId,
+            "--request",
+            snapshot.request.identity.requestId,
+            "--lease",
+            snapshot.request.identity.ownerLeaseId,
+            "--source",
+            "cli.audit-proof",
+            "--json"
+          ];
+          const rejected = await runCli(
+            [...actionArgs, "--option", "unpublished-option"],
+            fixture.env
+          ).then(
+            () => {
+              throw new Error("Unexpectedly accepted unpublished option.");
+            },
+            (error: unknown) => error
+          );
+          expect(rejected).toMatchObject({
+            code: 1,
+            stdout: expect.stringContaining("interaction_option_not_advertised")
+          });
+          expect((await store.readSnapshot("permission:1")).response).toBeNull();
+          const reason =
+            decision === "deny"
+              ? "Operator reason; password=super-secret"
+              : "User supplied non-secret audit reason";
+          const expectedReason =
+            decision === "deny" ? "Operator reason; [REDACTED:CREDENTIAL]" : reason;
+          const command = printedCommand(human, decision === "cancel" ? "cancel" : "response")
+            .replace("<REPLACE_WITH_YOUR_REASON>", "User supplied non-secret audit reason")
+            .replace("cli.interaction-list", "cli.audit-proof");
+          const receipt = JSON.parse(
+            (
+              await runShellCommand(
+                `${command} --reason '${reason}' --json`,
+                fixture.env,
+                fixture.projectRoot
+              )
+            ).stdout
+          );
+          expect(receipt).toMatchObject({
+            identity: snapshot.request.identity,
+            decisionSource: "cli.audit-proof",
+            decision: optionId === null ? { kind: "cancel" } : { kind: "select", optionId }
+          });
+          expect(human).toContain(`Record: ${recordId}`);
+          expect((await owner.execution).error).toBeUndefined();
+          const protocol = await readFile(join(owner.runDir, "protocol.ndjson"), "utf8");
+          expect(protocol).toContain(
+            optionId === null ? '"outcome":"cancelled"' : `"optionId":"${optionId}"`
+          );
+          const history = await readFile(join(owner.runDir, "events.ndjson"), "utf8");
+          expect(history).toContain(`"outcome":"${outcome}"`);
+          expect(owner.events).toMatchObject([
+            { type: "interaction_required", interaction: { recordId } },
+            {
+              type: "interaction_resolved",
+              interaction: { recordId, outcome }
+            }
+          ]);
+          await expect(store.readSnapshot("permission:1")).resolves.toMatchObject({
+            status: "answered",
+            response: {
+              decision: receipt.decision,
+              decisionSource: "cli.audit-proof",
+              reason: expectedReason
+            }
+          });
+          const accepted = (await store.readSnapshot("permission:1")).response;
+          expect(receipt.acceptedAt).toBe(accepted?.respondedAt);
+          expect(receipt.decisionSource).toBe(accepted?.decisionSource);
+          await expect(
+            runCli(
+              [...actionArgs, "--cancel", "--reason", "Duplicate audit must not persist"],
+              fixture.env
+            )
+          ).rejects.toMatchObject({ code: 1 });
+          expect((await store.readSnapshot("permission:1")).response).toEqual(accepted);
+          expect(JSON.stringify(accepted)).not.toContain("super-secret");
+          expect((await runCli(["interaction", "list"], fixture.env)).stdout).toBe(
+            "No actionable runner interactions.\n"
+          );
+        } finally {
+          owner.abort.abort();
+          await owner.execution;
+        }
+      },
+      workflowTimeoutMs
+    );
+  });
 
   it(
     "rejects a printed feedback command after its real owner lease is replaced",

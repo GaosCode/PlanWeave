@@ -1,4 +1,8 @@
 import {
+  runnerInteractionAuditSchema,
+  type RunnerInteractionAudit
+} from "./runnerInteractionContract.js";
+import {
   type ActiveAgentRunHandle,
   type ActiveAgentRunRegistry
 } from "./activeAgentRunRegistry.js";
@@ -18,7 +22,8 @@ export type AgentRunControlTarget = {
   cancel(identity: RunnerSessionActionIdentity): Promise<AgentRunControlReceiptResult>;
   respond(
     identity: RunnerRequestActionIdentity,
-    outcome: AgentRunControlRespondOutcome
+    outcome: AgentRunControlRespondOutcome,
+    audit?: RunnerInteractionAudit
   ): Promise<AgentRunControlReceiptResult>;
   followUp(
     identity: RunnerSessionActionIdentity,
@@ -136,7 +141,7 @@ export function createActiveAgentRunControlTarget(options: {
       }
     },
 
-    async respond(rawIdentity, outcome) {
+    async respond(rawIdentity, outcome, rawAudit) {
       const parsed = runnerRequestActionIdentitySchema.safeParse(rawIdentity);
       if (!parsed.success || !sameSessionIdentity(expectedIdentity, parsed.data)) {
         throw invalidIdentity();
@@ -178,13 +183,24 @@ export function createActiveAgentRunControlTarget(options: {
               "Permission interaction requires a permission decision."
             );
           }
-          if (outcome.kind === "cancel") {
-            await options.registry.rejectRequest(
-              parsed.data,
-              "Permission request was cancelled through runner control."
+          const audit = runnerInteractionAuditSchema.safeParse(rawAudit);
+          if (!audit.success) {
+            throw new AgentRunControlTargetError(
+              "protocol_mismatch",
+              "Permission decisions require valid audit metadata and cancellations require a reason."
             );
+          }
+          if (outcome.kind === "cancel") {
+            const reason = audit.data.reason;
+            if (reason === null) {
+              throw new AgentRunControlTargetError(
+                "protocol_mismatch",
+                "Permission cancellation requires a reason."
+              );
+            }
+            await options.registry.rejectRequest(parsed.data, reason, audit.data);
           } else {
-            await options.registry.respond(parsed.data, outcome.optionId);
+            await options.registry.respond(parsed.data, outcome.optionId, audit.data);
           }
         } else {
           if (!("action" in outcome)) {

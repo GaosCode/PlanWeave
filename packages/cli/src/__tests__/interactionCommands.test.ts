@@ -1,7 +1,7 @@
 import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AcpEventReadModelRegistry } from "../../../runtime/src/autoRun/acpEventReadModel.js";
 import { AcpSessionController } from "../../../runtime/src/autoRun/acpSessionController.js";
 import { ActiveAgentRunRegistry } from "../../../runtime/src/autoRun/activeAgentRunRegistry.js";
@@ -34,7 +34,22 @@ afterEach(async () => {
 async function createInteractionWorkspace(projectName?: string) {
   const home = await mkdtemp(join(tmpdir(), `planweave-interaction-cli-${projectName ?? ""}`));
   const projectRoot = repoRoot;
-  const env = { ...process.env, PLANWEAVE_HOME: home, PLANWEAVE_PROJECT_ROOT: projectRoot };
+  const sourceConfig = join(home, "tsconfig.json");
+  await writeFile(
+    sourceConfig,
+    JSON.stringify({
+      extends: join(repoRoot, "tsconfig.json"),
+      compilerOptions: {
+        paths: { "@planweave-ai/runtime": [join(repoRoot, "packages/runtime/src/index.ts")] }
+      }
+    })
+  );
+  const env = {
+    ...process.env,
+    PLANWEAVE_HOME: home,
+    PLANWEAVE_PROJECT_ROOT: projectRoot,
+    TSX_TSCONFIG_PATH: sourceConfig
+  };
   const init = JSON.parse((await runCli(["init", "--json"], env)).stdout) as {
     workspace: { id: string; packageDir: string; resultsDir: string; workspaceRoot: string };
   };
@@ -104,7 +119,7 @@ async function createPendingInteraction(optionId = "allow_once", projectName?: s
     kind: "permission",
     identity,
     requestedAt: now,
-    summary: "Allow tests?",
+    summary: "Permission requested for: Allow tests?",
     toolCallId: "tool-1",
     options: [
       { optionId, label: "Allow once", decision: "approve" },
@@ -117,7 +132,12 @@ async function createPendingInteraction(optionId = "allow_once", projectName?: s
     interactionFixtureReadyTimeoutMs
   );
   owners.add(owner);
-  owner.send({ kind: "add_request", requestKind: "permission", requestId: identity.requestId });
+  owner.send({
+    kind: "add_request",
+    requestKind: "permission",
+    requestId: identity.requestId,
+    persistent: true
+  });
   await owner.waitFor(
     (message) => message.kind === "request_ready" && message.requestId === identity.requestId,
     "CLI fixture permission request",
@@ -394,6 +414,9 @@ describe("interaction CLI commands", () => {
         const command = firstPosixCommand(human);
         const listedLease = human.match(/^Owner lease: (.+)$/m)?.[1];
         expect(listedLease).toBeTruthy();
+        const original = await new PersistentRunnerInteractionStore(runDir).readSnapshot(
+          "permission:1"
+        );
         let metadataPersisted!: () => void;
         const persisted = new Promise<void>((resolve) => {
           metadataPersisted = resolve;
@@ -407,6 +430,14 @@ describe("interaction CLI commands", () => {
         ]);
         const metadata = JSON.parse(await readFile(join(runDir, "metadata.json"), "utf8"));
         expect(metadata.ownerLeaseId).not.toBe(listedLease);
+        await vi.waitFor(
+          async () => {
+            const current = JSON.parse(await readFile(join(runDir, "metadata.json"), "utf8"));
+            expect(current.sessionId).toBe(original.request.identity.sessionId);
+            expect(current.ownerLeaseId).not.toBe(listedLease);
+          },
+          { timeout: interactionFixtureReadyTimeoutMs }
+        );
         const binDir = join(home, "bin");
         await installPlanweaveShim(binDir);
         await expect(

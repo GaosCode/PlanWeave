@@ -457,7 +457,22 @@ export function respondToDesktopAgentRequest(
   return executeDesktopAgentRunControl({
     ref,
     recordId,
-    action: { kind: "respond", identity, outcome }
+    action: {
+      kind: "respond",
+      identity,
+      outcome,
+      ...("kind" in outcome
+        ? {
+            audit: {
+              decisionSource: "planweave-desktop",
+              reason:
+                outcome.kind === "cancel"
+                  ? "User cancelled the permission request in PlanWeave Desktop."
+                  : null
+            }
+          }
+        : {})
+    }
   }).then(assertDesktopAgentRunControlAccepted);
 }
 

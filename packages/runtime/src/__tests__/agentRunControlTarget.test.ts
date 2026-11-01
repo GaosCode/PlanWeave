@@ -11,6 +11,8 @@ import {
 } from "../autoRun/liveControl.js";
 import { runnerSessionActionIdentitySchema } from "../autoRun/runnerContractSchemas.js";
 
+const audit = { decisionSource: "control-test", reason: "Operator decision" };
+
 const identity = runnerSessionActionIdentitySchema.parse({
   scope: "scope",
   desktopRunId: "desktop-run-1",
@@ -102,13 +104,14 @@ describe("active agent run control target", () => {
     await expect(
       target.respond(
         { ...identity, requestId: "permission-1" },
-        { kind: "select", optionId: "allow" }
+        { kind: "select", optionId: "allow" },
+        audit
       )
     ).resolves.toEqual({
       status: "delivered",
       deliveredAt: "2026-07-17T07:00:01.000Z"
     });
-    expect(item.request?.respond).toHaveBeenCalledWith("allow");
+    expect(item.request?.respond).toHaveBeenCalledWith("allow", audit);
     await registry.remove(item.handle, "test complete");
   });
 
@@ -123,14 +126,12 @@ describe("active agent run control target", () => {
     });
 
     await expect(
-      target.respond({ ...identity, requestId: "permission-1" }, { kind: "cancel" })
+      target.respond({ ...identity, requestId: "permission-1" }, { kind: "cancel" }, audit)
     ).resolves.toMatchObject({ status: "delivered" });
-    expect(item.request?.reject).toHaveBeenCalledWith(
-      "Permission request was cancelled through runner control."
-    );
+    expect(item.request?.reject).toHaveBeenCalledWith("Operator decision", audit);
     expect(item.request?.respond).not.toHaveBeenCalled();
     await expect(
-      target.respond({ ...identity, requestId: "permission-1" }, { kind: "cancel" })
+      target.respond({ ...identity, requestId: "permission-1" }, { kind: "cancel" }, audit)
     ).rejects.toMatchObject({ code: "delivery_failed" });
     await registry.remove(item.handle, "test complete");
   });
@@ -157,7 +158,8 @@ describe("active agent run control target", () => {
     await expect(
       target.respond(
         { ...identity, requestId: "authentication-1" },
-        { kind: "select", optionId: "browser" }
+        { kind: "select", optionId: "browser" },
+        audit
       )
     ).rejects.toMatchObject({ code: "capability_denied" });
     await expect(
@@ -235,7 +237,8 @@ describe("active agent run control target", () => {
     await expect(
       missingTarget.respond(
         { ...identity, requestId: "missing" },
-        { kind: "select", optionId: "allow" }
+        { kind: "select", optionId: "allow" },
+        audit
       )
     ).rejects.toMatchObject({ code: "request_not_pending" });
     await missingRegistry.remove(missing.handle, "test complete");
@@ -251,7 +254,8 @@ describe("active agent run control target", () => {
     await expect(
       deniedTarget.respond(
         { ...identity, requestId: "permission-1" },
-        { kind: "select", optionId: "allow" }
+        { kind: "select", optionId: "allow" },
+        audit
       )
     ).rejects.toMatchObject({ code: "capability_denied" });
     await deniedRegistry.remove(denied.handle, "test complete");
@@ -279,7 +283,8 @@ describe("active agent run control target", () => {
     await expect(
       failedTarget.respond(
         { ...identity, requestId: "permission-1" },
-        { kind: "select", optionId: "allow" }
+        { kind: "select", optionId: "allow" },
+        audit
       )
     ).rejects.toMatchObject({ code: "delivery_failed" });
     await failedRegistry.remove(failed.handle, "test complete");

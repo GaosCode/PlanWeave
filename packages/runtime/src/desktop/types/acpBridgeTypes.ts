@@ -11,7 +11,6 @@ import {
 import { runnerRecordReadModelSchema } from "../../autoRun/runnerRecordReadModelContract.js";
 import {
   runnerInteractionActionIdentitySchema,
-  runnerInteractionClientLabelSchema,
   runnerInteractionErrorCodeSchema,
   runnerInteractionResponseReceiptSchema,
   runnerInteractionSnapshotSchema,
@@ -53,13 +52,10 @@ export const runnerInteractionCanvasRefSchema = z
   .strict();
 export type RunnerInteractionCanvasRef = z.infer<typeof runnerInteractionCanvasRefSchema>;
 
-export const runnerInteractionAuditSchema = z
-  .object({
-    decisionSource: runnerInteractionClientLabelSchema,
-    reason: z.string().min(1).max(4096).nullable()
-  })
-  .strict();
-export type RunnerInteractionAudit = z.infer<typeof runnerInteractionAuditSchema>;
+export {
+  runnerInteractionAuditSchema,
+  type RunnerInteractionAudit
+} from "../../autoRun/runnerInteractionContract.js";
 
 export {
   runnerInteractionActionIdentitySchema,

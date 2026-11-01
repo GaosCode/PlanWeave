@@ -4,7 +4,10 @@ import {
   runnerSessionActionIdentitySchema
 } from "./runnerContractSchemas.js";
 import { utf8ByteLength } from "./runnerEventRedaction.js";
-import { runnerPermissionInteractionDecisionSchema } from "./runnerInteractionContract.js";
+import {
+  runnerInteractionAuditSchema,
+  runnerPermissionInteractionDecisionSchema
+} from "./runnerInteractionContract.js";
 
 /**
  * Cross-process control is a transport to the current live owner, not a durable
@@ -140,14 +143,36 @@ export const agentRunControlFollowUpCommandSchema = z
   })
   .strict();
 
-export const agentRunControlRespondCommandSchema = z
+const agentRunControlRespondCommandBaseSchema = z
   .object({
     ...commandEnvelopeShape,
     kind: z.literal("respond"),
     identity: runnerRequestActionIdentitySchema,
-    outcome: agentRunControlRespondOutcomeSchema
+    outcome: agentRunControlRespondOutcomeSchema,
+    audit: runnerInteractionAuditSchema.optional()
   })
   .strict();
+
+function validatePermissionAudit(
+  command: {
+    kind: string;
+    outcome?: AgentRunControlRespondOutcome;
+    audit?: z.infer<typeof runnerInteractionAuditSchema>;
+  },
+  context: z.RefinementCtx
+): void {
+  if (command.kind !== "respond" || !command.outcome || !("kind" in command.outcome)) return;
+  if (!command.audit || (command.outcome.kind === "cancel" && command.audit.reason === null)) {
+    context.addIssue({
+      code: "custom",
+      path: ["audit"],
+      message: "Permission decisions require audit metadata and cancellations require a reason."
+    });
+  }
+}
+
+export const agentRunControlRespondCommandSchema =
+  agentRunControlRespondCommandBaseSchema.superRefine(validatePermissionAudit);
 
 export const agentRunControlCommandSchema = z
   .discriminatedUnion("kind", [
@@ -164,11 +189,13 @@ export const agentRunControlCommandSchema = z
     }
   });
 
-export const agentRunControlActionSchema = z.discriminatedUnion("kind", [
-  agentRunControlCancelCommandSchema.omit({ version: true, commandId: true, leaseId: true }),
-  agentRunControlFollowUpCommandSchema.omit({ version: true, commandId: true, leaseId: true }),
-  agentRunControlRespondCommandSchema.omit({ version: true, commandId: true, leaseId: true })
-]);
+export const agentRunControlActionSchema = z
+  .discriminatedUnion("kind", [
+    agentRunControlCancelCommandSchema.omit({ version: true, commandId: true, leaseId: true }),
+    agentRunControlFollowUpCommandSchema.omit({ version: true, commandId: true, leaseId: true }),
+    agentRunControlRespondCommandBaseSchema.omit({ version: true, commandId: true, leaseId: true })
+  ])
+  .superRefine(validatePermissionAudit);
 
 export const agentRunControlReceiptResultSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("accepted") }).strict(),

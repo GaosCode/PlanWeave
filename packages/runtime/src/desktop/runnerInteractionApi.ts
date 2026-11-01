@@ -502,7 +502,8 @@ async function respondAtRunDirectory(
         sessionId: metadata.data.sessionId,
         requestId: identity.requestId
       }),
-      outcome: decision
+      outcome: decision,
+      audit
     }
   });
   if (!response.ok) {
@@ -523,13 +524,32 @@ async function respondAtRunDirectory(
       commandId: response.commandId
     });
   }
+  const persisted = (
+    await new PersistentRunnerInteractionStore(runDir).readSnapshot(identity.requestId)
+  ).response;
+  if (
+    response.result.status !== "delivered" ||
+    !persisted ||
+    !runnerInteractionIdentityMatches(persisted.identity, identity) ||
+    persisted.decision.kind !== decision.kind ||
+    (persisted.decision.kind === "select" &&
+      decision.kind === "select" &&
+      persisted.decision.optionId !== decision.optionId) ||
+    persisted.decisionSource !== audit.decisionSource ||
+    persisted.reason !== audit.reason
+  ) {
+    throw new RunnerInteractionApiError(
+      "interaction_contract_invalid",
+      "Runner owner receipt does not match the persisted interaction response."
+    );
+  }
   return runnerInteractionResponseReceiptSchema.parse({
     version: "planweave.runner-interaction-response-receipt/v1",
     identity,
-    acceptedAt: response.acceptedAt,
+    acceptedAt: persisted.respondedAt,
     decision,
     selectedOption,
-    decisionSource: audit.decisionSource
+    decisionSource: persisted.decisionSource
   });
 }
 

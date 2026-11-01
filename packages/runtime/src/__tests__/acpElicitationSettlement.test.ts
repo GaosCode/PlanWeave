@@ -1,3 +1,4 @@
+import { PersistentRunnerInteractionStore } from "../autoRun/runnerInteractionStore.js";
 import { appendFile, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -288,6 +289,11 @@ describe("ACP permission settlement", () => {
         }
       })
     ).resolves.toMatchObject({ kind: "block", exitCode: 0 });
+    const snapshot = await new PersistentRunnerInteractionStore(root).readSnapshot("permission:1");
+    expect(snapshot.response).toMatchObject({
+      decisionSource: "planweave-desktop",
+      reason: decision === "cancel" ? "cancelled by test" : null
+    });
     const events = await readFile(join(root, "events.ndjson"), "utf8");
     expect(events.match(/"kind":"interaction_result"/g)).toHaveLength(1);
     expect(events).toContain(

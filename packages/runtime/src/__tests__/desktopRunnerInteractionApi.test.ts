@@ -177,7 +177,7 @@ describe("desktop runner interaction API", () => {
     ).resolves.toMatchObject({ status: "pending", response: null });
   });
 
-  it("rejects stale owners, then accepts the same lease after heartbeat recovery", async () => {
+  it("rejects stale owners and refuses an unpersisted receipt after heartbeat recovery", async () => {
     const fixture = await createPendingRun();
     await writeJsonFile(join(fixture.runDir, "heartbeat.json"), {
       status: "running",
@@ -223,7 +223,7 @@ describe("desktop runner interaction API", () => {
         { decisionSource: "scheduler-alpha", reason: "Not approved" },
         { now: () => now, executeControl: acceptedControl }
       )
-    ).resolves.toMatchObject({ selectedOption: { decision: "deny" } });
+    ).rejects.toMatchObject({ code: "interaction_contract_invalid" });
   });
 
   it("rejects a replaced owner lease before creating a response", async () => {
@@ -277,7 +277,7 @@ describe("desktop runner interaction API", () => {
         audit,
         { now: () => now, executeControl }
       )
-    ).resolves.toMatchObject({ selectedOption: { decision: "approve" } });
+    ).rejects.toMatchObject({ code: "interaction_contract_invalid" });
     await expect(
       respondToRunnerInteractionAction(
         ref,

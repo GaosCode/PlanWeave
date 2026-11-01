@@ -1,3 +1,10 @@
+import { createPersistentAcpPermissionHandler } from "../../autoRun/acpPermissionInteraction.js";
+import { AcpEventStore } from "../../autoRun/acpEventStore.js";
+import { PersistentRunnerInteractionStore } from "../../autoRun/runnerInteractionStore.js";
+import {
+  runnerIdentitySchema,
+  runnerRunIdentitySchema
+} from "../../autoRun/runnerContractSchemas.js";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 import type { AcpConnection } from "../../autoRun/acpConnection.js";
@@ -38,6 +45,7 @@ const workerCommandSchema = z.discriminatedUnion("kind", [
       kind: z.literal("add_request"),
       requestKind: z.enum(["permission", "elicitation"]),
       requestId: z.string().min(1),
+      persistent: z.boolean().optional(),
       delayMs: z.number().int().min(0).max(2000).optional()
     })
     .strict(),
@@ -137,7 +145,69 @@ function setRunningAfterResponse(): void {
   if (handle.lifecycleState === "waiting_interaction") registry.transition(handle, "running");
 }
 
-function addRequest(message: Extract<WorkerCommand, { kind: "add_request" }>): void {
+async function addRequest(message: Extract<WorkerCommand, { kind: "add_request" }>): Promise<void> {
+  if (message.persistent) {
+    const { request } = await new PersistentRunnerInteractionStore(runDir!).readSnapshot(
+      message.requestId
+    );
+    const eventStore = new AcpEventStore({
+      runDir: runDir!,
+      identity: runnerRunIdentitySchema.parse({
+        projectId: request.identity.projectId,
+        canvasId: request.identity.canvasId,
+        taskId: "T-001",
+        blockId: "B-001",
+        claimRef: identity.claimRef,
+        runId: identity.executorRunId,
+        runOwner: "executor",
+        executorRunId: identity.executorRunId,
+        desktopRunId: identity.desktopRunId,
+        runSessionId: identity.runSessionId
+      }),
+      runner: runnerIdentitySchema.parse({
+        version: "planweave.runner/v1",
+        runnerKind: "acp",
+        agentId: "codex"
+      })
+    });
+    await eventStore.open();
+    const permission = createPersistentAcpPermissionHandler({
+      runDir: runDir!,
+      recordId: `${identity.claimRef}::${identity.executorRunId}`,
+      identity: request.identity,
+      eventStore,
+      signal: handle.abortController.signal,
+      deadline: () => null,
+      setWaiting: async (_requestId, waiting) => {
+        if (waiting && handle.lifecycleState === "running")
+          registry.transition(handle, "waiting_interaction");
+        if (!waiting) setRunningAfterResponse();
+      },
+      addPending: (pending) => {
+        pendingRequests.set(pending.requestId, pending);
+        emit({ kind: "request_ready", requestId: pending.requestId, requestKind: "permission" });
+      },
+      releasePending: (requestId) => pendingRequests.delete(requestId),
+      recordFailure: (error) => emit({ kind: "permission_error", message: error.message })
+    });
+    void permission(
+      {
+        sessionId: request.identity.sessionId,
+        toolCall: {
+          toolCallId: request.toolCallId,
+          title: request.summary.replace(/^Permission requested for: /u, "")
+        },
+        options: request.options.map((option) => ({
+          optionId: option.optionId,
+          name: option.label,
+          kind: option.decision === "approve" ? "allow_once" : "reject_once"
+        }))
+      },
+      request.identity.requestId,
+      request.requestedAt
+    );
+    return;
+  }
   const requestId = message.requestId;
   const requestKind = message.requestKind;
   const delayMs = message.delayMs ?? 0;
@@ -198,7 +268,7 @@ async function handleCommand(line: string): Promise<void> {
   const message = workerCommandSchema.parse(JSON.parse(line) as unknown);
   switch (message.kind) {
     case "add_request":
-      addRequest(message);
+      await addRequest(message);
       break;
     case "capabilities":
       if (message.cancel !== undefined) capabilities.cancel = message.cancel;

@@ -7,7 +7,11 @@ import {
   executorRunIdSchema,
   projectIdSchema
 } from "./runnerContractSchemas.js";
-import { safeRunnerEventTextSchema, utf8ByteLength } from "./runnerEventRedaction.js";
+import {
+  redactRunnerEventText,
+  safeRunnerEventTextSchema,
+  utf8ByteLength
+} from "./runnerEventRedaction.js";
 
 export const runnerPermissionInteractionVersionSchema = z.literal(
   "planweave.runner-interaction/v1"
@@ -51,6 +55,30 @@ export const runnerInteractionClientLabelSchema = z
   .min(1)
   .max(128)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, "Decision source must be a stable client label.");
+
+export const runnerInteractionAuditSchema = z
+  .object({
+    decisionSource: runnerInteractionClientLabelSchema,
+    reason: z
+      .string()
+      .min(1)
+      .max(4096)
+      .transform((value, context) => {
+        try {
+          return redactRunnerEventText(value).text;
+        } catch {
+          context.addIssue({
+            code: "custom",
+            message: "Permission response reason could not be safely redacted."
+          });
+          return z.NEVER;
+        }
+      })
+      .pipe(nonEmptySafeTextSchema(4096, "Permission response reason"))
+      .nullable()
+  })
+  .strict();
+export type RunnerInteractionAudit = z.infer<typeof runnerInteractionAuditSchema>;
 
 export const runnerInteractionIdentitySchema = z
   .object({

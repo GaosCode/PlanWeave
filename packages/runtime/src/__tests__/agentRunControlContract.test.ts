@@ -85,6 +85,7 @@ describe("agent run control contract", () => {
         ...commandEnvelope(),
         kind: "respond",
         identity: requestIdentityFixture(),
+        audit: { decisionSource: "control-test", reason: "Operator decision" },
         outcome: { kind: "select", optionId: "allow-once" }
       }).kind
     ).toBe("respond");
@@ -102,6 +103,24 @@ describe("agent run control contract", () => {
         identity: { ...sessionIdentityFixture(), desktopRunId: undefined }
       }).success
     ).toBe(false);
+  });
+
+  it("rejects missing or unsafe permission audit and blank cancellation reasons", () => {
+    const base = {
+      ...commandEnvelope(),
+      kind: "respond",
+      identity: requestIdentityFixture(),
+      outcome: { kind: "cancel" }
+    };
+    for (const audit of [
+      undefined,
+      { decisionSource: "cli", reason: null },
+      { decisionSource: "cli", reason: "   " },
+      { decisionSource: "invalid source", reason: "Operator stop" },
+      { decisionSource: "cli", reason: "[REDACTED:CREDENTIAL] leaked" }
+    ]) {
+      expect(agentRunControlCommandSchema.safeParse({ ...base, audit }).success).toBe(false);
+    }
   });
 
   it("accepts bounded Unix and Windows endpoint descriptors", () => {
@@ -185,6 +204,7 @@ describe("agent run control contract", () => {
         ...commandEnvelope(),
         kind: "respond",
         identity: persistedMailboxIdentity,
+        audit: { decisionSource: "control-test", reason: "Operator decision" },
         outcome: { kind: "select", optionId: "allow-once" }
       }).success
     ).toBe(false);
@@ -200,6 +220,7 @@ describe("agent run control contract", () => {
         ...commandEnvelope(),
         kind: "respond",
         identity: { ...requestIdentityFixture(), requestId: undefined },
+        audit: { decisionSource: "control-test", reason: "Operator decision" },
         outcome: { kind: "select", optionId: "allow-once" }
       }).success
     ).toBe(false);
@@ -259,6 +280,7 @@ describe("agent run control contract", () => {
           ...commandEnvelope(),
           kind: "respond",
           identity: requestIdentityFixture(),
+          audit: { decisionSource: "control-test", reason: "Operator decision" },
           outcome
         }).success
       ).toBe(true);
@@ -278,6 +300,7 @@ describe("agent run control contract", () => {
           ...commandEnvelope(),
           kind: "respond",
           identity: requestIdentityFixture(),
+          audit: { decisionSource: "control-test", reason: "Operator decision" },
           outcome
         }).success
       ).toBe(false);

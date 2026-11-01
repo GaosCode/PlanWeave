@@ -49,6 +49,7 @@ describe("desktop agent run control application API", () => {
     {
       kind: "respond" as const,
       requestId: "permission-1",
+      audit: { decisionSource: "control-test", reason: "Operator decision" },
       outcome: { kind: "select" as const, optionId: "allow" }
     }
   ])("resolves and executes the canonical $kind command", async (actionCase) => {
@@ -58,6 +59,7 @@ describe("desktop agent run control application API", () => {
         ? {
             kind: "respond",
             identity: { ...fixture.identity, requestId: actionCase.requestId },
+            audit: actionCase.audit,
             outcome: actionCase.outcome
           }
         : actionCase.kind === "follow_up"

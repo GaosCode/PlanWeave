@@ -1,3 +1,4 @@
+import type { RunnerInteractionAudit } from "./runnerInteractionContract.js";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 import type { AcpLiveRunTransport } from "./acpConnectionProvider.js";
 import {
@@ -175,7 +176,11 @@ export class ActiveAgentRunRegistry {
     ];
   }
 
-  async respond(identity: ActiveAgentRunActionIdentity, value: JsonRpcValue): Promise<void> {
+  async respond(
+    identity: ActiveAgentRunActionIdentity,
+    value: JsonRpcValue,
+    audit?: RunnerInteractionAudit
+  ): Promise<void> {
     const handle = this.resolveAction(identity);
     if (!handle)
       throw new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`);
@@ -197,11 +202,16 @@ export class ActiveAgentRunRegistry {
       control: handle.control,
       ownership: handle.ownership,
       requestId: identity.requestId,
-      value
+      value,
+      audit
     });
   }
 
-  async rejectRequest(identity: ActiveAgentRunActionIdentity, reason: string): Promise<void> {
+  async rejectRequest(
+    identity: ActiveAgentRunActionIdentity,
+    reason: string,
+    audit?: RunnerInteractionAudit
+  ): Promise<void> {
     const handle = this.resolveAction(identity);
     if (!handle)
       throw new Error(`Active ACP executor run '${identity.executorRunId}' does not exist.`);
@@ -214,7 +224,8 @@ export class ActiveAgentRunRegistry {
       control: handle.control,
       ownership: handle.ownership,
       requestId: identity.requestId,
-      reason
+      reason,
+      audit
     });
   }
 

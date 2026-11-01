@@ -193,6 +193,7 @@ describe("agent run control two-process integration", () => {
         leaseId: descriptor.leaseId,
         kind: "respond",
         identity: { ...fixture.identity, requestId: "permission-allow" },
+        audit: { decisionSource: "control-test", reason: "Operator decision" },
         outcome: { kind: "select", optionId: "allow" }
       });
       await expect(firstClient.execute(allowCommand)).resolves.toMatchObject({
@@ -214,6 +215,7 @@ describe("agent run control two-process integration", () => {
         ...allowCommand,
         commandId: globalThis.crypto.randomUUID(),
         identity: { ...fixture.identity, requestId: "permission-deny" },
+        audit: { decisionSource: "control-test", reason: "Operator decision" },
         outcome: { kind: "select", optionId: "deny" }
       });
       await expect(rebuiltClient.execute(denyCommand)).resolves.toMatchObject({
@@ -241,6 +243,7 @@ describe("agent run control two-process integration", () => {
             ...allowCommand,
             commandId: globalThis.crypto.randomUUID(),
             identity: { ...fixture.identity, requestId: "permission-cancel" },
+            audit: { decisionSource: "control-test", reason: "Operator decision" },
             outcome: { kind: "cancel" }
           })
         )
@@ -249,9 +252,7 @@ describe("agent run control two-process integration", () => {
         deliveryFor("reject", "permission-cancel"),
         "permission cancellation delivery"
       );
-      expect(permissionCancellation.reason).toBe(
-        "Permission request was cancelled through runner control."
-      );
+      expect(permissionCancellation.reason).toBe("Operator decision");
 
       owner.send({ kind: "add_request", requestKind: "elicitation", requestId: "elicitation-1" });
       await owner.waitFor(
@@ -305,6 +306,7 @@ describe("agent run control two-process integration", () => {
         applicationAction(fixture, {
           kind: "respond",
           identity: { ...fixture.identity, requestId: "missing-request" },
+          audit: { decisionSource: "control-test", reason: "Operator decision" },
           outcome: { kind: "select", optionId: "allow" }
         })
       ).resolves.toMatchObject({ ok: false, code: "request_not_pending" });
@@ -338,6 +340,7 @@ describe("agent run control two-process integration", () => {
         applicationAction(fixture, {
           kind: "respond",
           identity: { ...fixture.identity, requestId: "denied-request" },
+          audit: { decisionSource: "control-test", reason: "Operator decision" },
           outcome: { kind: "select", optionId: "allow" }
         })
       ).resolves.toMatchObject({ ok: false, code: "capability_denied" });
@@ -404,6 +407,7 @@ describe("agent run control two-process integration", () => {
         kind: "respond",
         commandId: globalThis.crypto.randomUUID(),
         identity: { ...fixture.identity, requestId: "split-request" },
+        audit: { decisionSource: "control-test", reason: "Operator decision" },
         outcome: { kind: "select", optionId: "allow" }
       });
       await expect(rawRequest(descriptor, splitCommand, 2)).resolves.toMatchObject({
@@ -425,6 +429,7 @@ describe("agent run control two-process integration", () => {
         kind: "respond",
         commandId: globalThis.crypto.randomUUID(),
         identity: { ...fixture.identity, requestId: "duplicate-request" },
+        audit: { decisionSource: "control-test", reason: "Operator decision" },
         outcome: { kind: "select", optionId: "deny" }
       });
       const [firstReceipt, secondReceipt] = await Promise.all([
@@ -450,6 +455,7 @@ describe("agent run control two-process integration", () => {
         kind: "respond",
         commandId: globalThis.crypto.randomUUID(),
         identity: { ...fixture.identity, requestId: "disconnect-request" },
+        audit: { decisionSource: "control-test", reason: "Operator decision" },
         outcome: { kind: "select", optionId: "allow" }
       });
       const disconnected = createConnection(descriptor.address);

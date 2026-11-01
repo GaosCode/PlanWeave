@@ -128,10 +128,14 @@ describe("agent run control locator", () => {
     }).execute("/path/without/descriptor", {
       kind: "respond",
       identity: { ...identity, requestId: "permission-1" },
+      audit: { decisionSource: "control-test", reason: "Operator decision" },
       outcome: { kind: "select", optionId: "allow" }
     });
     expect(response).toMatchObject({ ok: true, result: { status: "delivered" } });
-    expect(respond).toHaveBeenCalledWith("allow");
+    expect(respond).toHaveBeenCalledWith("allow", {
+      decisionSource: "control-test",
+      reason: "Operator decision"
+    });
     await registry.remove(handle, "test complete");
   });
 

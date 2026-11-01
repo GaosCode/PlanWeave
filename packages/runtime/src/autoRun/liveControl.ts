@@ -1,3 +1,4 @@
+import type { RunnerInteractionAudit } from "./runnerInteractionContract.js";
 import { acpRequestIdSchema, type PersistedPendingInteraction } from "./runnerContractSchemas.js";
 import { containsUnredactedRunnerSecret, redactRunnerEventText } from "./runnerEventRedaction.js";
 
@@ -25,8 +26,8 @@ type LivePendingRequestBase = {
   readonly interactionId: string;
   readonly requestedAt: string;
   readonly summary: string;
-  respond: (value: JsonRpcValue) => Promise<void>;
-  reject: (reason: string) => Promise<void>;
+  respond: (value: JsonRpcValue, audit?: RunnerInteractionAudit) => Promise<void>;
+  reject: (reason: string, audit?: RunnerInteractionAudit) => Promise<void>;
 };
 
 export type LivePermissionOption = {
@@ -325,10 +326,14 @@ export function respondToPendingRunnerRequest(options: {
   ownership: LiveOwnership;
   requestId: string;
   value: JsonRpcValue;
+  audit?: RunnerInteractionAudit;
 }): Promise<void> {
   return settlePendingRunnerRequest({
     ...options,
-    settle: (request) => request.respond(options.value)
+    settle: (request) =>
+      options.audit === undefined
+        ? request.respond(options.value)
+        : request.respond(options.value, options.audit)
   });
 }
 
@@ -337,10 +342,14 @@ export function rejectPendingRunnerRequest(options: {
   ownership: LiveOwnership;
   requestId: string;
   reason: string;
+  audit?: RunnerInteractionAudit;
 }): Promise<void> {
   return settlePendingRunnerRequest({
     ...options,
-    settle: (request) => request.reject(options.reason)
+    settle: (request) =>
+      options.audit === undefined
+        ? request.reject(options.reason)
+        : request.reject(options.reason, options.audit)
   });
 }
 
