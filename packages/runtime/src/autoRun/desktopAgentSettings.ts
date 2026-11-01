@@ -35,7 +35,8 @@ const desktopAgentNames = {
   "claude-code": ["claude-code", "claude-code-auto"],
   opencode: ["opencode"],
   pi: ["pi", "pi-auto"],
-  grok: ["grok"]
+  grok: ["grok"],
+  codebuddy: ["codebuddy"]
 } as const satisfies Record<DesktopAgentKind, readonly string[]>;
 
 const desktopAgentAcpNames = {
@@ -43,7 +44,8 @@ const desktopAgentAcpNames = {
   "claude-code": "claude-code-acp",
   opencode: "opencode-acp",
   pi: "pi-acp",
-  grok: "grok-acp"
+  grok: "grok-acp",
+  codebuddy: "codebuddy-acp"
 } as const satisfies Record<DesktopAgentKind, string>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {

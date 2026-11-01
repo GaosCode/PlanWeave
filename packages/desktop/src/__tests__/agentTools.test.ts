@@ -414,7 +414,7 @@ describe("desktop agent tool detection", () => {
       distribution: "Ubuntu"
     });
 
-    expect(agents).toHaveLength(10);
+    expect(agents).toHaveLength(11);
     expect(agents.every((agent) => agent.installed)).toBe(true);
     expect(agents.every((agent) => agent.executionHost?.kind === "wsl")).toBe(true);
     expect(agents.find((agent) => agent.command === "pi-acp")).toMatchObject({

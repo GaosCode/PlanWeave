@@ -41,7 +41,14 @@ export const executorAdapters = executorIntegrations;
  */
 export type ExecutorAdapterName = ExecutorIntegrationName;
 
-export const agentFamilySchema = z.enum(["codex", "opencode", "claude-code", "pi", "grok"]);
+export const agentFamilySchema = z.enum([
+  "codex",
+  "opencode",
+  "claude-code",
+  "pi",
+  "grok",
+  "codebuddy"
+]);
 export const agentFamilies = agentFamilySchema.options;
 export type AgentFamily = z.infer<typeof agentFamilySchema>;
 
