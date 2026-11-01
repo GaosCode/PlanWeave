@@ -4,9 +4,11 @@ import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration
 import {
   ACP_CONVERSATION_CAPABILITY,
   ACP_TASK_RESTORE_CAPABILITY,
-  acpConversationPageSchema
+  acpConversationPageSchema,
+  acpConversationOrderedPaginatedPageSchema
 } from "@planweave-ai/agent-host-protocol";
 import { createConversationCompatibilityFixture } from "./support/acpConversationCompatibilityFixture.js";
+import { AcpConversationRetention } from "../acpConversationRetention.js";
 import { legacyAcpConversationPageSchema } from "./support/legacyAcpConversationContract.js";
 
 const fixtures: Awaited<ReturnType<typeof createConversationCompatibilityFixture>>[] = [];
@@ -86,24 +88,28 @@ describe("ACP conversation independent upgrades", () => {
     expect(restores).toBe(1);
   });
   it.each([
-    "owner",
-    "workspace"
-  ] as const)("keeps strict legacy empty/small GET and POST readable on %s", async (surface) => {
+    ["owner", 1],
+    ["owner", 2],
+    ["workspace", 1],
+    ["workspace", 2]
+  ] as const)("keeps strict %s v%i empty/small GET and POST readable", async (surface, version) => {
     const f = await setup();
-    const get = await fetch(f.path(surface), { headers: f.headers(surface) });
+    const parse = (input: unknown) =>
+      version === 1
+        ? legacyAcpConversationPageSchema.parse(input)
+        : acpConversationPageSchema.parse(input);
+    const get = await fetch(f.path(surface, version), { headers: f.headers(surface) });
     expect(get.status).toBe(200);
-    expect(legacyAcpConversationPageSchema.parse(await get.json()).turns).toEqual([]);
-    const post = await fetch(f.path(surface), {
+    expect(parse(await get.json()).turns).toEqual([]);
+    const post = await fetch(f.path(surface, version), {
       method: "POST",
       headers: f.headers(surface),
       body: JSON.stringify(f.prompt)
     });
     expect(post.status).toBe(202);
-    expect(legacyAcpConversationPageSchema.parse(await post.json()).turns).toMatchObject([
-      { turnId: f.prompt.turnId }
-    ]);
-    const read = await fetch(f.path(surface), { headers: f.headers(surface) });
-    expect(legacyAcpConversationPageSchema.parse(await read.json()).turns).toHaveLength(1);
+    expect(parse(await post.json()).turns).toMatchObject([{ turnId: f.prompt.turnId }]);
+    const read = await fetch(f.path(surface, version), { headers: f.headers(surface) });
+    expect(parse(await read.json()).turns).toHaveLength(1);
   });
 
   it.each([
@@ -171,9 +177,12 @@ describe("ACP conversation independent upgrades", () => {
   it.each([
     "owner",
     "workspace"
-  ] as const)("drains v2 %s metadata and events exactly and observes terminal updates/compaction", async (surface) => {
+  ] as const)("drains v3 %s metadata and events exactly and observes terminal updates/compaction", async (surface) => {
     const f = await setup();
-    const ids = Array.from({ length: 12 }, (_, i) => `v2-${i}`);
+    const ids = Array.from(
+      { length: 22 },
+      (_, i) => `${i === 0 ? "z-first" : i === 1 ? "a-second" : `turn-${i}`}`
+    );
     for (const turnId of ids) {
       f.service.act(f.operation, "compat-actor", { ...f.prompt, turnId });
       f.service.ingest(
@@ -191,6 +200,8 @@ describe("ACP conversation independent upgrades", () => {
     const events = [...page.events];
     let count = 1;
     expect(page.hasMoreTurns).toBe(true);
+    expect(page.turns[0]?.turnId).toBe(active.turnId);
+    expect(page.turns[0]?.turnOrder).toBeGreaterThan(page.turns[1]!.turnOrder);
     while (page.hasMore) {
       const before = [page.cursor, page.turnCursor];
       page = await call(page.cursor, page.turnCursor);
@@ -202,7 +213,10 @@ describe("ACP conversation independent upgrades", () => {
       events.push(...page.events);
       expect(++count).toBeLessThan(20);
     }
-    expect([...turns.keys()].sort()).toEqual([...ids, active.turnId].sort());
+    expect(
+      [...turns.values()].sort((a, b) => a.turnOrder - b.turnOrder).map((turn) => turn.turnId)
+    ).toEqual([...ids, active.turnId]);
+    expect(new Set([...turns.values()].map((turn) => turn.turnOrder)).size).toBe(turns.size);
     expect(events.map((event) => event.messageId)).toEqual(ids.map((id) => `message-${id}-1`));
     f.service.ingest(
       f.host.id,
@@ -222,5 +236,23 @@ describe("ACP conversation independent upgrades", () => {
     }
     expect(refreshed.get(active.turnId)?.status).toBe("completed");
     expect(updates.map((event) => event.messageId)).toEqual([`message-${active.turnId}-1`]);
+    const before = [...refreshed.values()].sort((a, b) => a.turnOrder - b.turnOrder);
+    const compacted = new AcpConversationRetention(
+      f.db,
+      () => new Date(f.clock().getTime() + 31 * 24 * 60 * 60 * 1_000)
+    ).compactBatch();
+    expect(compacted.compacted).toBeGreaterThan(0);
+    let restored = await call(0, null);
+    const restoredTurns = new Map(restored.turns.map((turn) => [turn.turnId, turn]));
+    while (restored.hasMore) {
+      restored = await call(restored.cursor, restored.turnCursor);
+      for (const turn of acpConversationOrderedPaginatedPageSchema.parse(restored).turns)
+        restoredTurns.set(turn.turnId, turn);
+    }
+    expect(
+      [...restoredTurns.values()]
+        .sort((a, b) => a.turnOrder - b.turnOrder)
+        .map((turn) => [turn.turnId, turn.turnOrder])
+    ).toEqual(before.map((turn) => [turn.turnId, turn.turnOrder]));
   });
 });

@@ -6,14 +6,14 @@ import {
   acpConversationEventSchema,
   acpConversationEventPageBytes,
   acpConversationCommandSchema,
-  acpConversationPageSchema,
-  acpConversationTurnSchema,
+  acpConversationOrderedPageSchema,
+  acpConversationOrderedTurnSchema,
   acpConversationPromptCommandSchema,
   canonicalizeJson,
   executeBlockCommandSchema,
   type AcpConversationAction,
   type AcpConversationEvent,
-  type AcpConversationPage,
+  type AcpConversationOrderedPage,
   type AcpConversationPageVersion
 } from "@planweave-ai/agent-host-protocol";
 import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
@@ -57,14 +57,14 @@ export class AcpConversationService {
     }
   ) {}
 
-  private readonly restorations = new Map<string, Promise<AcpConversationPage>>();
+  private readonly restorations = new Map<string, Promise<AcpConversationOrderedPage>>();
 
   async restore(
     operation: RemoteOperation,
     actorId: string,
     input: unknown,
     version: AcpConversationPageVersion = 2
-  ): Promise<AcpConversationPage> {
+  ): Promise<AcpConversationOrderedPage> {
     this.options.authorize(operation, actorId);
     const action = acpConversationActionSchema.parse(input);
     const source = this.source(operation);
@@ -113,7 +113,7 @@ export class AcpConversationService {
     operation: RemoteOperation,
     actorId: string,
     source: ReturnType<AcpConversationService["source"]>
-  ): Promise<AcpConversationPage> {
+  ): Promise<AcpConversationOrderedPage> {
     if (!this.options.restoreTask) throw new AcpConversationError("acp_restore_unavailable");
     this.page(operation, actorId);
     const existing = this.database
@@ -251,7 +251,7 @@ export class AcpConversationService {
     afterTurnId: string | null = null,
     priorityTurnId?: string,
     version: AcpConversationPageVersion = 2
-  ): AcpConversationPage {
+  ): AcpConversationOrderedPage {
     if (!Number.isSafeInteger(afterCursor) || afterCursor < 0)
       throw new AcpConversationError("acp_conversation_cursor_invalid");
     this.options.authorize(operation, actorId);
@@ -264,7 +264,9 @@ export class AcpConversationService {
     this.expire(operation.attempt.hostId, source.sessionId);
     const reason = this.availability(operation, source);
     const turns = this.database
-      .prepare("SELECT * FROM acp_conversation_turns WHERE operation_id=? ORDER BY rowid")
+      .prepare(
+        "SELECT rowid AS turn_order,* FROM acp_conversation_turns WHERE operation_id=? ORDER BY rowid"
+      )
       .all(operation.id);
     const rows = this.database
       .prepare(`SELECT e.cursor,e.event_json FROM acp_conversation_events e
@@ -274,7 +276,7 @@ export class AcpConversationService {
     const compactedTurnIds = turns
       .filter((turn) => turn.compacted_at !== null)
       .map((turn) => String(turn.turn_id));
-    const metadata = acpConversationPageSchema.parse({
+    const metadata = acpConversationOrderedPageSchema.parse({
       available: reason === null,
       canRestoreTask:
         operation.state === "cancelled" &&
@@ -305,14 +307,17 @@ export class AcpConversationService {
       events: [],
       cursor: afterCursor,
       hasMore: false,
+      turnCursor: null,
+      hasMoreTurns: false,
       ...(compactedTurnIds.length ? { retention: { compactedTurnIds } } : {})
     });
     try {
       return paginateAcpConversation(
         metadata,
         turns.map((row) =>
-          acpConversationTurnSchema.parse({
+          acpConversationOrderedTurnSchema.parse({
             turnId: row.turn_id,
+            turnOrder: Number(row.turn_order),
             executionAttemptId: row.execution_attempt_id,
             sessionId: row.session_id,
             status: row.status,
@@ -345,7 +350,7 @@ export class AcpConversationService {
     actorId: string,
     input: unknown,
     version: AcpConversationPageVersion = 2
-  ): AcpConversationPage {
+  ): AcpConversationOrderedPage {
     const action = acpConversationActionSchema.parse(input);
     this.options.authorize(operation, actorId);
     if (action.kind === "restore_task")

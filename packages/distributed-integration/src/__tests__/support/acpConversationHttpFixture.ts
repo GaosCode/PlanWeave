@@ -1,5 +1,6 @@
 import type { Server } from "node:http";
-import { acpConversationPageSchema } from "@planweave-ai/agent-host-protocol";
+import { acpConversationLegacyPageSchema } from "@planweave-ai/agent-host-protocol";
+import { acpConversationWirePage } from "../../../../server/src/acpConversationPagination.js";
 import type { AcpConversationService } from "../../../../server/src/acpConversationService.js";
 import { HumanIdentityCredentialStore } from "../../../../server/src/identity/humanIdentityCredentialStore.js";
 import { OperatorSessionStore } from "../../../../server/src/identity/operatorSessionStore.js";
@@ -77,20 +78,30 @@ export function attachConversationHttpFixture(
     revokeRemoteAgentGrant: unused,
     revokeRemoteAgent: unused,
     repairRemoteAgentOwnership: unused,
-    conversation(principal, operationId, afterCursor = 0) {
+    conversation(principal, operationId, afterCursor = 0, afterTurnId, version = 1) {
       if (!principal.humanPrincipalId) throw new Error("operator_human_identity_forbidden");
-      return conversations.page(
-        operations.getRequired(operationId),
-        principal.humanPrincipalId,
-        afterCursor
+      return acpConversationWirePage(
+        conversations.page(
+          operations.getRequired(operationId),
+          principal.humanPrincipalId,
+          afterCursor,
+          afterTurnId,
+          undefined,
+          version
+        ),
+        version
       );
     },
-    converse(principal, operationId, action) {
+    converse(principal, operationId, action, version = 1) {
       if (!principal.humanPrincipalId) throw new Error("operator_human_identity_forbidden");
-      return conversations.act(
-        operations.getRequired(operationId),
-        principal.humanPrincipalId,
-        action
+      return acpConversationWirePage(
+        conversations.act(
+          operations.getRequired(operationId),
+          principal.humanPrincipalId,
+          action,
+          version
+        ),
+        version
       );
     }
   };
@@ -118,7 +129,7 @@ export function attachConversationHttpFixture(
         const response = await fetch(`${url}?afterCursor=${afterCursor}`, { headers });
         if (!response.ok)
           throw new Error(`conversation_page_http_${response.status}: ${await response.text()}`);
-        return acpConversationPageSchema.parse(await response.json());
+        return acpConversationLegacyPageSchema.parse(await response.json());
       },
       async act(action: unknown) {
         const response = await fetch(url, {
@@ -128,7 +139,7 @@ export function attachConversationHttpFixture(
         });
         if (!response.ok)
           throw new Error(`conversation_action_http_${response.status}: ${await response.text()}`);
-        return acpConversationPageSchema.parse(await response.json());
+        return acpConversationLegacyPageSchema.parse(await response.json());
       }
     };
   };

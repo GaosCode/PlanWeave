@@ -7,7 +7,7 @@ import {
 import { z } from "zod";
 import {
   acpConversationActionSchema,
-  acpConversationPageSchema
+  acpConversationOrderedPageSchema
 } from "@planweave-ai/agent-host-protocol/browser";
 import { workspaceCanvasLocatorSchema } from "./canvasLocator.js";
 import { desktopOwnerCanvasExecutionLocatorSchema } from "./workspaceExecution.js";
@@ -46,7 +46,7 @@ export const desktopRemoteAcpConversationInputSchema = z
 export type DesktopRemoteAcpConversationInput = z.input<
   typeof desktopRemoteAcpConversationInputSchema
 >;
-export const desktopRemoteAcpConversationPageSchema = acpConversationPageSchema
+export const desktopRemoteAcpConversationPageSchema = acpConversationOrderedPageSchema
   .extend({
     execution: z
       .object({

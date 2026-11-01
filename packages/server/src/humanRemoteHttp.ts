@@ -1,6 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AcpConversationError } from "./acpConversationService.js";
-import { opaqueIdentifierSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  opaqueIdentifierSchema,
+  type AcpConversationPageVersion
+} from "@planweave-ai/agent-host-protocol";
 import { z } from "zod";
 import {
   authenticateCollaborationForScope,
@@ -47,7 +50,7 @@ type HumanRemoteRoute =
         | "converse";
       projectId: string;
       operationId: string;
-      conversationVersion?: 1 | 2;
+      conversationVersion?: AcpConversationPageVersion;
     };
 
 function decodeIdentifier(value: string): string | undefined {
@@ -60,7 +63,7 @@ function decodeIdentifier(value: string): string | undefined {
 
 function route(request: IncomingMessage, pathname: string): HumanRemoteRoute | undefined {
   const match =
-    /^\/api\/v1\/projects\/([^/]+)\/remote-operations(?:\/([^/]+)(?:\/(actions|events|interactions|conversation)(\/respond|\/v2)?)?)?$/.exec(
+    /^\/api\/v1\/projects\/([^/]+)\/remote-operations(?:\/([^/]+)(?:\/(actions|events|interactions|conversation)(\/respond|\/v2|\/v3)?)?)?$/.exec(
       pathname
     );
   if (!match) return undefined;
@@ -70,20 +73,20 @@ function route(request: IncomingMessage, pathname: string): HumanRemoteRoute | u
   if (request.method === "GET" && !match[2]) return { kind: "lookup", projectId };
   const operationId = match[2] ? decodeIdentifier(match[2]) : undefined;
   if (!operationId) return undefined;
-  if (match[3] === "conversation" && (!match[4] || match[4] === "/v2")) {
+  if (match[3] === "conversation" && (!match[4] || match[4] === "/v2" || match[4] === "/v3")) {
     if (request.method === "GET")
       return {
         kind: "conversation",
         projectId,
         operationId,
-        conversationVersion: match[4] === "/v2" ? 2 : 1
+        conversationVersion: match[4] === "/v3" ? 3 : match[4] === "/v2" ? 2 : 1
       };
     if (request.method === "POST")
       return {
         kind: "converse",
         projectId,
         operationId,
-        conversationVersion: match[4] === "/v2" ? 2 : 1
+        conversationVersion: match[4] === "/v3" ? 3 : match[4] === "/v2" ? 2 : 1
       };
   }
   if (request.method === "GET" && !match[3]) return { kind: "get", projectId, operationId };
@@ -294,7 +297,7 @@ export async function handleHumanRemoteHttpRequest(
       case "conversation": {
         const parameters = query(
           url,
-          matched.conversationVersion === 2 ? ["afterCursor", "afterTurnId"] : ["afterCursor"]
+          matched.conversationVersion !== 1 ? ["afterCursor", "afterTurnId"] : ["afterCursor"]
         );
         respond(
           response,

@@ -10,7 +10,7 @@ import {
   managementRecoverRequestSchema
 } from "@planweave-ai/agent-host-protocol/operator-control";
 import {
-  acpConversationPaginatedPageSchema,
+  acpConversationOrderedPaginatedPageSchema,
   type AcpConversationAction
 } from "@planweave-ai/agent-host-protocol";
 import {
@@ -476,8 +476,8 @@ export class OperatorControlClient {
     const id = opaqueIdentifierSchema.parse(operationId);
     return this.json(
       action ? "POST" : "GET",
-      `/api/v1/remote-operations/${encodeURIComponent(id)}/conversation/v2${action ? "" : `?afterCursor=${afterCursor}${afterTurnId ? `&afterTurnId=${encodeURIComponent(afterTurnId)}` : ""}`}`,
-      acpConversationPaginatedPageSchema,
+      `/api/v1/remote-operations/${encodeURIComponent(id)}/conversation/v3${action ? "" : `?afterCursor=${afterCursor}${afterTurnId ? `&afterTurnId=${encodeURIComponent(afterTurnId)}` : ""}`}`,
+      acpConversationOrderedPaginatedPageSchema,
       {
         humanPrincipalId,
         responseMaxBytes: ACP_CONVERSATION_RESPONSE_MAX_BYTES,

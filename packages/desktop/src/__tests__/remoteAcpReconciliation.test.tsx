@@ -56,7 +56,10 @@ function setup() {
   };
   const remoteAcpConversation = vi.fn(async (input: DesktopRemoteAcpConversationInput) => {
     if (input.action?.kind === "prompt") {
-      f.page = { ...f.page, turns: [...f.page.turns, turn(input.action, "running")] };
+      f.page = {
+        ...f.page,
+        turns: [...f.page.turns, turn(input.action, "running", f.page.turns.length + 1)]
+      };
     }
     return f.page;
   });
@@ -74,9 +77,14 @@ function setup() {
       )
   };
 }
-function turn(prompt: Prompt, status: Page["turns"][number]["status"]): Page["turns"][number] {
+function turn(
+  prompt: Prompt,
+  status: Page["turns"][number]["status"],
+  turnOrder = 1
+): Page["turns"][number] {
   return {
     turnId: prompt.turnId,
+    turnOrder,
     executionAttemptId: prompt.executionAttemptId,
     sessionId: prompt.sessionId,
     status,
@@ -373,6 +381,9 @@ describe("remote ACP authoritative prompt reconciliation", () => {
 
   it("keeps consecutive accepted prompts ordered until each is replayed, then clears them on navigation", async () => {
     const f = setup();
+    vi.spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce("ffffffff-ffff-4fff-8fff-ffffffffffff")
+      .mockReturnValueOnce("00000000-0000-4000-8000-000000000000");
     let continuation!: ReturnType<typeof useRemoteAcpContinuation>;
     function View({ input }: { input: typeof scope }) {
       continuation = useRemoteAcpContinuation(f.api, input);
@@ -421,7 +432,7 @@ describe("remote ACP authoritative prompt reconciliation", () => {
       );
     };
     expectBothInOrder();
-    f.page = { ...f.page, turns: [turn(first, "completed"), turn(second, "running")] };
+    f.page = { ...f.page, turns: [turn(first, "completed"), turn(second, "running", 2)] };
     await act(async () => {
       nextPost.resolve(f.page);
       expect(await sent).toBe(true);
@@ -447,7 +458,7 @@ describe("remote ACP authoritative prompt reconciliation", () => {
     expectBothInOrder();
     expect(f.prompts()).toHaveLength(2);
 
-    f.page = { ...f.page, turns: [turn(first, "completed"), turn(second, "completed")] };
+    f.page = { ...f.page, turns: [turn(first, "completed"), turn(second, "completed", 2)] };
     await poll();
     await act(async () => {
       expect(await continuation.send("Third prompt")).toBe(true);
@@ -559,7 +570,7 @@ describe("remote ACP authoritative prompt reconciliation", () => {
     expect(viewport.scrollTop).toBe(100);
     f.page = {
       ...f.page,
-      turns: [turn(first, "completed"), turn(second, "completed")],
+      turns: [turn(first, "completed"), turn(second, "completed", 2)],
       events: [userEvent(first)],
       cursor: 2
     };
@@ -581,7 +592,7 @@ describe("remote ACP authoritative prompt reconciliation", () => {
     const f = setup();
     const { result } = await mount(f);
     const prompt = await uncertain(f, result.current.send);
-    const other = turn({ ...prompt, turnId: "other-turn" }, "running");
+    const other = turn({ ...prompt, turnId: "other-turn" }, "running", 2);
     f.page = { ...f.page, canRestoreTask: true, turns: kind === "restore_task" ? [] : [other] };
     await poll();
     f.api.remoteAcpConversation.mockRejectedValueOnce(new Error(`${kind}_failed`));
@@ -597,7 +608,13 @@ describe("remote ACP authoritative prompt reconciliation", () => {
             : result.current.restoreTask();
       expect(await response).toBe(false);
     });
-    f.page = { ...f.page, turns: [turn(prompt, "completed")] };
+    f.page = {
+      ...f.page,
+      turns: [
+        turn(prompt, "completed"),
+        ...(kind === "restore_task" ? [] : [{ ...other, status: "completed" as const }])
+      ]
+    };
     await poll();
     expect(result.current.pendingMessages[0]?.status).toBe("accepted");
     expect(result.current.error).toBe(`${kind}_failed`);

@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { AcpConversationAction, AcpConversationPage } from "@planweave-ai/agent-host-protocol";
+import type {
+  AcpConversationAction,
+  AcpConversationOrderedPage
+} from "@planweave-ai/agent-host-protocol";
 import type { CollaborationService } from "./collaboration/collaborationService.js";
 import type { OperatorControlService } from "./operatorControl/operatorControlService.js";
 import {
@@ -16,7 +19,7 @@ import {
 
 type ScopedClient = {
   observe(): Promise<RemoteOperationObservation>;
-  conversation(action?: AcpConversationAction): Promise<AcpConversationPage>;
+  conversation(action?: AcpConversationAction): Promise<AcpConversationOrderedPage>;
   interactions(cursor: number): Promise<RemoteInteractionPage>;
   cancel(command: RemoteHumanExecutionActionCommand): Promise<unknown>;
   respond(response: RemoteInteractionResponse): Promise<unknown>;

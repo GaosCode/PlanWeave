@@ -165,11 +165,21 @@ describe("ACP conversation cursor storage and pagination", () => {
     expect(upgraded.turns).toMatchObject(before.turns);
     expect(upgraded.events).toEqual(before.events);
     expect(upgraded.actions).toEqual(before.actions);
+    const ordered = f
+      .service()
+      .page(f.operation, "actor")
+      .turns.map((turn) => [turn.turnId, turn.turnOrder]);
     f.database.close();
     f.fixture.database = await openServerDatabase(f.path, 5_000);
     const db = f.fixture.database;
     applyMigrations(db);
     expect(snapshot()).toEqual(upgraded);
+    expect(
+      f
+        .service()
+        .page(f.operation, "actor")
+        .turns.map((turn) => [turn.turnId, turn.turnOrder])
+    ).toEqual(ordered);
     expect(() =>
       db
         .prepare(

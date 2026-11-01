@@ -18,6 +18,7 @@ const scope = {
 };
 const turn = (turnId: string, status = "completed") => ({
   turnId,
+  turnOrder: turnId === "second" ? 2 : 1,
   executionAttemptId: "attempt",
   sessionId: "session",
   status,

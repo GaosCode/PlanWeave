@@ -1,6 +1,6 @@
 import {
-  acpConversationPaginatedPageSchema,
-  type AcpConversationPage,
+  acpConversationOrderedPaginatedPageSchema,
+  type AcpConversationOrderedPage,
   type AcpConversationAction
 } from "@planweave-ai/agent-host-protocol";
 import {
@@ -51,7 +51,7 @@ export interface CollaborationRemoteOperationsPort {
     afterCursor: number,
     action?: AcpConversationAction,
     afterTurnId?: string | null
-  ): Promise<AcpConversationPage>;
+  ): Promise<AcpConversationOrderedPage>;
   listAgentEndpoints(
     query?: CollaborationListAgentEndpointsInput,
     signal?: AbortSignal
@@ -105,8 +105,8 @@ export class CollaborationRemoteOperationsClient implements CollaborationRemoteO
     return this.transport
       .json(
         action ? "POST" : "GET",
-        `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations/${encodeURIComponent(operationId)}/conversation/v2${action ? "" : `?afterCursor=${afterCursor}${afterTurnId ? `&afterTurnId=${encodeURIComponent(afterTurnId)}` : ""}`}`,
-        acpConversationPaginatedPageSchema,
+        `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations/${encodeURIComponent(operationId)}/conversation/v3${action ? "" : `?afterCursor=${afterCursor}${afterTurnId ? `&afterTurnId=${encodeURIComponent(afterTurnId)}` : ""}`}`,
+        acpConversationOrderedPaginatedPageSchema,
         {
           responseMaxBytes: ACP_CONVERSATION_RESPONSE_MAX_BYTES,
           ...(action ? { body: action } : {})

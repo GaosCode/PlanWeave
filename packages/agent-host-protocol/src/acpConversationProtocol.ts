@@ -187,7 +187,18 @@ export const acpConversationLegacyPageSchema = acpConversationPageSchema.omit({
   turnCursor: true,
   hasMoreTurns: true
 });
-export type AcpConversationPageVersion = 1 | 2;
+export const acpConversationOrderedTurnSchema = acpConversationTurnSchema.extend({
+  turnOrder: z.number().int().positive().safe()
+});
+export const acpConversationOrderedPageSchema = acpConversationPageSchema.extend({
+  turns: z.array(acpConversationOrderedTurnSchema)
+});
+export const acpConversationOrderedPaginatedPageSchema = acpConversationOrderedPageSchema.extend({
+  turnCursor: acpConversationPaginatedPageSchema.shape.turnCursor,
+  hasMoreTurns: acpConversationPaginatedPageSchema.shape.hasMoreTurns
+});
+export type AcpConversationOrderedPage = z.infer<typeof acpConversationOrderedPageSchema>;
+export type AcpConversationPageVersion = 1 | 2 | 3;
 
 export function acpConversationEventPageBytes(event: AcpConversationEvent): number {
   return new TextEncoder().encode(

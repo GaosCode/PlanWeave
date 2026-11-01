@@ -54,6 +54,7 @@ function page(turnIds: string[], events: AcpConversationEvent[]): DesktopRemoteA
       sessionId: "original-session",
       status: turnId === "first" ? "running" : "completed",
       createdAt: new Date(Date.parse(timestamp) + index).toISOString(),
+      turnOrder: index + 1,
       error: null
     })),
     events,
@@ -82,21 +83,98 @@ function replay(events: AcpConversationEvent[]) {
 }
 
 describe("remote ACP continuation store replay boundaries", () => {
-  it("orders equal-time priority metadata deterministically and preserves omitted terminal turns", () => {
+  it("retains the authoritative order for equal-time reverse identifiers across priority and delayed metadata", () => {
+    const first = {
+      ...page(["z-first"], [message("z-first", 1, "First")]),
+      turns: page(["z-first"], []).turns.map((turn) => ({
+        ...turn,
+        createdAt: timestamp,
+        turnOrder: 1
+      }))
+    };
+    const second = {
+      ...page(["a-second"], [message("a-second", 1, "Second")]),
+      turns: page(["a-second"], []).turns.map((turn) => ({
+        ...turn,
+        createdAt: timestamp,
+        turnOrder: 2
+      }))
+    };
     const store = new RemoteAcpContinuationStore();
-    const first = page(["z-active"], []);
-    store.accept(first);
-    const older = page(["a-earlier"], []);
-    const merged = store.accept(older);
-    expect(merged.page.turns.map((turn) => turn.turnId)).toEqual(["a-earlier", "z-active"]);
+    store.accept(second);
+    const merged = store.accept(first);
+    expect(merged.page.turns.map((turn) => turn.turnId)).toEqual(["z-first", "a-second"]);
+    expect(merged.projection.turns.map((turn) => turn.timeline[0])).toEqual([
+      expect.objectContaining({ content: "First" }),
+      expect.objectContaining({ content: "Second" })
+    ]);
+    expect(store.accept(structuredClone(first))).toBe(merged);
     const compacted = store.accept({
-      ...older,
+      ...first,
       turns: [],
-      retention: { compactedTurnIds: ["z-active"] }
+      events: [],
+      retention: { compactedTurnIds: ["z-first"] }
     });
-    expect(compacted.projection.turns.find((turn) => turn.turnId === "z-active")?.history).toBe(
-      "compacted"
-    );
+    expect(compacted.projection.turns.map((turn) => turn.turnId)).toEqual(["z-first", "a-second"]);
+    expect(compacted.projection.turns[0].history).toBe("compacted");
+    const refreshed = new RemoteAcpContinuationStore().accept({
+      ...first,
+      turns: [...second.turns, ...first.turns],
+      events: [...first.events, ...second.events]
+    });
+    expect(refreshed.projection.turns.map((turn) => turn.turnId)).toEqual(["z-first", "a-second"]);
+  });
+
+  it("retains terminal events arriving before older metadata without losing later-turn telemetry", () => {
+    const store = new RemoteAcpContinuationStore();
+    const older = page(["z-first"], []).turns.map((turn) => ({
+      ...turn,
+      turnOrder: 1,
+      status: "running" as const
+    }));
+    const newer = page(["a-second"], []).turns.map((turn) => ({ ...turn, turnOrder: 2 }));
+    const usage = event("a-second", 2, {
+      kind: "runner",
+      fragment: {
+        kind: "engine_evidence",
+        evidence: {
+          kind: "usage_snapshot",
+          usage: {
+            semantics: "cumulative_session_total",
+            totalTokens: 9,
+            inputTokens: 6,
+            outputTokens: 3,
+            thoughtTokens: null,
+            cachedReadTokens: null,
+            cachedWriteTokens: null
+          }
+        }
+      }
+    });
+    store.accept({
+      ...page(
+        [],
+        [
+          message("z-first", 1, "Earlier"),
+          event("z-first", 2, { kind: "status", status: "completed", error: null }),
+          message("a-second", 1, "Latest"),
+          usage
+        ]
+      ),
+      turns: newer
+    });
+    const merged = store.accept({ ...page([], []), turns: older });
+    expect(merged.projection.turns.map((turn) => [turn.turnId, turn.status])).toEqual([
+      ["z-first", "completed"],
+      ["a-second", "completed"]
+    ]);
+    expect(merged.projection.interactions).toEqual([]);
+    expect(merged.projection.telemetry?.cumulativeUsage?.totalTokens).toBe(9);
+    expect(merged.projection.turns.map((turn) => turn.timeline[0])).toEqual([
+      expect.objectContaining({ content: "Earlier" }),
+      expect.objectContaining({ content: "Latest" })
+    ]);
+    expect(store.accept({ ...page([], []), turns: older })).toBe(merged);
   });
 
   it("merges paginated mixed turns, replaces an event, and settles a permission without duplicating replay", () => {

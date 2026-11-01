@@ -1,31 +1,34 @@
 import {
-  acpConversationPageSchema,
+  acpConversationPaginatedPageSchema,
+  acpConversationOrderedPageSchema,
   acpConversationLegacyPageSchema,
-  type AcpConversationPage,
+  type AcpConversationOrderedPage,
   type AcpConversationPageVersion
 } from "@planweave-ai/agent-host-protocol";
 import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 
-type Turn = AcpConversationPage["turns"][number];
-type EventRow = { cursor: number; event: AcpConversationPage["events"][number] };
+type Turn = AcpConversationOrderedPage["turns"][number];
+type EventRow = { cursor: number; event: AcpConversationOrderedPage["events"][number] };
 
 export function acpConversationWirePage(
-  page: AcpConversationPage,
+  page: AcpConversationOrderedPage,
   version: AcpConversationPageVersion
 ) {
-  if (version === 2) return page;
-  const { turnCursor: _cursor, hasMoreTurns: _hasMore, ...legacy } = page;
+  if (version === 3) return page;
+  const unsequenced = { ...page, turns: page.turns.map(({ turnOrder: _order, ...turn }) => turn) };
+  if (version === 2) return acpConversationPaginatedPageSchema.parse(unsequenced);
+  const { turnCursor: _cursor, hasMoreTurns: _hasMore, ...legacy } = unsequenced;
   return acpConversationLegacyPageSchema.parse(legacy);
 }
 
 export function paginateAcpConversation(
-  page: AcpConversationPage,
+  page: AcpConversationOrderedPage,
   turns: Turn[],
   rows: EventRow[],
   afterTurnId: string | null,
   priorityTurnId?: string,
   version: AcpConversationPageVersion = 2
-): AcpConversationPage {
+): AcpConversationOrderedPage {
   const start =
     afterTurnId === null ? 0 : turns.findIndex((turn) => turn.turnId === afterTurnId) + 1;
   if (afterTurnId !== null && start === 0) throw new Error("acp_conversation_turn_cursor_invalid");
@@ -84,5 +87,5 @@ export function paginateAcpConversation(
         : "acp_conversation_page_item_too_large"
     );
   if (!fits()) throw new Error("acp_conversation_page_item_too_large");
-  return acpConversationPageSchema.parse(page);
+  return acpConversationOrderedPageSchema.parse(page);
 }

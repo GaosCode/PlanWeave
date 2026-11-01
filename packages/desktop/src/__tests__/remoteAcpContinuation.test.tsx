@@ -50,6 +50,7 @@ function setup() {
           ...page.turns,
           {
             turnId: action.turnId,
+            turnOrder: page.turns.length + 1,
             executionAttemptId: action.executionAttemptId,
             sessionId: action.sessionId,
             status: "running",
@@ -75,6 +76,7 @@ describe("remote ACP composer continuation", () => {
     const timestamp = "2030-01-01T00:00:00.000Z";
     const turn = {
       turnId: "old-turn",
+      turnOrder: 1,
       executionAttemptId: "attempt-one",
       sessionId: "original-session",
       status: "completed" as const,
@@ -233,7 +235,8 @@ describe("remote ACP composer continuation", () => {
   it("projects telemetry within the latest follow-up record without merging initial snapshots across turns", async () => {
     const f = setup();
     const timestamp = "2026-09-05T12:00:00.000Z";
-    const turns = ["first", "second"].map((turnId) => ({
+    const turns = ["first", "second"].map((turnId, index) => ({
+      turnOrder: index + 1,
       turnId,
       executionAttemptId: "attempt-one",
       sessionId: "original-session",
@@ -332,6 +335,7 @@ describe("remote ACP composer continuation", () => {
       turns: [
         {
           turnId: "turn-done",
+          turnOrder: 1,
           executionAttemptId: "attempt-one",
           sessionId: "original-session",
           status: "completed",
@@ -703,7 +707,8 @@ function initialPage() {
     reason: null,
     executionAttemptId: "attempt-one",
     sessionId: "original-session",
-    turns: ["first", "second"].map((turnId) => ({
+    turns: ["first", "second"].map((turnId, index) => ({
+      turnOrder: index + 1,
       turnId,
       executionAttemptId: "attempt-one",
       sessionId: "original-session",
@@ -957,6 +962,7 @@ describe("remote ACP continuation cache lifecycle", () => {
         {
           ...page.turns[0],
           turnId: action.turnId,
+          turnOrder: page.turns.length + 1,
           createdAt: new Date(Date.parse(page.turns.at(-1)!.createdAt) + 1).toISOString()
         }
       ],
@@ -1066,6 +1072,7 @@ describe("remote ACP continuation cache lifecycle", () => {
             ...initial.turns[0],
             turnId: action.turnId,
             status: "running",
+            turnOrder: initial.turns.length + 1,
             createdAt: new Date(Date.parse(initial.turns.at(-1)!.createdAt) + 1).toISOString()
           }
         ]

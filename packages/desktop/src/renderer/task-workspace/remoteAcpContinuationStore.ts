@@ -22,6 +22,7 @@ type TurnProjection = {
 };
 type TurnRecord = {
   events: Map<number, AcpConversationEvent>;
+  terminal: Extract<AcpConversationEvent["payload"], { kind: "status" }> | null;
   turn: Turn | null;
   projection: TurnProjection | null;
   view: TurnView | null;
@@ -89,30 +90,32 @@ export class RemoteAcpContinuationStore {
       const record = this.record(event.turnId);
       if (equalData(record.events.get(event.sequence), event)) continue;
       record.events.set(event.sequence, event);
+      if (event.payload.kind === "status" && event.payload.status !== "running")
+        record.terminal = event.payload;
       record.projection = null;
       record.view = null;
     }
     const previous = this.snapshot;
     const metadata = new Map(previous?.page.turns.map((turn) => [turn.turnId, turn]) ?? []);
-    for (const turn of page.turns) metadata.set(turn.turnId, turn);
-    for (const event of page.events) {
-      if (this.compactedTurns.has(event.turnId)) continue;
-      const turn = metadata.get(event.turnId);
-      if (
-        turn &&
-        (turn.status === "queued" || turn.status === "running") &&
-        event.payload.kind === "status" &&
-        event.payload.status !== "running"
-      )
-        metadata.set(event.turnId, {
-          ...turn,
-          status: event.payload.status,
-          error: event.payload.error
-        });
+    for (const turn of page.turns) {
+      const known = metadata.get(turn.turnId);
+      metadata.set(
+        turn.turnId,
+        known &&
+          known.status !== "queued" &&
+          known.status !== "running" &&
+          (turn.status === "queued" || turn.status === "running")
+          ? { ...turn, status: known.status, error: known.error }
+          : turn
+      );
+    }
+    for (const [turnId, turn] of metadata) {
+      const terminal = this.records.get(turnId)?.terminal;
+      if (terminal && (turn.status === "queued" || turn.status === "running"))
+        metadata.set(turnId, { ...turn, status: terminal.status, error: terminal.error });
     }
     const mergedTurns = [...metadata.values()].sort(
-      (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.turnId.localeCompare(right.turnId)
+      (left, right) => left.turnOrder - right.turnOrder
     );
     let turns = previous?.projection.turns ?? [];
     let turnsChanged = turns.length !== mergedTurns.length;
@@ -146,7 +149,7 @@ export class RemoteAcpContinuationStore {
   private record(turnId: string): TurnRecord {
     let record = this.records.get(turnId);
     if (!record) {
-      record = { events: new Map(), turn: null, projection: null, view: null };
+      record = { events: new Map(), terminal: null, turn: null, projection: null, view: null };
       this.records.set(turnId, record);
     }
     return record;

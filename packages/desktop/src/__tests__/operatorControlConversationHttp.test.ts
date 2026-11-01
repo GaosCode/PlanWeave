@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
-import { acpConversationPageSchema } from "@planweave-ai/agent-host-protocol";
+import { acpConversationOrderedPageSchema } from "@planweave-ai/agent-host-protocol";
 import { COLLABORATION_JSON_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 import { OperatorControlClient } from "../main/operatorControl/OperatorControlClient.js";
 import { CollaborationHttpTransport } from "../main/collaboration/collaborationHttpTransport.js";
@@ -52,13 +52,14 @@ async function fixture(handler: (req: IncomingMessage, res: ServerResponse) => v
   return { owner, workspace: new CollaborationRemoteOperationsClient("project-test", transport) };
 }
 const identity = { executionAttemptId: "attempt-test", sessionId: "session-test" };
-const page = acpConversationPageSchema.parse({
+const page = acpConversationOrderedPageSchema.parse({
   available: true,
   reason: null,
   ...identity,
   turns: Array.from({ length: 3 }, (_, i) => ({
     ...identity,
     turnId: `turn-${i}`,
+    turnOrder: i + 1,
     status: "failed",
     createdAt: "2030-01-01T00:00:00.000Z",
     error: "Readable failure detail. ".repeat(1500)
@@ -71,13 +72,19 @@ const action = { kind: "prompt", ...identity, turnId: "turn-next", text: "Contin
 
 describe("Owner ACP conversation HTTP budget", () => {
   it.each([
-    "owner",
-    "workspace"
-  ] as const)("rejects a legacy-shaped success on the v2 endpoint on %s", async (surface) => {
-    const { turnCursor: _cursor, hasMoreTurns: _more, ...legacy } = page;
+    ["owner", 1],
+    ["owner", 2],
+    ["workspace", 1],
+    ["workspace", 2]
+  ] as const)("rejects a %s v%i-shaped success on the v3 endpoint", async (surface, version) => {
+    const unsequenced = {
+      ...page,
+      turns: page.turns.map(({ turnOrder: _order, ...turn }) => turn)
+    };
+    const { turnCursor: _cursor, hasMoreTurns: _more, ...legacy } = unsequenced;
     const { owner, workspace } = await fixture((req, res) => {
       req.resume();
-      res.end(JSON.stringify(legacy));
+      res.end(JSON.stringify(version === 1 ? legacy : unsequenced));
     });
     const read =
       surface === "owner"
@@ -112,11 +119,11 @@ describe("Owner ACP conversation HTTP budget", () => {
     expect(calls).toEqual([
       {
         method,
-        path: `/api/v1/projects/project-test/remote-operations/operation-test/conversation/v2${method === "GET" ? "?afterCursor=0&afterTurnId=turn-0" : ""}`
+        path: `/api/v1/projects/project-test/remote-operations/operation-test/conversation/v3${method === "GET" ? "?afterCursor=0&afterTurnId=turn-0" : ""}`
       },
       {
         method,
-        path: `/api/v1/remote-operations/operation-test/conversation/v2${method === "GET" ? "?afterCursor=0&afterTurnId=turn-0" : ""}`
+        path: `/api/v1/remote-operations/operation-test/conversation/v3${method === "GET" ? "?afterCursor=0&afterTurnId=turn-0" : ""}`
       }
     ]);
   });

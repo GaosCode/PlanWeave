@@ -2,6 +2,7 @@ import { AcpConversationError } from "./acpConversationService.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   OUTPUT_MAX_ARTIFACT_BYTES,
+  type AcpConversationPageVersion,
   opaqueIdentifierSchema,
   remoteRunnerEventServerCapabilitySchema
 } from "@planweave-ai/agent-host-protocol";
@@ -122,13 +123,13 @@ export type OperatorControlPort = {
     operationId: string,
     afterCursor?: number,
     afterTurnId?: string,
-    version?: 1 | 2
+    version?: AcpConversationPageVersion
   ): unknown;
   converse(
     principal: OperatorRequestPrincipal,
     operationId: string,
     action: unknown,
-    version?: 1 | 2
+    version?: AcpConversationPageVersion
   ): unknown;
   replayEvents(
     principal: OperatorRequestPrincipal,
@@ -168,7 +169,7 @@ type OperatorRoute =
         | "interactions"
         | "settle_interaction";
       operationId: string;
-      conversationVersion?: 1 | 2;
+      conversationVersion?: AcpConversationPageVersion;
     }
   | RemoteAgentManagementRoute;
 
@@ -237,21 +238,28 @@ function route(request: IncomingMessage, pathname: string): OperatorRoute | unde
     }
   }
   const operation =
-    /^\/api\/v1\/remote-operations\/([^/]+)(?:\/(actions|events|interactions|terminal-result|conversation)(\/respond|\/v2)?)?$/.exec(
+    /^\/api\/v1\/remote-operations\/([^/]+)(?:\/(actions|events|interactions|terminal-result|conversation)(\/respond|\/v2|\/v3)?)?$/.exec(
       pathname
     );
   if (!operation) return undefined;
   const operationId = decodeIdentifier(operation[1]);
   if (!operationId) return undefined;
-  if (operation[2] === "conversation" && (!operation[3] || operation[3] === "/v2")) {
+  if (
+    operation[2] === "conversation" &&
+    (!operation[3] || operation[3] === "/v2" || operation[3] === "/v3")
+  ) {
     if (request.method === "GET")
       return {
         kind: "conversation",
         operationId,
-        conversationVersion: operation[3] === "/v2" ? 2 : 1
+        conversationVersion: operation[3] === "/v3" ? 3 : operation[3] === "/v2" ? 2 : 1
       };
     if (request.method === "POST")
-      return { kind: "converse", operationId, conversationVersion: operation[3] === "/v2" ? 2 : 1 };
+      return {
+        kind: "converse",
+        operationId,
+        conversationVersion: operation[3] === "/v3" ? 3 : operation[3] === "/v2" ? 2 : 1
+      };
   }
   if (request.method === "GET" && !operation[2]) return { kind: "get_operation", operationId };
   if (request.method === "GET" && operation[2] === "terminal-result" && !operation[3]) {
@@ -756,7 +764,7 @@ export async function handleOperatorHttpRequest(
       case "conversation": {
         const parameters = query(
           url,
-          matched.conversationVersion === 2 ? ["afterCursor", "afterTurnId"] : ["afterCursor"]
+          matched.conversationVersion !== 1 ? ["afterCursor", "afterTurnId"] : ["afterCursor"]
         );
         respond(
           response,

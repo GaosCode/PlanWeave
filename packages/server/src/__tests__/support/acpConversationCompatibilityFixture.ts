@@ -179,7 +179,7 @@ export async function createConversationCompatibilityFixture(
       };
     },
     path(surface: "owner" | "workspace", version = 1, operationId = f.operation.id) {
-      return `${origin}/api/v1/${surface === "workspace" ? `projects/${f.operation.projectId}/` : ""}remote-operations/${operationId}/conversation${version === 2 ? "/v2" : ""}`;
+      return `${origin}/api/v1/${surface === "workspace" ? `projects/${f.operation.projectId}/` : ""}remote-operations/${operationId}/conversation${version > 1 ? `/v${version}` : ""}`;
     },
     async close() {
       owner.dispose();
