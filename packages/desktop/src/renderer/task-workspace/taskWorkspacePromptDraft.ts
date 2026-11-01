@@ -17,6 +17,7 @@ export class TaskWorkspacePromptDraft {
   private pendingSource: string | null = null;
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private timerAuthority: object | null = null;
   private inFlight: Promise<void> | undefined;
   private requested = false;
   private requestedAuthority: object | null = null;
@@ -94,9 +95,11 @@ export class TaskWorkspacePromptDraft {
     this.schedule();
   };
 
-  private clearTimer() {
+  private clearTimer(authority?: object) {
+    if (authority && this.timerAuthority !== authority) return;
     clearTimeout(this.timer);
     this.timer = undefined;
+    this.timerAuthority = null;
   }
 
   private schedule() {
@@ -107,7 +110,11 @@ export class TaskWorkspacePromptDraft {
       (this.snapshot.draft === this.snapshot.baseline && !this.inFlight)
     )
       return;
-    this.timer = setTimeout(() => void this.save(), 700);
+    const authority = this.authority;
+    this.timerAuthority = authority;
+    this.timer = setTimeout(() => {
+      if (this.authority === authority) void this.save();
+    }, 700);
   }
 
   save = (): Promise<void> => {
@@ -154,22 +161,31 @@ export class TaskWorkspacePromptDraft {
         const result = await this.writer({ baseMarkdown: baseline, markdown: draft });
         if (result === "retired") {
           if (this.requestedAuthority === authority) this.requested = false;
-          this.publish({ status: "retired" });
+          if (!this.authority || this.authority === authority) this.publish({ status: "retired" });
           return;
         }
         if (this.pendingSource === draft) this.pendingSource = null;
         const dirty = this.snapshot.draft !== draft;
         this.publish({
           baseline: draft,
-          status: this.authority !== authority ? "retired" : dirty ? "idle" : "saved"
+          status:
+            this.authority === authority
+              ? dirty
+                ? "idle"
+                : "saved"
+              : this.authority
+                ? this.snapshot.status
+                : "retired"
         });
       } catch (error: unknown) {
         if (this.requestedAuthority === authority) this.requested = false;
-        this.clearTimer();
-        this.publish({
-          error: error instanceof Error ? error.message : String(error),
-          status: this.authority === authority ? "error" : "retired"
-        });
+        this.clearTimer(authority);
+        if (!this.authority || this.authority === authority) {
+          this.publish({
+            error: error instanceof Error ? error.message : String(error),
+            status: this.authority === authority ? "error" : "retired"
+          });
+        }
         return;
       }
     }
