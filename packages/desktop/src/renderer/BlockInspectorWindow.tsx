@@ -323,7 +323,6 @@ export function BlockInspectorWindow() {
         return nextBlock;
       } catch (caught) {
         if (!isCurrent()) return;
-        setLoadedGraph(null);
         setError(caught instanceof Error ? caught.message : String(caught));
         if (options.propagateReadError) throw caught;
       } finally {

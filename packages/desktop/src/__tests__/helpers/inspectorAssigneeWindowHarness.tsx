@@ -25,6 +25,8 @@ const ports = vi.hoisted(() => ({
     listBlockRunRecords: vi.fn(async () => []),
     getReviewAttempts: vi.fn(async () => []),
     getFeedbackRecords: vi.fn(async () => []),
+    listProjects: vi.fn(async () => []),
+    onRuntimeStateChanged: vi.fn(() => () => undefined),
     onAutoRunChanged: vi.fn<(listener: (event: DesktopAutoRunEvent) => void) => () => void>(
       () => () => undefined
     ),

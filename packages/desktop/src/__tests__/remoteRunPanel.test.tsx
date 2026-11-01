@@ -3,16 +3,65 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { DesktopBridgeApi } from "@planweave-ai/runtime";
+import { defaultDesktopSettings } from "../shared/desktopSettings";
+import { endpoint as windowEndpoint } from "./helpers/remoteRunPanelControllerFixtures";
 import type { AcpPermissionOption } from "@planweave-ai/agent-host-protocol/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
 import { createTranslator } from "../renderer/i18n";
+import { registerBlockInspectorRemoteExecutionCases } from "./helpers/blockInspectorRemoteExecutionCases";
 import { RemoteRunPanel } from "../renderer/team/RemoteRunPanel";
 import {
   desktopWorkspaceExecutionResponseSchema,
   type DesktopOwnerCanvasExecutionLocator,
   type PlanWeaveWorkspaceExecutionApi
 } from "../shared/workspaceExecution";
+
+const ports = vi.hoisted(() => ({
+  desktop: null as DesktopBridgeApi | null,
+  execution: null as PlanWeaveWorkspaceExecutionApi | null,
+  profileId: "profile-public"
+}));
+vi.mock("../renderer/bridge", () => ({
+  get bridge() {
+    return ports.desktop;
+  },
+  get workspaceExecutionBridge() {
+    return ports.execution;
+  },
+  collaborationBridge: null,
+  operatorControlBridge: null
+}));
+vi.mock("../renderer/hooks/useDesktopSettingsBridge", () => ({
+  useDesktopSettingsBridge: () => ({
+    settings: defaultDesktopSettings,
+    updateSettingsAndWait: vi.fn()
+  })
+}));
+vi.mock("../renderer/hooks/useDetectedAgents", () => ({
+  useDetectedAgents: () => ({ agentDetections: [] })
+}));
+vi.mock("../renderer/hooks/useOwnerControlPlaneAvailability", () => ({
+  useOwnerControlPlaneAvailability: () => ({
+    operatorProfileId: ports.profileId,
+    humanPrincipalId: "human-1",
+    fleetCatalogEnabled: true,
+    fleetCatalogBlockedCode: null
+  })
+}));
+vi.mock("../renderer/hooks/useWorkspaceAgentEndpointCatalog", () => ({
+  useWorkspaceAgentEndpointCatalog: () => ({
+    endpoints: [windowEndpoint],
+    refresh: vi.fn(),
+    refreshing: false,
+    savePreference: vi.fn()
+  })
+}));
+vi.mock("../renderer/team/AssigneeInspectorField", () => ({ AssigneeInspectorField: () => null }));
+vi.mock("../renderer/team/WorkItemCollaborationPanel", () => ({
+  WorkItemCollaborationPanel: () => null
+}));
 
 const locator: DesktopOwnerCanvasExecutionLocator = {
   kind: "owner_canvas",
@@ -166,6 +215,9 @@ function renderPanel(api: PlanWeaveWorkspaceExecutionApi) {
 }
 
 afterEach(cleanup);
+
+describe("Block Inspector Window remote execution reads", () =>
+  registerBlockInspectorRemoteExecutionCases(ports));
 
 describe("RemoteRunPanel", () => {
   it("renders Coordinator identity, events, and pending interaction", async () => {

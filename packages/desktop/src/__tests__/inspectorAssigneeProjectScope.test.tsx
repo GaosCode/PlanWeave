@@ -274,9 +274,12 @@ it.each([
 });
 
 it.each([
-  "task",
-  "block"
-] as const)("unbinds a failed local graph refresh and ignores an older failure after recovery in the %s Inspector", async (kind) => {
+  { kind: "task", bindingAfterReadFailure: "disconnected" },
+  { kind: "block", bindingAfterReadFailure: "ready" }
+] as const)("keeps the $kind Inspector $bindingAfterReadFailure on a failed read and ignores an older failure after recovery", async ({
+  kind,
+  bindingAfterReadFailure
+}) => {
   const f = mountInspector(kind);
   try {
     await expectAuthorities("owner-s1", "reviewer-s1");
@@ -292,8 +295,20 @@ it.each([
     await act(async () => {
       emit();
     });
-    await expectUnbound();
     await screen.findByText("graph refresh failed");
+    if (bindingAfterReadFailure === "disconnected") await expectUnbound();
+    else {
+      await expectAuthorities("owner-s1", "reviewer-s1");
+      await act(async () => {
+        f.switchProject("project-2", "b");
+      });
+      await expectUnbound();
+      await expectHistoriesUnbound(f);
+      await act(async () => {
+        f.switchProject("project-1", "s1");
+      });
+      await expectAuthorities("owner-s1", "reviewer-s1");
+    }
     const old = deferred<DesktopGraphViewModel>();
     ports.desktop.getGraphViewModel.mockReturnValueOnce(old.promise);
     await act(async () => {
