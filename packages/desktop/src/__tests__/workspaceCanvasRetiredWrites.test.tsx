@@ -225,7 +225,8 @@ describe("Workspace command result retirement", () => {
       intent: {
         kind: "update_task_prompt",
         taskId: fixture.workspace.task.taskId,
-        promptMarkdown: "# Pending Workspace A prompt"
+        promptMarkdown: "# Pending Workspace A prompt",
+        baseContentDigest: "a".repeat(64)
       }
     });
     view.rerender(<PromptWorkspace locator={locatorB} />);

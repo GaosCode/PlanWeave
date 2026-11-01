@@ -501,14 +501,16 @@ describe("Task Workspace shared prompt authority", () => {
       intent: {
         kind: "update_task_prompt",
         taskId: "T-001",
-        promptMarkdown: "# Shared Task workspace updated"
+        promptMarkdown: "# Shared Task workspace updated",
+        baseContentDigest: "a".repeat(64)
       }
     });
     expect(workspaceCanvas.submit).toHaveBeenNthCalledWith(2, {
       intent: {
         kind: "update_block_prompt",
         blockRef: "T-001#B-001",
-        promptMarkdown: "# Shared implementation updated"
+        promptMarkdown: "# Shared implementation updated",
+        baseContentDigest: "a".repeat(64)
       }
     });
   });

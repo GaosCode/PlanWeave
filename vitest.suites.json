@@ -357,6 +357,7 @@
         "desktopHomeWatchReplay.test.tsx"
       ],
       "integration": [
+        "taskWorkspacePromptSharedDigest.test.tsx",
         "taskWorkspaceViewportLifecycle.test.tsx",
         "selfHostServerResourceStore.test.ts",
         "selfHostServerResourceInheritedPipe.test.ts",
@@ -1070,6 +1071,7 @@
         "workspaceExecutionPlaneInventory.test.ts"
       ],
       "integration": [
+        "canvasPromptBaseDigest.test.ts",
         "remoteTaskRestoration.test.ts",
         "acpConversationAuthorization.test.ts",
         "acpConversationPagination.test.ts",

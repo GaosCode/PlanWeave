@@ -57,8 +57,9 @@ export function useTaskWorkspacePromptActions(options: {
       if (!api || !navigation || !workspace) {
         throw new Error("Cannot save a Task prompt without a Task Workspace bridge and identity.");
       }
+      const sharedProjection = workspaceCanvas?.enabled ? getProjection() : null;
       const sharedPrompt = workspaceCanvas?.enabled
-        ? sharedTaskPromptMarkdown(getProjection(), workspace, navigation.taskId)
+        ? sharedTaskPromptMarkdown(sharedProjection, workspace, navigation.taskId)
         : null;
       const current = workspaceCanvas?.enabled
         ? null
@@ -97,7 +98,8 @@ export function useTaskWorkspacePromptActions(options: {
         intent: {
           kind: "update_task_prompt",
           taskId: navigation.taskId,
-          promptMarkdown: markdown
+          promptMarkdown: markdown,
+          baseContentDigest: sharedProjection?.contentDigest
         },
         onError: (message) => {
           sharedError = message;
@@ -138,8 +140,9 @@ export function useTaskWorkspacePromptActions(options: {
       if (!api || !navigation || !workspace) {
         throw new Error("Cannot save a Block prompt without a Task Workspace bridge and identity.");
       }
+      const sharedProjection = workspaceCanvas?.enabled ? getProjection() : null;
       const sharedPrompt = workspaceCanvas?.enabled
-        ? sharedBlockPromptMarkdown(getProjection(), workspace, blockRef)
+        ? sharedBlockPromptMarkdown(sharedProjection, workspace, blockRef)
         : null;
       const current = workspaceCanvas?.enabled
         ? null
@@ -175,7 +178,12 @@ export function useTaskWorkspacePromptActions(options: {
           }
           confirmProjection(projection);
         },
-        intent: { kind: "update_block_prompt", blockRef, promptMarkdown: markdown },
+        intent: {
+          kind: "update_block_prompt",
+          blockRef,
+          promptMarkdown: markdown,
+          baseContentDigest: sharedProjection?.contentDigest
+        },
         onError: (message) => {
           sharedError = message;
         },
