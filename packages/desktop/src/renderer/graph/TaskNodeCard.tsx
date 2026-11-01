@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { type CSSProperties, type KeyboardEvent, useState } from "react";
+import { type CSSProperties, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import {
   ClipboardIcon,
   FolderOpenIcon,
@@ -95,6 +95,21 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     onResourceHover = () => undefined,
     onResourcePin = () => undefined
   } = data;
+  const [promptText, setPromptText] = useState(promptDraft);
+  const composingPrompt = useRef(false);
+  const compositionStartText = useRef(promptDraft);
+  useEffect(
+    () => () => {
+      if (composingPrompt.current) {
+        composingPrompt.current = false;
+        onPromptChange(task.taskId, compositionStartText.current);
+      }
+    },
+    [onPromptChange, task.taskId]
+  );
+  useEffect(() => {
+    if (!composingPrompt.current) setPromptText(promptDraft);
+  }, [promptDraft]);
   const [taskCommentsOpen, setTaskCommentsOpen] = useState(false);
   const hasException = task.exceptions.length > 0;
   const stopped =
@@ -118,6 +133,7 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
         : task.status
     : labels.runtimeStatusUnavailable;
   const handlePromptKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (composingPrompt.current || event.nativeEvent.isComposing) return;
     const key = event.key.toLowerCase();
     const isUndo = (event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z";
     const isRedo =
@@ -126,7 +142,7 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
     if (!isUndo && !isRedo) {
       return;
     }
-    if (promptDraft !== task.promptMarkdown) {
+    if (promptText !== task.promptMarkdown) {
       return;
     }
     event.preventDefault();
@@ -278,10 +294,33 @@ export function TaskNodeCard({ data, selected }: NodeProps<TaskFlowNode>) {
               <div className="text-xs font-medium text-text-muted">{labels.taskPrompt}</div>
               <Textarea
                 aria-label={`${task.taskId} prompt`}
-                className="h-16 resize-none border-border/80 bg-surface-base text-xs text-text shadow-none placeholder:text-text-faint focus-visible:border-state-selected/40"
-                value={promptDraft}
-                onChange={(event) => onPromptChange(task.taskId, event.target.value)}
-                onBlur={() => onPromptSave(task.taskId)}
+                className="nodrag nowheel h-16 resize-none overflow-y-auto overscroll-contain border-border/80 bg-surface-base text-xs text-text shadow-none placeholder:text-text-faint focus-visible:border-state-selected/40"
+                value={promptText}
+                onChange={(event) => {
+                  setPromptText(event.target.value);
+                  if (composingPrompt.current) {
+                    onPromptChange(task.taskId, event.target.value, { isComposing: true });
+                  } else {
+                    onPromptChange(task.taskId, event.target.value);
+                  }
+                }}
+                onCompositionStart={() => {
+                  compositionStartText.current = promptText;
+                  composingPrompt.current = true;
+                  onPromptChange(task.taskId, promptText, { isComposing: true });
+                }}
+                onCompositionEnd={(event) => {
+                  composingPrompt.current = false;
+                  setPromptText(event.currentTarget.value);
+                  onPromptChange(task.taskId, event.currentTarget.value);
+                }}
+                onBlur={(event) => {
+                  if (composingPrompt.current) {
+                    composingPrompt.current = false;
+                    onPromptChange(task.taskId, event.currentTarget.value);
+                  }
+                  void onPromptSave(task.taskId);
+                }}
                 onKeyDown={handlePromptKeyDown}
               />
               <div className="text-xs text-text-faint">{saveState}</div>

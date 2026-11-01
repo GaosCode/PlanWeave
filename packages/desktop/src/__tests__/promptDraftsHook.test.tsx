@@ -26,6 +26,73 @@ function savedTaskDetail(): DesktopTaskDetail {
 }
 
 describe("desktop renderer hook interfaces", () => {
+  it.each([
+    false,
+    true
+  ])("defers composing candidates and preserves a concurrent external edit: %s", async (externalEdit) => {
+    vi.useFakeTimers();
+    const bridge = createDesktopBridgeMock({
+      updateTaskPrompt: vi.fn().mockResolvedValue({ ok: true, diagnostics: [] }),
+      getTaskDetail: vi.fn().mockResolvedValue({ ...savedTaskDetail(), promptMarkdown: "# 中文" })
+    });
+    vi.stubGlobal("planweave", bridge);
+    vi.resetModules();
+    const { usePromptDrafts } = await import("../renderer/hooks/usePromptDrafts");
+    const { result, rerender } = renderHook(
+      ({ currentGraph }) =>
+        usePromptDrafts({
+          graph: currentGraph,
+          refreshGraph: vi.fn().mockResolvedValue(undefined),
+          selectedCanvasId: "canvas-main",
+          selectedProject: project,
+          setError: vi.fn()
+        }),
+      { initialProps: { currentGraph: graph } }
+    );
+    const task = graph.tasks.find((task) => task.taskId === "T-ALPHA");
+    if (!task) throw new Error("Task fixture missing");
+    act(() =>
+      result.current.handlePromptChange(task.taskId, task.promptMarkdown, { isComposing: true })
+    );
+    if (externalEdit) {
+      rerender({
+        currentGraph: {
+          ...graph,
+          graphVersion: "external",
+          tasks: graph.tasks.map((task) =>
+            task.taskId === "T-ALPHA"
+              ? { ...task, promptMarkdown: "# External", promptHash: "external" }
+              : task
+          )
+        }
+      });
+    }
+    act(() => result.current.handlePromptChange(task.taskId, "# zhongwen", { isComposing: true }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1600);
+      await result.current.handlePromptSave(task.taskId);
+    });
+    expect(bridge.updateTaskPrompt).not.toHaveBeenCalled();
+    act(() => result.current.handlePromptChange(task.taskId, "# 中文"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(900);
+    });
+    if (externalEdit) {
+      expect(bridge.updateTaskPrompt).not.toHaveBeenCalled();
+      expect(result.current.promptConflicts).toEqual([
+        expect.objectContaining({ taskId: task.taskId, draft: "# 中文", remote: "# External" })
+      ]);
+    } else {
+      expect(bridge.updateTaskPrompt).toHaveBeenCalledTimes(1);
+      expect(bridge.updateTaskPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        task.taskId,
+        "# 中文",
+        expect.anything()
+      );
+    }
+  });
+
   it("stops prompt autosave when a dirty draft conflicts with an external prompt change", async () => {
     vi.useFakeTimers();
     const bridge = createDesktopBridgeMock({

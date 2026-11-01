@@ -1,17 +1,22 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { ReactFlow, useEdgesState, useNodesState } from "@xyflow/react";
 import userEvent from "@testing-library/user-event";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import type { CSSProperties, MouseEventHandler } from "react";
+import { useMemo } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TaskNodeCard } from "../renderer/graph/TaskNodeCard";
+import { nodeTypes } from "../renderer/graph/flowModel";
+import { useGraphFlowModel } from "../renderer/hooks/useGraphFlowModel";
 import { taskNodeLabels } from "../renderer/graph/taskNodeLabels";
 import { createTranslator } from "../renderer/i18n";
-import type { TaskNodeData } from "../renderer/types";
+import type { AppFlowNode, TaskNodeData } from "../renderer/types";
 
-vi.mock("@xyflow/react", () => ({
+vi.mock("@xyflow/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@xyflow/react")>()),
   Handle: ({
     className,
     "data-graph-interaction": graphInteraction,
@@ -152,6 +157,192 @@ function renderTaskNode(data: TaskNodeData) {
 }
 
 describe("TaskNodeCard prompt history shortcuts", () => {
+  it("lets wheel events scroll the prompt without being consumed by canvas zoom", () => {
+    const originalResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    try {
+      render(
+        <ReactFlow
+          nodes={[{ id: "T-001", type: "task", position: { x: 0, y: 0 }, data: nodeData() }]}
+          nodeTypes={{ task: TaskNodeCard }}
+          style={{ width: 600, height: 400 }}
+        />
+      );
+      const input = screen.getByLabelText("T-001 prompt");
+      const promptWheel = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY: 80
+      });
+      fireEvent(input, promptWheel);
+      expect(promptWheel.defaultPrevented).toBe(false);
+      const pane = document.querySelector(".react-flow__pane");
+      expect(pane).not.toBeNull();
+      const canvasWheel = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY: 80
+      });
+      if (pane) fireEvent(pane, canvasWheel);
+      expect(canvasWheel.defaultPrevented).toBe(true);
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
+  });
+
+  it("keeps the measured editor visible and focused through draft, saving and graph refreshes", async () => {
+    const originalResizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const data = nodeData();
+    const t = createTranslator("en");
+    const initialGraph: DesktopGraphViewModel = {
+      projectId: "P-001",
+      projectTitle: "Demo",
+      graphVersion: "before-save",
+      packageFingerprint: "before-save",
+      executorOptions: ["manual"],
+      tasks: [task("# Prompt")],
+      edges: [],
+      sharedResourceGroups: [],
+      diagnostics: [],
+      dirtyPromptRefs: []
+    };
+    const taskActions = {
+      handleDeleteBlock: data.onBlockDelete,
+      handleDeleteTaskNode: data.onTaskDelete,
+      handleOpenBlockInspector: data.onBlockSelect,
+      handleOpenBlockWorkspace: data.onBlockWorkspaceOpen,
+      handleOpenRunRecord: data.onOpenRunRecord,
+      handleOpenTaskInspector: data.onTaskOpen,
+      handleOpenTaskWorkspace: data.onTaskWorkspaceOpen,
+      handleCopyAgentPrompt: data.onAgentPromptCopy,
+      handleRevealTaskInFinder: data.onRevealTaskInFinder,
+      handlePromptChange: data.onPromptChange,
+      handlePromptHistoryRedo: data.onPromptHistoryRedo,
+      handlePromptHistoryUndo: data.onPromptHistoryUndo,
+      handlePromptSave: data.onPromptSave,
+      handleTaskAgentEndpointChange: data.onAgentEndpointChange,
+      handleTitleChange: data.onTitleChange,
+      handleTitleSave: data.onTitleSave,
+      startAutoRunWithScope: data.onAutoRunScopeStart
+    };
+    const selectedEndpoint = () => "local:manual";
+    const runtimeAvailability = { kind: "not_applicable" } as const;
+    let measureNodes!: () => void;
+    function GraphDraftHarness({
+      graph,
+      draft,
+      saveState
+    }: {
+      graph: DesktopGraphViewModel;
+      draft: string;
+      saveState: TaskNodeData["saveState"];
+    }) {
+      const [nodes, setNodes, onNodesChange] = useNodesState<AppFlowNode>([]);
+      const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+      const drafts = useMemo(
+        () => ({
+          promptDrafts: { "T-001": draft },
+          saveStates: { "T-001": saveState },
+          titleDrafts: {}
+        }),
+        [draft, saveState]
+      );
+      measureNodes = () =>
+        onNodesChange([
+          { id: "T-001", type: "dimensions", dimensions: { width: 320, height: 400 } }
+        ]);
+      useGraphFlowModel({
+        source: {
+          agentEndpoints: data.agentEndpoints,
+          selectedAgentEndpointIdForTask: selectedEndpoint,
+          graph,
+          layout: null,
+          selectedBlock: null,
+          runtimeAvailability,
+          t
+        },
+        drafts,
+        flowState: { setNodes, setEdges, setSelectedBlock: data.onSelectedBlockChange },
+        taskActions,
+        blockActions: {
+          saveSelectedBlockTitle: data.onBlockTitleSave,
+          saveSelectedBlockPrompt: data.onBlockPromptSave
+        }
+      });
+      return (
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={nodeTypes}
+          style={{ width: 600, height: 400 }}
+        />
+      );
+    }
+    try {
+      const { rerender } = render(
+        <GraphDraftHarness graph={initialGraph} draft="# Prompt" saveState="idle" />
+      );
+      act(() => measureNodes());
+      const input = screen.getByRole("textbox", { name: "T-001 prompt" });
+      expect(input).toBeVisible();
+      await userEvent.type(input, " first");
+      for (const saveState of ["idle", "saving", "saved"] as const) {
+        const graph =
+          saveState === "saved"
+            ? { ...initialGraph, graphVersion: "after-save", tasks: [task("# Prompt first")] }
+            : initialGraph;
+        rerender(<GraphDraftHarness graph={graph} draft="# Prompt first" saveState={saveState} />);
+        expect(screen.getByLabelText("T-001 prompt")).toBe(input);
+        expect(input).toBeVisible();
+        expect(input).toHaveFocus();
+        expect(input).toHaveProperty("selectionStart", "# Prompt first".length);
+      }
+      await userEvent.keyboard(" 接着输入");
+      expect(input).toHaveValue("# Prompt first 接着输入");
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
+  });
+
+  it("marks Chinese candidates as composing until the final text is committed", () => {
+    const onPromptChange = vi.fn();
+    renderTaskNode(nodeData({ onPromptChange }));
+    const input = screen.getByRole("textbox", { name: "T-001 prompt" });
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: "# Prompt zhongwen" } });
+    expect(input).toHaveValue("# Prompt zhongwen");
+    expect(onPromptChange).toHaveBeenLastCalledWith("T-001", "# Prompt zhongwen", {
+      isComposing: true
+    });
+    fireEvent.change(input, { target: { value: "# Prompt 中文" } });
+    fireEvent.compositionEnd(input, { data: "中文" });
+    expect(onPromptChange).toHaveBeenLastCalledWith("T-001", "# Prompt 中文");
+  });
+
+  it("cancels unconfirmed candidates when the canvas editor unmounts", () => {
+    const onPromptChange = vi.fn();
+    const data = nodeData({ onPromptChange });
+    const view = render(
+      <TaskNodeCard {...({ data, selected: false } as Parameters<typeof TaskNodeCard>[0])} />
+    );
+    const input = screen.getByLabelText("T-001 prompt");
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: "# Prompt zhongwen" } });
+    view.unmount();
+    expect(onPromptChange).toHaveBeenLastCalledWith("T-001", "# Prompt");
+  });
+
   it("renders stopped shared tasks with a neutral badge instead of an exception", () => {
     renderTaskNode(
       nodeData({

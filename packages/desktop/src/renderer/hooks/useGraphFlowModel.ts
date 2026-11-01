@@ -142,45 +142,50 @@ export function useGraphFlowModel({
       onResourceHover: onResourceHover ?? (() => undefined),
       onResourcePin: onResourcePin ?? (() => undefined)
     };
-    setNodes(
-      graphNodes(
-        graph,
-        layout,
-        agentEndpoints,
-        agentEndpointFleetCatalogError,
-        selectedAgentEndpointIdForTask,
-        titleDrafts,
-        promptDrafts,
-        saveStates,
-        taskNodeLabels(t),
-        selectedBlock,
-        handleTitleChange,
-        handleTitleSave,
-        handleTaskAgentEndpointChange,
-        handlePromptChange,
-        handlePromptSave,
-        handlePromptHistoryRedo,
-        handlePromptHistoryUndo,
-        handleOpenBlockInspector,
-        handleOpenBlockInspector,
-        handleOpenBlockWorkspace,
-        handleOpenTaskInspector,
-        handleOpenTaskWorkspace,
-        handleCopyAgentPrompt,
-        handleRevealTaskInFinder,
-        startAutoRunWithScope,
-        handleDeleteTaskNode,
-        handleDeleteBlock,
-        setSelectedBlock,
-        saveSelectedBlockTitle,
-        saveSelectedBlockPrompt,
-        handleOpenRunRecord,
-        resolvedResourceUi,
-        assigneeUi ?? null,
-        commentUi ?? null,
-        runtimeAvailability
-      )
+    const nextNodes = graphNodes(
+      graph,
+      layout,
+      agentEndpoints,
+      agentEndpointFleetCatalogError,
+      selectedAgentEndpointIdForTask,
+      titleDrafts,
+      promptDrafts,
+      saveStates,
+      taskNodeLabels(t),
+      selectedBlock,
+      handleTitleChange,
+      handleTitleSave,
+      handleTaskAgentEndpointChange,
+      handlePromptChange,
+      handlePromptSave,
+      handlePromptHistoryRedo,
+      handlePromptHistoryUndo,
+      handleOpenBlockInspector,
+      handleOpenBlockInspector,
+      handleOpenBlockWorkspace,
+      handleOpenTaskInspector,
+      handleOpenTaskWorkspace,
+      handleCopyAgentPrompt,
+      handleRevealTaskInFinder,
+      startAutoRunWithScope,
+      handleDeleteTaskNode,
+      handleDeleteBlock,
+      setSelectedBlock,
+      saveSelectedBlockTitle,
+      saveSelectedBlockPrompt,
+      handleOpenRunRecord,
+      resolvedResourceUi,
+      assigneeUi ?? null,
+      commentUi ?? null,
+      runtimeAvailability
     );
+    setNodes((currentNodes) => {
+      const currentById = new Map(currentNodes.map((node) => [node.id, node]));
+      return nextNodes.map((node) => {
+        const current = currentById.get(node.id);
+        return current?.type === node.type ? { ...node, measured: current.measured } : node;
+      });
+    });
     setEdges(graphEdges(graph, { activeResource }));
   }, [
     activeResource,

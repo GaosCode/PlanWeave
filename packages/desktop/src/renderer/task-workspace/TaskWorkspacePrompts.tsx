@@ -98,6 +98,8 @@ function EditablePromptBody({
   const [draft, setDraft] = useState(markdown);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<PromptSaveStatus>("idle");
+  const [composing, setComposing] = useState(false);
+  const revision = useRef(0);
   const saving = useRef(false);
   const pendingSourceMarkdown = useRef<string | null>(null);
   const sourceMarkdown = useRef(markdown);
@@ -107,7 +109,7 @@ function EditablePromptBody({
     if (sourceMarkdown.current !== markdown) {
       sourceMarkdown.current = markdown;
       if (dirty) {
-        pendingSourceMarkdown.current = markdown;
+        pendingSourceMarkdown.current = markdown === baseline ? null : markdown;
         return;
       }
       pendingSourceMarkdown.current = null;
@@ -125,13 +127,14 @@ function EditablePromptBody({
       setError(null);
       setStatus("idle");
     }
-  }, [dirty, markdown]);
+  }, [baseline, dirty, markdown]);
 
   const save = useCallback(async () => {
-    if (!dirty || saving.current) {
+    if (!dirty || saving.current || composing) {
       return;
     }
     const submitted = draft;
+    const submittedRevision = revision.current;
     saving.current = true;
     setError(null);
     setStatus("saving");
@@ -141,25 +144,28 @@ function EditablePromptBody({
         setStatus("retired");
         return;
       }
+      if (pendingSourceMarkdown.current === submitted) {
+        pendingSourceMarkdown.current = null;
+      }
       setBaseline(submitted);
-      setStatus("saved");
+      setStatus(revision.current === submittedRevision ? "saved" : "idle");
     } catch (saveError: unknown) {
       setError(errorMessage(saveError));
       setStatus("error");
     } finally {
       saving.current = false;
     }
-  }, [baseline, dirty, draft, onSave]);
+  }, [baseline, composing, dirty, draft, onSave]);
 
   useEffect(() => {
-    if (!dirty || status !== "idle") {
+    if (!dirty || composing || status !== "idle") {
       return undefined;
     }
     const timer = window.setTimeout(() => {
       void save();
     }, promptAutosaveDelayMs);
     return () => window.clearTimeout(timer);
-  }, [dirty, save, status]);
+  }, [composing, dirty, save, status]);
 
   return (
     <form
@@ -179,7 +185,7 @@ function EditablePromptBody({
             {promptStatusText(status, labels)}
           </span>
           <Button
-            disabled={!dirty || status === "saving"}
+            disabled={!dirty || composing || status === "saving"}
             size="sm"
             type="submit"
             variant="outline"
@@ -191,12 +197,14 @@ function EditablePromptBody({
       <Textarea
         aria-label={label}
         className="min-h-48 resize-y bg-app-panel font-mono text-xs leading-relaxed"
-        disabled={status === "saving"}
         onChange={(event) => {
+          revision.current += 1;
           setDraft(event.target.value);
           setError(null);
-          setStatus("idle");
+          setStatus(saving.current ? "saving" : "idle");
         }}
+        onCompositionStart={() => setComposing(true)}
+        onCompositionEnd={() => setComposing(false)}
         onBlur={() => {
           void save();
         }}

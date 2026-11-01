@@ -36,6 +36,126 @@ describe("Task Workspace prompt editing", () => {
   it.each([
     "task",
     "block"
+  ] as const)("keeps the %s editor focused and saves text entered during an autosave", async (kind) => {
+    vi.useFakeTimers();
+    const fixture = taskWorkspaceInspectorFixture();
+    const pending = deferred<"saved">();
+    const onSave = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue("saved");
+    const editor = (markdown: string) =>
+      kind === "task" ? (
+        <TaskWorkspaceTaskPrompt
+          labels={labels}
+          onSave={onSave}
+          task={{ ...fixture.workspace.task, promptMarkdown: markdown }}
+        />
+      ) : (
+        <TaskWorkspaceBlockPrompts
+          labels={labels}
+          onSave={onSave}
+          block={{ ...fixture.selectedRun.block, promptMarkdown: markdown }}
+        />
+      );
+    const view = render(
+      editor(
+        kind === "task"
+          ? fixture.workspace.task.promptMarkdown
+          : fixture.selectedRun.block.promptMarkdown
+      )
+    );
+    const input = screen.getByLabelText(kind === "task" ? "Task prompt" : "Block prompt");
+    input.focus();
+    fireEvent.change(input, { target: { value: "First draft" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(input).toBeEnabled();
+    expect(input).toHaveFocus();
+    fireEvent.change(input, { target: { value: "First draft 接着输入" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    view.rerender(editor("First draft"));
+    expect(input).toHaveValue("First draft 接着输入");
+    await act(async () => {
+      pending.resolve("saved");
+      await pending.promise;
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+    expect(onSave).toHaveBeenLastCalledWith({
+      baseMarkdown: "First draft",
+      markdown: "First draft 接着输入"
+    });
+    expect(input).toHaveValue("First draft 接着输入");
+    expect(input).toHaveFocus();
+  });
+
+  it("waits for Chinese composition to finish before autosaving", async () => {
+    vi.useFakeTimers();
+    const fixture = taskWorkspaceInspectorFixture();
+    const onSave = vi.fn().mockResolvedValue("saved");
+    render(
+      <TaskWorkspaceTaskPrompt labels={labels} onSave={onSave} task={fixture.workspace.task} />
+    );
+    const input = screen.getByLabelText("Task prompt");
+    fireEvent.change(input, { target: { value: "Text before composition" } });
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: "Text before composition zhongwen" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1600);
+    });
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "Text before composition 中文" } });
+    fireEvent.compositionEnd(input, { data: "中文" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+    expect(onSave).toHaveBeenCalledWith({
+      baseMarkdown: fixture.workspace.task.promptMarkdown,
+      markdown: "Text before composition 中文"
+    });
+  });
+
+  it("ignores a confirmed baseline readback arriving during the next save", async () => {
+    vi.useFakeTimers();
+    const task = taskWorkspaceInspectorFixture().workspace.task;
+    const pending = deferred<"saved">();
+    const onSave = vi.fn().mockResolvedValueOnce("saved").mockReturnValueOnce(pending.promise);
+    const editor = (markdown: string) => (
+      <TaskWorkspaceTaskPrompt
+        labels={labels}
+        onSave={onSave}
+        task={{ ...task, promptMarkdown: markdown }}
+      />
+    );
+    const view = render(editor(task.promptMarkdown));
+    const input = screen.getByLabelText("Task prompt");
+    fireEvent.change(input, { target: { value: "First draft" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+    fireEvent.change(input, { target: { value: "Second draft" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(800);
+    });
+    view.rerender(editor("First draft"));
+    await act(async () => {
+      pending.resolve("saved");
+      await pending.promise;
+    });
+    expect(onSave).toHaveBeenLastCalledWith({
+      baseMarkdown: "First draft",
+      markdown: "Second draft"
+    });
+    expect(input).toHaveValue("Second draft");
+  });
+
+  it.each([
+    "task",
+    "block"
   ] as const)("keeps a %s draft dirty when its save is retired", async (kind) => {
     vi.useFakeTimers();
     const fixture = taskWorkspaceInspectorFixture();

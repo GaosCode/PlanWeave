@@ -30,6 +30,7 @@ type PromptDraft = {
   title: string;
   draft: string;
   revision: number;
+  composing: boolean;
   retiredRevision?: number;
   base: PromptBase;
   saveState: TaskNodeData["saveState"];
@@ -89,6 +90,9 @@ export function useTaskPromptDrafts({
   setError: (message: string | null) => void;
   workspaceCanvas: WorkspaceCanvasCommandsResult | null;
 }) {
+  const promptScopeId = selectedProject
+    ? JSON.stringify([selectedProject.projectId, selectedProject.rootPath, selectedCanvasId])
+    : null;
   const scopeRef = useRef<PromptScope | null>(null);
   const workspaceCanvasRef = useRef(workspaceCanvas);
   useEffect(() => {
@@ -109,16 +113,12 @@ export function useTaskPromptDrafts({
   }, []);
 
   useEffect(() => {
-    if (!graph || !selectedProject) {
+    if (!graph || !selectedProject || !promptScopeId) {
       scopeRef.current = null;
       publish();
       return;
     }
-    const id = JSON.stringify([
-      selectedProject.projectId,
-      selectedProject.rootPath,
-      selectedCanvasId
-    ]);
+    const id = promptScopeId;
     let scope = scopeRef.current;
     if (!scope || scope.id !== id) {
       scope = {
@@ -150,6 +150,7 @@ export function useTaskPromptDrafts({
           title: task.title,
           draft: remote.markdown,
           revision: 0,
+          composing: false,
           base: remote,
           saveState: "idle",
           conflictRevision: 0
@@ -168,11 +169,16 @@ export function useTaskPromptDrafts({
         completeWrite(draft, write);
       } else if (samePrompt(draft.base, remote)) {
         draft.base = remote;
-      } else if (draft.draft === draft.base.markdown && !write && !draft.conflict) {
+      } else if (
+        draft.draft === draft.base.markdown &&
+        !write &&
+        !draft.conflict &&
+        !draft.composing
+      ) {
         draft.draft = remote.markdown;
         draft.base = remote;
         draft.saveState = "idle";
-      } else if (draft.draft === remote.markdown && !write && !draft.conflict) {
+      } else if (draft.draft === remote.markdown && !write && !draft.conflict && !draft.composing) {
         draft.base = remote;
         draft.saveState = "idle";
       } else {
@@ -190,7 +196,7 @@ export function useTaskPromptDrafts({
       }
     }
     publish();
-  }, [graph, publish, selectedCanvasId, selectedProject]);
+  }, [graph, promptScopeId, publish, selectedCanvasId, selectedProject]);
 
   useEffect(
     () => () => {
@@ -199,24 +205,28 @@ export function useTaskPromptDrafts({
     []
   );
 
-  const handlePromptChange = useCallback(
-    (taskId: string, value: string) => {
-      const draft = scopeRef.current?.tasks.get(taskId);
-      if (!draft || draft.draft === value) return;
+  const handlePromptChange = useCallback<TaskNodeData["onPromptChange"]>(
+    (taskId, value, options) => {
+      const scope = scopeRef.current;
+      if (scope?.id !== promptScopeId) return;
+      const draft = scope?.tasks.get(taskId);
+      const composing = options?.isComposing === true;
+      if (!draft || (draft.draft === value && draft.composing === composing)) return;
+      if (draft.draft !== value) draft.revision += 1;
       draft.draft = value;
-      draft.revision += 1;
+      draft.composing = composing;
       if (draft.conflict) draft.conflict = { ...draft.conflict, draft: value };
       draft.saveState = draft.inFlight ? "saving" : "idle";
       publish();
     },
-    [publish]
+    [promptScopeId, publish]
   );
 
   const savePrompt = useCallback(
     async (taskId: string, force = false): Promise<void> => {
       const scope = scopeRef.current;
       const draft = scope?.tasks.get(taskId);
-      if (!scope || !draft || !selectedProject) return;
+      if (!scope || !draft || !selectedProject || draft.composing) return;
       if (draft.inFlight) {
         await draft.inFlight.promise;
         if (
@@ -451,6 +461,7 @@ export function useTaskPromptDrafts({
       return (
         draft &&
         draft.draft !== draft.base.markdown &&
+        !draft.composing &&
         !draft.conflict &&
         !draft.inFlight &&
         draft.retiredRevision !== draft.revision &&
