@@ -121,9 +121,15 @@ export type OperatorControlPort = {
     principal: OperatorRequestPrincipal,
     operationId: string,
     afterCursor?: number,
-    afterTurnId?: string
+    afterTurnId?: string,
+    version?: 1 | 2
   ): unknown;
-  converse(principal: OperatorRequestPrincipal, operationId: string, action: unknown): unknown;
+  converse(
+    principal: OperatorRequestPrincipal,
+    operationId: string,
+    action: unknown,
+    version?: 1 | 2
+  ): unknown;
   replayEvents(
     principal: OperatorRequestPrincipal,
     operationId: string,
@@ -162,6 +168,7 @@ type OperatorRoute =
         | "interactions"
         | "settle_interaction";
       operationId: string;
+      conversationVersion?: 1 | 2;
     }
   | RemoteAgentManagementRoute;
 
@@ -230,15 +237,21 @@ function route(request: IncomingMessage, pathname: string): OperatorRoute | unde
     }
   }
   const operation =
-    /^\/api\/v1\/remote-operations\/([^/]+)(?:\/(actions|events|interactions|terminal-result|conversation)(\/respond)?)?$/.exec(
+    /^\/api\/v1\/remote-operations\/([^/]+)(?:\/(actions|events|interactions|terminal-result|conversation)(\/respond|\/v2)?)?$/.exec(
       pathname
     );
   if (!operation) return undefined;
   const operationId = decodeIdentifier(operation[1]);
   if (!operationId) return undefined;
-  if (operation[2] === "conversation" && !operation[3]) {
-    if (request.method === "GET") return { kind: "conversation", operationId };
-    if (request.method === "POST") return { kind: "converse", operationId };
+  if (operation[2] === "conversation" && (!operation[3] || operation[3] === "/v2")) {
+    if (request.method === "GET")
+      return {
+        kind: "conversation",
+        operationId,
+        conversationVersion: operation[3] === "/v2" ? 2 : 1
+      };
+    if (request.method === "POST")
+      return { kind: "converse", operationId, conversationVersion: operation[3] === "/v2" ? 2 : 1 };
   }
   if (request.method === "GET" && !operation[2]) return { kind: "get_operation", operationId };
   if (request.method === "GET" && operation[2] === "terminal-result" && !operation[3]) {
@@ -741,7 +754,10 @@ export async function handleOperatorHttpRequest(
         );
         break;
       case "conversation": {
-        const parameters = query(url, ["afterCursor", "afterTurnId"]);
+        const parameters = query(
+          url,
+          matched.conversationVersion === 2 ? ["afterCursor", "afterTurnId"] : ["afterCursor"]
+        );
         respond(
           response,
           200,
@@ -749,7 +765,8 @@ export async function handleOperatorHttpRequest(
             principal,
             matched.operationId,
             Number(parameters.afterCursor ?? 0),
-            parameters.afterTurnId
+            parameters.afterTurnId,
+            matched.conversationVersion
           )
         );
         break;
@@ -759,7 +776,12 @@ export async function handleOperatorHttpRequest(
         respond(
           response,
           202,
-          await options.service.converse(principal, matched.operationId, await readJson(request))
+          await options.service.converse(
+            principal,
+            matched.operationId,
+            await readJson(request),
+            matched.conversationVersion
+          )
         );
         break;
       }

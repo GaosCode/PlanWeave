@@ -71,6 +71,24 @@ const action = { kind: "prompt", ...identity, turnId: "turn-next", text: "Contin
 
 describe("Owner ACP conversation HTTP budget", () => {
   it.each([
+    "owner",
+    "workspace"
+  ] as const)("rejects a legacy-shaped success on the v2 endpoint on %s", async (surface) => {
+    const { turnCursor: _cursor, hasMoreTurns: _more, ...legacy } = page;
+    const { owner, workspace } = await fixture((req, res) => {
+      req.resume();
+      res.end(JSON.stringify(legacy));
+    });
+    const read =
+      surface === "owner"
+        ? owner.acpConversation("operation-test", 0, "human-test")
+        : workspace.acpConversation("operation-test", 0);
+    await expect(read).rejects.toMatchObject({
+      kind: "protocol",
+      code: surface === "owner" ? "operator_response_invalid" : "collaboration_response_invalid"
+    });
+  });
+  it.each([
     "GET",
     "POST"
   ] as const)("reads a schema-valid large %s page identically to Workspace defaults", async (method) => {
@@ -94,11 +112,11 @@ describe("Owner ACP conversation HTTP budget", () => {
     expect(calls).toEqual([
       {
         method,
-        path: `/api/v1/projects/project-test/remote-operations/operation-test/conversation${method === "GET" ? "?afterCursor=0&afterTurnId=turn-0" : ""}`
+        path: `/api/v1/projects/project-test/remote-operations/operation-test/conversation/v2${method === "GET" ? "?afterCursor=0&afterTurnId=turn-0" : ""}`
       },
       {
         method,
-        path: `/api/v1/remote-operations/operation-test/conversation${method === "GET" ? "?afterCursor=0&afterTurnId=turn-0" : ""}`
+        path: `/api/v1/remote-operations/operation-test/conversation/v2${method === "GET" ? "?afterCursor=0&afterTurnId=turn-0" : ""}`
       }
     ]);
   });

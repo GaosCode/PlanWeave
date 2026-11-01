@@ -179,6 +179,15 @@ export const acpConversationPageSchema = z
   })
   .strict();
 export type AcpConversationPage = z.infer<typeof acpConversationPageSchema>;
+export const acpConversationPaginatedPageSchema = acpConversationPageSchema.extend({
+  turnCursor: acpConversationPageSchema.shape.turnCursor.removeDefault(),
+  hasMoreTurns: acpConversationPageSchema.shape.hasMoreTurns.removeDefault()
+});
+export const acpConversationLegacyPageSchema = acpConversationPageSchema.omit({
+  turnCursor: true,
+  hasMoreTurns: true
+});
+export type AcpConversationPageVersion = 1 | 2;
 
 export function acpConversationEventPageBytes(event: AcpConversationEvent): number {
   return new TextEncoder().encode(

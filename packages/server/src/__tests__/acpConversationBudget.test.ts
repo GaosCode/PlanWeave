@@ -13,6 +13,7 @@ import { OperatorControlClient } from "../../../desktop/src/main/operatorControl
 import { CollaborationHttpTransport } from "../../../desktop/src/main/collaboration/collaborationHttpTransport.js";
 import { CollaborationRemoteOperationsClient } from "../../../desktop/src/main/collaboration/CollaborationRemoteOperationsClient.js";
 import { RemoteOperationRepository } from "../remoteOperations.js";
+import { acpConversationWirePage } from "../acpConversationPagination.js";
 import { createAcpConversationFixture } from "./support/acpConversationFixture.js";
 
 const fixtures: Awaited<ReturnType<typeof createAcpConversationFixture>>[] = [];
@@ -98,6 +99,68 @@ function clients(f: Awaited<ReturnType<typeof setup>>) {
 }
 
 describe("ACP conversation complete JSON wire budget", () => {
+  it.each([
+    128, 4000
+  ])("rejects a legacy restore before external dispatch when identity/retention growth exceeds %i spare bytes", async (spare) => {
+    let restores = 0;
+    const f = await setup({
+      restoreTask: async () => {
+        restores++;
+        throw new Error("must_not_restore");
+      }
+    });
+    f.hosts.reportOnline(
+      f.host.id,
+      ["acp.codex", ACP_CONVERSATION_CAPABILITY, ACP_TASK_RESTORE_CAPABILITY],
+      2
+    );
+    for (let index = 0; index < 10; index++) {
+      const turnId = `restore-growth-${index}-${"x".repeat(220)}`;
+      f.service.act(f.operation, "actor", { ...f.prompt, turnId });
+      f.service.ingest(
+        f.host.id,
+        f.event(1, { kind: "status", status: "failed", error: "\u0001".repeat(63 * 1024) }, turnId)
+      );
+    }
+    const metadata = f.service.page(f.operation, "actor");
+    const used = Buffer.byteLength(
+      JSON.stringify(acpConversationWirePage({ ...metadata, events: [] }, 1))
+    );
+    const room = ACP_CONVERSATION_RESPONSE_MAX_BYTES - used;
+    const tail = "restore-growth-tail";
+    f.service.act(f.operation, "actor", { ...f.prompt, turnId: tail });
+    f.service.ingest(f.host.id, f.event(1, { kind: "status", status: "failed", error: "x" }, tail));
+    const extra =
+      Buffer.byteLength(
+        JSON.stringify(
+          acpConversationWirePage({ ...f.service.page(f.operation, "actor"), events: [] }, 1)
+        )
+      ) -
+      used -
+      1;
+    const bytes = room - extra - spare;
+    f.db
+      .prepare("UPDATE acp_conversation_turns SET error=? WHERE turn_id=?")
+      .run("\u0001".repeat(Math.floor(bytes / 6)) + "x".repeat(bytes % 6), tail);
+    f.db.prepare("DELETE FROM acp_conversation_events").run();
+    expect(() => f.service.page(f.operation, "actor", 0, null, undefined, 1)).not.toThrow();
+    await expect(
+      f.service.restore(
+        { ...f.operation, state: "cancelled" },
+        "actor",
+        {
+          kind: "restore_task",
+          turnId: f.prompt.turnId,
+          executionAttemptId: f.prompt.executionAttemptId,
+          sessionId: f.prompt.sessionId
+        },
+        1
+      )
+    ).rejects.toThrow("acp_conversation_client_upgrade_required");
+    expect(restores).toBe(0);
+    expect(f.db.prepare("SELECT * FROM acp_task_restorations").all()).toEqual([]);
+  });
+
   it("acknowledges an exact legacy oversized replay without readmission, while rejecting conflicts and new oversized events", async () => {
     const f = await setup();
     f.service.act(f.operation, "actor", f.prompt);

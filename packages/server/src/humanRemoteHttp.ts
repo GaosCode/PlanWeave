@@ -47,6 +47,7 @@ type HumanRemoteRoute =
         | "converse";
       projectId: string;
       operationId: string;
+      conversationVersion?: 1 | 2;
     };
 
 function decodeIdentifier(value: string): string | undefined {
@@ -59,7 +60,7 @@ function decodeIdentifier(value: string): string | undefined {
 
 function route(request: IncomingMessage, pathname: string): HumanRemoteRoute | undefined {
   const match =
-    /^\/api\/v1\/projects\/([^/]+)\/remote-operations(?:\/([^/]+)(?:\/(actions|events|interactions|conversation)(\/respond)?)?)?$/.exec(
+    /^\/api\/v1\/projects\/([^/]+)\/remote-operations(?:\/([^/]+)(?:\/(actions|events|interactions|conversation)(\/respond|\/v2)?)?)?$/.exec(
       pathname
     );
   if (!match) return undefined;
@@ -69,9 +70,21 @@ function route(request: IncomingMessage, pathname: string): HumanRemoteRoute | u
   if (request.method === "GET" && !match[2]) return { kind: "lookup", projectId };
   const operationId = match[2] ? decodeIdentifier(match[2]) : undefined;
   if (!operationId) return undefined;
-  if (match[3] === "conversation" && !match[4]) {
-    if (request.method === "GET") return { kind: "conversation", projectId, operationId };
-    if (request.method === "POST") return { kind: "converse", projectId, operationId };
+  if (match[3] === "conversation" && (!match[4] || match[4] === "/v2")) {
+    if (request.method === "GET")
+      return {
+        kind: "conversation",
+        projectId,
+        operationId,
+        conversationVersion: match[4] === "/v2" ? 2 : 1
+      };
+    if (request.method === "POST")
+      return {
+        kind: "converse",
+        projectId,
+        operationId,
+        conversationVersion: match[4] === "/v2" ? 2 : 1
+      };
   }
   if (request.method === "GET" && !match[3]) return { kind: "get", projectId, operationId };
   if (request.method === "POST" && match[3] === "actions" && !match[4]) {
@@ -279,7 +292,10 @@ export async function handleHumanRemoteHttpRequest(
 
     switch (matched.kind) {
       case "conversation": {
-        const parameters = query(url, ["afterCursor", "afterTurnId"]);
+        const parameters = query(
+          url,
+          matched.conversationVersion === 2 ? ["afterCursor", "afterTurnId"] : ["afterCursor"]
+        );
         respond(
           response,
           200,
@@ -287,7 +303,8 @@ export async function handleHumanRemoteHttpRequest(
             scope,
             matched.operationId,
             Number(parameters.afterCursor ?? 0),
-            parameters.afterTurnId
+            parameters.afterTurnId,
+            matched.conversationVersion
           )
         );
         break;
@@ -297,7 +314,12 @@ export async function handleHumanRemoteHttpRequest(
         respond(
           response,
           202,
-          await options.service.converse(scope, matched.operationId, await readJson(request))
+          await options.service.converse(
+            scope,
+            matched.operationId,
+            await readJson(request),
+            matched.conversationVersion
+          )
         );
         break;
       case "dispatch":

@@ -1,5 +1,8 @@
 import { remoteOperationLookupQuerySchema } from "@planweave-ai/collaboration-protocol/remote-run";
-import { acpConversationActionSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  acpConversationActionSchema,
+  type AcpConversationPageVersion
+} from "@planweave-ai/agent-host-protocol";
 import {
   operatorActionRequestSchema,
   operatorActionViewSchema,
@@ -65,6 +68,7 @@ import {
 } from "./operatorAuth.js";
 import { RemoteAcpEventRepository } from "./remoteAcpEvents.js";
 import type { AcpConversationService } from "./acpConversationService.js";
+import { acpConversationWirePage } from "./acpConversationPagination.js";
 import { RemoteBlockCoordinator } from "./remoteBlockCoordinator.js";
 import type { RemoteArtifactContentPort } from "./remoteBlockCoordinatorPorts.js";
 import { RemoteInteractionService } from "./remoteInteractions.js";
@@ -541,27 +545,45 @@ export class RemoteControlService {
     principal: OperatorRequestPrincipal,
     operationId: string,
     afterCursor: number,
-    afterTurnId?: string
+    afterTurnId?: string,
+    version: AcpConversationPageVersion = 2
   ) {
     const operation = this.operationFor(principal, operationId);
     if (!principal.humanPrincipalId) throw new Error("operator_human_identity_forbidden");
     if (!this.options.conversations) throw new Error("acp_conversation_unavailable");
-    return this.options.conversations.page(
-      operation,
-      principal.humanPrincipalId,
-      afterCursor,
-      afterTurnId
+    return acpConversationWirePage(
+      this.options.conversations.page(
+        operation,
+        principal.humanPrincipalId,
+        afterCursor,
+        afterTurnId,
+        undefined,
+        version
+      ),
+      version
     );
   }
 
-  converse(principal: OperatorRequestPrincipal, operationId: string, action: unknown) {
+  async converse(
+    principal: OperatorRequestPrincipal,
+    operationId: string,
+    action: unknown,
+    version: AcpConversationPageVersion = 2
+  ) {
     const operation = this.operationFor(principal, operationId);
     if (!principal.humanPrincipalId) throw new Error("operator_human_identity_forbidden");
     if (!this.options.conversations) throw new Error("acp_conversation_unavailable");
     const parsed = acpConversationActionSchema.parse(action);
-    return parsed.kind === "restore_task"
-      ? this.options.conversations.restore(operation, principal.humanPrincipalId, parsed)
-      : this.options.conversations.act(operation, principal.humanPrincipalId, parsed);
+    const page =
+      parsed.kind === "restore_task"
+        ? await this.options.conversations.restore(
+            operation,
+            principal.humanPrincipalId,
+            parsed,
+            version
+          )
+        : this.options.conversations.act(operation, principal.humanPrincipalId, parsed, version);
+    return acpConversationWirePage(page, version);
   }
 
   replayEvents(principal: OperatorRequestPrincipal, operationId: string, rawAfterCursor: unknown) {

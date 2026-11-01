@@ -207,7 +207,7 @@ describe("operator HTTP boundary", () => {
   });
   it("authenticates conversation replay and passes the cursor without invoking a prompt", async () => {
     const fixture = await setup(true);
-    const path = `${fixture.origin}/api/v1/remote-operations/operation-1/conversation?afterCursor=7&afterTurnId=turn-before`;
+    const path = `${fixture.origin}/api/v1/remote-operations/operation-1/conversation/v2?afterCursor=7&afterTurnId=turn-before`;
     expect((await fetch(path)).status).toBe(401);
     expect(fixture.service.conversation).not.toHaveBeenCalled();
     const response = await fetch(path, { headers: authorization });
@@ -216,7 +216,8 @@ describe("operator HTTP boundary", () => {
       expect.objectContaining({ operatorId: "operator-1" }),
       "operation-1",
       7,
-      "turn-before"
+      "turn-before",
+      2
     );
     expect(fixture.service.converse).not.toHaveBeenCalled();
   });

@@ -1,4 +1,7 @@
-import { acpConversationActionSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  acpConversationActionSchema,
+  type AcpConversationPageVersion
+} from "@planweave-ai/agent-host-protocol";
 import {
   remoteActionViewSchema,
   remoteDispatchIntentV3Schema,
@@ -22,6 +25,7 @@ import type {
 import { authorizeHumanAction } from "./identity/policy.js";
 import { RemoteAcpEventRepository } from "./remoteAcpEvents.js";
 import type { AcpConversationService } from "./acpConversationService.js";
+import { acpConversationWirePage } from "./acpConversationPagination.js";
 import { RemoteBlockCoordinator } from "./remoteBlockCoordinator.js";
 import { RemoteInteractionService } from "./remoteInteractions.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
@@ -97,27 +101,45 @@ export class HumanRemoteControlService {
     scope: AuthenticatedCollaborationScope,
     operationId: string,
     afterCursor: number,
-    afterTurnId?: string
+    afterTurnId?: string,
+    version: AcpConversationPageVersion = 2
   ) {
     const operation = this.operationFor(scope, operationId);
     if (!this.options.conversations)
       throw new HumanRemoteControlError("acp_conversation_unavailable");
-    return this.options.conversations.page(
-      operation,
-      scope.actor.humanPrincipalId,
-      afterCursor,
-      afterTurnId
+    return acpConversationWirePage(
+      this.options.conversations.page(
+        operation,
+        scope.actor.humanPrincipalId,
+        afterCursor,
+        afterTurnId,
+        undefined,
+        version
+      ),
+      version
     );
   }
 
-  converse(scope: AuthenticatedCollaborationScope, operationId: string, action: unknown) {
+  async converse(
+    scope: AuthenticatedCollaborationScope,
+    operationId: string,
+    action: unknown,
+    version: AcpConversationPageVersion = 2
+  ) {
     const operation = this.operationFor(scope, operationId);
     if (!this.options.conversations)
       throw new HumanRemoteControlError("acp_conversation_unavailable");
     const parsed = acpConversationActionSchema.parse(action);
-    return parsed.kind === "restore_task"
-      ? this.options.conversations.restore(operation, scope.actor.humanPrincipalId, parsed)
-      : this.options.conversations.act(operation, scope.actor.humanPrincipalId, parsed);
+    const page =
+      parsed.kind === "restore_task"
+        ? await this.options.conversations.restore(
+            operation,
+            scope.actor.humanPrincipalId,
+            parsed,
+            version
+          )
+        : this.options.conversations.act(operation, scope.actor.humanPrincipalId, parsed, version);
+    return acpConversationWirePage(page, version);
   }
 
   async dispatch(scope: AuthenticatedCollaborationScope, rawRequest: unknown) {

@@ -10,7 +10,7 @@ import {
   managementRecoverRequestSchema
 } from "@planweave-ai/agent-host-protocol/operator-control";
 import {
-  acpConversationPageSchema,
+  acpConversationPaginatedPageSchema,
   type AcpConversationAction
 } from "@planweave-ai/agent-host-protocol";
 import {
@@ -476,14 +476,26 @@ export class OperatorControlClient {
     const id = opaqueIdentifierSchema.parse(operationId);
     return this.json(
       action ? "POST" : "GET",
-      `/api/v1/remote-operations/${encodeURIComponent(id)}/conversation${action ? "" : `?afterCursor=${afterCursor}${afterTurnId ? `&afterTurnId=${encodeURIComponent(afterTurnId)}` : ""}`}`,
-      acpConversationPageSchema,
+      `/api/v1/remote-operations/${encodeURIComponent(id)}/conversation/v2${action ? "" : `?afterCursor=${afterCursor}${afterTurnId ? `&afterTurnId=${encodeURIComponent(afterTurnId)}` : ""}`}`,
+      acpConversationPaginatedPageSchema,
       {
         humanPrincipalId,
         responseMaxBytes: ACP_CONVERSATION_RESPONSE_MAX_BYTES,
         ...(action ? { body: action } : {})
       }
-    );
+    ).catch((error: unknown) => {
+      if (
+        error instanceof OperatorControlError &&
+        error.httpStatus === 404 &&
+        error.code === "route_not_found"
+      )
+        throw new OperatorControlError({
+          kind: "protocol",
+          code: "acp_conversation_server_upgrade_required",
+          httpStatus: 404
+        });
+      throw error;
+    });
   }
 
   async replayRemoteOperationEvents(

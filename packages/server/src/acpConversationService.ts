@@ -13,10 +13,11 @@ import {
   executeBlockCommandSchema,
   type AcpConversationAction,
   type AcpConversationEvent,
-  type AcpConversationPage
+  type AcpConversationPage,
+  type AcpConversationPageVersion
 } from "@planweave-ai/agent-host-protocol";
 import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
-import { paginateAcpConversation } from "./acpConversationPagination.js";
+import { acpConversationWirePage, paginateAcpConversation } from "./acpConversationPagination.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqlite.js";
 import type { DurableMailbox } from "./mailbox.js";
 import { isAgentHostOnline, type AgentHostRepository } from "./hosts.js";
@@ -61,7 +62,8 @@ export class AcpConversationService {
   async restore(
     operation: RemoteOperation,
     actorId: string,
-    input: unknown
+    input: unknown,
+    version: AcpConversationPageVersion = 2
   ): Promise<AcpConversationPage> {
     this.options.authorize(operation, actorId);
     const action = acpConversationActionSchema.parse(input);
@@ -72,12 +74,36 @@ export class AcpConversationService {
       action.sessionId !== source.sessionId
     )
       throw new AcpConversationError("acp_conversation_attempt_mismatch");
+    if (version === 1) {
+      const preview = this.page(operation, actorId, 0, null, undefined, version);
+      const reserved = {
+        ...preview,
+        events: [],
+        reason: "\u0000".repeat(256),
+        restoredOperationId: "\u0000".repeat(256),
+        cursor: Number.MAX_SAFE_INTEGER,
+        canRestoreTask: false,
+        available: false,
+        ...(preview.turns.length
+          ? { retention: { compactedTurnIds: preview.turns.map((turn) => turn.turnId) } }
+          : {})
+      };
+      if (
+        Buffer.byteLength(JSON.stringify(acpConversationWirePage(reserved, version))) >
+        ACP_CONVERSATION_RESPONSE_MAX_BYTES
+      )
+        throw new AcpConversationError("acp_conversation_client_upgrade_required");
+    }
     const pending = this.restorations.get(operation.id);
-    if (pending) return pending;
+    if (pending) {
+      await pending;
+      return this.page(operation, actorId, 0, null, undefined, version);
+    }
     const run = this.restoreStopped(operation, actorId, source);
     this.restorations.set(operation.id, run);
     try {
-      return await run;
+      await run;
+      return this.page(operation, actorId, 0, null, undefined, version);
     } finally {
       this.restorations.delete(operation.id);
     }
@@ -223,7 +249,8 @@ export class AcpConversationService {
     actorId: string,
     afterCursor = 0,
     afterTurnId: string | null = null,
-    priorityTurnId?: string
+    priorityTurnId?: string,
+    version: AcpConversationPageVersion = 2
   ): AcpConversationPage {
     if (!Number.isSafeInteger(afterCursor) || afterCursor < 0)
       throw new AcpConversationError("acp_conversation_cursor_invalid");
@@ -298,12 +325,13 @@ export class AcpConversationService {
           event: acpConversationEventSchema.parse(JSON.parse(String(row.event_json)))
         })),
         afterTurnId,
-        priorityTurnId
+        priorityTurnId,
+        version
       );
     } catch (error) {
       if (
         error instanceof Error &&
-        /^acp_conversation_(turn_cursor_invalid|metadata_too_large|page_item_too_large)$/.test(
+        /^acp_conversation_(turn_cursor_invalid|metadata_too_large|page_item_too_large|client_upgrade_required)$/.test(
           error.message
         )
       )
@@ -312,7 +340,12 @@ export class AcpConversationService {
     }
   }
 
-  act(operation: RemoteOperation, actorId: string, input: unknown): AcpConversationPage {
+  act(
+    operation: RemoteOperation,
+    actorId: string,
+    input: unknown,
+    version: AcpConversationPageVersion = 2
+  ): AcpConversationPage {
     const action = acpConversationActionSchema.parse(input);
     this.options.authorize(operation, actorId);
     if (action.kind === "restore_task")
@@ -326,7 +359,7 @@ export class AcpConversationService {
     const now = this.now();
     const complete = (message: ReturnType<DurableMailbox["enqueueOnce"]>["message"] | null) => ({
       message,
-      page: this.page(operation, actorId, 0, null, action.turnId)
+      page: this.page(operation, actorId, 0, null, action.turnId, version)
     });
     const outcome = inWriteTransaction(this.database, () => {
       const existing = this.database

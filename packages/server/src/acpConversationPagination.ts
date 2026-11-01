@@ -1,28 +1,47 @@
 import {
   acpConversationPageSchema,
-  type AcpConversationPage
+  acpConversationLegacyPageSchema,
+  type AcpConversationPage,
+  type AcpConversationPageVersion
 } from "@planweave-ai/agent-host-protocol";
 import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 
 type Turn = AcpConversationPage["turns"][number];
 type EventRow = { cursor: number; event: AcpConversationPage["events"][number] };
 
+export function acpConversationWirePage(
+  page: AcpConversationPage,
+  version: AcpConversationPageVersion
+) {
+  if (version === 2) return page;
+  const { turnCursor: _cursor, hasMoreTurns: _hasMore, ...legacy } = page;
+  return acpConversationLegacyPageSchema.parse(legacy);
+}
+
 export function paginateAcpConversation(
   page: AcpConversationPage,
   turns: Turn[],
   rows: EventRow[],
   afterTurnId: string | null,
-  priorityTurnId?: string
+  priorityTurnId?: string,
+  version: AcpConversationPageVersion = 2
 ): AcpConversationPage {
   const start =
     afterTurnId === null ? 0 : turns.findIndex((turn) => turn.turnId === afterTurnId) + 1;
   if (afterTurnId !== null && start === 0) throw new Error("acp_conversation_turn_cursor_invalid");
-  const fits = () => Buffer.byteLength(JSON.stringify(page)) <= ACP_CONVERSATION_RESPONSE_MAX_BYTES;
+  const fits = () =>
+    Buffer.byteLength(JSON.stringify(acpConversationWirePage(page, version))) <=
+    ACP_CONVERSATION_RESPONSE_MAX_BYTES;
   page.turnCursor = afterTurnId;
   page.hasMoreTurns = start < turns.length;
   page.hasMore = page.hasMoreTurns || rows.length > 0;
   if (afterTurnId !== null) delete page.retention;
-  if (!fits()) throw new Error("acp_conversation_metadata_too_large");
+  if (!fits())
+    throw new Error(
+      version === 1
+        ? "acp_conversation_client_upgrade_required"
+        : "acp_conversation_metadata_too_large"
+    );
   if (afterTurnId === null) {
     const priority =
       turns.find((turn) => turn.turnId === priorityTurnId) ??
@@ -45,6 +64,8 @@ export function paginateAcpConversation(
     page.hasMore = true;
     break;
   }
+  if (version === 1 && page.hasMoreTurns)
+    throw new Error("acp_conversation_client_upgrade_required");
   for (const row of rows.slice(0, 128)) {
     const prior = page.cursor;
     page.events.push(row.event);
@@ -56,8 +77,12 @@ export function paginateAcpConversation(
     page.hasMore = true;
     break;
   }
-  if (page.hasMore && !page.events.length && page.turnCursor === afterTurnId)
-    throw new Error("acp_conversation_page_item_too_large");
+  if (page.hasMore && !page.events.length && (version === 1 || page.turnCursor === afterTurnId))
+    throw new Error(
+      version === 1
+        ? "acp_conversation_client_upgrade_required"
+        : "acp_conversation_page_item_too_large"
+    );
   if (!fits()) throw new Error("acp_conversation_page_item_too_large");
   return acpConversationPageSchema.parse(page);
 }

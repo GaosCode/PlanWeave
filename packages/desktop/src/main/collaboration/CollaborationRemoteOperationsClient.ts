@@ -1,5 +1,5 @@
 import {
-  acpConversationPageSchema,
+  acpConversationPaginatedPageSchema,
   type AcpConversationPage,
   type AcpConversationAction
 } from "@planweave-ai/agent-host-protocol";
@@ -34,6 +34,7 @@ import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration
 import type { z, ZodType } from "zod";
 import type { JsonMethod } from "./collaborationHttpTransport.js";
 import type { CollaborationListAgentEndpointsInput } from "../../shared/collaboration.js";
+import { CollaborationClientError } from "./collaborationErrors.js";
 
 export interface CollaborationRemoteOperationsTransportPort {
   json<T>(
@@ -101,12 +102,29 @@ export class CollaborationRemoteOperationsClient implements CollaborationRemoteO
     action?: AcpConversationAction,
     afterTurnId?: string | null
   ) {
-    return this.transport.json(
-      action ? "POST" : "GET",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations/${encodeURIComponent(operationId)}/conversation${action ? "" : `?afterCursor=${afterCursor}${afterTurnId ? `&afterTurnId=${encodeURIComponent(afterTurnId)}` : ""}`}`,
-      acpConversationPageSchema,
-      { responseMaxBytes: ACP_CONVERSATION_RESPONSE_MAX_BYTES, ...(action ? { body: action } : {}) }
-    );
+    return this.transport
+      .json(
+        action ? "POST" : "GET",
+        `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations/${encodeURIComponent(operationId)}/conversation/v2${action ? "" : `?afterCursor=${afterCursor}${afterTurnId ? `&afterTurnId=${encodeURIComponent(afterTurnId)}` : ""}`}`,
+        acpConversationPaginatedPageSchema,
+        {
+          responseMaxBytes: ACP_CONVERSATION_RESPONSE_MAX_BYTES,
+          ...(action ? { body: action } : {})
+        }
+      )
+      .catch((error: unknown) => {
+        if (
+          error instanceof CollaborationClientError &&
+          error.httpStatus === 404 &&
+          error.code === "route_not_found"
+        )
+          throw new CollaborationClientError({
+            kind: "protocol",
+            code: "acp_conversation_server_upgrade_required",
+            httpStatus: 404
+          });
+        throw error;
+      });
   }
 
   listAgentEndpoints(
