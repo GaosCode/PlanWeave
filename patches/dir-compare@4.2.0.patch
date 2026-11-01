@@ -1,0 +1,22 @@
+diff --git a/build/src/FilterHandler/defaultFilterHandler.js b/build/src/FilterHandler/defaultFilterHandler.js
+index b71877eb239ebb0a5d649bc15f88d0127d116ba6..877f0d0b0d8b33f31515889faab04814c4f4c450 100644
+--- a/build/src/FilterHandler/defaultFilterHandler.js
++++ b/build/src/FilterHandler/defaultFilterHandler.js
+@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.defaultFilterHandler = void 0;
+ const path_1 = __importDefault(require("path"));
+-const minimatch_1 = __importDefault(require("minimatch"));
++const minimatch_1 = require("minimatch");
+ /**
+  * Default filter handler that uses minimatch to accept/ignore files based on includeFilter and excludeFilter options.
+  */
+@@ -27,7 +27,7 @@ function match(path, pattern) {
+     const patternArray = pattern.split(',');
+     for (let i = 0; i < patternArray.length; i++) {
+         const pat = patternArray[i];
+-        if ((0, minimatch_1.default)(path, pat, { dot: true, matchBase: true })) { //nocase
++        if ((0, minimatch_1.minimatch)(path, pat, { dot: true, matchBase: true })) { //nocase
+             return true;
+         }
+     }

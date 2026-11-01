@@ -19,6 +19,7 @@ overrides:
   http-cache-semantics@<4.3.0: 4.3.0
   ip-address: 10.7.4
   js-yaml: 4.3.2
+  minimatch@<11.0.1: 11.0.3
   nanoid@<3.3.18: 3.3.18
   postcss: 8.5.23
   postcss-selector-parser@<7.1.6: 7.1.6
@@ -32,6 +33,17 @@ overrides:
   undici@^6.25.0: 6.29.1
   undici@^7.25.0: 7.30.1
   vite: 8.1.6
+
+patchedDependencies:
+  '@electron/asar@3.4.1':
+    hash: 2bee052a0492454b5b3fcadcf2ec963be1e1d2788821aca6e02b6351077c26cc
+    path: patches/@electron__asar@3.4.1.patch
+  dir-compare@4.2.0:
+    hash: def92076ac5babd332ca60d7c2e7bd8d3aa0a85b1a2b444c78ad1956b13645bc
+    path: patches/dir-compare@4.2.0.patch
+  glob@7.2.3:
+    hash: 769998672ca43127e13fd7989df7e3f9c58abf08368affc1cf1029c8e26631f0
+    path: patches/glob@7.2.3.patch
 
 importers:
 
@@ -194,7 +206,7 @@ importers:
     devDependencies:
       '@electron/asar':
         specifier: ^3.4.1
-        version: 3.4.1
+        version: 3.4.1(patch_hash=2bee052a0492454b5b3fcadcf2ec963be1e1d2788821aca6e02b6351077c26cc)
       '@tailwindcss/vite':
         specifier: ^4.3.1
         version: 4.3.1(vite@8.1.6(@types/node@24.12.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4))
@@ -733,6 +745,9 @@ packages:
   '@isaacs/fs-minipass@4.0.1':
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
+
+  '@isaacs/nonrecursive-glob-match@1.0.3':
+    resolution: {integrity: sha512-SI7kyKHq4XXDRozw+r9GlRZkia1ZkFrpLW98r2IC2Bpr8YkFGE3fvjzmxCG0x78A++69HmDNrDvSMYBZmHGpKA==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1951,9 +1966,6 @@ packages:
   aws4@1.13.2:
     resolution: {integrity: sha512-lHe62zvbTB5eEABUVi/AwVh0ZKY9rMMDhmm+eeyuuUQbQ3+J+fONVQOZyj+DdrvD4BY33uYniyRJ4UJIaSKAfw==}
 
-  balanced-match@1.0.2:
-    resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
-
   balanced-match@4.0.4:
     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
     engines: {node: 18 || 20 || >=22}
@@ -1973,12 +1985,6 @@ packages:
   body-parser@2.4.0:
     resolution: {integrity: sha512-Ifk1KcLrxaGt1occQagQNFNNOqRt1LFuehEnHHzB8Z6cRgIxRU1TBaiIsUiCdA+gy5PL7Y1IX31DNKkRmxtXjQ==}
     engines: {node: '>=18'}
-
-  brace-expansion@1.1.21:
-    resolution: {integrity: sha512-9zeA+KLZNNzglF2TPKRQEDyx6Yby7daAkuy8MiPzpXPsYDWi/DRM8jmwUDxokQjYqBpv5DgPiwD4h4ZZSy1Ujw==}
-
-  brace-expansion@2.1.7:
-    resolution: {integrity: sha512-uZbew1NqdmPDTMJ8ah1y+b+9QEJrfkXFk3RcTQw3X0jW/xRUvFKsg1CfQdSYGdTbXZWExtU3J3ccxtnfw1Fi0g==}
 
   brace-expansion@5.0.12:
     resolution: {integrity: sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==}
@@ -2089,9 +2095,6 @@ packages:
   compare-version@0.1.2:
     resolution: {integrity: sha512-pJDh5/4wrEnXX/VWRZvruAGHkzKdr46z11OlTPN+VrATlWWhSKewNCJ1futCO5C7eJB3nPMFZA1LeYtcFboZ2A==}
     engines: {node: '>=0.10.0'}
-
-  concat-map@0.0.1:
-    resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
 
   content-disposition@1.1.0:
     resolution: {integrity: sha512-5jRCH9Z/+DRP7rkvY83B+yGIGX96OYdJmzngqnw2SBSxqCFPd0w2km3s5iawpGX8krnwSGmF0FW5Nhr0Hfai3g==}
@@ -2861,20 +2864,9 @@ packages:
     resolution: {integrity: sha512-I9jwMn07Sy/IwOj3zVkVik2JTvgpaykDZEigL6Rx6N9LbMywwUSMtxET+7lVoDLLd3O3IXwJwvuuns8UB/HeAg==}
     engines: {node: '>=4'}
 
-  minimatch@10.2.5:
-    resolution: {integrity: sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==}
+  minimatch@11.0.3:
+    resolution: {integrity: sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==}
     engines: {node: 18 || 20 || >=22}
-
-  minimatch@3.1.5:
-    resolution: {integrity: sha512-VgjWUsnnT6n+NUk6eZq77zeFdpW2LWDzP6zFGrCbHXiYNul5Dzqk2HHQ5uFH2DNW5Xbp8+jVzaeNt94ssEEl4w==}
-
-  minimatch@5.1.9:
-    resolution: {integrity: sha512-7o1wEA2RyMP7Iu7GNba9vc0RWWGACJOCZBJX2GJWip0ikV+wcOsgVuY9uE8CPiyQhkGFSlhuSkZPavN7u1c2Fw==}
-    engines: {node: '>=10'}
-
-  minimatch@9.0.9:
-    resolution: {integrity: sha512-OBwBN9AL4dqmETlpS2zasx+vTeWclWzkblfZk7KTA5j3jeOONz/tRCnZomUyvNg83wL5Zv9Ss6HMJXAgL8R2Yg==}
-    engines: {node: '>=16 || 14 >=14.17'}
 
   minimist@1.2.8:
     resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
@@ -3826,11 +3818,11 @@ snapshots:
 
   '@electron-internal/extract-zip@1.0.5': {}
 
-  '@electron/asar@3.4.1':
+  '@electron/asar@3.4.1(patch_hash=2bee052a0492454b5b3fcadcf2ec963be1e1d2788821aca6e02b6351077c26cc)':
     dependencies:
       commander: 5.1.0
-      glob: 7.2.3
-      minimatch: 3.1.5
+      glob: 7.2.3(patch_hash=769998672ca43127e13fd7989df7e3f9c58abf08368affc1cf1029c8e26631f0)
+      minimatch: 11.0.3
 
   '@electron/fuses@1.8.0':
     dependencies:
@@ -3897,12 +3889,12 @@ snapshots:
 
   '@electron/universal@2.0.3':
     dependencies:
-      '@electron/asar': 3.4.1
+      '@electron/asar': 3.4.1(patch_hash=2bee052a0492454b5b3fcadcf2ec963be1e1d2788821aca6e02b6351077c26cc)
       '@malept/cross-spawn-promise': 2.0.0
       debug: 4.4.3
-      dir-compare: 4.2.0
+      dir-compare: 4.2.0(patch_hash=def92076ac5babd332ca60d7c2e7bd8d3aa0a85b1a2b444c78ad1956b13645bc)
       fs-extra: 11.3.5
-      minimatch: 9.0.9
+      minimatch: 11.0.3
       plist: 3.1.1
     transitivePeerDependencies:
       - supports-color
@@ -4074,6 +4066,8 @@ snapshots:
   '@isaacs/fs-minipass@4.0.1':
     dependencies:
       minipass: 7.1.3
+
+  '@isaacs/nonrecursive-glob-match@1.0.3': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -5289,7 +5283,7 @@ snapshots:
 
   app-builder-lib@26.15.3(dmg-builder@26.15.3)(electron-builder-squirrel-windows@26.15.3):
     dependencies:
-      '@electron/asar': 3.4.1
+      '@electron/asar': 3.4.1(patch_hash=2bee052a0492454b5b3fcadcf2ec963be1e1d2788821aca6e02b6351077c26cc)
       '@electron/fuses': 1.8.0
       '@electron/get': 3.1.0
       '@electron/notarize': 2.5.0
@@ -5321,7 +5315,7 @@ snapshots:
       js-yaml: 4.3.2
       json5: 2.2.3
       lazy-val: 1.0.5
-      minimatch: 10.2.5
+      minimatch: 11.0.3
       pkijs: 3.4.0
       plist: 3.1.0
       proper-lockfile: 4.1.2
@@ -5365,8 +5359,6 @@ snapshots:
 
   aws4@1.13.2: {}
 
-  balanced-match@1.0.2: {}
-
   balanced-match@4.0.4: {}
 
   base64-js@1.5.1: {}
@@ -5394,15 +5386,6 @@ snapshots:
       type-is: 2.1.0
     transitivePeerDependencies:
       - supports-color
-
-  brace-expansion@1.1.21:
-    dependencies:
-      balanced-match: 1.0.2
-      concat-map: 0.0.1
-
-  brace-expansion@2.1.7:
-    dependencies:
-      balanced-match: 1.0.2
 
   brace-expansion@5.0.12:
     dependencies:
@@ -5516,8 +5499,6 @@ snapshots:
     optional: true
 
   compare-version@0.1.2: {}
-
-  concat-map@0.0.1: {}
 
   content-disposition@1.1.0: {}
 
@@ -5640,9 +5621,9 @@ snapshots:
 
   detect-node-es@1.1.0: {}
 
-  dir-compare@4.2.0:
+  dir-compare@4.2.0(patch_hash=def92076ac5babd332ca60d7c2e7bd8d3aa0a85b1a2b444c78ad1956b13645bc):
     dependencies:
-      minimatch: 3.1.5
+      minimatch: 11.0.3
       p-limit: 3.1.0
 
   dmg-builder@26.15.3(electron-builder-squirrel-windows@26.15.3):
@@ -5742,7 +5723,7 @@ snapshots:
 
   electron-winstaller@5.4.0:
     dependencies:
-      '@electron/asar': 3.4.1
+      '@electron/asar': 3.4.1(patch_hash=2bee052a0492454b5b3fcadcf2ec963be1e1d2788821aca6e02b6351077c26cc)
       debug: 4.4.3
       fs-extra: 7.0.1
       lodash: 4.18.1
@@ -5915,7 +5896,7 @@ snapshots:
 
   filelist@1.0.6:
     dependencies:
-      minimatch: 5.1.9
+      minimatch: 11.0.3
 
   finalhandler@2.1.1:
     dependencies:
@@ -6010,12 +5991,12 @@ snapshots:
     dependencies:
       pump: 3.0.4
 
-  glob@7.2.3:
+  glob@7.2.3(patch_hash=769998672ca43127e13fd7989df7e3f9c58abf08368affc1cf1029c8e26631f0):
     dependencies:
       fs.realpath: 1.0.0
       inflight: 1.0.6
       inherits: 2.0.4
-      minimatch: 3.1.5
+      minimatch: 11.0.3
       once: 1.4.0
       path-is-absolute: 1.0.1
 
@@ -6334,21 +6315,10 @@ snapshots:
 
   min-indent@1.0.1: {}
 
-  minimatch@10.2.5:
+  minimatch@11.0.3:
     dependencies:
+      '@isaacs/nonrecursive-glob-match': 1.0.3
       brace-expansion: 5.0.12
-
-  minimatch@3.1.5:
-    dependencies:
-      brace-expansion: 1.1.21
-
-  minimatch@5.1.9:
-    dependencies:
-      brace-expansion: 2.1.7
-
-  minimatch@9.0.9:
-    dependencies:
-      brace-expansion: 2.1.7
 
   minimist@1.2.8: {}
 
@@ -6713,7 +6683,7 @@ snapshots:
 
   rimraf@2.6.3:
     dependencies:
-      glob: 7.2.3
+      glob: 7.2.3(patch_hash=769998672ca43127e13fd7989df7e3f9c58abf08368affc1cf1029c8e26631f0)
 
   rolldown@1.1.5:
     dependencies:
