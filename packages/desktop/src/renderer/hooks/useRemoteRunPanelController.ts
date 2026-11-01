@@ -351,7 +351,7 @@ export function useRemoteRunPanelController(
       !executionApi ||
       !args.executionLocator ||
       args.workItem?.kind !== "block" ||
-      actionOwnerRef.current?.kind === "dispatch"
+      actionOwnerRef.current
     )
       return;
     const scopeGeneration = scopeGenerationRef.current;
@@ -397,19 +397,22 @@ export function useRemoteRunPanelController(
     }
   }, [args, currentRemoteEndpointId, endpointForView, executionApi, existingOperationId, view]);
   const refresh = useCallback(async () => {
+    if (actionOwnerRef.current) return;
     const generation = scopeGenerationRef.current;
+    const responseOwner = responseOwnerRef.current;
     try {
       if (args.refreshRuntimeRemoteExecution) {
         const current = await args.refreshRuntimeRemoteExecution();
         if (
           scopeGenerationRef.current !== generation ||
+          responseOwnerRef.current !== responseOwner ||
           (current?.identity.operationId ?? null) !== existingOperationId
         )
           return;
       }
       if (scopeGenerationRef.current === generation) await follow();
     } catch (caught) {
-      if (scopeGenerationRef.current === generation)
+      if (scopeGenerationRef.current === generation && responseOwnerRef.current === responseOwner)
         setActionError(caught instanceof Error ? caught.message : String(caught));
     }
   }, [args.refreshRuntimeRemoteExecution, existingOperationId, follow]);

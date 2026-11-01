@@ -254,6 +254,7 @@
         "remoteLiveRun.test.ts",
         "remoteRunPanel.test.tsx",
         "remoteRunPanelController.test.ts",
+        "remoteRunPanelMutationObservation.test.ts",
         "remoteRunPanelLocalEndpoint.test.ts",
         "remoteRunViewModels.test.ts",
         "remoteTaskWorkspaceConversation.test.tsx",
