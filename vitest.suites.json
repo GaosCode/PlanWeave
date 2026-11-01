@@ -1005,6 +1005,7 @@
         "acpConversationDelivery.test.ts",
         "wireChunkConversationProjection.test.ts",
         "hostEnrollmentUnknownOutcome.test.ts",
+        "hostControlBudgetNegotiation.test.ts",
         "exactPermissionHandshake.test.ts",
         "historicalPermissionReplay.test.ts",
         "historicalPermissionRecovery.test.ts",

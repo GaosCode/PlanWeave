@@ -28,7 +28,11 @@ export function assertHostOutboundControlBudget(
       maxPayloadBytes
     );
     encodeAgentHostEvent(
-      { ...common, type: "host.heartbeat", activeLeases: [identity], readiness },
+      { ...common, type: "host.heartbeat", activeLeases: [], readiness },
+      maxPayloadBytes
+    );
+    encodeAgentHostEvent(
+      { ...common, type: "host.heartbeat", activeLeases: [identity] },
       maxPayloadBytes
     );
     encodeAgentHostEvent(
