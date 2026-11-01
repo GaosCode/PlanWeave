@@ -120,7 +120,8 @@ export type OperatorControlPort = {
   conversation(
     principal: OperatorRequestPrincipal,
     operationId: string,
-    afterCursor?: number
+    afterCursor?: number,
+    afterTurnId?: string
   ): unknown;
   converse(principal: OperatorRequestPrincipal, operationId: string, action: unknown): unknown;
   replayEvents(
@@ -740,14 +741,15 @@ export async function handleOperatorHttpRequest(
         );
         break;
       case "conversation": {
-        const parameters = query(url, ["afterCursor"]);
+        const parameters = query(url, ["afterCursor", "afterTurnId"]);
         respond(
           response,
           200,
           options.service.conversation(
             principal,
             matched.operationId,
-            Number(parameters.afterCursor ?? 0)
+            Number(parameters.afterCursor ?? 0),
+            parameters.afterTurnId
           )
         );
         break;

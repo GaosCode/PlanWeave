@@ -48,12 +48,12 @@ function page(turnIds: string[], events: AcpConversationEvent[]): DesktopRemoteA
     reason: null,
     executionAttemptId: "attempt-one",
     sessionId: "original-session",
-    turns: turnIds.map((turnId) => ({
+    turns: turnIds.map((turnId, index) => ({
       turnId,
       executionAttemptId: "attempt-one",
       sessionId: "original-session",
       status: turnId === "first" ? "running" : "completed",
-      createdAt: timestamp,
+      createdAt: new Date(Date.parse(timestamp) + index).toISOString(),
       error: null
     })),
     events,
@@ -82,6 +82,23 @@ function replay(events: AcpConversationEvent[]) {
 }
 
 describe("remote ACP continuation store replay boundaries", () => {
+  it("orders equal-time priority metadata deterministically and preserves omitted terminal turns", () => {
+    const store = new RemoteAcpContinuationStore();
+    const first = page(["z-active"], []);
+    store.accept(first);
+    const older = page(["a-earlier"], []);
+    const merged = store.accept(older);
+    expect(merged.page.turns.map((turn) => turn.turnId)).toEqual(["a-earlier", "z-active"]);
+    const compacted = store.accept({
+      ...older,
+      turns: [],
+      retention: { compactedTurnIds: ["z-active"] }
+    });
+    expect(compacted.projection.turns.find((turn) => turn.turnId === "z-active")?.history).toBe(
+      "compacted"
+    );
+  });
+
   it("merges paginated mixed turns, replaces an event, and settles a permission without duplicating replay", () => {
     const request = {
       kind: "permission" as const,

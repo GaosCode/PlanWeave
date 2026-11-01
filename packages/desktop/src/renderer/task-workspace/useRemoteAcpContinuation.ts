@@ -37,7 +37,7 @@ function confirmsPrompt(
 
 export function useRemoteAcpContinuation(
   api: Pick<PlanWeaveWorkspaceExecutionApi, "remoteAcpConversation"> | null,
-  input: Omit<DesktopRemoteAcpConversationInput, "action" | "afterCursor"> | null
+  input: Omit<DesktopRemoteAcpConversationInput, "action" | "afterCursor" | "afterTurnId"> | null
 ) {
   const key = input ? JSON.stringify(input) : null;
   const inputRef = useRef(input);
@@ -84,9 +84,9 @@ export function useRemoteAcpContinuation(
         return remaining.length === messages.length ? messages : remaining;
       });
     cursor.current = Math.max(cursor.current, page.cursor);
-    pageRef.current = page;
+    pageRef.current = snapshot.page;
     const prompt = pendingPrompt.current;
-    if (prompt && confirmsPrompt(page, prompt)) {
+    if (prompt && confirmsPrompt(snapshot.page, prompt)) {
       pendingPrompt.current = null;
       setActionError((current) => (current?.action === prompt ? null : current));
     }
@@ -118,11 +118,19 @@ export function useRemoteAcpContinuation(
         const revision = actionRevision.current;
         try {
           let page: DesktopRemoteAcpConversationPage;
+          let afterTurnId: string | null = null;
           do {
-            page = await api.remoteAcpConversation({ ...scope, afterCursor: cursor.current });
+            page = await api.remoteAcpConversation({
+              ...scope,
+              afterCursor: cursor.current,
+              afterTurnId
+            });
             if (epoch.current !== generation || revision !== actionRevision.current) return;
-            if (page.hasMore && page.cursor <= cursor.current)
+            if (page.hasMoreTurns && page.turnCursor === afterTurnId)
+              throw new Error("acp_conversation_turn_cursor_stalled");
+            if (page.hasMore && page.cursor <= cursor.current && page.turnCursor === afterTurnId)
               throw new Error("acp_conversation_cursor_stalled");
+            afterTurnId = page.turnCursor;
             acceptPage(page, key);
           } while (page.hasMore);
         } catch (cause) {

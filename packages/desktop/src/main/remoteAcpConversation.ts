@@ -95,7 +95,7 @@ export async function remoteAcpConversation(
       return execute({
         observe: () => remote.observeRemoteOperation(input.operationId),
         conversation: (action) =>
-          remote.acpConversation(input.operationId, input.afterCursor, action),
+          remote.acpConversation(input.operationId, input.afterCursor, action, input.afterTurnId),
         interactions: (cursor) =>
           remote.listRemoteOperationInteractions(input.operationId, { cursor }),
         cancel: (command) => remote.executeRemoteOperationAction(input.operationId, command),
@@ -111,7 +111,8 @@ export async function remoteAcpConversation(
           input.operationId,
           input.afterCursor,
           locator.humanPrincipalId,
-          action
+          action,
+          input.afterTurnId
         ),
       interactions: (cursor) =>
         client.listRemoteOperationInteractions(input.operationId, cursor, locator.humanPrincipalId),

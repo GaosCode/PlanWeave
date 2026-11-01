@@ -71,6 +71,7 @@ export const COMMENT_TOMBSTONE_REASON_MAX_LENGTH = 512 as const;
 
 /** Default JSON response body budget for human collaboration HTTP clients. */
 export const COLLABORATION_JSON_RESPONSE_MAX_BYTES = 4 * 1_024 * 1_024;
+export const ACP_CONVERSATION_RESPONSE_MAX_BYTES = COLLABORATION_JSON_RESPONSE_MAX_BYTES;
 
 /**
  * Backward-compatible public name for the collaboration JSON response budget.

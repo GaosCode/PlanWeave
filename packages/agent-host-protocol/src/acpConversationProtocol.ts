@@ -161,13 +161,15 @@ export const acpConversationPageSchema = z
     available: z.boolean(),
     canRestoreTask: z.boolean().default(false),
     restoredOperationId: identifier.nullable().default(null),
-    reason: z.string().nullable(),
+    reason: z.string().max(256).nullable(),
     executionAttemptId: identifier,
     sessionId: sessionId.nullable(),
     turns: z.array(acpConversationTurnSchema),
     events: z.array(acpConversationEventSchema),
     cursor: z.number().int().nonnegative().safe(),
     hasMore: z.boolean(),
+    turnCursor: identifier.nullable().default(null),
+    hasMoreTurns: z.boolean().default(false),
     retention: z
       .object({
         compactedTurnIds: z.array(identifier).min(1).max(256)
@@ -177,3 +179,22 @@ export const acpConversationPageSchema = z
   })
   .strict();
 export type AcpConversationPage = z.infer<typeof acpConversationPageSchema>;
+
+export function acpConversationEventPageBytes(event: AcpConversationEvent): number {
+  return new TextEncoder().encode(
+    JSON.stringify({
+      available: false,
+      canRestoreTask: false,
+      restoredOperationId: "\u0000".repeat(256),
+      reason: "\u0000".repeat(256),
+      executionAttemptId: event.executionAttemptId,
+      sessionId: event.sessionId,
+      turns: [],
+      events: [event],
+      cursor: Number.MAX_SAFE_INTEGER,
+      hasMore: false,
+      turnCursor: "\u0000".repeat(256),
+      hasMoreTurns: false
+    })
+  ).byteLength;
+}

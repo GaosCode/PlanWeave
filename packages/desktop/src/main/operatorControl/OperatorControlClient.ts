@@ -63,7 +63,7 @@ import {
   type OwnerCanvasMaterializationRequest,
   type OwnerCanvasMaterializationScope
 } from "@planweave-ai/collaboration-protocol/owner-canvas/materialization";
-import { COLLABORATION_JSON_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
+import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 import { humanIdentityTokenSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { z, type ZodType } from "zod";
 import {
@@ -470,16 +470,17 @@ export class OperatorControlClient {
     operationId: string,
     afterCursor: number,
     humanPrincipalId: string,
-    action?: AcpConversationAction
+    action?: AcpConversationAction,
+    afterTurnId?: string | null
   ) {
     const id = opaqueIdentifierSchema.parse(operationId);
     return this.json(
       action ? "POST" : "GET",
-      `/api/v1/remote-operations/${encodeURIComponent(id)}/conversation${action ? "" : `?afterCursor=${afterCursor}`}`,
+      `/api/v1/remote-operations/${encodeURIComponent(id)}/conversation${action ? "" : `?afterCursor=${afterCursor}${afterTurnId ? `&afterTurnId=${encodeURIComponent(afterTurnId)}` : ""}`}`,
       acpConversationPageSchema,
       {
         humanPrincipalId,
-        responseMaxBytes: COLLABORATION_JSON_RESPONSE_MAX_BYTES,
+        responseMaxBytes: ACP_CONVERSATION_RESPONSE_MAX_BYTES,
         ...(action ? { body: action } : {})
       }
     );

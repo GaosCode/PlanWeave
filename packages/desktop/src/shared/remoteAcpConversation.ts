@@ -26,6 +26,7 @@ export const desktopRemoteAcpConversationInputSchema = z
     operationId: z.string().min(1).max(256),
     blockRef: z.string().min(3).max(512),
     afterCursor: z.number().int().nonnegative().safe().default(0),
+    afterTurnId: z.string().min(1).max(256).nullable().optional(),
     action: z
       .union([
         acpConversationActionSchema,

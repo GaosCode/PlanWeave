@@ -30,6 +30,7 @@ import {
   remoteAgentEndpointListSchema,
   type RemoteAgentEndpointList
 } from "@planweave-ai/collaboration-protocol/agent-endpoint";
+import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 import type { z, ZodType } from "zod";
 import type { JsonMethod } from "./collaborationHttpTransport.js";
 import type { CollaborationListAgentEndpointsInput } from "../../shared/collaboration.js";
@@ -39,7 +40,7 @@ export interface CollaborationRemoteOperationsTransportPort {
     method: JsonMethod,
     path: string,
     schema: ZodType<T>,
-    options: { body?: unknown; signal?: AbortSignal }
+    options: { body?: unknown; signal?: AbortSignal; responseMaxBytes?: number }
   ): Promise<T>;
 }
 
@@ -47,7 +48,8 @@ export interface CollaborationRemoteOperationsPort {
   acpConversation(
     operationId: string,
     afterCursor: number,
-    action?: AcpConversationAction
+    action?: AcpConversationAction,
+    afterTurnId?: string | null
   ): Promise<AcpConversationPage>;
   listAgentEndpoints(
     query?: CollaborationListAgentEndpointsInput,
@@ -93,12 +95,17 @@ export class CollaborationRemoteOperationsClient implements CollaborationRemoteO
     private readonly transport: CollaborationRemoteOperationsTransportPort
   ) {}
 
-  acpConversation(operationId: string, afterCursor: number, action?: AcpConversationAction) {
+  acpConversation(
+    operationId: string,
+    afterCursor: number,
+    action?: AcpConversationAction,
+    afterTurnId?: string | null
+  ) {
     return this.transport.json(
       action ? "POST" : "GET",
-      `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations/${encodeURIComponent(operationId)}/conversation${action ? "" : `?afterCursor=${afterCursor}`}`,
+      `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations/${encodeURIComponent(operationId)}/conversation${action ? "" : `?afterCursor=${afterCursor}${afterTurnId ? `&afterTurnId=${encodeURIComponent(afterTurnId)}` : ""}`}`,
       acpConversationPageSchema,
-      action ? { body: action } : {}
+      { responseMaxBytes: ACP_CONVERSATION_RESPONSE_MAX_BYTES, ...(action ? { body: action } : {}) }
     );
   }
 

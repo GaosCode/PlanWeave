@@ -537,11 +537,21 @@ export class RemoteControlService {
     });
   }
 
-  conversation(principal: OperatorRequestPrincipal, operationId: string, afterCursor: number) {
+  conversation(
+    principal: OperatorRequestPrincipal,
+    operationId: string,
+    afterCursor: number,
+    afterTurnId?: string
+  ) {
     const operation = this.operationFor(principal, operationId);
     if (!principal.humanPrincipalId) throw new Error("operator_human_identity_forbidden");
     if (!this.options.conversations) throw new Error("acp_conversation_unavailable");
-    return this.options.conversations.page(operation, principal.humanPrincipalId, afterCursor);
+    return this.options.conversations.page(
+      operation,
+      principal.humanPrincipalId,
+      afterCursor,
+      afterTurnId
+    );
   }
 
   converse(principal: OperatorRequestPrincipal, operationId: string, action: unknown) {

@@ -279,14 +279,15 @@ export async function handleHumanRemoteHttpRequest(
 
     switch (matched.kind) {
       case "conversation": {
-        const parameters = query(url, ["afterCursor"]);
+        const parameters = query(url, ["afterCursor", "afterTurnId"]);
         respond(
           response,
           200,
           options.service.conversation(
             scope,
             matched.operationId,
-            Number(parameters.afterCursor ?? 0)
+            Number(parameters.afterCursor ?? 0),
+            parameters.afterTurnId
           )
         );
         break;

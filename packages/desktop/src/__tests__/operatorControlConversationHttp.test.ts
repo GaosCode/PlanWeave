@@ -85,51 +85,60 @@ describe("Owner ACP conversation HTTP budget", () => {
       res.end(bytes);
     });
     const input = method === "POST" ? action : undefined;
-    await expect(workspace.acpConversation("operation-test", 0, input)).resolves.toEqual(page);
-    await expect(owner.acpConversation("operation-test", 0, "human-test", input)).resolves.toEqual(
+    await expect(workspace.acpConversation("operation-test", 0, input, "turn-0")).resolves.toEqual(
       page
     );
+    await expect(
+      owner.acpConversation("operation-test", 0, "human-test", input, "turn-0")
+    ).resolves.toEqual(page);
     expect(calls).toEqual([
       {
         method,
-        path: `/api/v1/projects/project-test/remote-operations/operation-test/conversation${method === "GET" ? "?afterCursor=0" : ""}`
+        path: `/api/v1/projects/project-test/remote-operations/operation-test/conversation${method === "GET" ? "?afterCursor=0&afterTurnId=turn-0" : ""}`
       },
       {
         method,
-        path: `/api/v1/remote-operations/operation-test/conversation${method === "GET" ? "?afterCursor=0" : ""}`
+        path: `/api/v1/remote-operations/operation-test/conversation${method === "GET" ? "?afterCursor=0&afterTurnId=turn-0" : ""}`
       }
     ]);
   });
 
   it.each([
-    "declared",
-    "chunked",
-    "gzip"
-  ] as const)("rejects %s conversation bytes above the dedicated budget and remains usable", async (mode) => {
-    let calls = 0;
-    const { owner } = await fixture((req, res) => {
-      req.resume();
-      if (++calls > 1) {
-        res.end(JSON.stringify(page));
-        return;
-      }
-      const bytes = Buffer.alloc(COLLABORATION_JSON_RESPONSE_MAX_BYTES + 1, 0x61);
-      if (mode === "declared") {
-        res.writeHead(200, { "content-length": bytes.length });
-        res.flushHeaders();
-      } else if (mode === "gzip") {
-        const compressed = gzipSync(bytes);
-        res.writeHead(200, { "content-encoding": "gzip", "content-length": compressed.length });
-        res.end(compressed);
-      } else {
-        res.write(bytes);
-      }
-    });
-    await expect(
-      owner.acpConversation("operation-test", 0, "human-test", action)
-    ).rejects.toMatchObject({ kind: "payload_too_large", code: "operator_response_too_large" });
-    await expect(owner.acpConversation("operation-test", 0, "human-test")).resolves.toEqual(page);
-    expect(calls).toBe(2);
+    "owner",
+    "workspace"
+  ] as const)("rejects oversized declared, chunked, and decoded gzip bodies on %s and remains usable", async (surface) => {
+    for (const mode of ["declared", "chunked", "gzip"] as const) {
+      let calls = 0;
+      const { owner, workspace } = await fixture((req, res) => {
+        req.resume();
+        if (++calls > 1) {
+          res.end(JSON.stringify(page));
+          return;
+        }
+        const bytes = Buffer.alloc(COLLABORATION_JSON_RESPONSE_MAX_BYTES + 1, 0x61);
+        if (mode === "declared") {
+          res.writeHead(200, { "content-length": bytes.length });
+          res.flushHeaders();
+        } else if (mode === "gzip") {
+          const compressed = gzipSync(bytes);
+          res.writeHead(200, { "content-encoding": "gzip", "content-length": compressed.length });
+          res.end(compressed);
+        } else {
+          res.write(bytes);
+        }
+      });
+      const read = (input?: typeof action) =>
+        surface === "owner"
+          ? owner.acpConversation("operation-test", 0, "human-test", input)
+          : workspace.acpConversation("operation-test", 0, input);
+      await expect(read(action)).rejects.toMatchObject({
+        kind: "payload_too_large",
+        code:
+          surface === "owner" ? "operator_response_too_large" : "collaboration_response_too_large"
+      });
+      await expect(read()).resolves.toEqual(page);
+      expect(calls).toBe(2);
+    }
   });
 
   it("retains the general 64 KiB bound for conversation error responses", async () => {

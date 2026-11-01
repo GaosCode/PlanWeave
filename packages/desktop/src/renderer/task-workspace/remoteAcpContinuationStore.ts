@@ -77,7 +77,12 @@ export class RemoteAcpContinuationStore {
     for (const turnId of page.retention?.compactedTurnIds ?? []) {
       if (this.compactedTurns.has(turnId)) continue;
       this.compactedTurns.add(turnId);
-      this.records.delete(turnId);
+      const record = this.records.get(turnId);
+      if (record) {
+        record.events.clear();
+        record.projection = null;
+        record.view = null;
+      }
     }
     for (const event of page.events) {
       if (this.compactedTurns.has(event.turnId)) continue;
@@ -88,10 +93,31 @@ export class RemoteAcpContinuationStore {
       record.view = null;
     }
     const previous = this.snapshot;
+    const metadata = new Map(previous?.page.turns.map((turn) => [turn.turnId, turn]) ?? []);
+    for (const turn of page.turns) metadata.set(turn.turnId, turn);
+    for (const event of page.events) {
+      if (this.compactedTurns.has(event.turnId)) continue;
+      const turn = metadata.get(event.turnId);
+      if (
+        turn &&
+        (turn.status === "queued" || turn.status === "running") &&
+        event.payload.kind === "status" &&
+        event.payload.status !== "running"
+      )
+        metadata.set(event.turnId, {
+          ...turn,
+          status: event.payload.status,
+          error: event.payload.error
+        });
+    }
+    const mergedTurns = [...metadata.values()].sort(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.turnId.localeCompare(right.turnId)
+    );
     let turns = previous?.projection.turns ?? [];
-    let turnsChanged = turns.length !== page.turns.length;
+    let turnsChanged = turns.length !== mergedTurns.length;
     if (turnsChanged) turns = [];
-    for (const [index, turn] of page.turns.entries()) {
+    for (const [index, turn] of mergedTurns.entries()) {
       const view = this.project(turn);
       if (view === turns[index]) continue;
       if (!turnsChanged) {
@@ -113,7 +139,7 @@ export class RemoteAcpContinuationStore {
       }
       projection = { turns, interactions, telemetry };
     }
-    this.snapshot = { page: { ...page, events: [] }, projection };
+    this.snapshot = { page: { ...page, turns: mergedTurns, events: [] }, projection };
     return this.snapshot;
   }
 

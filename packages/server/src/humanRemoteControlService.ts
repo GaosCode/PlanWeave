@@ -93,11 +93,21 @@ function throwMappedDispatchRuntimeFailure(error: unknown): never {
 export class HumanRemoteControlService {
   constructor(private readonly options: HumanRemoteControlServiceOptions) {}
 
-  conversation(scope: AuthenticatedCollaborationScope, operationId: string, afterCursor: number) {
+  conversation(
+    scope: AuthenticatedCollaborationScope,
+    operationId: string,
+    afterCursor: number,
+    afterTurnId?: string
+  ) {
     const operation = this.operationFor(scope, operationId);
     if (!this.options.conversations)
       throw new HumanRemoteControlError("acp_conversation_unavailable");
-    return this.options.conversations.page(operation, scope.actor.humanPrincipalId, afterCursor);
+    return this.options.conversations.page(
+      operation,
+      scope.actor.humanPrincipalId,
+      afterCursor,
+      afterTurnId
+    );
   }
 
   converse(scope: AuthenticatedCollaborationScope, operationId: string, action: unknown) {

@@ -12,8 +12,10 @@ import { useRemoteAcpContinuation } from "../renderer/task-workspace/useRemoteAc
 import { RemoteAcpComposer } from "../renderer/task-workspace/conversation/RemoteAcpComposer";
 import { createTranslator } from "../renderer/i18n";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
+import { registerRemoteAcpContinuationPaginationCases } from "./helpers/remoteAcpContinuationPaginationCases";
 import type { RemoteRunnerEventFragment } from "@planweave-ai/agent-host-protocol/browser";
 afterEach(cleanupRendererTestEnvironment);
+registerRemoteAcpContinuationPaginationCases();
 const scope = {
   locator: {
     kind: "workspace" as const,
@@ -950,7 +952,14 @@ describe("remote ACP continuation cache lifecycle", () => {
     page = {
       ...page,
       events: [],
-      turns: [...page.turns, { ...page.turns[0], turnId: action.turnId }],
+      turns: [
+        ...page.turns,
+        {
+          ...page.turns[0],
+          turnId: action.turnId,
+          createdAt: new Date(Date.parse(page.turns.at(-1)!.createdAt) + 1).toISOString()
+        }
+      ],
       retention: { compactedTurnIds: ["first", action.turnId] }
     };
     await poll();
@@ -1051,7 +1060,15 @@ describe("remote ACP continuation cache lifecycle", () => {
       return {
         ...initial,
         events: [message(action.turnId, 1, "Action reply")],
-        turns: [...initial.turns, { ...initial.turns[0], turnId: action.turnId, status: "running" }]
+        turns: [
+          ...initial.turns,
+          {
+            ...initial.turns[0],
+            turnId: action.turnId,
+            status: "running",
+            createdAt: new Date(Date.parse(initial.turns.at(-1)!.createdAt) + 1).toISOString()
+          }
+        ]
       };
     });
     await act(async () => {

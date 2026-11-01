@@ -2,10 +2,12 @@ import { randomUUID } from "node:crypto";
 import {
   acpConversationCommandSchema,
   acpConversationEventSchema,
+  acpConversationEventPageBytes,
   type AcpConversationCommand,
   type AcpConversationEvent,
   type AcpConversationPromptCommand
 } from "@planweave-ai/agent-host-protocol";
+import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
 import { digestJson } from "./agentHostStateMigrations.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 import type { AgentHostEventOutbox } from "./agentHostEventOutbox.js";
@@ -169,6 +171,8 @@ export class AcpConversationRepository {
       timestamp: new Date().toISOString(),
       payload
     });
+    if (acpConversationEventPageBytes(event) > ACP_CONVERSATION_RESPONSE_MAX_BYTES)
+      throw new Error("acp_conversation_event_too_large");
     const bytes = Buffer.byteLength(JSON.stringify(event));
     if (payload.kind !== "status" && Number(row.event_bytes) + bytes > 7 * 1024 * 1024)
       throw new Error("acp_conversation_event_limit");

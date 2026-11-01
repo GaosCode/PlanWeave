@@ -4,8 +4,10 @@ import {
   ACP_TASK_RESTORE_CAPABILITY,
   acpConversationActionSchema,
   acpConversationEventSchema,
+  acpConversationEventPageBytes,
   acpConversationCommandSchema,
   acpConversationPageSchema,
+  acpConversationTurnSchema,
   acpConversationPromptCommandSchema,
   canonicalizeJson,
   executeBlockCommandSchema,
@@ -13,6 +15,8 @@ import {
   type AcpConversationEvent,
   type AcpConversationPage
 } from "@planweave-ai/agent-host-protocol";
+import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
+import { paginateAcpConversation } from "./acpConversationPagination.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqlite.js";
 import type { DurableMailbox } from "./mailbox.js";
 import { isAgentHostOnline, type AgentHostRepository } from "./hosts.js";
@@ -85,6 +89,7 @@ export class AcpConversationService {
     source: ReturnType<AcpConversationService["source"]>
   ): Promise<AcpConversationPage> {
     if (!this.options.restoreTask) throw new AcpConversationError("acp_restore_unavailable");
+    this.page(operation, actorId);
     const existing = this.database
       .prepare(
         "SELECT restored_operation_id FROM acp_task_restorations WHERE source_operation_id=?"
@@ -213,28 +218,36 @@ export class AcpConversationService {
       expireAcpConversationTurns(this.database, this.now(), { hostId, sessionId });
   }
 
-  page(operation: RemoteOperation, actorId: string, afterCursor = 0): AcpConversationPage {
+  page(
+    operation: RemoteOperation,
+    actorId: string,
+    afterCursor = 0,
+    afterTurnId: string | null = null,
+    priorityTurnId?: string
+  ): AcpConversationPage {
     if (!Number.isSafeInteger(afterCursor) || afterCursor < 0)
       throw new AcpConversationError("acp_conversation_cursor_invalid");
     this.options.authorize(operation, actorId);
+    if (
+      afterTurnId !== null &&
+      (typeof afterTurnId !== "string" || !afterTurnId.length || afterTurnId.length > 256)
+    )
+      throw new AcpConversationError("acp_conversation_turn_cursor_invalid");
     const source = this.source(operation);
     this.expire(operation.attempt.hostId, source.sessionId);
     const reason = this.availability(operation, source);
     const turns = this.database
-      .prepare(
-        "SELECT * FROM acp_conversation_turns WHERE operation_id=? ORDER BY created_at,turn_id"
-      )
+      .prepare("SELECT * FROM acp_conversation_turns WHERE operation_id=? ORDER BY rowid")
       .all(operation.id);
     const rows = this.database
       .prepare(`SELECT e.cursor,e.event_json FROM acp_conversation_events e
       JOIN acp_conversation_turns t ON t.turn_id=e.turn_id WHERE t.operation_id=? AND e.cursor>?
       ORDER BY e.cursor LIMIT 129`)
       .all(operation.id, afterCursor);
-    const page = rows.slice(0, 128);
     const compactedTurnIds = turns
       .filter((turn) => turn.compacted_at !== null)
       .map((turn) => String(turn.turn_id));
-    return acpConversationPageSchema.parse({
+    const metadata = acpConversationPageSchema.parse({
       available: reason === null,
       canRestoreTask:
         operation.state === "cancelled" &&
@@ -261,19 +274,42 @@ export class AcpConversationService {
       reason,
       executionAttemptId: operation.executionAttemptId,
       sessionId: source.sessionId,
-      turns: turns.map((row) => ({
-        turnId: row.turn_id,
-        executionAttemptId: row.execution_attempt_id,
-        sessionId: row.session_id,
-        status: row.status,
-        createdAt: row.created_at,
-        error: row.error
-      })),
-      events: page.map((row) => JSON.parse(String(row.event_json))),
-      cursor: page.length ? Number(page.at(-1)!.cursor) : afterCursor,
-      hasMore: rows.length > 128,
+      turns: [],
+      events: [],
+      cursor: afterCursor,
+      hasMore: false,
       ...(compactedTurnIds.length ? { retention: { compactedTurnIds } } : {})
     });
+    try {
+      return paginateAcpConversation(
+        metadata,
+        turns.map((row) =>
+          acpConversationTurnSchema.parse({
+            turnId: row.turn_id,
+            executionAttemptId: row.execution_attempt_id,
+            sessionId: row.session_id,
+            status: row.status,
+            createdAt: row.created_at,
+            error: row.error
+          })
+        ),
+        rows.map((row) => ({
+          cursor: Number(row.cursor),
+          event: acpConversationEventSchema.parse(JSON.parse(String(row.event_json)))
+        })),
+        afterTurnId,
+        priorityTurnId
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /^acp_conversation_(turn_cursor_invalid|metadata_too_large|page_item_too_large)$/.test(
+          error.message
+        )
+      )
+        throw new AcpConversationError(error.message);
+      throw error;
+    }
   }
 
   act(operation: RemoteOperation, actorId: string, input: unknown): AcpConversationPage {
@@ -288,7 +324,11 @@ export class AcpConversationService {
       throw new AcpConversationError("acp_conversation_session_mismatch");
     this.expire(operation.attempt.hostId, source.sessionId);
     const now = this.now();
-    const message = inWriteTransaction(this.database, () => {
+    const complete = (message: ReturnType<DurableMailbox["enqueueOnce"]>["message"] | null) => ({
+      message,
+      page: this.page(operation, actorId, 0, null, action.turnId)
+    });
+    const outcome = inWriteTransaction(this.database, () => {
       const existing = this.database
         .prepare("SELECT * FROM acp_conversation_turns WHERE turn_id=?")
         .get(action.turnId);
@@ -311,7 +351,7 @@ export class AcpConversationService {
               : existing.request_json !== canonicalizeJson(action)
           )
             throw new AcpConversationError("acp_conversation_request_conflict");
-          return null;
+          return complete(null);
         }
         const reason = this.availability(operation, source);
         if (reason) throw new AcpConversationError(reason);
@@ -347,18 +387,20 @@ export class AcpConversationService {
             expiresAt
           );
         const { kind: _kind, ...prompt } = action;
-        return this.options.mailbox.enqueueOnce(
-          `acp-turn-${createHash("sha256").update(action.turnId).digest("hex")}`,
-          operation.attempt.hostId,
-          acpConversationPromptCommandSchema.parse({
-            type: "acp_conversation.prompt",
-            protocolVersion: 1,
-            operationId: operation.id,
-            ...prompt,
-            expiresAt,
-            sourceEnvelope: source.command.envelope
-          })
-        ).message;
+        return complete(
+          this.options.mailbox.enqueueOnce(
+            `acp-turn-${createHash("sha256").update(action.turnId).digest("hex")}`,
+            operation.attempt.hostId,
+            acpConversationPromptCommandSchema.parse({
+              type: "acp_conversation.prompt",
+              protocolVersion: 1,
+              operationId: operation.id,
+              ...prompt,
+              expiresAt,
+              sourceEnvelope: source.command.envelope
+            })
+          ).message
+        );
       }
       if (!existing) throw new AcpConversationError("acp_conversation_turn_not_found");
       const actionKey = createHash("sha256")
@@ -384,7 +426,7 @@ export class AcpConversationService {
             : receipt.request_json !== canonicalizeJson(action)
         )
           throw new AcpConversationError("acp_conversation_response_conflict");
-        return null;
+        return complete(null);
       }
       if (!["queued", "running"].includes(String(existing.status)))
         throw new AcpConversationError("acp_conversation_turn_closed");
@@ -410,14 +452,16 @@ export class AcpConversationService {
           "INSERT INTO acp_conversation_actions(action_key,turn_id,request_json) VALUES(?,?,?)"
         )
         .run(actionKey, action.turnId, canonicalizeJson(action));
-      return this.options.mailbox.enqueueOnce(
-        `acp-action-${actionKey}`,
-        String(existing.host_id),
-        acpConversationCommandSchema.parse(command)
-      ).message;
+      return complete(
+        this.options.mailbox.enqueueOnce(
+          `acp-action-${actionKey}`,
+          String(existing.host_id),
+          acpConversationCommandSchema.parse(command)
+        ).message
+      );
     });
-    if (message) this.options.mailbox.publish(message);
-    return this.page(operation, actorId);
+    if (outcome.message) this.options.mailbox.publish(outcome.message);
+    return outcome.page;
   }
 
   private validateDecision(action: Extract<AcpConversationAction, { kind: "respond" }>) {
@@ -497,6 +541,8 @@ export class AcpConversationService {
       }
       if (event.sequence !== Number(turn.last_sequence) + 1)
         throw new AcpConversationError("acp_conversation_event_gap");
+      if (acpConversationEventPageBytes(event) > ACP_CONVERSATION_RESPONSE_MAX_BYTES)
+        throw new AcpConversationError("acp_conversation_event_too_large");
       const bytes = Number(turn.event_bytes) + Buffer.byteLength(json);
       if (bytes > 8 * 1024 * 1024) throw new AcpConversationError("acp_conversation_event_limit");
       this.database

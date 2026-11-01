@@ -105,6 +105,7 @@ export class CollaborationHttpTransport {
       signal?: AbortSignal;
       /** HTTP statuses that still carry a contract body (e.g. canvas CAS 409). */
       acceptedStatus?: number | number[];
+      responseMaxBytes?: number;
     } = {}
   ): Promise<T> {
     this.ensureOpen();
@@ -126,7 +127,8 @@ export class CollaborationHttpTransport {
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
         signal: options.signal
       },
-      accepted
+      accepted,
+      options.responseMaxBytes
     );
     if (!response.ok && !accepted.has(response.status)) {
       throw collaborationErrorFromHttp(response.status, text, response.headers.get("retry-after"));
@@ -302,11 +304,16 @@ export class CollaborationHttpTransport {
       body?: string | Uint8Array;
       signal?: AbortSignal;
     },
-    accepted: ReadonlySet<number> = new Set()
+    accepted: ReadonlySet<number> = new Set(),
+    responseMaxBytes?: number
   ): Promise<{ response: Response; text: string }> {
     return this.consumeResponse(path, init, async (response) => ({
       response,
-      text: await this.readTextLimited(response, response.ok || accepted.has(response.status))
+      text: await this.readTextLimited(
+        response,
+        response.ok || accepted.has(response.status),
+        response.ok ? responseMaxBytes : undefined
+      )
     }));
   }
 
@@ -378,8 +385,15 @@ export class CollaborationHttpTransport {
     }
   }
 
-  private async readTextLimited(response: Response, strictUtf8 = response.ok): Promise<string> {
-    const bytes = await this.readBytesLimited(response, this.limits.jsonBodyMaxBytes);
+  private async readTextLimited(
+    response: Response,
+    strictUtf8 = response.ok,
+    maxBytes = this.limits.jsonBodyMaxBytes
+  ): Promise<string> {
+    const bytes = await this.readBytesLimited(
+      response,
+      Math.min(maxBytes, this.limits.jsonBodyMaxBytes)
+    );
     try {
       return new TextDecoder("utf-8", { fatal: strictUtf8 }).decode(bytes);
     } catch (error) {
