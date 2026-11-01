@@ -52,7 +52,7 @@
     "@planweave-ai/agent-host-protocol": "workspace:*",
     "@planweave-ai/runtime": "workspace:*",
     "ws": "^8.21.0",
-    "zod": "^4.1.12"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/ws": "^8.5.14"

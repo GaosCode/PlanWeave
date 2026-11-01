@@ -56,7 +56,7 @@
     "@planweave-ai/mcp": "workspace:*",
     "@planweave-ai/runtime": "workspace:*",
     "commander": "^14.0.2",
-    "zod": "^4.1.12"
+    "zod": "^4.6.6"
   },
   "devDependencies": {}
 }
