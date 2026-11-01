@@ -1,4 +1,8 @@
-import { hostEventSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES,
+  acpConversationPromptCommandSchema,
+  hostEventSchema
+} from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { outboxFailureHarness } from "./support/agentHostOutboxFailureHarness.js";
 
@@ -10,6 +14,192 @@ afterEach(async () => {
 
 describe("Agent Host durable outbox failures", () => {
   it.each([
+    { local: 256 * 1024, server: 64 * 1024 },
+    { local: 64 * 1024, server: 256 * 1024 }
+  ])("rejects new events above negotiated $local/$server bytes and keeps draining terminal and other work", async ({
+    local,
+    server
+  }) => {
+    let rejection: unknown;
+    const f = await outboxFailureHarness(cleanups, {
+      conversationCapability: true,
+      limits: { maxPayloadBytes: local },
+      serverMaxPayloadBytes: server,
+      converse: async (command, broker, _sink, signal) => {
+        try {
+          await broker.requestElicitation(
+            {
+              requestId: "oversized",
+              message: "Large schema",
+              requestedSchema: { description: "x".repeat(70 * 1024) }
+            },
+            { signal, deadline: new Date(command.expiresAt) }
+          );
+        } catch (error) {
+          rejection = error;
+          throw error;
+        }
+        return {
+          terminal: { state: "succeeded", stopReason: "end_turn" },
+          cleanup: { attempted: true, completed: true }
+        };
+      }
+    });
+    const overflow = {
+      ...f.command,
+      operationId: "overflow-op",
+      turnId: "overflow-turn",
+      sessionId: "overflow-session"
+    };
+    f.state.conversations.accept(overflow);
+    f.conversations.handle(overflow);
+    await vi.waitFor(() =>
+      expect(f.received).toContainEqual(
+        expect.objectContaining({
+          turnId: overflow.turnId,
+          sequence: 2,
+          payload: { kind: "status", status: "failed", error: "acp_conversation_cleanup_failed" }
+        })
+      )
+    );
+    expect(rejection).toMatchObject({ message: "acp_conversation_event_too_large" });
+    f.append(10);
+    f.state.conversations.append(f.command.turnId, {
+      kind: "status",
+      status: "completed",
+      error: null
+    });
+    await vi.waitFor(() => expect(f.state.pendingEventCount()).toBe(0));
+    expect(
+      f.received
+        .filter((e) => e.type === "acp_conversation.event")
+        .map((e) => [e.turnId, e.sequence])
+    ).toEqual([
+      [overflow.turnId, 1],
+      [overflow.turnId, 2],
+      [f.command.turnId, 2],
+      [f.command.turnId, 3]
+    ]);
+    expect(f.client.status().state).toBe("connected");
+    expect(f.connections()).toBe(1);
+  });
+
+  it("drains maximum legal command identities at the minimum negotiated terminal budget", async () => {
+    const f = await outboxFailureHarness(cleanups, {
+      conversationCapability: true,
+      serverMaxPayloadBytes: ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES
+    });
+    const command = acpConversationPromptCommandSchema.parse({
+      ...f.command,
+      operationId: "\u0000".repeat(256),
+      turnId: "\u0000".repeat(256),
+      executionAttemptId: "a".repeat(128),
+      sessionId: "\u0000".repeat(1024),
+      sourceEnvelope: {
+        ...f.command.sourceEnvelope,
+        execution: { ...f.command.sourceEnvelope.execution, attemptId: "a".repeat(128) }
+      }
+    });
+    f.state.conversations.accept(command);
+    f.state.conversations.start(command.turnId);
+    f.state.conversations.append(command.turnId, {
+      kind: "status",
+      status: "failed",
+      error: "acp_conversation_" + "x".repeat(111)
+    });
+    await vi.waitFor(() => expect(f.state.pendingEventCount()).toBe(0));
+    expect(
+      f.received.filter((e) => e.type === "acp_conversation.event").map((e) => e.payload)
+    ).toEqual([
+      { kind: "status", status: "running", error: null },
+      { kind: "status", status: "failed", error: "acp_conversation_" + "x".repeat(111) }
+    ]);
+    expect(
+      f.received.every(
+        (e) => Buffer.byteLength(JSON.stringify(e)) <= ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES
+      )
+    ).toBe(true);
+    expect(f.client.status().state).toBe("connected");
+  });
+
+  it("rejects an insufficient local conversation budget before startup", async () => {
+    await expect(
+      outboxFailureHarness(cleanups, {
+        conversationCapability: true,
+        limits: { maxPayloadBytes: ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES - 1 },
+        connected: false
+      })
+    ).rejects.toThrow("agent_host_conversation_payload_budget_too_small");
+  });
+
+  it.each([
+    null,
+    "invalid",
+    "9007199254740992",
+    "1024",
+    String(ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES - 1)
+  ])("fails closed before event production for budget %s", async (budgetHeader) => {
+    const f = await outboxFailureHarness(cleanups, {
+      conversationCapability: true,
+      budgetHeader,
+      connected: false
+    });
+    await vi.waitFor(() =>
+      expect(f.client.status()).toEqual({
+        state: "degraded",
+        reason:
+          budgetHeader === "1024" ||
+          budgetHeader === String(ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES - 1)
+            ? "agent_host_conversation_payload_budget_too_small"
+            : "agent_host_outbound_payload_budget_unsupported"
+      })
+    );
+    await vi.waitFor(() => expect(f.clock.pendingTimerCount()).toBe(0));
+    expect(f.received).toEqual([]);
+    expect(f.attached()).toBe(0);
+    expect(f.state.pendingEvents()).toHaveLength(0);
+  });
+
+  it("fully stops an active conversation if reconnect loses the negotiated budget", async () => {
+    let activeSignal: AbortSignal | undefined;
+    const f = await outboxFailureHarness(cleanups, {
+      conversationCapability: true,
+      converse: async (_command, _broker, _sink, signal) => {
+        activeSignal = signal;
+        await new Promise<void>((resolve) =>
+          signal.addEventListener("abort", () => resolve(), { once: true })
+        );
+        return {
+          terminal: { state: "cancelled", stopReason: "cancelled" },
+          cleanup: { attempted: true, completed: true }
+        };
+      }
+    });
+    const active = { ...f.command, turnId: "active-turn", sessionId: "active-session" };
+    f.state.conversations.accept(active);
+    f.conversations.handle(active);
+    expect(f.conversations.isSessionActive(active.sessionId)).toBe(true);
+    const stop = vi.spyOn(f.conversations, "stop");
+    const recover = vi.spyOn(f.conversations, "recover");
+    f.setBudgetHeader(null);
+    f.peer().terminate();
+    await vi.waitFor(() => expect(f.client.status().state).toBe("backing-off"));
+    f.clock.advanceBy(50);
+    await vi.waitFor(() =>
+      expect(f.client.status()).toEqual({
+        state: "degraded",
+        reason: "agent_host_outbound_payload_budget_unsupported"
+      })
+    );
+    await vi.waitFor(() => expect(f.clock.pendingTimerCount()).toBe(0));
+    expect(activeSignal?.aborted).toBe(true);
+    expect(f.conversations.isSessionActive(active.sessionId)).toBe(false);
+    expect(stop).toHaveBeenCalledOnce();
+    expect(recover).not.toHaveBeenCalled();
+    expect(f.attached()).toBe(0);
+  });
+
+  it.each([
     { failure: "oversized payload", reason: "agent_host_outbound_payload_too_large" },
     { failure: "invalid JSON", reason: "agent_host_outbox_record_invalid" },
     { failure: "invalid schema", reason: "agent_host_outbox_record_invalid" }
@@ -20,12 +210,24 @@ describe("Agent Host durable outbox failures", () => {
     const f = await outboxFailureHarness(cleanups);
     const peer = f.peer();
     const closed = new Promise<void>((resolve) => peer.once("close", () => resolve()));
-    f.append(failure === "oversized payload" ? 300_000 : 10);
+    f.append(10);
     const pending = f.state.pendingEvents();
     const target = pending.at(-1);
     if (!target) throw new Error("expected_pending_event");
     const originalJson = JSON.stringify(target);
-    if (failure !== "oversized payload") {
+    if (failure === "oversized payload") {
+      const historical = hostEventSchema.parse(JSON.parse(originalJson));
+      if (
+        historical.type !== "acp_conversation.event" ||
+        historical.payload.kind !== "interaction" ||
+        historical.payload.request.kind !== "elicitation"
+      )
+        throw new Error("expected_elicitation_event");
+      historical.payload.request.requestedSchema.description = "x".repeat(300_000);
+      f.database
+        .prepare("UPDATE agent_host_outbox SET event_json=? WHERE message_id=?")
+        .run(JSON.stringify(historical), target.messageId);
+    } else {
       f.database
         .prepare("UPDATE agent_host_outbox SET event_json=? WHERE message_id=?")
         .run(failure === "invalid JSON" ? "{" : '{"type":"invalid"}', target.messageId);

@@ -3,6 +3,8 @@ import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js"
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER,
+  HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER,
   CANVAS_RUNTIME_CAPABILITY,
   exampleExecuteDeliveryV1,
   WORKSPACE_CANVAS_EXECUTION_CAPABILITY
@@ -245,6 +247,68 @@ async function createWsCoordination() {
 }
 
 describe("agent host WebSocket transport", () => {
+  it.each([
+    false,
+    true
+  ])("advertises its actual payload limit only to an opted-in Host: %s", async (optIn) => {
+    const { coordination } = await createWsCoordination();
+    const registration = coordination.hosts.register("Budget Host");
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    webSocketServers.push(
+      attachAgentHostWebSocketServer({
+        server: httpServer,
+        hosts: coordination.hosts,
+        mailbox: coordination.mailbox,
+        dispatches: coordination.dispatches,
+        acpEvents: coordination.acpEvents,
+        interactions: coordination.interactions,
+        actions: coordination.actions,
+        heartbeatIntervalMs: 30000,
+        leaseDurationMs: 60000,
+        maxPayloadBytes: 64 * 1024,
+        transportAdmission: loopbackHttpTransportAdmission
+      })
+    );
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    const address = httpServer.address();
+    if (!address || typeof address === "string") throw new Error("expected_http_port");
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${address.port}/agent-hosts/${registration.host.id}/connect`,
+      {
+        headers: {
+          Authorization: `Bearer ${registration.token}`,
+          ...(optIn ? { [HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER]: "1" } : {})
+        }
+      }
+    );
+    sockets.push(socket);
+    const upgraded = new Promise<string | string[] | undefined>((resolve, reject) => {
+      socket.once("upgrade", (response) =>
+        resolve(response.headers[HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER])
+      );
+      socket.once("error", reject);
+    });
+    await expect(upgraded).resolves.toEqual(optIn ? "65536" : undefined);
+    const events = eventStream(socket);
+    socket.send(
+      JSON.stringify({
+        type: "host.hello",
+        protocolVersion: 1,
+        supportedExecutionEnvelopeVersions: [1, 2],
+        lastAcknowledgedSequence: 0,
+        capabilities: ["acp.codex"],
+        capacity: 1
+      })
+    );
+    await expect(events.next()).resolves.toEqual({
+      type: "host.welcome",
+      protocolVersion: 1,
+      serverTime: expect.any(String),
+      heartbeatIntervalMs: 30000,
+      leaseDurationMs: 60000
+    });
+  });
   it.each([
     { label: "missing envelope versions", supportedVersions: undefined, pendingV1: false },
     { label: "v2-only with pending v1", supportedVersions: [2], pendingV1: true }

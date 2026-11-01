@@ -1,3 +1,5 @@
+import { DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES } from "@planweave-ai/agent-host-protocol";
+
 export type HostTransportStatus =
   | { readonly state: "connecting"; readonly attempt: number }
   | { readonly state: "connected"; readonly connectedAt: string }
@@ -37,7 +39,7 @@ export type HostTransportLimits = {
 };
 
 export const DEFAULT_HOST_TRANSPORT_LIMITS: HostTransportLimits = {
-  maxPayloadBytes: 256 * 1_024,
+  maxPayloadBytes: DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
   maxQueuedMessages: 128,
   maxBufferedBytes: 512 * 1_024,
   maxOutboundBatch: 128,

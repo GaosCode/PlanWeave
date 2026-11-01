@@ -1,4 +1,7 @@
 import {
+  DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
+  HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER,
+  HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER,
   opaqueIdentifierSchema,
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
   HISTORICAL_PERMISSION_REPLAY_VERSION_HEADER,
@@ -107,9 +110,14 @@ export function attachAgentHostWebSocketServer(
   options: AgentHostWebSocketOptions
 ): AgentHostWebSocketServer {
   options.hosts.requireProtocolReauthentication();
+  const maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES;
   const webSocketServer = new WebSocketServer({
     noServer: true,
-    maxPayload: options.maxPayloadBytes ?? 256 * 1024
+    maxPayload: maxPayloadBytes
+  });
+  webSocketServer.on("headers", (headers, request) => {
+    if (request.headers[HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER] === "1")
+      headers.push(`${HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER}: ${maxPayloadBytes}`);
   });
   type HostSession = {
     socket: WebSocket;

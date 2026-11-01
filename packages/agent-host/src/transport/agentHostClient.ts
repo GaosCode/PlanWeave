@@ -4,6 +4,10 @@ import { classifyRemoteRunnerHttpFailure } from "./remoteRunnerHttpFailure.js";
 import type { RemoteAcpConversationService } from "../execution/remoteAcpConversationService.js";
 import { WebSocket } from "ws";
 import {
+  ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES,
+  HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER,
+  HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER,
+  requireHostEventPayloadBudget,
   CANVAS_RUNTIME_CAPABILITY,
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
   HISTORICAL_PERMISSION_REPLAY_VERSION_HEADER,
@@ -207,6 +211,13 @@ export class AgentHostClient implements HostTransport {
     this.clock = options.clock ?? systemHostTransportClock;
     this.serverClock = options.serverClock ?? new CalibratedServerClock(this.clock);
     this.limits = parseHostTransportLimits(options.limits);
+    this.capabilities = parseAgentHostCapabilities(options.capabilities);
+    if (
+      this.capabilities.includes(ACP_CONVERSATION_CAPABILITY) &&
+      this.limits.maxPayloadBytes < ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES
+    )
+      throw new Error("agent_host_conversation_payload_budget_too_small");
+    options.state.setHostEventMaxPayloadBytes(this.limits.maxPayloadBytes);
     this.outbox = new AgentHostOutboxDrain(
       options.state,
       this.clock,
@@ -234,7 +245,6 @@ export class AgentHostClient implements HostTransport {
       this.outbox.request();
     });
     this.reconnect = parseReconnectBackoffOptions(options.reconnect);
-    this.capabilities = parseAgentHostCapabilities(options.capabilities);
     if (
       this.capabilities.includes(CANVAS_RUNTIME_CAPABILITY) &&
       (!options.canvasRuntime || !options.canvasRuntime.enabled())
@@ -485,6 +495,7 @@ export class AgentHostClient implements HostTransport {
     const socket = new WebSocket(url, {
       headers: {
         Authorization: `Bearer ${this.token}`,
+        [HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER]: "1",
         [EXACT_PERMISSION_OPTIONS_VERSION_HEADER]: "1",
         [HISTORICAL_PERMISSION_REPLAY_VERSION_HEADER]: "1"
       },
@@ -504,8 +515,33 @@ export class AgentHostClient implements HostTransport {
       socket.terminate();
     });
     this.connectionWatchdog = watchdog;
+    let outboundBudgetError: Error | undefined;
+    socket.on("upgrade", (response) => {
+      if (this.socket !== socket || this.stopped) return;
+      const header = response.headers[HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER];
+      if (header === undefined && !this.capabilities.includes(ACP_CONVERSATION_CAPABILITY)) return;
+      try {
+        const bytes = Math.min(this.limits.maxPayloadBytes, requireHostEventPayloadBudget(header));
+        if (
+          this.capabilities.includes(ACP_CONVERSATION_CAPABILITY) &&
+          bytes < ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES
+        )
+          throw new Error("agent_host_conversation_payload_budget_too_small");
+        this.options.state.setHostEventMaxPayloadBytes(bytes);
+        this.outbox.setMaxPayloadBytes(bytes);
+      } catch (error) {
+        outboundBudgetError =
+          error instanceof Error
+            ? error
+            : new Error("agent_host_outbound_payload_budget_unsupported");
+      }
+    });
     socket.on("open", () => {
       if (this.socket !== socket || this.stopped) return;
+      if (outboundBudgetError) {
+        this.rejectPermissionCompatibility(outboundBudgetError.message);
+        return;
+      }
       watchdog.received();
       const hello = serializeAgentHostHello({
         type: "host.hello",
@@ -734,8 +770,14 @@ export class AgentHostClient implements HostTransport {
 
   private rejectPermissionCompatibility(reason = "exact_permission_options_unsupported"): void {
     this.stopped = true;
+    this.lifecycleGeneration += 1;
+    this.startupAbort?.abort();
+    this.connectionWatchdog?.stop();
+    this.credentialRenewalAbort?.abort();
+    this.leaseProtectionActive = false;
+    this.leaseDeadline.stop();
     this.welcomed = false;
-    this.outbox.disconnect();
+    this.outbox.stop();
     if (this.heartbeatTimer) this.clock.clearTimeout(this.heartbeatTimer);
     if (this.reconnectTimer) this.clock.clearTimeout(this.reconnectTimer);
     const socket = this.socket;
@@ -746,6 +788,7 @@ export class AgentHostClient implements HostTransport {
     this.transition({ state: "degraded", reason });
     const cleanup = this.waitBounded(
       Promise.all([
+        this.credentialRenewalInFlight ?? Promise.resolve(),
         this.options.conversations?.stop() ?? Promise.resolve(),
         this.options.canvasRuntime?.stop() ?? Promise.resolve(),
         Promise.allSettled([...this.runs]),

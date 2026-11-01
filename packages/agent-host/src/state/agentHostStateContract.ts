@@ -47,6 +47,7 @@ export const DEFAULT_AGENT_HOST_STATE_LIMITS: AgentHostStateLimits = {
 };
 
 export interface AgentHostStateRepository {
+  setHostEventMaxPayloadBytes(bytes: number): void;
   setRemoteRunnerEventProtocolVersion(version: 2): void;
   close(): void;
   subscribeOutboxReady(listener: () => void): () => void;

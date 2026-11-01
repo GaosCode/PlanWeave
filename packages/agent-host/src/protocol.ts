@@ -1,4 +1,5 @@
 import {
+  hostEventPayloadBytes,
   artifactRefSchema,
   capabilitiesSchema,
   dispatchResultSchema,
@@ -82,4 +83,10 @@ export function serializeHistoricalAgentHostEvent(input: unknown): string {
 
 export function parseHistoricalAgentHostMailboxCommand(input: unknown): HistoricalMailboxCommand {
   return historicalMailboxCommandSchema.parse(input);
+}
+
+export function encodeAgentHostEvent(input: unknown, maxPayloadBytes: number) {
+  const payload = serializeAgentHostEvent(input);
+  const bytes = hostEventPayloadBytes(payload, maxPayloadBytes);
+  return { payload, bytes };
 }

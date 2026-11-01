@@ -686,6 +686,10 @@ export class AgentHostState implements AgentHostStateRepository {
     });
   }
 
+  setHostEventMaxPayloadBytes(bytes: number): void {
+    this.conversations.setMaxPayloadBytes(bytes);
+  }
+
   setRemoteRunnerEventProtocolVersion(version: 2): void {
     this.remoteRelay.setEventProtocolVersion(version);
   }

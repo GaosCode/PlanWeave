@@ -1,7 +1,8 @@
 import { z } from "zod";
-import type {
-  AcpConversationCommand,
-  AcpConversationInteraction
+import {
+  ACP_CONVERSATION_FAILURE_CODE_MAX_LENGTH,
+  type AcpConversationCommand,
+  type AcpConversationInteraction
 } from "@planweave-ai/agent-host-protocol";
 import type {
   AcpEngineInteractionBroker,
@@ -197,7 +198,9 @@ export class RemoteAcpConversationService {
         ? "acp_conversation_deadline_exceeded"
         : status === "cancelled" && cleanupSafe
           ? null
-          : cause instanceof Error && /^acp_conversation_[a-z_]+$/.test(cause.message)
+          : cause instanceof Error &&
+              cause.message.length <= ACP_CONVERSATION_FAILURE_CODE_MAX_LENGTH &&
+              /^acp_conversation_[a-z_]+$/.test(cause.message)
             ? cause.message
             : "acp_conversation_execution_failed";
     }

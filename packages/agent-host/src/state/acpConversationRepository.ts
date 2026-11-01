@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
   acpConversationCommandSchema,
   acpConversationEventSchema,
   acpConversationEventPageBytes,
@@ -8,11 +9,20 @@ import {
   type AcpConversationPromptCommand
 } from "@planweave-ai/agent-host-protocol";
 import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
+import { encodeAgentHostEvent } from "../protocol.js";
 import { digestJson } from "./agentHostStateMigrations.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 import type { AgentHostEventOutbox } from "./agentHostEventOutbox.js";
 
 export class AcpConversationRepository {
+  private maxPayloadBytes = DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES;
+
+  setMaxPayloadBytes(bytes: number): void {
+    if (!Number.isSafeInteger(bytes) || bytes < 1)
+      throw new Error("agent_host_outbound_payload_budget_invalid");
+    this.maxPayloadBytes = bytes;
+  }
+
   constructor(
     private readonly db: SqliteDatabase,
     private readonly outbox: AgentHostEventOutbox
@@ -173,7 +183,14 @@ export class AcpConversationRepository {
     });
     if (acpConversationEventPageBytes(event) > ACP_CONVERSATION_RESPONSE_MAX_BYTES)
       throw new Error("acp_conversation_event_too_large");
-    const bytes = Buffer.byteLength(JSON.stringify(event));
+    let bytes: number;
+    try {
+      bytes = encodeAgentHostEvent(event, this.maxPayloadBytes).bytes;
+    } catch (error) {
+      if (error instanceof Error && error.message === "agent_host_outbound_payload_too_large")
+        throw new Error("acp_conversation_event_too_large", { cause: error });
+      throw error;
+    }
     if (payload.kind !== "status" && Number(row.event_bytes) + bytes > 7 * 1024 * 1024)
       throw new Error("acp_conversation_event_limit");
     this.outbox.queue(`acp-conversation:${turnId}:${event.sequence}`, event);

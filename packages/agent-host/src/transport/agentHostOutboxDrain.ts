@@ -1,4 +1,7 @@
-import { historicalPermissionHostReplaySchema } from "@planweave-ai/agent-host-protocol";
+import {
+  hostEventPayloadBytes,
+  historicalPermissionHostReplaySchema
+} from "@planweave-ai/agent-host-protocol";
 import { WebSocket } from "ws";
 import { ZodError } from "zod";
 import { serializeAgentHostEvent, type HistoricalHostEvent } from "../protocol.js";
@@ -36,6 +39,7 @@ export class AgentHostOutboxDrain {
   private unsubscribe?: () => void;
   private socket?: WebSocket;
   private historicalReplay = false;
+  private maxPayloadBytes: number;
   private readonly inFlight = new Set<string>();
   private generation = 0;
   private scheduled = false;
@@ -49,7 +53,13 @@ export class AgentHostOutboxDrain {
     private readonly limits: HostTransportLimits,
     private readonly onError: (error: unknown) => void,
     private readonly rejectHistoricalReplay: () => void
-  ) {}
+  ) {
+    this.maxPayloadBytes = limits.maxPayloadBytes;
+  }
+
+  setMaxPayloadBytes(bytes: number): void {
+    this.maxPayloadBytes = bytes;
+  }
 
   start(): void {
     this.unsubscribe ??= this.state.subscribeOutboxReady(() => this.request());
@@ -176,9 +186,15 @@ export class AgentHostOutboxDrain {
     } catch (error) {
       throw new AgentHostOutboxDataError("agent_host_outbox_encoding_failed", { cause: error });
     }
-    const bytes = Buffer.byteLength(payload);
-    if (bytes > this.limits.maxPayloadBytes)
-      throw new AgentHostOutboxDataError("agent_host_outbound_payload_too_large");
+    let bytes: number;
+    try {
+      bytes = hostEventPayloadBytes(payload, this.maxPayloadBytes);
+    } catch (error) {
+      throw new AgentHostOutboxDataError(
+        error instanceof Error ? error.message : "agent_host_outbound_payload_budget_invalid",
+        { cause: error }
+      );
+    }
     if (socket.bufferedAmount + bytes > this.limits.maxBufferedBytes) {
       this.retry();
       return false;
