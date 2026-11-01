@@ -289,6 +289,20 @@ async function executeAcpOutcome(
     emit
   });
 
+  const drainInteractions = async (stopReason: PromptResponse["stopReason"]): Promise<void> => {
+    if (stopReason === "cancelled") {
+      abortController.abort(new Error("ACP session was cancelled."));
+    }
+    await interactionHandlers.drain();
+    if (
+      stopReason !== "cancelled" &&
+      !abortController.signal.aborted &&
+      interactionHandlers.failure
+    ) {
+      throw interactionHandlers.failure;
+    }
+  };
+
   try {
     await emit({ kind: "lifecycle", state: "connecting" });
     const connectionMode = options.connectionMode ?? "dedicated";
@@ -448,6 +462,7 @@ async function executeAcpOutcome(
       if (Buffer.byteLength(prompt, "utf8") > limits.promptMaxBytes) {
         throw new AcpEngineLimitError("prompt", limits.promptMaxBytes);
       }
+      if (response) await drainInteractions(response.stopReason);
       await observeLifecycle({
         kind: "prompt_starting",
         sessionId,
@@ -455,10 +470,12 @@ async function executeAcpOutcome(
         followUp,
         prompt
       });
+      if (response) await drainInteractions(response.stopReason);
       response = await boundSession.prompt([{ type: "text", text: prompt }], {
         signal: abortController.signal,
         timeoutMs: limits.operationTimeoutMs
       });
+      await drainInteractions(response.stopReason);
       await drainSessionUpdates();
       if (response.usage) {
         usage = {
@@ -478,11 +495,15 @@ async function executeAcpOutcome(
         followUp,
         stopReason: response.stopReason
       });
+      await drainInteractions(response.stopReason);
       if (response.stopReason === "cancelled" || abortController.signal.aborted) break;
     }
     if (!response) throw new Error("ACP prompt source did not produce an initial prompt.");
     await drainSessionUpdates();
     await observeLifecycle({ kind: "prompts_completed", sessionId, turns: turn, output });
+    interactionHandlers.stopAcceptingRequests();
+    await drainInteractions(response.stopReason);
+    await drainSessionUpdates();
     terminal =
       response.stopReason === "cancelled" || abortController.signal.aborted
         ? { state: "cancelled", message: "ACP session was cancelled." }
@@ -505,6 +526,7 @@ async function executeAcpOutcome(
           message: diagnostic(sinkFailure ?? executionFailure)
         };
   } finally {
+    interactionHandlers.close();
     cleanupAttempted = true;
     const cleanup = new AcpCleanupSequencer(createAcpCleanupDeadline(shutdown.cleanupDeadlineMs));
     let cleanupEventFailure: unknown;

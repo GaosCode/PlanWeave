@@ -72,6 +72,7 @@ function withDeadline<T>(options: {
   const controller = new AbortController();
   const relayAbort = (): void => controller.abort(options.signal.reason);
   options.signal.addEventListener("abort", relayAbort, { once: true });
+  if (options.signal.aborted) relayAbort();
   const timeout = options.clock.sleep(options.timeoutMs, controller.signal).then(() => {
     throw new AcpEngineInteractionError(
       true,
@@ -128,13 +129,63 @@ async function validatedElicitationResponse(
   });
 }
 
-export function createAcpExecutionInteractionHandlers(options: InteractionHandlersOptions) {
+type AcpExecutionInteractionHandlers = {
+  readonly onPermissionRequest: (
+    request: RequestPermissionRequest
+  ) => Promise<RequestPermissionResponse>;
+  readonly onElicitationRequest: (
+    request: CreateElicitationRequest
+  ) => Promise<CreateElicitationResponse>;
+  readonly drain: () => Promise<void>;
+  readonly close: () => void;
+  readonly stopAcceptingRequests: () => void;
+  readonly failure: AcpEngineInteractionError | null;
+};
+
+export function createAcpExecutionInteractionHandlers(
+  options: InteractionHandlersOptions
+): AcpExecutionInteractionHandlers {
+  const parentSignal = options.signal;
+  const controller = new AbortController();
+  const relayAbort = (): void => controller.abort(parentSignal.reason);
+  parentSignal.addEventListener("abort", relayAbort, { once: true });
+  if (parentSignal.aborted) relayAbort();
+  options = { ...options, signal: controller.signal };
+  const assertActive = (): void => {
+    if (controller.signal.aborted) throw controller.signal.reason;
+  };
+  let acceptingRequests = true;
+  const stopAcceptingRequests = (): void => {
+    acceptingRequests = false;
+  };
+  const close = (): void => {
+    stopAcceptingRequests();
+    parentSignal.removeEventListener("abort", relayAbort);
+    controller.abort(new AcpEngineInteractionError(false, "ACP interaction scope closed."));
+  };
   let ordinal = 0;
   let failure: AcpEngineInteractionError | null = null;
+  const pending = new Set<Promise<unknown>>();
+  const track = <T>(work: () => Promise<T>, message: string): Promise<T> => {
+    if (!acceptingRequests) {
+      return Promise.reject(new AcpEngineInteractionError(false, "ACP interaction scope closed."));
+    }
+    const operation = work().catch((error: unknown) => {
+      failure ??= asInteractionFailure(error, message);
+      throw failure;
+    });
+    pending.add(operation);
+    void operation.then(
+      () => pending.delete(operation),
+      () => pending.delete(operation)
+    );
+    return operation;
+  };
 
   const onPermissionRequest = async (
     request: RequestPermissionRequest
   ): Promise<RequestPermissionResponse> => {
+    assertActive();
     const requestId = createAcpInteractionRequestId("permission", ++ordinal);
     await options.emit({
       kind: "interaction",
@@ -142,6 +193,7 @@ export function createAcpExecutionInteractionHandlers(options: InteractionHandle
       interaction: "permission",
       state: "requested"
     });
+    assertActive();
     if (!options.broker) {
       await options.emit({
         kind: "interaction",
@@ -150,6 +202,7 @@ export function createAcpExecutionInteractionHandlers(options: InteractionHandle
         state: "resolved",
         outcome: "cancelled"
       });
+      assertActive();
       return { outcome: { outcome: "cancelled" } };
     }
     const interaction = deadline(options);
@@ -181,17 +234,18 @@ export function createAcpExecutionInteractionHandlers(options: InteractionHandle
         signal: options.signal
       });
     } catch (error) {
-      failure =
+      failure ??=
         error instanceof AcpEngineInteractionError
           ? error
           : new AcpEngineInteractionError(false, "ACP permission broker failed.", error);
       throw failure;
     }
+    assertActive();
     if (
       decision.kind === "select" &&
       !request.options.some((item) => item.optionId === decision.optionId)
     ) {
-      failure = new AcpEngineInteractionError(
+      failure ??= new AcpEngineInteractionError(
         false,
         "ACP permission broker selected an unknown option."
       );
@@ -204,6 +258,7 @@ export function createAcpExecutionInteractionHandlers(options: InteractionHandle
       state: "resolved",
       outcome: decision.kind === "select" ? "selected" : "cancelled"
     });
+    assertActive();
     return decision.kind === "select"
       ? { outcome: { outcome: "selected", optionId: decision.optionId } }
       : { outcome: { outcome: "cancelled" } };
@@ -212,6 +267,7 @@ export function createAcpExecutionInteractionHandlers(options: InteractionHandle
   const onElicitationRequest = async (
     request: CreateElicitationRequest
   ): Promise<CreateElicitationResponse> => {
+    assertActive();
     const requestId = createAcpInteractionRequestId("elicitation", ++ordinal);
     await options.emit({
       kind: "interaction",
@@ -219,6 +275,7 @@ export function createAcpExecutionInteractionHandlers(options: InteractionHandle
       interaction: "elicitation",
       state: "requested"
     });
+    assertActive();
     if (!options.broker || !CreateElicitationRequestGuard.isForm(request)) {
       await options.emit({
         kind: "interaction",
@@ -227,6 +284,7 @@ export function createAcpExecutionInteractionHandlers(options: InteractionHandle
         state: "resolved",
         outcome: "cancelled"
       });
+      assertActive();
       return { action: "cancel" };
     }
     const interaction = deadline(options);
@@ -242,9 +300,10 @@ export function createAcpExecutionInteractionHandlers(options: InteractionHandle
         interaction.timeoutMs
       );
     } catch (error) {
-      failure = asInteractionFailure(error, "ACP elicitation broker failed.");
+      failure ??= asInteractionFailure(error, "ACP elicitation broker failed.");
       throw failure;
     }
+    assertActive();
     await options.emit({
       kind: "interaction",
       requestId,
@@ -257,12 +316,34 @@ export function createAcpExecutionInteractionHandlers(options: InteractionHandle
             ? "declined"
             : "cancelled"
     });
+    assertActive();
     return response;
   };
 
   return {
-    onPermissionRequest,
-    onElicitationRequest,
+    onPermissionRequest: (request: RequestPermissionRequest) =>
+      track(() => onPermissionRequest(request), "ACP permission broker failed."),
+    onElicitationRequest: (request: CreateElicitationRequest) =>
+      track(() => onElicitationRequest(request), "ACP elicitation broker failed."),
+    close,
+    stopAcceptingRequests,
+    drain: async (): Promise<void> => {
+      if (pending.size === 0) return;
+      const interaction = deadline(options);
+      try {
+        await withDeadline({
+          work: (async () => {
+            while (pending.size > 0) await Promise.allSettled([...pending]);
+          })(),
+          clock: options.clock,
+          timeoutMs: interaction.timeoutMs,
+          signal: options.signal
+        });
+      } catch (error) {
+        failure ??= asInteractionFailure(error, "ACP interaction settlement failed.");
+        close();
+      }
+    },
     get failure(): AcpEngineInteractionError | null {
       return failure;
     }
