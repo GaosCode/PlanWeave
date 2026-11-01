@@ -27,7 +27,7 @@ const executorProfileSchema: Record<string, Record<string, unknown>> = {
   manual: { adapter: "manual" },
   "agent-cli": {
     adapter: "agent",
-    agent: '"codex" | "opencode" | "claude-code" | "pi" | "grok"',
+    agent: '"codex" | "opencode" | "claude-code" | "pi" | "grok" | "codebuddy"',
     runner: { transport: '"cli"', tmuxEnabled: "boolean, optional" },
     host: `${JSON.stringify(executionHostField)}, optional; default: native`,
     command: "string, non-empty",

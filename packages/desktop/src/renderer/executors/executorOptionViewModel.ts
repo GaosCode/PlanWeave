@@ -35,7 +35,8 @@ const executorAgentDetectionBindings: Record<string, ExecutorAgentDetectionBindi
   opencode: { kind: "opencode" },
   "claude-code": { kind: "claude-code" },
   pi: { kind: "pi" },
-  grok: { kind: "grok" }
+  grok: { kind: "grok" },
+  codebuddy: { kind: "codebuddy" }
 };
 
 export function builtinExecutorAgentKind(name: string): DesktopAgentKind | null {
@@ -51,7 +52,8 @@ const builtinExecutorDisplayNames: Record<string, string> = {
   opencode: "OpenCode",
   "claude-code": "Claude Code",
   pi: "Pi",
-  grok: "Grok"
+  grok: "Grok",
+  codebuddy: "CodeBuddy"
 };
 
 export function executorDisplayName(name: string): string {

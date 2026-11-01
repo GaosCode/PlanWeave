@@ -13,7 +13,8 @@ export const builtinExecutorNames = [
   "pi-auto",
   "pi-acp",
   "grok",
-  "grok-acp"
+  "grok-acp",
+  "codebuddy-acp"
 ] as const;
 
 const builtinExecutorNameSet = new Set<string>(builtinExecutorNames);
@@ -27,7 +28,8 @@ const builtinExecutorAliases: Readonly<Record<string, string>> = {
   "opencode-acp": "opencode",
   "pi-auto": "pi",
   "pi-acp": "pi",
-  "grok-acp": "grok"
+  "grok-acp": "grok",
+  "codebuddy-acp": "codebuddy"
 };
 
 export function canonicalBuiltinExecutorName(name: string): string {

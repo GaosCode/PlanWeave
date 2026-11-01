@@ -4,8 +4,15 @@ import { taskWorkspaceRunItemSchema } from "@planweave-ai/runtime/browser";
 /** Synthetic run id prefix for an in-flight remote operation without local materialization yet. */
 const REMOTE_LIVE_RUN_PREFIX = "remote-live-";
 
-const AGENT_FAMILIES = new Set(["codex", "opencode", "claude-code", "pi", "grok"] as const);
-type AgentFamily = "codex" | "opencode" | "claude-code" | "pi" | "grok";
+const AGENT_FAMILIES = new Set([
+  "codex",
+  "opencode",
+  "claude-code",
+  "pi",
+  "grok",
+  "codebuddy"
+] as const);
+type AgentFamily = "codex" | "opencode" | "claude-code" | "pi" | "grok" | "codebuddy";
 
 export function remoteLiveRunId(operationId: string): string {
   return `${REMOTE_LIVE_RUN_PREFIX}${operationId}`;

@@ -44,6 +44,8 @@ function profileIdFor(agent: AgentFamily): string {
       return "pi-acp";
     case "grok":
       return "grok-acp";
+    case "codebuddy":
+      return "codebuddy-acp";
     default: {
       const exhaustive: never = agent;
       return exhaustive;
@@ -63,6 +65,8 @@ function displayNameFor(agent: AgentFamily): string {
       return "Pi";
     case "grok":
       return "Grok";
+    case "codebuddy":
+      return "CodeBuddy";
     default: {
       const exhaustive: never = agent;
       return exhaustive;
@@ -76,7 +80,8 @@ export function isSupportedHostAgentFamily(agentId: string): agentId is AgentFam
     agentId === "codex" ||
     agentId === "opencode" ||
     agentId === "pi" ||
-    agentId === "grok"
+    agentId === "grok" ||
+    agentId === "codebuddy"
   );
 }
 
