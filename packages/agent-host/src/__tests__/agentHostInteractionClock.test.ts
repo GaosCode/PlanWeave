@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { exampleExecuteDelivery, mailboxDeliverySchema } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
+import { attachHostEventPayloadBudget } from "./support/hostTransportSocketHarness.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
 import { CalibratedServerClock } from "../transport/calibratedServerClock.js";
@@ -192,6 +193,7 @@ describe("execute interaction settlement clock domain", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     let socket: import("ws").WebSocket | undefined;
     webSocketServer.on("connection", (connected) => {

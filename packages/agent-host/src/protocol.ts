@@ -1,5 +1,6 @@
 import {
   hostEventPayloadBytes,
+  historicalPermissionHostReplaySchema,
   artifactRefSchema,
   capabilitiesSchema,
   dispatchResultSchema,
@@ -89,4 +90,25 @@ export function encodeAgentHostEvent(input: unknown, maxPayloadBytes: number) {
   const payload = serializeAgentHostEvent(input);
   const bytes = hostEventPayloadBytes(payload, maxPayloadBytes);
   return { payload, bytes };
+}
+
+export function encodeHistoricalAgentHostEvent(
+  input: HistoricalHostEvent,
+  maxPayloadBytes: number,
+  eventJson?: string
+) {
+  if (input.type !== "interaction.permission_requested" || "options" in input)
+    return encodeAgentHostEvent(input, maxPayloadBytes);
+  const payload = JSON.stringify(
+    historicalPermissionHostReplaySchema.parse({
+      type: "host.permission_history",
+      protocolVersion: 1,
+      eventJson: eventJson ?? serializeHistoricalAgentHostEvent(input)
+    })
+  );
+  return { payload, bytes: hostEventPayloadBytes(payload, maxPayloadBytes) };
+}
+
+export function isHostEventPayloadTooLarge(error: unknown): boolean {
+  return error instanceof Error && error.message === "agent_host_outbound_payload_too_large";
 }

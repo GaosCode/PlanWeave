@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { parseHistoricalPermissionEventJson } from "@planweave-ai/agent-host-protocol";
+import {
+  DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
+  parseHistoricalPermissionEventJson
+} from "@planweave-ai/agent-host-protocol";
 import type { HostReadinessObservation } from "@planweave-ai/agent-host-protocol";
 import {
   parseAgentHostEvent,
+  encodeAgentHostEvent,
+  isHostEventPayloadTooLarge,
   parseHistoricalAgentHostEvent,
   type HistoricalHostEvent,
   type HostEvent
@@ -18,6 +23,17 @@ function sameEventPayload(left: HistoricalHostEvent, right: HistoricalHostEvent)
 }
 
 export class AgentHostEventOutbox {
+  private maxPayloadBytes = DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES;
+
+  setMaxPayloadBytes(bytes: number): void {
+    if (!Number.isSafeInteger(bytes) || bytes < 1)
+      throw new Error("agent_host_outbound_payload_budget_invalid");
+    this.maxPayloadBytes = bytes;
+  }
+
+  encode(event: HostEvent): { payload: string; bytes: number } {
+    return encodeAgentHostEvent(event, this.maxPayloadBytes);
+  }
   private readonly listeners = new Set<() => void>();
   private readonly notifyReady = (): void => {
     for (const listener of this.listeners) {
@@ -118,6 +134,7 @@ export class AgentHostEventOutbox {
 
   queue(eventKey: string, input: HostEvent): HostEvent {
     const event = parseAgentHostEvent(input);
+    const { payload } = this.encode(event);
     const existing = this.database
       .prepare("SELECT event_json FROM agent_host_outbox WHERE event_key=?")
       .get(eventKey);
@@ -134,7 +151,7 @@ export class AgentHostEventOutbox {
         `INSERT INTO agent_host_outbox(message_id,event_key,event_json,created_at)
          VALUES(?,?,?,?)`
       )
-      .run(event.messageId, eventKey, JSON.stringify(event), new Date().toISOString());
+      .run(event.messageId, eventKey, payload, new Date().toISOString());
     notifyOutboxAfterCommit(this.database, this.notifyReady);
     return event;
   }
@@ -147,25 +164,48 @@ export class AgentHostEventOutbox {
     }>,
     readiness?: HostReadinessObservation
   ): HostEvent {
-    const heartbeat = parseAgentHostEvent({
-      type: "host.heartbeat",
-      protocolVersion: 1,
-      messageId: randomUUID(),
-      activeLeases,
-      ...(readiness ? { readiness } : {})
-    });
+    const create = (leases: typeof activeLeases, includeReadiness: boolean) =>
+      parseAgentHostEvent({
+        type: "host.heartbeat",
+        protocolVersion: 1,
+        messageId: randomUUID(),
+        activeLeases: leases,
+        ...(includeReadiness && readiness ? { readiness } : {})
+      });
+    const heartbeats: HostEvent[] = [];
+    let leases: (typeof activeLeases)[number][] = [];
+    this.encode(create([], true));
+    for (const lease of activeLeases) {
+      try {
+        if (leases.length === 128) throw new Error("agent_host_outbound_payload_too_large");
+        this.encode(create([...leases, lease], heartbeats.length === 0));
+        leases.push(lease);
+      } catch (error) {
+        if (!isHostEventPayloadTooLarge(error)) throw error;
+        heartbeats.push(create(leases, heartbeats.length === 0));
+        leases = [lease];
+        this.encode(create(leases, false));
+      }
+    }
+    heartbeats.push(create(leases, heartbeats.length === 0));
+    const queued = heartbeats.map((heartbeat, index) =>
+      this.replaceHeartbeat(index === 0 ? "host.heartbeat" : `host.heartbeat:${index}`, heartbeat)
+    );
+    return queued[0]!;
+  }
+
+  private replaceHeartbeat(eventKey: string, heartbeat: HostEvent): HostEvent {
+    this.encode(heartbeat);
     const existing = this.database
-      .prepare(
-        "SELECT event_json,acknowledged_at FROM agent_host_outbox WHERE event_key='host.heartbeat'"
-      )
-      .get();
+      .prepare("SELECT event_json,acknowledged_at FROM agent_host_outbox WHERE event_key=?")
+      .get(eventKey);
     if (existing) {
       const stored = parseHistoricalAgentHostEvent(JSON.parse(String(existing.event_json)));
       if (!existing.acknowledged_at && sameEventPayload(stored, heartbeat))
         return parseAgentHostEvent(stored);
-      this.database.prepare("DELETE FROM agent_host_outbox WHERE event_key='host.heartbeat'").run();
+      this.database.prepare("DELETE FROM agent_host_outbox WHERE event_key=?").run(eventKey);
     }
-    return this.queue("host.heartbeat", heartbeat);
+    return this.queue(eventKey, heartbeat);
   }
 
   acknowledge(messageId: string):

@@ -1,7 +1,14 @@
 import { remoteAcpEngineFragment } from "../execution/remoteAcpEngineFragment.js";
+import { remoteRunnerWireChunks } from "../execution/remoteRunnerWireChunks.js";
+import {
+  remoteRunnerEventBatchV2Schema,
+  dispatchLifecycleIdentitySchema,
+  mailboxMessageIdSchema,
+  type RemoteRunnerEventFragment
+} from "@planweave-ai/agent-host-protocol";
 import { randomUUID } from "node:crypto";
 import type { AgentHostRemoteExecutionRecord } from "../execution/remoteAcpPorts.js";
-import { parseAgentHostEvent } from "../protocol.js";
+import { parseAgentHostEvent, isHostEventPayloadTooLarge, type HostEvent } from "../protocol.js";
 import { AgentHostEventOutbox } from "./agentHostEventOutbox.js";
 import { AgentHostExecutionRepository } from "./agentHostExecutionRepository.js";
 import { digestJson } from "./agentHostStateMigrations.js";
@@ -63,18 +70,17 @@ export class AgentHostRemoteRecordRelay {
       for (const { storageSequence, record } of pending) {
         const current = this.executions.evidence(execution.sequence);
         if (!current?.acpSessionId) throw new Error("remote_execution_session_identity_stale");
-        const afterCursor = current.eventCursor;
-        const cursor = afterCursor + 1;
-        this.executions.advanceEventCursor(execution.sequence, afterCursor, cursor);
-        this.events.queue(
-          `acp.events.v2:${record.identity.dispatchId}:${record.identity.executionAttemptId}:${cursor}`,
-          parseAgentHostEvent({
+        const acpSessionId = current.acpSessionId;
+        const createEvent = (fragment: RemoteRunnerEventFragment, index: number): HostEvent => {
+          const afterCursor = current.eventCursor + index;
+          const cursor = afterCursor + 1;
+          return {
             type: "acp.events",
             protocolVersion: 1,
             eventProtocolVersion: 2,
-            messageId: randomUUID(),
-            ...record.identity,
-            acpSessionId: current.acpSessionId,
+            messageId: mailboxMessageIdSchema.parse(randomUUID()),
+            ...dispatchLifecycleIdentitySchema.parse(record.identity),
+            acpSessionId,
             afterCursor,
             cursor,
             events: [
@@ -83,11 +89,51 @@ export class AgentHostRemoteRecordRelay {
                 cursor,
                 sourceSequence: record.event.sequence,
                 timestamp: record.event.timestamp,
-                fragment: remoteAcpEngineFragment(record.event)
+                fragment
               }
             ]
-          })
+          };
+        };
+        const chunks = remoteRunnerWireChunks(
+          remoteAcpEngineFragment(record.event),
+          (fragment, index) => {
+            const event = createEvent(fragment, index);
+            if (
+              !remoteRunnerEventBatchV2Schema.safeParse(
+                event.type === "acp.events"
+                  ? {
+                      type: event.type,
+                      eventProtocolVersion: event.eventProtocolVersion,
+                      dispatchId: event.dispatchId,
+                      leaseId: event.leaseId,
+                      executionAttemptId: event.executionAttemptId,
+                      acpSessionId: event.acpSessionId,
+                      afterCursor: event.afterCursor,
+                      cursor: event.cursor,
+                      events: event.events
+                    }
+                  : event
+              ).success
+            )
+              return false;
+            try {
+              this.events.encode(event);
+              return true;
+            } catch (error) {
+              if (isHostEventPayloadTooLarge(error)) return false;
+              throw error;
+            }
+          }
         );
+        chunks.forEach((fragment, index) => {
+          const event = createEvent(fragment, index);
+          if (event.type !== "acp.events") throw new Error("remote_runner_event_required");
+          this.events.queue(
+            `acp.events.v2:${record.identity.dispatchId}:${record.identity.executionAttemptId}:${event.cursor}`,
+            event
+          );
+          this.executions.advanceEventCursor(execution.sequence, event.afterCursor, event.cursor);
+        });
         afterSequence = storageSequence;
       }
     }

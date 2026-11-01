@@ -84,6 +84,7 @@ export async function outboxFailureHarness(
   cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
   const received: HostEvent[] = [];
   let connections = 0;
+  let hellos = 0;
   let peer: WebSocket | undefined;
   let autoAck = true;
   server.on("connection", (socket) => {
@@ -92,6 +93,7 @@ export async function outboxFailureHarness(
     socket.on("message", (data) => {
       const raw = JSON.parse(data.toString());
       if (raw.type === "host.hello") {
+        hellos += 1;
         hostHelloSchema.parse(raw);
         socket.send(
           JSON.stringify(
@@ -180,6 +182,7 @@ export async function outboxFailureHarness(
     clock,
     received,
     connections: () => connections,
+    hellos: () => hellos,
     attached: () => attached,
     notifications: () => notifications,
     setAutoAck: (value: boolean) => {

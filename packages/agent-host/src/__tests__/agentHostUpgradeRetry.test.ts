@@ -10,6 +10,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
+import { attachHostEventPayloadBudget } from "./support/hostTransportSocketHarness.js";
 import type { AgentHostExecutor } from "../execution/agentHostExecutor.js";
 import { openAgentHostState } from "../state/agentHostState.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
@@ -35,6 +36,7 @@ async function setup(
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
   const sockets = new WebSocketServer({ noServer: true });
+  attachHostEventPayloadBudget(sockets);
   cleanup.push(
     () =>
       new Promise<void>((resolve) => {
@@ -78,6 +80,7 @@ async function setup(
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("missing_loopback_port");
   const client = new AgentHostClient({
+    readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
     serverUrl: `http://127.0.0.1:${address.port}`,
     hostId: "host-upgrade-retry",
     token: "test-token",

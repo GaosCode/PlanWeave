@@ -945,6 +945,8 @@
         "agentHostUpgradeRetry.test.ts",
         "agentHostClientAdversarial.test.ts",
         "agentHostOutboxFailure.test.ts",
+        "hostWireBudget.test.ts",
+        "hostWirePermission.test.ts",
         "agentHostClientLoad.test.ts",
         "agentHostConfig.test.ts",
         "credentialRenewal.test.ts",

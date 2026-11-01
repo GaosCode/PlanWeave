@@ -13,6 +13,141 @@ afterEach(async () => {
 });
 
 describe("Agent Host durable outbox failures", () => {
+  it("replays unacknowledged text chunks after a real WebSocket disconnect with stable identities", async () => {
+    const f = await outboxFailureHarness(cleanups, {
+      serverMaxPayloadBytes: 64 * 1024,
+      limits: { maxOutboundBatch: 1 }
+    });
+    f.setAutoAck(false);
+    const content = "\u0000😀".repeat(10000);
+    f.state.conversations.append(f.command.turnId, {
+      kind: "runner",
+      fragment: {
+        kind: "runner_body",
+        body: {
+          kind: "terminal_output",
+          terminalId: "terminal",
+          content,
+          redaction: { classes: [], replaced: 0 }
+        }
+      }
+    });
+    const original = f.state.pendingEvents();
+    expect(original.length).toBeGreaterThan(1);
+    await vi.waitFor(() => expect(f.received).toHaveLength(1));
+    const acknowledged = f.received[0]!;
+    f.peer().send(
+      JSON.stringify({
+        type: "host.event_ack",
+        protocolVersion: 1,
+        messageId: acknowledged.messageId
+      })
+    );
+    await vi.waitFor(() => expect(f.received).toHaveLength(2));
+    expect(f.state.pendingEvents().map((event) => event.messageId)).not.toContain(
+      acknowledged.messageId
+    );
+    f.peer().terminate();
+    await vi.waitFor(() => expect(f.client.status().state).toBe("backing-off"));
+    f.setAutoAck(true);
+    f.clock.advanceBy(1000);
+    await vi.waitFor(() => expect(f.client.status().state).toBe("connected"));
+    await vi.waitFor(() => expect(f.state.pendingEventCount()).toBe(0));
+    const unique = [...new Map(f.received.map((event) => [event.messageId, event])).values()];
+    expect(unique).toEqual(original);
+    expect(f.received.filter((event) => event.messageId === acknowledged.messageId)).toHaveLength(
+      1
+    );
+    expect(f.received.length).toBeGreaterThan(unique.length);
+    expect(
+      unique
+        .map((event) =>
+          event.type === "acp_conversation.event" &&
+          event.payload.kind === "runner" &&
+          event.payload.fragment.kind === "runner_body" &&
+          "content" in event.payload.fragment.body
+            ? event.payload.fragment.body.content
+            : ""
+        )
+        .join("")
+    ).toBe(content);
+    expect(f.received.every((event) => Buffer.byteLength(JSON.stringify(event)) <= 64 * 1024)).toBe(
+      true
+    );
+  });
+  it.each([
+    null,
+    "invalid",
+    "0",
+    "9007199254740992"
+  ])("rejects missing or invalid budget %s without conversation capability or accepting work", async (budgetHeader) => {
+    const f = await outboxFailureHarness(cleanups, { budgetHeader, connected: false });
+    await vi.waitFor(() =>
+      expect(f.client.status()).toEqual({
+        state: "degraded",
+        reason: "agent_host_outbound_payload_budget_unsupported"
+      })
+    );
+    expect(f.hellos()).toBe(0);
+    expect(f.state.pendingEvents()).toEqual([]);
+  });
+
+  it.each([
+    "ordinary",
+    "historical"
+  ] as const)("rejects a lower reconnect budget before hello and preserves immutable %s pending evidence", async (kind) => {
+    const f = await outboxFailureHarness(cleanups);
+    f.setAutoAck(false);
+    if (kind === "ordinary") {
+      f.append(100000);
+      await vi.waitFor(() => expect(f.received).toHaveLength(1));
+    } else {
+      const event = {
+        type: "interaction.permission_requested",
+        protocolVersion: 1,
+        messageId: "legacy-large",
+        dispatchId: "dispatch",
+        leaseId: "lease",
+        executionAttemptId: "attempt",
+        acpSessionId: "session",
+        actionId: "action",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        title: "Legacy",
+        description: "\u0000".repeat(9500)
+      };
+      const eventJson = JSON.stringify(event);
+      expect(Buffer.byteLength(eventJson)).toBeLessThan(64 * 1024);
+      f.database
+        .prepare(
+          "INSERT INTO agent_host_outbox(message_id,event_key,event_json,created_at) VALUES(?,?,?,?)"
+        )
+        .run(event.messageId, "legacy-large", eventJson, new Date().toISOString());
+    }
+    const immutable = f.database
+      .prepare(
+        "SELECT message_id,event_json,acknowledged_at FROM agent_host_outbox WHERE acknowledged_at IS NULL ORDER BY sequence"
+      )
+      .all();
+    f.setBudgetHeader(String(64 * 1024));
+    f.peer().terminate();
+    await vi.waitFor(() => expect(f.client.status().state).toBe("backing-off"));
+    f.clock.advanceBy(1000);
+    await vi.waitFor(() =>
+      expect(f.client.status()).toEqual({
+        state: "reconciliation-required",
+        reason: "agent_host_outbound_payload_too_large"
+      })
+    );
+    expect(f.connections()).toBe(2);
+    expect(f.hellos()).toBe(1);
+    expect(
+      f.database
+        .prepare(
+          "SELECT message_id,event_json,acknowledged_at FROM agent_host_outbox WHERE acknowledged_at IS NULL ORDER BY sequence"
+        )
+        .all()
+    ).toEqual(immutable);
+  });
   it.each([
     { local: 256 * 1024, server: 64 * 1024 },
     { local: 64 * 1024, server: 256 * 1024 }
@@ -105,14 +240,14 @@ describe("Agent Host durable outbox failures", () => {
     f.state.conversations.append(command.turnId, {
       kind: "status",
       status: "failed",
-      error: "acp_conversation_" + "x".repeat(111)
+      error: `acp_conversation_${"x".repeat(111)}`
     });
     await vi.waitFor(() => expect(f.state.pendingEventCount()).toBe(0));
     expect(
       f.received.filter((e) => e.type === "acp_conversation.event").map((e) => e.payload)
     ).toEqual([
       { kind: "status", status: "running", error: null },
-      { kind: "status", status: "failed", error: "acp_conversation_" + "x".repeat(111) }
+      { kind: "status", status: "failed", error: `acp_conversation_${"x".repeat(111)}` }
     ]);
     expect(
       f.received.every(

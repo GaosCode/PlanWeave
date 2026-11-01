@@ -17,6 +17,7 @@ import type {
   AgentHostExecuteCommand,
   AgentHostExecutionContext
 } from "../../execution/agentHostExecutor.js";
+import { attachHostEventPayloadBudget } from "./hostTransportSocketHarness.js";
 import { openAgentHostState } from "../../state/agentHostState.js";
 import { openAgentHostDatabase } from "../../state/sqliteDatabase.js";
 import { AgentHostClient } from "../../transport/agentHostClient.js";
@@ -147,6 +148,7 @@ export async function leaseHarness(
   const database = await openAgentHostDatabase(path, 1_000);
   const server = createServer();
   const websocketServer = new WebSocketServer({ server });
+  attachHostEventPayloadBudget(websocketServer);
   const sockets: WebSocket[] = [];
   const events: HistoricalHostEvent[] = [];
   const protocolErrors: unknown[] = [];

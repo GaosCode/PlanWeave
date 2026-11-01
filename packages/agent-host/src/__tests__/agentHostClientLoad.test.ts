@@ -14,6 +14,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
+import { attachHostEventPayloadBudget } from "./support/hostTransportSocketHarness.js";
 import type { AgentHostExecutor } from "../execution/agentHostExecutor.js";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
@@ -139,6 +140,7 @@ function createClient(
   options: Partial<ConstructorParameters<typeof AgentHostClient>[0]> = {}
 ): AgentHostClient {
   const client = new AgentHostClient({
+    readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
     serverUrl: `http://127.0.0.1:${port}`,
     hostId: "host-load-001",
     workspaceId: "workspace-load",
@@ -162,6 +164,7 @@ describe("Agent Host transport load and recovery boundaries", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     let connectionCount = 0;
     webSocketServer.on("connection", (socket) => {
@@ -212,6 +215,7 @@ describe("Agent Host transport load and recovery boundaries", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
       socket.on("message", (data) => {
@@ -252,6 +256,7 @@ describe("Agent Host transport load and recovery boundaries", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     const state = await openState();
     for (let sequence = 1; sequence <= 80; sequence += 1) {
@@ -326,9 +331,10 @@ describe("Agent Host transport load and recovery boundaries", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
-      socket.on("message", () => socket.send("x".repeat(2_048)));
+      socket.on("message", () => socket.send("x".repeat(128 * 1_024)));
     });
     const port = await listen(httpServer);
     const state = await openState();
@@ -338,7 +344,7 @@ describe("Agent Host transport load and recovery boundaries", () => {
       state,
       { execute },
       {
-        limits: { maxPayloadBytes: 1_024, maxBufferedBytes: 2_048 },
+        limits: { maxPayloadBytes: 64 * 1_024, maxBufferedBytes: 128 * 1_024 },
         reconnect: { initialDelayMs: 60_000, maxDelayMs: 60_000 }
       }
     );
@@ -356,6 +362,7 @@ describe("Agent Host transport load and recovery boundaries", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
       socket.on("message", (data) => {

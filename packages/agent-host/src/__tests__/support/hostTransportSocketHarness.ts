@@ -1,5 +1,19 @@
 import { createServer, type Server as HttpServer } from "node:http";
+import {
+  DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
+  HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER,
+  HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER
+} from "@planweave-ai/agent-host-protocol";
 import { WebSocket, WebSocketServer } from "ws";
+
+export function attachHostEventPayloadBudget(server: WebSocketServer): void {
+  server.on("headers", (headers, request) => {
+    if (request.headers[HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER] === "1")
+      headers.push(
+        `${HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER}: ${DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES}`
+      );
+  });
+}
 
 export function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -32,6 +46,7 @@ export class HostTransportSocketHarness {
 
   static async open(port = 0): Promise<HostTransportSocketHarness> {
     const harness = new HostTransportSocketHarness();
+    attachHostEventPayloadBudget(harness.webSocketServer);
     harness.listeningPort = await listen(harness.httpServer, port);
     harness.webSocketServer.on("connection", (socket) => {
       harness.sockets.add(socket);

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-  DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
   acpConversationCommandSchema,
   acpConversationEventSchema,
   acpConversationEventPageBytes,
@@ -9,20 +8,13 @@ import {
   type AcpConversationPromptCommand
 } from "@planweave-ai/agent-host-protocol";
 import { ACP_CONVERSATION_RESPONSE_MAX_BYTES } from "@planweave-ai/collaboration-protocol/core/limits";
-import { encodeAgentHostEvent } from "../protocol.js";
+import { isHostEventPayloadTooLarge } from "../protocol.js";
+import { remoteRunnerWireChunks } from "../execution/remoteRunnerWireChunks.js";
 import { digestJson } from "./agentHostStateMigrations.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 import type { AgentHostEventOutbox } from "./agentHostEventOutbox.js";
 
 export class AcpConversationRepository {
-  private maxPayloadBytes = DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES;
-
-  setMaxPayloadBytes(bytes: number): void {
-    if (!Number.isSafeInteger(bytes) || bytes < 1)
-      throw new Error("agent_host_outbound_payload_budget_invalid");
-    this.maxPayloadBytes = bytes;
-  }
-
   constructor(
     private readonly db: SqliteDatabase,
     private readonly outbox: AgentHostEventOutbox
@@ -159,7 +151,37 @@ export class AcpConversationRepository {
   }
 
   append(turnId: string, payload: AcpConversationEvent["payload"]): void {
-    inWriteTransaction(this.db, () => this.appendInTransaction(turnId, payload));
+    inWriteTransaction(this.db, () => {
+      if (payload.kind !== "runner") return this.appendInTransaction(turnId, payload);
+      const command = this.command(turnId);
+      const row = this.db
+        .prepare("SELECT last_sequence FROM agent_host_conversation_turns WHERE turn_id=?")
+        .get(turnId);
+      const chunks = remoteRunnerWireChunks(payload.fragment, (fragment, index) => {
+        const event = acpConversationEventSchema.parse({
+          type: "acp_conversation.event",
+          protocolVersion: 1,
+          operationId: command.operationId,
+          turnId,
+          executionAttemptId: command.executionAttemptId,
+          sessionId: command.sessionId,
+          messageId: randomUUID(),
+          sequence: Number(row?.last_sequence) + index + 1,
+          timestamp: new Date().toISOString(),
+          payload: { kind: "runner", fragment }
+        });
+        if (acpConversationEventPageBytes(event) > ACP_CONVERSATION_RESPONSE_MAX_BYTES)
+          return false;
+        try {
+          this.outbox.encode(event);
+          return true;
+        } catch (error) {
+          if (isHostEventPayloadTooLarge(error)) return false;
+          throw error;
+        }
+      });
+      for (const fragment of chunks) this.appendInTransaction(turnId, { kind: "runner", fragment });
+    });
   }
 
   private appendInTransaction(turnId: string, payload: AcpConversationEvent["payload"]): void {
@@ -185,7 +207,7 @@ export class AcpConversationRepository {
       throw new Error("acp_conversation_event_too_large");
     let bytes: number;
     try {
-      bytes = encodeAgentHostEvent(event, this.maxPayloadBytes).bytes;
+      bytes = this.outbox.encode(event).bytes;
     } catch (error) {
       if (error instanceof Error && error.message === "agent_host_outbound_payload_too_large")
         throw new Error("acp_conversation_event_too_large", { cause: error });

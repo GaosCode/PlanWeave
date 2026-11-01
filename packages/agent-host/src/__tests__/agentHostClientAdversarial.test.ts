@@ -16,6 +16,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
+import { attachHostEventPayloadBudget } from "./support/hostTransportSocketHarness.js";
 import { FakeHostTransportClock } from "./support/hostTransportTestClock.js";
 import type { AgentHostExecutor } from "../execution/agentHostExecutor.js";
 import { AgentHostState, openAgentHostState } from "../state/agentHostState.js";
@@ -79,6 +80,7 @@ describe("Agent Host adversarial executor failure", () => {
     await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
     cleanups.push(() => new Promise<void>((resolve) => httpServer.close(() => resolve())));
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     cleanups.push(() => new Promise<void>((resolve) => webSocketServer.close(() => resolve())));
     webSocketServer.on("connection", (socket) => {
       socket.on("message", (data) => {
@@ -116,6 +118,7 @@ describe("Agent Host adversarial executor failure", () => {
       }
     };
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${address.port}`,
       hostId: "host-adversarial",
       workspaceId: "workspace-client",
@@ -175,6 +178,7 @@ async function outboxClientFixture(maxOutboundBatch = 128) {
   const httpServer = createServer();
   cleanups.push(() => new Promise<void>((resolve) => httpServer.close(() => resolve())));
   const server = new WebSocketServer({ server: httpServer });
+  attachHostEventPayloadBudget(server);
   cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
   const received: HostEvent[] = [];
   let autoAck = true;

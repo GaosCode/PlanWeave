@@ -16,6 +16,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
+import { attachHostEventPayloadBudget } from "./support/hostTransportSocketHarness.js";
 import { AgentHostExecutionError, type AgentHostExecutor } from "../execution/agentHostExecutor.js";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
@@ -181,6 +182,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     const clock = new FakeHostTransportClock();
     const serverClock = new CalibratedServerClock(clock);
@@ -201,6 +203,7 @@ describe("Agent Host outbound transport", () => {
     const port = await listen(httpServer);
     const state = await openState();
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       token: "host-token",
@@ -224,6 +227,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
       socket.on("message", (data) => {
@@ -255,6 +259,7 @@ describe("Agent Host outbound transport", () => {
         : new Response("unavailable", { status: versionStatus })
     );
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-negotiation",
       workspaceId: "workspace-client",
@@ -289,6 +294,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     const connection = vi.fn();
     webSocketServer.on("connection", connection);
@@ -311,6 +317,7 @@ describe("Agent Host outbound transport", () => {
       }
     );
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-cancel-discovery",
       workspaceId: "workspace-client",
@@ -355,6 +362,7 @@ describe("Agent Host outbound transport", () => {
     expect(
       () =>
         new AgentHostClient({
+          readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
           serverUrl: "http://127.0.0.1:3000",
           hostId: "host-client-001",
           workspaceId: "workspace-client",
@@ -380,6 +388,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
       socket.on("message", (data) => {
@@ -398,6 +407,7 @@ describe("Agent Host outbound transport", () => {
     const port = await listen(httpServer);
     const state = await openState();
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       workspaceId: "workspace-other",
@@ -430,6 +440,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
       socket.on("message", (data) => {
@@ -448,6 +459,7 @@ describe("Agent Host outbound transport", () => {
     const port = await listen(httpServer);
     const state = await openState();
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       workspaceId: "workspace-other",
@@ -506,6 +518,7 @@ describe("Agent Host outbound transport", () => {
     });
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket, request) => {
       expect(request.url).toBe("/agent-hosts/host-client-001/connect?workspaceId=workspace-client");
@@ -552,6 +565,7 @@ describe("Agent Host outbound transport", () => {
       }
     };
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       workspaceId: "workspace-client",
@@ -594,6 +608,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
       socket.on("message", (data) => {
@@ -625,6 +640,7 @@ describe("Agent Host outbound transport", () => {
       }
     };
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       workspaceId: "workspace-client",
@@ -655,6 +671,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
       socket.on("message", (data) => {
@@ -688,6 +705,7 @@ describe("Agent Host outbound transport", () => {
         })
     };
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       workspaceId: "workspace-client",
@@ -723,6 +741,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     let completedCount = 0;
     webSocketServer.on("connection", (socket) => {
@@ -775,6 +794,7 @@ describe("Agent Host outbound transport", () => {
       }
     };
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       workspaceId: "workspace-client",
@@ -808,6 +828,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     let connectionCount = 0;
     webSocketServer.on("connection", (socket) => {
@@ -831,6 +852,7 @@ describe("Agent Host outbound transport", () => {
     const clock = new FakeHostTransportClock();
     const executor: AgentHostExecutor = { execute: vi.fn() };
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       workspaceId: "workspace-client",
@@ -866,6 +888,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     let connectionCount = 0;
     webSocketServer.on("connection", (socket) => {
@@ -876,6 +899,7 @@ describe("Agent Host outbound transport", () => {
     const state = await openState();
     const clock = new FakeHostTransportClock();
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       workspaceId: "workspace-client",
@@ -911,6 +935,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     let connectionCount = 0;
     webSocketServer.on("connection", (socket) => {
@@ -938,6 +963,7 @@ describe("Agent Host outbound transport", () => {
     });
     const clock = new FakeHostTransportClock();
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       workspaceId: "workspace-client",
@@ -978,6 +1004,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
       socket.on("message", (data) => {
@@ -996,6 +1023,7 @@ describe("Agent Host outbound transport", () => {
     const state = await openState();
     const clock = new FakeHostTransportClock();
     const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
       serverUrl: `http://127.0.0.1:${port}`,
       hostId: "host-client-001",
       workspaceId: "workspace-client",
@@ -1040,6 +1068,7 @@ describe("Agent Host outbound transport", () => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
       socket.on("message", (data) => {

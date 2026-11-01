@@ -9,7 +9,7 @@ import {
   type CanvasRuntimeRequestCommand,
   type CanvasRuntimeResponsePayload
 } from "@planweave-ai/agent-host-protocol";
-import { parseAgentHostEvent, type HostEvent } from "../protocol.js";
+import { parseAgentHostEvent, isHostEventPayloadTooLarge, type HostEvent } from "../protocol.js";
 import { AgentHostEventOutbox } from "./agentHostEventOutbox.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
@@ -303,7 +303,33 @@ export class CanvasRuntimeRpcRepository {
         }
         return this.events.queue(`canvas-runtime.response:${requestId}`, stored);
       }
-      const event = parseAgentHostEvent({ ...response, messageId: randomUUID() });
+      let event = parseAgentHostEvent({ ...response, messageId: randomUUID() });
+      try {
+        this.events.encode(event);
+      } catch (error) {
+        if (!isHostEventPayloadTooLarge(error)) throw error;
+        const reconcileRequired =
+          status === "reconcile_required" ||
+          !["status", "inspect", "query"].includes(response.response.operation);
+        status = reconcileRequired ? "reconcile_required" : "terminal";
+        event = parseAgentHostEvent({
+          type: "canvas_runtime.response",
+          protocolVersion: 1,
+          requestId,
+          messageId: randomUUID(),
+          response: {
+            outcome: "error",
+            operation: response.response.operation,
+            error: {
+              code: "agent_host_outbound_payload_too_large",
+              message:
+                "The Canvas Runtime response exceeds the negotiated Host event payload budget.",
+              retryable: false,
+              ...(reconcileRequired ? { reconcileRequired: true } : {})
+            }
+          }
+        });
+      }
       this.database
         .prepare(
           `UPDATE canvas_runtime_rpc_receipts

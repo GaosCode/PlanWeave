@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
+import { attachHostEventPayloadBudget } from "./support/hostTransportSocketHarness.js";
 import { openAgentHostState } from "../state/agentHostState.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
 import { FakeHostTransportClock } from "./support/hostTransportTestClock.js";
@@ -24,6 +25,7 @@ async function setup(welcome = true) {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
   const sockets = new WebSocketServer({ server });
+  attachHostEventPayloadBudget(sockets);
   cleanup.push(
     () =>
       new Promise<void>((resolve) => {
@@ -52,6 +54,7 @@ async function setup(welcome = true) {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("missing port");
   const client = new AgentHostClient({
+    readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
     serverUrl: `http://127.0.0.1:${address.port}`,
     hostId: "host-liveness",
     token: "test-token",

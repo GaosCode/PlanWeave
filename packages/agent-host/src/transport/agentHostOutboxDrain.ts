@@ -1,10 +1,6 @@
-import {
-  hostEventPayloadBytes,
-  historicalPermissionHostReplaySchema
-} from "@planweave-ai/agent-host-protocol";
 import { WebSocket } from "ws";
 import { ZodError } from "zod";
-import { serializeAgentHostEvent, type HistoricalHostEvent } from "../protocol.js";
+import { encodeHistoricalAgentHostEvent, type HistoricalHostEvent } from "../protocol.js";
 import type { AgentHostStateRepository } from "../state/agentHostStateContract.js";
 import type { HostTransportClock, HostTransportLimits } from "./hostTransport.js";
 
@@ -59,6 +55,12 @@ export class AgentHostOutboxDrain {
 
   setMaxPayloadBytes(bytes: number): void {
     this.maxPayloadBytes = bytes;
+  }
+
+  validatePending(): void {
+    for (const event of readOutbox(() => this.state.pendingEvents(Number.MAX_SAFE_INTEGER))) {
+      this.encode(event);
+    }
   }
 
   start(): void {
@@ -169,32 +171,7 @@ export class AgentHostOutboxDrain {
       this.rejectHistoricalReplay();
       return false;
     }
-    const eventJson = historical
-      ? readOutbox(() => this.state.historicalPermissionEventJson(event.messageId))
-      : undefined;
-    let payload: string;
-    try {
-      payload = historical
-        ? JSON.stringify(
-            historicalPermissionHostReplaySchema.parse({
-              type: "host.permission_history",
-              protocolVersion: 1,
-              eventJson
-            })
-          )
-        : serializeAgentHostEvent(event);
-    } catch (error) {
-      throw new AgentHostOutboxDataError("agent_host_outbox_encoding_failed", { cause: error });
-    }
-    let bytes: number;
-    try {
-      bytes = hostEventPayloadBytes(payload, this.maxPayloadBytes);
-    } catch (error) {
-      throw new AgentHostOutboxDataError(
-        error instanceof Error ? error.message : "agent_host_outbound_payload_budget_invalid",
-        { cause: error }
-      );
-    }
+    const { payload, bytes } = this.encode(event);
     if (socket.bufferedAmount + bytes > this.limits.maxBufferedBytes) {
       this.retry();
       return false;
@@ -202,5 +179,27 @@ export class AgentHostOutboxDrain {
     socket.send(payload);
     this.retryDelayMs = 25;
     return true;
+  }
+
+  private encode(event: HistoricalHostEvent): { payload: string; bytes: number } {
+    const historical = event.type === "interaction.permission_requested" && !("options" in event);
+    const eventJson = historical
+      ? readOutbox(() => this.state.historicalPermissionEventJson(event.messageId))
+      : undefined;
+    let payload: string;
+    let bytes: number;
+    try {
+      ({ payload, bytes } = encodeHistoricalAgentHostEvent(event, this.maxPayloadBytes, eventJson));
+    } catch (error) {
+      throw new AgentHostOutboxDataError(
+        error instanceof ZodError
+          ? "agent_host_outbox_encoding_failed"
+          : error instanceof Error
+            ? error.message
+            : "agent_host_outbound_payload_budget_invalid",
+        { cause: error }
+      );
+    }
+    return { payload, bytes };
   }
 }

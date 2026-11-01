@@ -15,6 +15,7 @@ import type {
 } from "../execution/remoteAcpPorts.js";
 import {
   parseAgentHostEvent,
+  isHostEventPayloadTooLarge,
   parseHistoricalAgentHostMailboxCommand,
   parseAgentHostServerEvent,
   type HostEvent,
@@ -687,7 +688,7 @@ export class AgentHostState implements AgentHostStateRepository {
   }
 
   setHostEventMaxPayloadBytes(bytes: number): void {
-    this.conversations.setMaxPayloadBytes(bytes);
+    this.events.setMaxPayloadBytes(bytes);
   }
 
   setRemoteRunnerEventProtocolVersion(version: 2): void {
@@ -798,10 +799,24 @@ export class AgentHostState implements AgentHostStateRepository {
   ): void {
     const current = this.executions.get(sequence);
     if (!current) throw new Error("mailbox_message_not_found");
-    const eventType = status === "completed" ? "dispatch.completed" : "dispatch.failed";
+    let eventType = status === "completed" ? "dispatch.completed" : "dispatch.failed";
+    let candidate = createEvent(current.command);
+    try {
+      this.events.encode(candidate);
+    } catch (error) {
+      if (!isHostEventPayloadTooLarge(error)) throw error;
+      payload = {
+        code: "agent_host_outbound_payload_too_large",
+        message: "The execution result exceeds the negotiated Host event payload budget.",
+        retryable: false
+      };
+      status = status === "cancelled" ? "cancelled" : "failed";
+      eventType = "dispatch.failed";
+      candidate = this.failedEvent(current.command, payload);
+    }
     const event = this.events.queue(
       `${eventType}:${current.command.dispatchId}:${current.command.leaseId}:${current.command.executionAttemptId}`,
-      createEvent(current.command)
+      candidate
     );
     this.executions.finish(sequence, status, payload, event.messageId);
   }

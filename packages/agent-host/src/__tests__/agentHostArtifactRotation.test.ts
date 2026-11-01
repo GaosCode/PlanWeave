@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer } from "ws";
 import { expect, it } from "vitest";
+import { attachHostEventPayloadBudget } from "./support/hostTransportSocketHarness.js";
 import type { ActiveHostCredential } from "../credentials/credentialContract.js";
 import { openAgentHostState } from "../state/agentHostState.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
@@ -33,6 +34,7 @@ it.each([
   let authority = initialToken;
   const http = createServer();
   const sockets = new WebSocketServer({ server: http });
+  attachHostEventPayloadBudget(sockets);
   sockets.on("connection", (socket, request) => {
     const index = authorization.length;
     authorization.push(request.headers.authorization);

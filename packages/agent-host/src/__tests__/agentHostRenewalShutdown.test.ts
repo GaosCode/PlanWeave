@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { attachHostEventPayloadBudget } from "./support/hostTransportSocketHarness.js";
 import { AgentHostCredentialRenewal } from "../credentials/credentialRenewal.js";
 import { FileHostCredentialStore } from "../credentials/fileCredentialStore.js";
 import { openAgentHostState } from "../state/agentHostState.js";
@@ -100,6 +101,7 @@ async function fixture(heldMethod: "GET" | "POST", clock?: FakeHostTransportCloc
     });
   });
   const sockets = new WebSocketServer({ server });
+  attachHostEventPayloadBudget(sockets);
   sockets.on("connection", (socket, request) => {
     authorizations.push(request.headers.authorization);
     socket.on("message", (data) => {

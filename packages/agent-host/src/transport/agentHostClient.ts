@@ -1,13 +1,15 @@
 import { AgentHostOutboxDataError, AgentHostOutboxDrain } from "./agentHostOutboxDrain.js";
 import { HostConnectionWatchdog } from "./hostConnectionWatchdog.js";
+import { assertHostOutboundControlBudget } from "./hostOutboundControlBudget.js";
 import { classifyRemoteRunnerHttpFailure } from "./remoteRunnerHttpFailure.js";
-import type { RemoteAcpConversationService } from "../execution/remoteAcpConversationService.js";
 import { WebSocket } from "ws";
 import {
   ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES,
   HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER,
   HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER,
   requireHostEventPayloadBudget,
+  hostEventPayloadBytes,
+  hostReadinessObservationSchema,
   CANVAS_RUNTIME_CAPABILITY,
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
   HISTORICAL_PERMISSION_REPLAY_VERSION_HEADER,
@@ -23,25 +25,15 @@ import {
   type ServerEvent
 } from "../protocol.js";
 import { HttpArtifactClient } from "../artifacts/httpArtifactTransfer.js";
-import type { HostCredentialRenewalPort } from "../credentials/credentialRenewal.js";
 import {
-  AgentHostExecutionError,
   AgentHostSessionLoadError,
-  type AgentHostExecutionContext,
-  type AgentHostExecutor
+  type AgentHostExecutionContext
 } from "../execution/agentHostExecutor.js";
-import type { DurableAcpInteractionRelay } from "../execution/durableAcpRelay.js";
-import type {
-  AgentHostExecution,
-  AgentHostExecutionSettlement,
-  AgentHostStateRepository
-} from "../state/agentHostState.js";
-import type { CanvasRuntimeService } from "../runtime/canvasRuntimeService.js";
+import type { AgentHostExecution, AgentHostExecutionSettlement } from "../state/agentHostState.js";
 import {
   type HostTransport,
   type HostTransportClock,
   type HostTransportLimits,
-  type HostTransportLogger,
   type HostTransportStatus,
   type HostTransportStatusListener,
   parseHostTransportLimits,
@@ -49,11 +41,7 @@ import {
 } from "./hostTransport.js";
 import { ExecutionLeaseDeadline } from "./executionLeaseDeadline.js";
 import { CalibratedServerClock } from "./calibratedServerClock.js";
-import {
-  parseReconnectBackoffOptions,
-  reconnectDelay,
-  type ReconnectBackoffOptions
-} from "./reconnectBackoff.js";
+import { parseReconnectBackoffOptions, reconnectDelay } from "./reconnectBackoff.js";
 
 import {
   discoverRemoteRunnerEventProtocol,
@@ -61,45 +49,8 @@ import {
 } from "./remoteRunnerDiscovery.js";
 export { selectRemoteRunnerEventProtocolVersion } from "./remoteRunnerDiscovery.js";
 
-export type AgentHostClientOptions = {
-  serverUrl: string;
-  hostId: string;
-  /** Legacy collaboration workspace scope; omitted for server-scoped fleet enrollment. */
-  workspaceId?: string;
-  token: string;
-  credentialRenewal?: HostCredentialRenewalPort;
-  capabilities: readonly string[];
-  capacity: number;
-  readiness: HostReadinessObservation;
-  state: AgentHostStateRepository;
-  executor: AgentHostExecutor;
-  interactionRelay?: Pick<DurableAcpInteractionRelay, "accept">;
-  conversations?: Pick<
-    RemoteAcpConversationService,
-    "handle" | "recover" | "stop" | "isSessionActive"
-  >;
-  canvasRuntime?: Pick<
-    CanvasRuntimeService,
-    | "disconnect"
-    | "enabled"
-    | "handle"
-    | "recover"
-    | "start"
-    | "stop"
-    | "synchronizeServerTime"
-    | "updateCredentialToken"
-  >;
-  allowInsecureTransport?: boolean;
-  ca?: string[];
-  request: typeof fetch;
-  reconnect?: Partial<ReconnectBackoffOptions>;
-  clock?: HostTransportClock;
-  serverClock?: CalibratedServerClock;
-  random?: () => number;
-  limits?: Partial<HostTransportLimits>;
-  logger?: HostTransportLogger;
-  onProtocolError?(event: Extract<ServerEvent, { type: "protocol.error" }>): void;
-};
+export type { AgentHostClientOptions } from "./agentHostClientOptions.js";
+import type { AgentHostClientOptions } from "./agentHostClientOptions.js";
 
 type ActiveExecution = {
   execution: AgentHostExecution;
@@ -116,48 +67,12 @@ function endpoint(base: URL, path: string, websocket: boolean): URL {
   return result;
 }
 
-function executionFailure(error: unknown, aborted: boolean) {
-  if (aborted) {
-    return {
-      code: "execution_cancelled",
-      message: "The execution was cancelled by the coordinator.",
-      retryable: false
-    };
-  }
-  if (error instanceof AgentHostExecutionError) return error.failure;
-  if (
-    error instanceof Error &&
-    (error.message.startsWith("artifact_upload_failed:") ||
-      error.message.startsWith("artifact_download_failed:") ||
-      error.message.startsWith("artifact_download_"))
-  ) {
-    return {
-      code: "artifact_upload_failed",
-      message: "The Agent Host could not transfer an execution artifact.",
-      retryable: true
-    };
-  }
-  return {
-    code: "executor_failed",
-    message: "The Agent Host executor failed.",
-    retryable: false
-  };
-}
-
-function executionCleanupFailed(error: unknown): boolean {
-  if (error instanceof AgentHostExecutionError) {
-    return (
-      error.failure.code === "acp_cleanup_failed" ||
-      error.failure.code === "workspace_input_cleanup_failed"
-    );
-  }
-  return (
-    error instanceof AggregateError &&
-    error.message === "remote_acp_execution_and_input_cleanup_failed"
-  );
-}
+import { executionFailure, executionCleanupFailed } from "./agentHostExecutionOutcome.js";
+import type { ReconnectBackoffOptions } from "./reconnectBackoff.js";
 
 export class AgentHostClient implements HostTransport {
+  private readonly readiness: HostReadinessObservation;
+  private outboundMaxPayloadBytes: number;
   private readonly baseUrl: URL;
   private readonly capabilities: string[];
   private readonly artifacts: HttpArtifactClient;
@@ -211,33 +126,26 @@ export class AgentHostClient implements HostTransport {
     this.clock = options.clock ?? systemHostTransportClock;
     this.serverClock = options.serverClock ?? new CalibratedServerClock(this.clock);
     this.limits = parseHostTransportLimits(options.limits);
+    this.outboundMaxPayloadBytes = this.limits.maxPayloadBytes;
     this.capabilities = parseAgentHostCapabilities(options.capabilities);
+    this.readiness = hostReadinessObservationSchema.parse(options.readiness);
     if (
       this.capabilities.includes(ACP_CONVERSATION_CAPABILITY) &&
       this.limits.maxPayloadBytes < ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES
     )
       throw new Error("agent_host_conversation_payload_budget_too_small");
+    assertHostOutboundControlBudget(
+      this.limits.maxPayloadBytes,
+      this.capabilities,
+      options.capacity,
+      this.readiness
+    );
     options.state.setHostEventMaxPayloadBytes(this.limits.maxPayloadBytes);
     this.outbox = new AgentHostOutboxDrain(
       options.state,
       this.clock,
       this.limits,
-      (error) => {
-        if (error instanceof AgentHostOutboxDataError) {
-          const stopping = this.stop();
-          this.transition({ state: "reconciliation-required", reason: error.message });
-          void stopping.catch(() => this.failExecutionProtection("outbox_shutdown_failed"));
-        } else {
-          this.transition({ state: "degraded", reason: "outbox_delivery_failed" });
-          this.socket?.close(1011, "outbox delivery failed");
-        }
-        this.options.logger?.log({
-          level: "warn",
-          event: "host_outbox_delivery_failed",
-          state: this.currentStatus.state,
-          reason: error instanceof Error ? error.message : "outbox_delivery_failed"
-        });
-      },
+      (error) => this.handleOutboxError(error),
       () => this.rejectPermissionCompatibility("historical_permission_replay_unsupported")
     );
     this.leaseDeadline = new ExecutionLeaseDeadline(this.clock, () => {
@@ -519,7 +427,6 @@ export class AgentHostClient implements HostTransport {
     socket.on("upgrade", (response) => {
       if (this.socket !== socket || this.stopped) return;
       const header = response.headers[HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER];
-      if (header === undefined && !this.capabilities.includes(ACP_CONVERSATION_CAPABILITY)) return;
       try {
         const bytes = Math.min(this.limits.maxPayloadBytes, requireHostEventPayloadBudget(header));
         if (
@@ -527,8 +434,15 @@ export class AgentHostClient implements HostTransport {
           bytes < ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES
         )
           throw new Error("agent_host_conversation_payload_budget_too_small");
+        assertHostOutboundControlBudget(
+          bytes,
+          this.capabilities,
+          this.options.capacity,
+          this.readiness
+        );
         this.options.state.setHostEventMaxPayloadBytes(bytes);
         this.outbox.setMaxPayloadBytes(bytes);
+        this.outboundMaxPayloadBytes = bytes;
       } catch (error) {
         outboundBudgetError =
           error instanceof Error
@@ -543,6 +457,12 @@ export class AgentHostClient implements HostTransport {
         return;
       }
       watchdog.received();
+      try {
+        this.outbox.validatePending();
+      } catch (error) {
+        this.handleOutboxError(error);
+        return;
+      }
       const hello = serializeAgentHostHello({
         type: "host.hello",
         protocolVersion: 1,
@@ -550,8 +470,13 @@ export class AgentHostClient implements HostTransport {
         lastAcknowledgedSequence: this.options.state.lastAcknowledgedSequence(),
         capabilities: this.capabilities,
         capacity: this.options.capacity,
-        readiness: this.options.readiness
+        readiness: this.readiness
       });
+      const helloBytes = hostEventPayloadBytes(hello, this.outboundMaxPayloadBytes);
+      if (socket.bufferedAmount + helloBytes > this.limits.maxBufferedBytes) {
+        this.rejectPermissionCompatibility("agent_host_outbound_buffer_capacity_exceeded");
+        return;
+      }
       socket.send(hello);
     });
     socket.on("message", (data, isBinary) => {
@@ -815,7 +740,14 @@ export class AgentHostClient implements HostTransport {
     const send = () => {
       if (this.stopped || !this.welcomed) return;
       if (!this.checkExecutionLeases()) return;
-      this.options.state.queueHeartbeat(this.options.state.activeLeases(), this.options.readiness);
+      try {
+        this.options.state.queueHeartbeat(this.options.state.activeLeases(), this.readiness);
+      } catch (error) {
+        this.failExecutionProtection(
+          error instanceof Error ? error.message : "heartbeat_persistence_failed"
+        );
+        return;
+      }
       this.outbox.request();
       this.checkCredentialRenewal();
       this.heartbeatTimer = this.clock.setTimeout(send, intervalMs);
@@ -1047,6 +979,23 @@ export class AgentHostClient implements HostTransport {
       this.outbox.request();
       this.pump();
     }
+  }
+
+  private handleOutboxError(error: unknown): void {
+    if (error instanceof AgentHostOutboxDataError) {
+      const stopping = this.stop();
+      this.transition({ state: "reconciliation-required", reason: error.message });
+      void stopping.catch(() => this.failExecutionProtection("outbox_shutdown_failed"));
+    } else {
+      this.transition({ state: "degraded", reason: "outbox_delivery_failed" });
+      this.socket?.close(1011, "outbox delivery failed");
+    }
+    this.options.logger?.log({
+      level: "warn",
+      event: "host_outbox_delivery_failed",
+      state: this.currentStatus.state,
+      reason: error instanceof Error ? error.message : "outbox_delivery_failed"
+    });
   }
 
   private transition(status: HostTransportStatus): void {
