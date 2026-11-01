@@ -38,7 +38,7 @@ export const ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES = new TextEncoder().e
       payload: {
         kind: "status",
         status: "failed",
-        error: "acp_conversation_" + "x".repeat(ACP_CONVERSATION_FAILURE_CODE_MAX_LENGTH - 17)
+        error: `acp_conversation_${"x".repeat(ACP_CONVERSATION_FAILURE_CODE_MAX_LENGTH - 17)}`
       }
     })
   )

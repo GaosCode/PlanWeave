@@ -11,7 +11,7 @@ import {
 const [action = "create", fixtureFile, runName = "a"] = process.argv.slice(2);
 if (action === "create") {
   const fixture = await createTaskWorkspaceAcpSmokeFixture();
-  process.stdout.write(JSON.stringify(fixture, null, 2) + "\n");
+  process.stdout.write(`${JSON.stringify(fixture, null, 2)}\n`);
 } else {
   if (!fixtureFile) throw new Error("Pass the owned fixture.json path and run name a/b.");
   const fixture = await readTaskWorkspaceAcpSmokeControls(fixtureFile);

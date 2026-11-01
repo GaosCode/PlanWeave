@@ -16,7 +16,7 @@ const message = (content: string, role: "assistant" | "user" = "assistant"): Acp
 });
 describe("remote report presentation", () => {
   it("shows report prose and no fabricated artifact reference", () => {
-    expect(presentRemoteAcpReport([message("Done.\n" + marker)])).toEqual([message("Done.")]);
+    expect(presentRemoteAcpReport([message(`Done.\n${marker}`)])).toEqual([message("Done.")]);
     expect(presentRemoteAcpReport([message(marker)])).toEqual([message("Done.")]);
   });
   it("preserves malformed output and user text for diagnosis", () => {

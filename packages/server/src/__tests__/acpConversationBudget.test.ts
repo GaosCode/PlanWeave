@@ -321,7 +321,7 @@ describe("ACP conversation complete JSON wire budget", () => {
       ...payload,
       request: {
         ...payload.request,
-        requestedSchema: { description: "x".repeat(room - 6) + "\u0001" }
+        requestedSchema: { description: `${"x".repeat(room - 6)}\u0001` }
       }
     });
     expect(acpConversationEventPageBytes(exact)).toBe(ACP_CONVERSATION_RESPONSE_MAX_BYTES);
@@ -329,7 +329,7 @@ describe("ACP conversation complete JSON wire budget", () => {
       ...payload,
       request: {
         ...payload.request,
-        requestedSchema: { description: "x".repeat(room - 5) + "\u0001" }
+        requestedSchema: { description: `${"x".repeat(room - 5)}\u0001` }
       }
     });
     expect(() => f.service.ingest(f.host.id, tooLarge)).toThrow("acp_conversation_event_too_large");

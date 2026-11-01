@@ -52,7 +52,7 @@ describe("Host conversation single-event wire admission", () => {
       messageId: "00000000-0000-0000-0000-000000000000",
       sequence: Number.MAX_SAFE_INTEGER,
       timestamp: "9999-12-31T23:59:59.999Z",
-      payload: { kind: "status", status: "failed", error: "acp_conversation_" + "x".repeat(111) }
+      payload: { kind: "status", status: "failed", error: `acp_conversation_${"x".repeat(111)}` }
     });
     expect(Buffer.byteLength(JSON.stringify(terminal))).toBe(
       ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES
@@ -201,7 +201,7 @@ describe("Host conversation single-event wire admission", () => {
     );
     expect(f.state.pendingEvents()).toEqual([]);
     expect(() =>
-      f.state.conversations.append(f.command.turnId, runner("a".repeat(80000) + " token=value"))
+      f.state.conversations.append(f.command.turnId, runner(`${"a".repeat(80000)} token=value`))
     ).toThrow("unredacted credential");
     expect(f.state.pendingEvents()).toEqual([]);
     f.state.setHostEventMaxPayloadBytes(1);
@@ -249,7 +249,7 @@ describe("Host conversation single-event wire admission", () => {
   it("splits a nonmonotonic credential-like suffix without changing text or escaping", async () => {
     const f = await setup();
     f.state.setHostEventMaxPayloadBytes(32 * 1024);
-    const content = "a".repeat(25000) + "xtoken=value" + "a".repeat(24986) + '\u0000😀"\\\n';
+    const content = `${"a".repeat(25000)}xtoken=value${"a".repeat(24986)}\u0000😀"\\\n`;
     f.state.conversations.append(f.command.turnId, {
       kind: "runner",
       fragment: {

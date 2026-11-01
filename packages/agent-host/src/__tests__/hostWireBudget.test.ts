@@ -250,8 +250,7 @@ describe("Host complete wire frame admission", () => {
         }
       ]
     };
-    content +=
-      "a".repeat(64 * 1024 - Buffer.byteLength(JSON.stringify(probe)) - 1) + "xtoken=value";
+    content += `${"a".repeat(64 * 1024 - Buffer.byteLength(JSON.stringify(probe)) - 1)}xtoken=value`;
     body.content = content;
     expect(hostEventSchema.safeParse(probe).success).toBe(true);
     f.state.append(source);

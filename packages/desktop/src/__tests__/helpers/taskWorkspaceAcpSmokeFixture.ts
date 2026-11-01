@@ -145,7 +145,7 @@ export async function createTaskWorkspaceAcpSmokeFixture() {
     );
     await writeFile(
       join(runDir, "events.ndjson"),
-      events.map((event) => JSON.stringify(event)).join("\n") + "\n"
+      `${events.map((event) => JSON.stringify(event)).join("\n")}\n`
     );
     await writeFile(join(runDir, "report.md"), `Completed local fixture ${name}\n`);
     await writeJsonFile(join(runDir, "metadata.json"), {
@@ -202,14 +202,14 @@ export async function createTaskWorkspaceAcpSmokeFixture() {
   const mainEntry = fileURLToPath(new URL("../../../dist/main/main.js", import.meta.url));
   await writeFile(
     launcher,
-    [
+    `${[
       'const { app } = require("electron");',
       `app.setPath("userData", ${JSON.stringify(userData)});`,
       `process.env.PLANWEAVE_HOME = ${JSON.stringify(home)};`,
       `process.env.PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR = ${JSON.stringify(userData)};`,
       `process.env.PLANWEAVE_DESKTOP_SETTINGS_FILE = ${JSON.stringify(join(userData, "config", "desktop-settings.json"))};`,
       `import(${JSON.stringify(pathToFileURL(mainEntry).href)}).catch((error) => { console.error(error); app.exit(1); });`
-    ].join("\n") + "\n"
+    ].join("\n")}\n`
   );
   const result = {
     directory,

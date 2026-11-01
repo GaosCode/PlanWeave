@@ -43,11 +43,11 @@ function actualCase(path) {
 
 function candidates(path) {
   const extension = extname(path);
-  if (extension === ".js") return [path.slice(0, -3) + ".ts", path.slice(0, -3) + ".tsx", path];
-  if (extension === ".mjs") return [path.slice(0, -4) + ".mts", path];
-  if (extension === ".cjs") return [path.slice(0, -4) + ".cts", path];
+  if (extension === ".js") return [`${path.slice(0, -3)}.ts`, `${path.slice(0, -3)}.tsx`, path];
+  if (extension === ".mjs") return [`${path.slice(0, -4)}.mts`, path];
+  if (extension === ".cjs") return [`${path.slice(0, -4)}.cts`, path];
   if (extension) return [path];
-  return sourceExtensions.flatMap((ext) => [path + ext, join(path, "index" + ext)]);
+  return sourceExtensions.flatMap((ext) => [path + ext, join(path, `index${ext}`)]);
 }
 
 const errors = [];
