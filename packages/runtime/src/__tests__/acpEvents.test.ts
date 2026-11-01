@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { normalizeAcpSessionNotification } from "../autoRun/acpEventNormalization.js";
+import { projectAcpContextUsage } from "../autoRun/acpUsageProjection.js";
 import {
   AcpEventStore,
   AcpEventStoreLimitError,
@@ -209,6 +210,37 @@ describe("ACP event normalization", () => {
         }
       })
     ).toMatchObject({ kind: "usage_update", usedTokens: 10, contextWindowTokens: 100 });
+  });
+
+  it("accepts usage updates that omit the context window or carry an invalid currency", () => {
+    const normalize = (
+      used: number,
+      size: number,
+      cost: { amount: number; currency: string } | null
+    ) =>
+      normalizeAcpSessionNotification({
+        sessionId: "session-1",
+        update: { sessionUpdate: "usage_update", used, size, ...(cost ? { cost } : {}) }
+      });
+
+    const zeroWindow = normalize(10, 0, null);
+    expect(zeroWindow).toMatchObject({
+      kind: "usage_update",
+      usedTokens: 10,
+      contextWindowTokens: 0
+    });
+    expect(
+      projectAcpContextUsage([
+        { sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", body: zeroWindow! }
+      ])
+    ).toMatchObject({ usedTokens: 10, contextWindowTokens: 0, cost: null });
+
+    const badCurrency = normalize(10, 100, { amount: 1, currency: "" });
+    expect(
+      projectAcpContextUsage([
+        { sequence: 2, timestamp: "2026-01-01T00:00:01.000Z", body: badCurrency! }
+      ])
+    ).toMatchObject({ usedTokens: 10, contextWindowTokens: 100, cost: null });
   });
 
   it("ignores provider-only status while preserving authoritative configuration updates", () => {
