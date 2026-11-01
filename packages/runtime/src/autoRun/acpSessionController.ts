@@ -1,4 +1,5 @@
 import { beginExecutorResultsWriter } from "./executorResultsLifecycle.js";
+import { canonicalRunRecordId } from "../runRecordIdentity.js";
 import { mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -332,6 +333,15 @@ export class AcpSessionController {
       });
       const permissionHandler = createPersistentAcpPermissionHandler({
         runDir: run.runDir,
+        recordId: canonicalRunRecordId(
+          run.kind === "feedback"
+            ? {
+                kind: "feedback",
+                feedbackId: run.metadataIdentity.feedbackId,
+                runId: run.identity.executorRunId
+              }
+            : { kind: "block", blockRef: run.identity.claimRef, runId: run.identity.executorRunId }
+        ),
         identity: {
           projectId: run.projectId,
           canvasId: run.canvasId,

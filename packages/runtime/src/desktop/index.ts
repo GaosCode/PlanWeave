@@ -317,6 +317,8 @@ export {
 } from "./agentPromptTurnApi.js";
 export {
   listPendingRunnerInteractions,
+  listPendingRunnerInteractionActions,
+  runnerInteractionActionEntrySchema,
   respondToRunnerInteraction,
   respondToRunnerInteractionAction,
   runnerInteractionAuditSchema,

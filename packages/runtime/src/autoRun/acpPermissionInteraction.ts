@@ -23,6 +23,7 @@ import {
 
 type PermissionInteractionContext = {
   runDir: string;
+  recordId: string;
   identity: {
     projectId: string | undefined;
     canvasId: string | undefined;
@@ -189,7 +190,7 @@ export function createPersistentAcpPermissionHandler(context: PermissionInteract
       await Promise.all([
         context.interactionBroker?.requestAvailable(pending),
         context.interactionObserver?.interactionRequired(
-          createRunnerInteractionRequiredEvent(request)
+          createRunnerInteractionRequiredEvent(request, context.recordId)
         )
       ]);
     },
@@ -234,7 +235,7 @@ export function createPersistentAcpPermissionHandler(context: PermissionInteract
       context.releasePending(requestId);
       try {
         await context.interactionObserver?.interactionResolved(
-          createRunnerInteractionResolvedEvent(persisted, decision)
+          createRunnerInteractionResolvedEvent(persisted, decision, context.recordId)
         );
       } catch (observerError) {
         await context.eventStore?.append({

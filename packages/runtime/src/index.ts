@@ -831,6 +831,8 @@ export {
   subscribeRunRecord,
   subscribeAutoRunEvents,
   listPendingRunnerInteractions,
+  listPendingRunnerInteractionActions,
+  runnerInteractionActionEntrySchema,
   respondToRunnerInteraction,
   respondToRunnerInteractionAction,
   runnerInteractionAuditSchema,

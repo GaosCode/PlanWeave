@@ -2,6 +2,7 @@ import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import {
+  runnerInteractionSnapshotSchema,
   runnerInteractionActionIdentitySchema,
   runnerInteractionIdentitySchema,
   runnerInteractionIdentityMatches,
@@ -30,7 +31,12 @@ import { readJsonFile } from "../json.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import { blockRunRoot } from "./recordsApi.js";
-import { parseRunRecordId, type ParsedRunRecordId } from "./runRecordIdentity.js";
+import {
+  canonicalRunRecordId,
+  parseRunRecordId,
+  runRecordIdentitySchema,
+  type ParsedRunRecordId
+} from "../runRecordIdentity.js";
 import { executeDesktopAgentRunControl } from "./agentRunControlApi.js";
 import {
   runnerInteractionAuditSchema,
@@ -90,7 +96,7 @@ async function existingRunDirectories(ref: RunnerInteractionCanvasRef): Promise<
   projectId: string;
   canvasId: string;
   resultsDir: string;
-  runDirs: string[];
+  runs: Array<{ runDir: string; blockRef: string | null }>;
 }> {
   let workspace: Awaited<ReturnType<typeof resolveTaskCanvasWorkspace>>;
   let manifest: Awaited<ReturnType<typeof loadPackage>>["manifest"];
@@ -104,7 +110,7 @@ async function existingRunDirectories(ref: RunnerInteractionCanvasRef): Promise<
       { cause: error instanceof Error ? error.name : "unknown" }
     );
   }
-  const runDirs: string[] = [];
+  const runs: Array<{ runDir: string; blockRef: string | null }> = [];
   for (const node of manifest.nodes) {
     if (node.type !== "task") continue;
     for (const block of node.blocks) {
@@ -112,7 +118,7 @@ async function existingRunDirectories(ref: RunnerInteractionCanvasRef): Promise<
       const entries = await optionalReaddir(root, { withFileTypes: true });
       for (const entry of entries ?? []) {
         if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
-          runDirs.push(join(root, entry.name));
+          runs.push({ runDir: join(root, entry.name), blockRef: `${node.id}#${block.id}` });
         }
       }
     }
@@ -121,14 +127,14 @@ async function existingRunDirectories(ref: RunnerInteractionCanvasRef): Promise<
   const feedbackEntries = await optionalReaddir(feedbackRoot, { withFileTypes: true });
   for (const entry of feedbackEntries ?? []) {
     if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
-      runDirs.push(join(feedbackRoot, entry.name));
+      runs.push({ runDir: join(feedbackRoot, entry.name), blockRef: null });
     }
   }
   return {
     projectId: workspace.id,
     canvasId: canvasIdForResultsDir(workspace.resultsDir),
     resultsDir: workspace.resultsDir,
-    runDirs
+    runs
   };
 }
 
@@ -158,28 +164,56 @@ async function validateRunDirectory(resultsDir: string, runDir: string): Promise
 async function locateRunDirectory(
   scope: Awaited<ReturnType<typeof existingRunDirectories>>,
   identity: RunnerInteractionIdentity
-): Promise<string> {
+): Promise<{ runDir: string; kind: "block" | "feedback"; metadata: unknown }> {
   parseBlockRef(identity.claimRef);
   const blockCandidate = join(
     blockRunRoot(scope.resultsDir, identity.claimRef),
     identity.executorRunId
   );
-  const candidates = [
-    blockCandidate,
-    join(scope.resultsDir, "feedback-runs", identity.executorRunId)
+  const candidates: Array<{ runDir: string; kind: "block" | "feedback" }> = [
+    { runDir: blockCandidate, kind: "block" },
+    { runDir: join(scope.resultsDir, "feedback-runs", identity.executorRunId), kind: "feedback" }
   ];
-  const existing = [];
+  const matches: typeof candidates = [];
+  let requestFound = false;
   for (const candidate of candidates) {
-    if ((await optionalStat(candidate))?.isDirectory()) existing.push(candidate);
+    if (!(await optionalStat(candidate.runDir))?.isDirectory()) continue;
+    await validateRunDirectory(scope.resultsDir, candidate.runDir);
+    let snapshot: RunnerInteractionSnapshot;
+    try {
+      snapshot = await new PersistentRunnerInteractionStore(candidate.runDir).readSnapshot(
+        identity.requestId
+      );
+    } catch (error) {
+      if (error instanceof RunnerInteractionStoreError && error.code === "interaction_not_found") {
+        continue;
+      }
+      throw error;
+    }
+    requestFound = true;
+    if (runnerInteractionIdentityMatches(snapshot.request.identity, identity)) {
+      matches.push(candidate);
+    }
   }
-  if (existing.length !== 1) {
+  if (matches.length === 0) {
     throw new RunnerInteractionApiError(
-      "interaction_not_found",
-      "Runner interaction canonical run record was not found."
+      requestFound ? "interaction_identity_mismatch" : "interaction_not_found",
+      requestFound
+        ? "Runner interaction identity does not match the canonical request."
+        : "Runner interaction canonical run record was not found."
     );
   }
-  await validateRunDirectory(scope.resultsDir, existing[0]!);
-  return existing[0]!;
+  if (matches.length !== 1) {
+    throw new RunnerInteractionApiError(
+      "interaction_identity_mismatch",
+      "Runner interaction identity matches multiple canonical run records."
+    );
+  }
+  const match = matches[0]!;
+  return {
+    ...match,
+    metadata: await readJsonFile<unknown>(join(match.runDir, "metadata.json"))
+  };
 }
 
 function parseActionRecordId(recordId: string): ParsedRunRecordId {
@@ -192,16 +226,11 @@ function parseActionRecordId(recordId: string): ParsedRunRecordId {
       "Runner interaction record id is invalid."
     );
   }
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(parsed.runId)) {
+  const validated = runRecordIdentitySchema.safeParse(parsed);
+  if (!validated.success) {
     throw new RunnerInteractionApiError(
       "interaction_contract_invalid",
-      "Runner interaction executor run id is invalid."
-    );
-  }
-  if (parsed.kind === "feedback" && !/^FE-[A-Za-z0-9._:-]+$/.test(parsed.feedbackId)) {
-    throw new RunnerInteractionApiError(
-      "interaction_contract_invalid",
-      "Runner interaction feedback record id is invalid."
+      "Runner interaction record identity is invalid."
     );
   }
   return parsed;
@@ -210,7 +239,7 @@ function parseActionRecordId(recordId: string): ParsedRunRecordId {
 async function locateRunDirectoryForAction(
   scope: Awaited<ReturnType<typeof existingRunDirectories>>,
   action: RunnerInteractionActionIdentity
-): Promise<string> {
+): Promise<{ runDir: string; metadata: unknown }> {
   const parsed = parseActionRecordId(action.recordId);
   const candidate =
     parsed.kind === "block"
@@ -223,8 +252,8 @@ async function locateRunDirectoryForAction(
     );
   }
   await validateRunDirectory(scope.resultsDir, candidate);
+  const metadata = await readJsonFile<unknown>(join(candidate, "metadata.json"));
   if (parsed.kind === "feedback") {
-    const metadata = await readJsonFile<unknown>(join(candidate, "metadata.json"));
     const feedbackIdentity = z
       .object({ feedbackId: z.literal(parsed.feedbackId) })
       .passthrough()
@@ -236,17 +265,25 @@ async function locateRunDirectoryForAction(
       );
     }
   }
-  return candidate;
+  return { runDir: candidate, metadata };
 }
 
-export async function listPendingRunnerInteractions(
+export const runnerInteractionActionEntrySchema = z
+  .object({
+    recordId: z.string().min(1),
+    snapshot: runnerInteractionSnapshotSchema
+  })
+  .strict();
+export type RunnerInteractionActionEntry = z.infer<typeof runnerInteractionActionEntrySchema>;
+
+export async function listPendingRunnerInteractionActions(
   rawRef: RunnerInteractionCanvasRef
-): Promise<RunnerInteractionSnapshot[]> {
+): Promise<RunnerInteractionActionEntry[]> {
   return apiBoundary(async () => {
     const ref = runnerInteractionCanvasRefSchema.parse(rawRef);
     const scope = await existingRunDirectories(ref);
-    const pending: RunnerInteractionSnapshot[] = [];
-    for (const runDir of scope.runDirs) {
+    const pending: RunnerInteractionActionEntry[] = [];
+    for (const { runDir, blockRef } of scope.runs) {
       await validateRunDirectory(scope.resultsDir, runDir);
       const projection = await readRunnerInteractionMailboxProjection({
         runDir,
@@ -261,13 +298,45 @@ export async function listPendingRunnerInteractions(
         );
       }
       for (const interaction of projection.interactions) {
-        if (interaction.available && interaction.snapshot) pending.push(interaction.snapshot);
+        if (interaction.available && interaction.snapshot) {
+          const identity = interaction.snapshot.request.identity;
+          if (
+            identity.executorRunId !== basename(runDir) ||
+            (blockRef !== null && identity.claimRef !== blockRef)
+          ) {
+            throw new RunnerInteractionApiError(
+              "interaction_identity_mismatch",
+              "Runner interaction identity does not match its canonical run directory."
+            );
+          }
+          const recordId = canonicalRunRecordId(
+            blockRef === null
+              ? {
+                  kind: "feedback",
+                  feedbackId: projection.metadata?.feedbackId,
+                  runId: identity.executorRunId
+                }
+              : { kind: "block", blockRef, runId: identity.executorRunId }
+          );
+          pending.push(
+            runnerInteractionActionEntrySchema.parse({
+              recordId,
+              snapshot: interaction.snapshot
+            })
+          );
+        }
       }
     }
     return pending.sort((left, right) =>
-      left.request.requestedAt.localeCompare(right.request.requestedAt)
+      left.snapshot.request.requestedAt.localeCompare(right.snapshot.request.requestedAt)
     );
   });
+}
+
+export async function listPendingRunnerInteractions(
+  rawRef: RunnerInteractionCanvasRef
+): Promise<RunnerInteractionSnapshot[]> {
+  return (await listPendingRunnerInteractionActions(rawRef)).map(({ snapshot }) => snapshot);
 }
 
 function availabilityError(reason: RunnerInteractionAvailabilityReason): RunnerInteractionApiError {
@@ -338,12 +407,23 @@ export async function respondToRunnerInteraction(
     const decision = runnerPermissionInteractionDecisionSchema.parse(rawDecision);
     const audit = runnerInteractionAuditSchema.parse(rawAudit);
     const scope = await existingRunDirectories(ref);
-    const runDir = await locateRunDirectory(scope, identity);
+    const { runDir, kind, metadata } = await locateRunDirectory(scope, identity);
+    const recordId = canonicalRunRecordId(
+      kind === "feedback"
+        ? {
+            kind,
+            feedbackId: z.object({ feedbackId: z.string() }).passthrough().parse(metadata)
+              .feedbackId,
+            runId: identity.executorRunId
+          }
+        : { kind, blockRef: identity.claimRef, runId: identity.executorRunId }
+    );
     return respondAtRunDirectory(
       ref,
-      `${identity.claimRef}::${identity.executorRunId}`,
+      recordId,
       scope,
       runDir,
+      metadata,
       identity,
       decision,
       audit,
@@ -357,13 +437,13 @@ async function respondAtRunDirectory(
   recordId: string,
   scope: Awaited<ReturnType<typeof existingRunDirectories>>,
   runDir: string,
+  metadataInput: unknown,
   identity: RunnerInteractionIdentity,
   decision: RunnerPermissionInteractionDecision,
   audit: RunnerInteractionAudit,
   options: RunnerInteractionApiOptions
 ): Promise<RunnerInteractionResponseReceipt> {
-  const [metadataInput, heartbeatInput, snapshot] = await Promise.all([
-    readJsonFile<unknown>(join(runDir, "metadata.json")),
+  const [heartbeatInput, snapshot] = await Promise.all([
     readJsonFile<unknown>(join(runDir, "heartbeat.json")),
     new PersistentRunnerInteractionStore(runDir).readSnapshot(identity.requestId)
   ]);
@@ -466,7 +546,7 @@ export async function respondToRunnerInteractionAction(
     const decision = runnerPermissionInteractionDecisionSchema.parse(rawDecision);
     const audit = runnerInteractionAuditSchema.parse(rawAudit);
     const scope = await existingRunDirectories(ref);
-    const runDir = await locateRunDirectoryForAction(scope, action);
+    const { runDir, metadata } = await locateRunDirectoryForAction(scope, action);
     const snapshot = await new PersistentRunnerInteractionStore(runDir).readSnapshot(
       action.requestId
     );
@@ -492,6 +572,7 @@ export async function respondToRunnerInteractionAction(
       action.recordId,
       scope,
       runDir,
+      metadata,
       identity,
       decision,
       audit,

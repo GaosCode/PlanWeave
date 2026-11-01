@@ -82,6 +82,7 @@ export type RunnerInteractionAvailabilityScope = {
 
 export type RunnerInteractionMailboxProjection = {
   interactions: RunnerInteractionAvailability[];
+  metadata: RunnerInteractionRunMetadata | null;
   requestIds: ReadonlySet<string>;
   suppressAllRegistryPermissions: boolean;
   diagnostic: RunnerInteractionContractDiagnostic | null;
@@ -193,6 +194,7 @@ export async function readRunnerInteractionMailboxProjection(options: {
   if (snapshots.length === 0 && issues.length === 0) {
     return {
       interactions: [],
+      metadata: null,
       requestIds: new Set(),
       suppressAllRegistryPermissions: false,
       diagnostic: null
@@ -248,6 +250,7 @@ export async function readRunnerInteractionMailboxProjection(options: {
   }
   return {
     interactions,
+    metadata: metadataResult.success ? metadataResult.data : null,
     requestIds: new Set(snapshots.map((snapshot) => snapshot.request.identity.requestId)),
     suppressAllRegistryPermissions: issues.length > 0,
     diagnostic: issues.length > 0 ? contractDiagnostic(issues) : null

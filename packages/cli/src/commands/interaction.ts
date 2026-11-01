@@ -1,10 +1,10 @@
 import type { Command } from "commander";
 import {
-  listPendingRunnerInteractions,
+  listPendingRunnerInteractionActions,
   respondToRunnerInteractionAction,
   runnerInteractionActionIdentitySchema,
   RunnerInteractionApiError,
-  type RunnerInteractionSnapshot
+  type RunnerInteractionActionEntry
 } from "@planweave-ai/runtime";
 import {
   addCanvasOption,
@@ -51,14 +51,13 @@ async function interactionCanvasRef(options: CanvasCommandOptions) {
 }
 
 function formatInteractionList(
-  interactions: RunnerInteractionSnapshot[],
+  interactions: RunnerInteractionActionEntry[],
   projectRoot: string
 ): string {
   if (interactions.length === 0) return "No actionable runner interactions.";
   return interactions
-    .map(({ request }) => {
+    .map(({ recordId, snapshot: { request } }) => {
       const { identity } = request;
-      const recordId = `${identity.claimRef}::${identity.executorRunId}`;
       const responseArgv = [
         "planweave",
         `--project-root=${projectRoot}`,
@@ -155,9 +154,15 @@ export function registerInteractionCommand(program: Command): void {
     }
     try {
       const ref = await interactionCanvasRef(options);
-      const interactions = await listPendingRunnerInteractions(ref);
+      const interactions = await listPendingRunnerInteractionActions(ref);
       if (options.json) {
-        console.log(JSON.stringify(interactions, null, 2));
+        console.log(
+          JSON.stringify(
+            interactions.map(({ snapshot }) => snapshot),
+            null,
+            2
+          )
+        );
         return;
       }
       console.log(formatInteractionList(interactions, ref.projectRoot));

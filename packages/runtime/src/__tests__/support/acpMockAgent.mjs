@@ -41,7 +41,13 @@ function parseArgv(argv) {
   return { scenario, controlDir };
 }
 
-const { scenario, controlDir } = parseArgv(process.argv.slice(2));
+const { scenario: requestedScenario, controlDir } = parseArgv(process.argv.slice(2));
+const feedbackPermission =
+  requestedScenario === "feedback-permission-secret" ||
+  requestedScenario === "feedback-permission-deny";
+const scenario = feedbackPermission
+  ? requestedScenario.slice("feedback-".length)
+  : requestedScenario;
 const sessions = new Map();
 let nextSession = 1;
 let authenticated = false;
@@ -624,6 +630,7 @@ const app = agent({ name: "planweave-acp-mock" })
       throw RequestError.invalidParams({ reason: "missing runner final-artifact instruction" });
     }
 
+    const feedbackArtifactText = `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001", taskId: "T-001", reportMarkdown: "feedback fixed\n" } })}\n`;
     const artifactText =
       scenario === "empty-report"
         ? "\n\n"
@@ -648,7 +655,7 @@ const app = agent({ name: "planweave-acp-mock" })
             : scenario === "artifact-review" || scenario === "artifact-review-needs-changes"
               ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "review", ref: "T-001#R-001", taskId: "T-001", reviewResult: { reviewBlockRef: "T-001#R-001", taskId: "T-001", verdict: scenario === "artifact-review-needs-changes" ? "needs_changes" : "passed", content: scenario === "artifact-review-needs-changes" ? "fix the implementation" : "passed" } } })}\n`
               : scenario === "artifact-feedback"
-                ? `PLANWEAVE_FINAL_ARTIFACT ${JSON.stringify({ version: "planweave.runner-artifact/v1", artifact: { kind: "feedback", feedbackId: "FE-001", sourceReviewBlockRef: "T-001#R-001", taskId: "T-001", reportMarkdown: "feedback fixed\n" } })}\n`
+                ? feedbackArtifactText
                 : scenario === "nontext-output"
                   ? "TOKEN=super-secret"
                   : `hello from ${sessionId}`;
@@ -656,7 +663,7 @@ const app = agent({ name: "planweave-acp-mock" })
       sessionId,
       update: {
         sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: artifactText }
+        content: { type: "text", text: feedbackPermission ? feedbackArtifactText : artifactText }
       }
     });
     if (scenario === "nontext-output") {

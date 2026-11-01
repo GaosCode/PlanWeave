@@ -91,21 +91,22 @@ export interface RunnerInteractionObserver {
   interactionResolved: (event: RunnerInteractionResolvedEvent) => void | Promise<void>;
 }
 
-function eventIdentity(request: RunnerPermissionInteractionRequest) {
+function eventIdentity(request: RunnerPermissionInteractionRequest, recordId: string) {
   return {
-    recordId: `${request.identity.claimRef}::${request.identity.executorRunId}`,
+    recordId,
     ...request.identity
   };
 }
 
 export function createRunnerInteractionRequiredEvent(
-  request: RunnerPermissionInteractionRequest
+  request: RunnerPermissionInteractionRequest,
+  recordId: string
 ): RunnerInteractionRequiredEvent {
   return runnerInteractionRequiredEventSchema.parse({
     version: "planweave.run-event/v1",
     type: "interaction_required",
     interaction: {
-      ...eventIdentity(request),
+      ...eventIdentity(request, recordId),
       kind: request.kind,
       requestedAt: request.requestedAt,
       summary: request.summary,
@@ -135,13 +136,14 @@ function resolvedOutcome(decision: RunnerPermissionChannelDecision): {
 export function createRunnerInteractionResolvedEvent(
   request: RunnerPermissionInteractionRequest,
   decision: RunnerPermissionChannelDecision,
+  recordId: string,
   now: Date = new Date()
 ): RunnerInteractionResolvedEvent {
   return runnerInteractionResolvedEventSchema.parse({
     version: "planweave.run-event/v1",
     type: "interaction_resolved",
     interaction: {
-      ...eventIdentity(request),
+      ...eventIdentity(request, recordId),
       kind: request.kind,
       resolvedAt: now.toISOString(),
       resolutionStage: "owner_consumed",

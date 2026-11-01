@@ -40,6 +40,7 @@
         "editBlockCli.test.ts",
         "exampleReadme.test.ts",
         "executorCli.test.ts",
+        "feedbackInteractionCommands.test.ts",
         "graphCli.test.ts",
         "importCli.test.ts",
         "interactionCommands.test.ts",
