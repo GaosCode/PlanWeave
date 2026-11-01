@@ -169,7 +169,7 @@ for (const adapter of adapters) {
         await entered.promise;
         await Promise.resolve();
         controller.abort(new Error("secret-owner-reason"));
-        // Closing also lets the pre-fix reader settle without hanging the regression run.
+        // Close the fixture stream if cancellation has not released its reader.
         await Promise.resolve();
         if (body.locked) stream.close();
       } else stream.close();
