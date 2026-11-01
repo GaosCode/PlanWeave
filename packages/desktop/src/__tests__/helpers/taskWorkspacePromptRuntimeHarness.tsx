@@ -25,7 +25,11 @@ import { deferred } from "./desktopProjectFixtures";
 
 export const runtimePromptLabels = taskWorkspaceLabels(createTranslator("en"));
 
-export async function runtimePromptHarness(kind: "task" | "block") {
+export async function runtimePromptHarness(
+  kind: "task" | "block",
+  acknowledgement: "before-write" | "after-write" = "before-write",
+  heldWrite = 1
+) {
   const original = await createTestWorkspace(basicManifest());
   let selected = {
     projectRoot: original.root,
@@ -53,8 +57,12 @@ export async function runtimePromptHarness(kind: "task" | "block") {
         const baseline = (await getTaskDetail(workspace, id)).promptMarkdown;
         writes.push({ markdown, baseline, concurrent: ++concurrent });
         try {
-          if (writes.length === 1) await pending.promise;
-          return await updateTaskPrompt(workspace, id, markdown, options);
+          if (writes.length === heldWrite && acknowledgement === "before-write")
+            await pending.promise;
+          const result = await updateTaskPrompt(workspace, id, markdown, options);
+          if (writes.length === heldWrite && acknowledgement === "after-write")
+            await pending.promise;
+          return result;
         } finally {
           concurrent -= 1;
         }
@@ -66,8 +74,12 @@ export async function runtimePromptHarness(kind: "task" | "block") {
         const baseline = (await getBlockDetail(workspace, id)).promptMarkdown;
         writes.push({ markdown, baseline, concurrent: ++concurrent });
         try {
-          if (writes.length === 1) await pending.promise;
-          return await updateBlockPrompt(workspace, id, markdown, options);
+          if (writes.length === heldWrite && acknowledgement === "before-write")
+            await pending.promise;
+          const result = await updateBlockPrompt(workspace, id, markdown, options);
+          if (writes.length === heldWrite && acknowledgement === "after-write")
+            await pending.promise;
+          return result;
         } finally {
           concurrent -= 1;
         }
@@ -122,6 +134,23 @@ export async function runtimePromptHarness(kind: "task" | "block") {
     pending,
     writes,
     initialMarkdown,
+    async externalWrite(markdown: string) {
+      if (kind === "task") await updateTaskPrompt(workspace, "T-001", markdown);
+      else await updateBlockPrompt(workspace, "T-001#B-001", markdown);
+      act(() => current.refresh());
+      await waitFor(() =>
+        expect(
+          kind === "task"
+            ? current.workspace?.task.promptMarkdown
+            : current.workspace?.blocks.find((block) => block.ref === "T-001#B-001")?.promptMarkdown
+        ).toBe(markdown)
+      );
+    },
+    async remount() {
+      act(() => history.returnToTaskWorkspaceSource());
+      act(open);
+      await waitFor(() => expect(input()).toBeInTheDocument());
+    },
     async reactivate() {
       act(() => history.returnToTaskWorkspaceSource());
       const other = await createTestWorkspace(basicManifest(), { planweaveHome: original.home });

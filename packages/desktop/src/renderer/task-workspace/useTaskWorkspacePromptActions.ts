@@ -37,12 +37,17 @@ export function useTaskWorkspacePromptActions(options: {
   workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
 }): Pick<TaskWorkspaceController, "saveBlockPrompt" | "saveTaskPrompt" | "getPromptDraft"> {
   const { api, navigation, onLocalSaved, workspace, workspaceCanvas = null } = options;
-  const { confirmProjection, getProjection, getPromptDraft, getWriteContext } =
-    useTaskWorkspacePromptDrafts({
-      authority: options.authority,
-      navigation,
-      workspaceCanvas
-    });
+  const {
+    confirmProjection,
+    getProjection,
+    getPromptDraft: getOwnedDraft,
+    getWriteContext
+  } = useTaskWorkspacePromptDrafts({
+    authority: options.authority,
+    navigation,
+    workspace,
+    workspaceCanvas
+  });
   const localNavigation =
     navigation && !isWorkspaceTaskWorkspaceNavigation(navigation) ? navigation : null;
   const localCanvasRef = localNavigation
@@ -215,5 +220,32 @@ export function useTaskWorkspacePromptActions(options: {
     ]
   );
 
+  const getPromptDraft = useCallback<TaskWorkspaceController["getPromptDraft"]>(
+    (blockRef, markdown, writer) =>
+      getOwnedDraft(blockRef, markdown, writer, async () => {
+        const context = getWriteContext();
+        if (!context || !navigation || !workspace) return null;
+        if (context.workspaceCanvas?.enabled) {
+          const projection = getProjection();
+          const source = blockRef
+            ? sharedBlockPromptMarkdown(projection, workspace, blockRef)
+            : sharedTaskPromptMarkdown(projection, workspace, navigation.taskId);
+          if (source === null) throw new Error("The shared prompt authority is unavailable.");
+          return source;
+        }
+        if (!api || !localCanvasRef) throw new Error("The local prompt source is unavailable.");
+        const detail = blockRef
+          ? await api.getBlockDetail(localCanvasRef, blockRef)
+          : await api.getTaskDetail(localCanvasRef, navigation.taskId);
+        if (!getWriteContext()) return null;
+        if (
+          detail.taskId !== navigation.taskId ||
+          (blockRef && !("ref" in detail && detail.ref === blockRef))
+        )
+          throw new Error("The loaded prompt source does not match this Task Workspace.");
+        return detail.promptMarkdown;
+      }),
+    [api, getOwnedDraft, getProjection, getWriteContext, localCanvasRef, navigation, workspace]
+  );
   return { getPromptDraft, saveBlockPrompt, saveTaskPrompt };
 }

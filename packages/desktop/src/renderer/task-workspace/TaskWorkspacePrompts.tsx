@@ -75,13 +75,11 @@ function PromptBody({
 
 function EditablePromptBody({
   label,
-  markdown,
   missing,
   labels,
   owner
 }: {
   label: string;
-  markdown: string;
   missing: boolean;
   labels: TaskWorkspacePromptLabels;
   owner: TaskWorkspacePromptDraft;
@@ -93,7 +91,6 @@ function EditablePromptBody({
   );
   const dirty = draft !== baseline;
   const save = draftOwner.save;
-  useEffect(() => draftOwner.updateSource(markdown), [draftOwner, markdown]);
   useEffect(() => () => draftOwner.setComposing(false), [draftOwner]);
 
   return (
@@ -194,7 +191,6 @@ export function TaskWorkspaceTaskPrompt({
       <EditablePromptBody
         label={labels.taskPrompt}
         labels={labels}
-        markdown={task.promptMarkdown}
         missing={task.promptMissing}
         owner={owner}
       />
@@ -236,7 +232,6 @@ export function TaskWorkspaceBlockPrompts({
       <EditablePromptBody
         label={labels.blockPrompt}
         labels={labels}
-        markdown={block.promptMarkdown}
         missing={block.promptMissing}
         owner={owner}
       />

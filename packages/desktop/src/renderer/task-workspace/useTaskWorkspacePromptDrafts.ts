@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import type { TaskWorkspace } from "@planweave-ai/runtime";
 import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc";
 import type { CanvasLocator } from "../../shared/canvasLocator";
 import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasCommands";
@@ -8,7 +9,10 @@ import {
   type TaskWorkspaceNavigationIdentity
 } from "../taskWorkspaceNavigation";
 import type { TaskWorkspaceController } from "./contracts";
-import { TaskWorkspacePromptDraft } from "./taskWorkspacePromptDraft";
+import {
+  type TaskWorkspacePromptSourceReader,
+  TaskWorkspacePromptDraft
+} from "./taskWorkspacePromptDraft";
 
 export type TaskWorkspacePromptAuthority = {
   canvasLocator: CanvasLocator | null;
@@ -19,11 +23,13 @@ export type TaskWorkspacePromptAuthority = {
 export function useTaskWorkspacePromptDrafts({
   authority,
   navigation,
+  workspace,
   workspaceCanvas
 }: {
   authority: TaskWorkspacePromptAuthority;
   navigation: TaskWorkspaceNavigationIdentity | null;
   workspaceCanvas: WorkspaceCanvasCommandsResult | null;
+  workspace: TaskWorkspace | null;
 }) {
   const locator = authority.canvasLocator;
   const authorityKey = JSON.stringify([
@@ -51,6 +57,8 @@ export function useTaskWorkspacePromptDrafts({
       {
         scope: typeof scope;
         writer: TaskWorkspaceController["saveTaskPrompt"];
+        readSource: TaskWorkspacePromptSourceReader;
+        navigationKey: string;
         draft: TaskWorkspacePromptDraft;
       }
     >()
@@ -59,7 +67,7 @@ export function useTaskWorkspacePromptDrafts({
     context.current = { scope, workspaceCanvas, mounted: true };
     for (const [key, entry] of drafts.current) {
       if (entry.scope === scope) {
-        entry.draft.activate(scope, entry.writer);
+        entry.draft.activate(scope, entry.writer, entry.readSource);
       } else {
         entry.draft.deactivate();
         if (entry.draft.canRelease()) drafts.current.delete(key);
@@ -94,22 +102,41 @@ export function useTaskWorkspacePromptDrafts({
     [matches, scope]
   );
   const navigationKey = navigation ? taskWorkspaceNavigationAuthorityKey(navigation) : null;
-  const getPromptDraft = useCallback<NonNullable<TaskWorkspaceController["getPromptDraft"]>>(
-    (blockRef, markdown, writer) => {
+  const getPromptDraft = useCallback(
+    (
+      blockRef: string | null,
+      markdown: string,
+      writer: TaskWorkspaceController["saveTaskPrompt"],
+      readSource: TaskWorkspacePromptSourceReader
+    ) => {
       if (!navigationKey) throw new Error("A prompt draft requires a Task Workspace identity.");
       const key = JSON.stringify([authorityKey, navigationKey, blockRef]);
       let entry = drafts.current.get(key);
       if (!entry) {
-        entry = { scope, writer, draft: new TaskWorkspacePromptDraft(markdown, writer) };
+        entry = {
+          scope,
+          writer,
+          readSource,
+          navigationKey,
+          draft: new TaskWorkspacePromptDraft(markdown, writer, readSource)
+        };
         drafts.current.set(key, entry);
       }
       entry.scope = scope;
       entry.writer = writer;
-      if (getWriteContext()) entry.draft.activate(scope, writer);
+      entry.readSource = readSource;
+      if (getWriteContext()) entry.draft.activate(scope, writer, readSource);
       return entry.draft;
     },
     [authorityKey, getWriteContext, navigationKey, scope]
   );
+  useLayoutEffect(() => {
+    if (!workspace || !getWriteContext()) return;
+    for (const entry of drafts.current.values()) {
+      if (entry.scope === scope && entry.navigationKey === navigationKey)
+        void entry.draft.refreshSource();
+    }
+  }, [getWriteContext, navigationKey, scope, workspace]);
   const confirmProjection = useCallback(
     (projection: CollaborationCanvasBindingReplicaProjection) => {
       const current = getWriteContext();

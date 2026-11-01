@@ -124,6 +124,7 @@ export function useWorkspaceCanvasSession(input: {
     authority: typeof authority;
     projection: WorkspaceCanvasProjection;
   } | null>(null);
+  const publishedProjection = useRef<typeof workspaceView>(null);
   const [snapshotState, setSnapshotState] = useState({ authority, value: IDLE_SNAPSHOT });
   const snapshot = snapshotState.authority === authority ? snapshotState.value : IDLE_SNAPSHOT;
   const setSnapshot = useCallback(
@@ -137,6 +138,30 @@ export function useWorkspaceCanvasSession(input: {
       }));
     },
     [authority]
+  );
+  const publishProjection = useCallback(
+    (projection: WorkspaceCanvasProjection): string | null => {
+      const previous = publishedProjection.current;
+      if (
+        previous?.authority === authority &&
+        previous.projection.replica.authorityId === projection.replica.authorityId
+      ) {
+        if (previous.projection.replica.revision > projection.replica.revision) return null;
+        if (
+          previous.projection.replica.revision === projection.replica.revision &&
+          previous.projection.replica.contentDigest !== projection.replica.contentDigest
+        ) {
+          const message = "The Workspace projection has conflicting content at the same revision.";
+          setSnapshot((current) => ({ ...current, busy: false, lastError: message }));
+          return message;
+        }
+      }
+      publishedProjection.current = { authority, projection };
+      setWorkspaceView({ authority, projection });
+      setSnapshot(snapshotFromWorkspaceProjection(projection, input.labels, "connected"));
+      return null;
+    },
+    [authority, input.labels, setSnapshot]
   );
   const activeWorkspaceProjection =
     workspaceView &&
@@ -159,7 +184,6 @@ export function useWorkspaceCanvasSession(input: {
     }
     const activeApi = input.api;
     const locator = input.locator;
-    const labels = input.labels;
     const openedGeneration = generation.current;
     let active = true;
     let opened = false;
@@ -170,8 +194,7 @@ export function useWorkspaceCanvasSession(input: {
         !workspaceLocatorEquals(projection.locator, locator)
       )
         return;
-      setWorkspaceView({ authority, projection });
-      setSnapshot(snapshotFromWorkspaceProjection(projection, labels, "connected"));
+      publishProjection(projection);
     };
     const unsubscribe =
       activeApi.onWorkspaceCanvasProjectionSignal((signal) => {
@@ -201,7 +224,7 @@ export function useWorkspaceCanvasSession(input: {
       unsubscribe?.();
       void activeApi.closeWorkspaceCanvasSession?.(locator);
     };
-  }, [authority, input.api, input.labels, input.locator, input.sessionConnected, setSnapshot]);
+  }, [input.api, input.locator, input.sessionConnected, publishProjection, setSnapshot]);
 
   const submit = useCallback(
     async (submitInput: { intent: CanvasCommandIntent }): Promise<WorkspaceCanvasSubmitResult> => {
@@ -234,9 +257,11 @@ export function useWorkspaceCanvasSession(input: {
           intent: submitInput.intent
         });
         if (!isCurrent()) return RETIRED_SUBMIT_RESULT;
+        const publicationError = publishProjection(projection);
+        if (publicationError) {
+          return { status: "completed", ok: false, error: publicationError, staleConflict: null };
+        }
         const nextSnapshot = snapshotFromWorkspaceProjection(projection, input.labels, "connected");
-        setWorkspaceView({ authority, projection });
-        setSnapshot(nextSnapshot);
         if (projection.status === "accepted") {
           return {
             status: "completed",
@@ -265,6 +290,7 @@ export function useWorkspaceCanvasSession(input: {
       input.locator,
       authority,
       setSnapshot,
+      publishProjection,
       snapshot.connectionPhase,
       activeWorkspaceProjection?.readOnly
     ]
@@ -281,13 +307,11 @@ export function useWorkspaceCanvasSession(input: {
     try {
       const projection = await input.api.reconnectWorkspaceCanvasSession(input.locator);
       if (!isCurrent() || !workspaceLocatorEquals(projection.locator, input.locator)) return false;
-      setWorkspaceView({ authority, projection });
-      setSnapshot(snapshotFromWorkspaceProjection(projection, input.labels, "connected"));
-      return projection.status !== "rejected";
+      return publishProjection(projection) === null && projection.status !== "rejected";
     } catch {
       return false;
     }
-  }, [authority, input.api, input.labels, input.locator, setSnapshot]);
+  }, [authority, input.api, input.locator, publishProjection]);
 
   const replica = activeWorkspaceProjection?.replica ?? null;
   const projection = useMemo(

@@ -1,5 +1,7 @@
 import type { TaskWorkspaceController } from "./contracts";
 
+export type TaskWorkspacePromptSourceReader = () => Promise<string | null>;
+
 type PromptWriter = TaskWorkspaceController["saveTaskPrompt"];
 type PromptStatus = "idle" | "saving" | "saved" | "error" | "retired";
 type PromptSnapshot = {
@@ -13,7 +15,9 @@ type PromptSnapshot = {
 
 export class TaskWorkspacePromptDraft {
   private snapshot: PromptSnapshot;
-  private sourceMarkdown: string;
+  private sourceRequest = 0;
+  private sourceRefreshRequested = false;
+  private readSource: TaskWorkspacePromptSourceReader;
   private pendingSource: string | null = null;
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -24,8 +28,8 @@ export class TaskWorkspacePromptDraft {
   private authority: object | null = null;
   private writer: PromptWriter;
 
-  constructor(markdown: string, writer: PromptWriter) {
-    this.sourceMarkdown = markdown;
+  constructor(markdown: string, writer: PromptWriter, readSource: TaskWorkspacePromptSourceReader) {
+    this.readSource = readSource;
     this.writer = writer;
     this.snapshot = {
       baseline: markdown,
@@ -48,14 +52,16 @@ export class TaskWorkspacePromptDraft {
     for (const listener of this.listeners) listener();
   }
 
-  activate(authority: object, writer: PromptWriter) {
+  activate(authority: object, writer: PromptWriter, readSource: TaskWorkspacePromptSourceReader) {
     if (this.authority && this.authority !== authority) this.deactivate();
     this.authority = authority;
     this.writer = writer;
+    this.readSource = readSource;
   }
 
   deactivate() {
     this.authority = null;
+    this.sourceRequest += 1;
     this.requested = false;
     this.requestedAuthority = null;
     this.clearTimer();
@@ -68,15 +74,51 @@ export class TaskWorkspacePromptDraft {
     );
   }
 
-  updateSource(markdown: string) {
-    if (this.sourceMarkdown === markdown) return;
-    this.sourceMarkdown = markdown;
-    if (this.snapshot.draft !== this.snapshot.baseline || this.inFlight) {
-      this.pendingSource = markdown === this.snapshot.baseline ? null : markdown;
+  private async loadSource(authority: object) {
+    const request = ++this.sourceRequest;
+    let markdown: string | null;
+    try {
+      markdown = await this.readSource();
+    } catch (error: unknown) {
+      if (request !== this.sourceRequest || this.authority !== authority) return;
+      throw error;
+    }
+    if (request !== this.sourceRequest || this.authority !== authority || markdown === null) return;
+    this.pendingSource = markdown;
+    this.reconcileSource();
+  }
+
+  refreshSource = async () => {
+    const authority = this.authority;
+    if (!authority) return;
+    if (this.inFlight) {
+      this.sourceRefreshRequested = true;
       return;
     }
+    this.sourceRefreshRequested = false;
+    try {
+      await this.loadSource(authority);
+    } catch (error: unknown) {
+      if (this.authority === authority && !this.inFlight) {
+        this.publish({
+          error: error instanceof Error ? error.message : String(error),
+          status: "error"
+        });
+      }
+    }
+  };
+
+  private reconcileSource() {
+    if (
+      this.inFlight ||
+      this.snapshot.composing ||
+      this.snapshot.draft !== this.snapshot.baseline ||
+      this.pendingSource === null
+    )
+      return;
+    const markdown = this.pendingSource;
     this.pendingSource = null;
-    this.publish({ baseline: markdown, draft: markdown, error: null, status: "idle" });
+    this.publish({ baseline: markdown, draft: markdown, error: null });
   }
 
   edit = (draft: string) => {
@@ -92,6 +134,7 @@ export class TaskWorkspacePromptDraft {
   setComposing = (composing: boolean) => {
     if (this.snapshot.composing === composing) return;
     this.publish({ composing });
+    this.reconcileSource();
     this.schedule();
   };
 
@@ -135,7 +178,9 @@ export class TaskWorkspacePromptDraft {
     this.publish({ pending: true });
     this.inFlight = this.drain(authority).finally(() => {
       this.inFlight = undefined;
+      this.reconcileSource();
       this.publish({ pending: false });
+      if (this.sourceRefreshRequested) void this.refreshSource();
       if (
         this.requested &&
         this.authority &&
@@ -164,10 +209,20 @@ export class TaskWorkspacePromptDraft {
           if (!this.authority || this.authority === authority) this.publish({ status: "retired" });
           return;
         }
-        if (this.pendingSource === draft) this.pendingSource = null;
+        this.pendingSource = null;
+        this.publish({ baseline: draft });
+        if (this.authority === authority) {
+          this.sourceRefreshRequested = false;
+          try {
+            await this.loadSource(authority);
+          } catch (error: unknown) {
+            throw new Error(
+              `The prompt was saved, but its current source could not be loaded: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
+        }
         const dirty = this.snapshot.draft !== draft;
         this.publish({
-          baseline: draft,
           status:
             this.authority === authority
               ? dirty
@@ -178,6 +233,7 @@ export class TaskWorkspacePromptDraft {
                 : "retired"
         });
       } catch (error: unknown) {
+        if (this.authority === authority) this.sourceRefreshRequested = false;
         if (this.requestedAuthority === authority) this.requested = false;
         this.clearTimer(authority);
         if (!this.authority || this.authority === authority) {

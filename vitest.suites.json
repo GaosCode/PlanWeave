@@ -302,6 +302,8 @@
         "taskWorkspacePromptGenerationLifecycle.test.tsx",
         "taskWorkspacePromptSaveLifecycle.test.tsx",
         "taskWorkspacePromptSharedSaveLifecycle.test.tsx",
+        "taskWorkspacePromptSharedSourceReconciliation.test.tsx",
+        "taskWorkspacePromptSourceReconciliation.test.tsx",
         "taskWorkspaceRecordCache.test.ts",
         "taskWorkspaceRecordRefresh.test.tsx",
         "taskWorkspaceRenderBenchmark.test.ts",
