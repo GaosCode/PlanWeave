@@ -8,7 +8,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
 import {
+  DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
+  HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER,
+  HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER,
   acpConversationPromptCommandSchema,
   exampleExecutionEnvelopeInput,
   exampleExecuteDelivery,
@@ -26,6 +29,20 @@ import { remoteRunnerEventV2Request } from "../../../agent-host/src/__tests__/su
 const exampleExecutionCommand = executeBlockCommandSchema.parse(
   mailboxDeliverySchema.parse(exampleExecuteDelivery).command
 );
+
+function createBudgetNegotiatingWebSocketServer(http: ReturnType<typeof createServer>) {
+  const server = new WebSocketServer({
+    server: http,
+    maxPayload: DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES
+  });
+  server.on("headers", (headers, request) => {
+    if (request.headers[HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER] === "1")
+      headers.push(
+        `${HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER}: ${DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES}`
+      );
+  });
+  return server;
+}
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -87,7 +104,7 @@ describe("exact permission connection compatibility", () => {
       updateCredentialToken: vi.fn()
     };
     const http = createServer();
-    const server = new WebSocketServer({ server: http });
+    const server = createBudgetNegotiatingWebSocketServer(http);
     await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
     const address = http.address();
     if (!address || typeof address === "string") throw new Error("test_port_required");
@@ -210,7 +227,7 @@ describe("exact permission connection compatibility", () => {
     const state = await openAgentHostState(join(directory, "state.sqlite"));
     cleanups.push(() => state.close());
     const http = createServer();
-    const server = new WebSocketServer({ server: http });
+    const server = createBudgetNegotiatingWebSocketServer(http);
     await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
     const address = http.address();
     if (!address || typeof address === "string") throw new Error("test_port_required");
@@ -430,7 +447,7 @@ describe("exact permission connection compatibility", () => {
     const state = await openAgentHostState(join(directory, "state.sqlite"));
     cleanups.push(() => state.close());
     const http = createServer();
-    const server = new WebSocketServer({ server: http });
+    const server = createBudgetNegotiatingWebSocketServer(http);
     await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
     const address = http.address();
     if (!address || typeof address === "string") throw new Error("test_port_required");
