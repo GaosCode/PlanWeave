@@ -149,4 +149,35 @@ describe("ACP process shutdown sequencing", () => {
       })
     ).rejects.toThrow("exceeded the configured cleanup deadline");
   });
+
+  it("keeps the graceful budget when the deadline is smaller than the confirmation window", async () => {
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    const deadline = createAcpCleanupDeadline(400, () => now);
+    let received: { graceMs?: number; forceExitConfirmMs?: number } = {};
+    const tree: ManagedProcessTree = {
+      pid: 70_004,
+      exited: Promise.resolve(),
+      isAlive: () => false,
+      isTreeAlive: async () => false,
+      awaitTreeExit: async () => true,
+      terminate: async (reason, options) => {
+        received = { graceMs: options?.graceMs, forceExitConfirmMs: options?.forceExitConfirmMs };
+        return { outcome: "already_exited", reason };
+      }
+    };
+
+    await shutdownAcpProcess({
+      policy: { eofDrainMs: 10, terminateGraceMs: 200, cleanupDeadlineMs: 400 },
+      deadline,
+      closeInput() {},
+      waitForRootExit: async (timeoutMs) => {
+        now += timeoutMs;
+        return true;
+      },
+      processTree: tree
+    });
+
+    expect(received).toEqual({ graceMs: 200, forceExitConfirmMs: 190 });
+  });
 });

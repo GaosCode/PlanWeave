@@ -19,13 +19,14 @@ export async function shutdownAcpProcess(options: AcpProcessShutdownOptions): Pr
   const exitedAfterEof = await options.waitForRootExit(
     Math.min(options.policy.eofDrainMs, options.deadline.remainingMs())
   );
+  const remainingMs = options.deadline.remainingMs();
+  // Graceful termination keeps its declared share first; the confirmation window takes what
+  // is left. Reserving the window first would starve grace whenever a profile asks for a
+  // teardown budget smaller than the window, and the process would never see its SIGTERM.
+  const graceMs = Math.min(options.policy.terminateGraceMs, remainingMs);
   const forceExitConfirmMs = Math.min(
     ACP_FORCE_EXIT_CONFIRM_WINDOW_MS,
-    options.deadline.remainingMs()
-  );
-  const graceMs = Math.min(
-    options.policy.terminateGraceMs,
-    Math.max(0, options.deadline.remainingMs() - forceExitConfirmMs)
+    Math.max(0, remainingMs - graceMs)
   );
   const reason = exitedAfterEof ? "acp-dispose-after-eof" : "acp-dispose";
   const termination = { graceMs, forceExitConfirmMs, deadline: options.deadline };
