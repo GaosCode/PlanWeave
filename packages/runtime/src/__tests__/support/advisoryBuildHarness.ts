@@ -39,6 +39,7 @@ export async function prepareIsolatedWorkspaceBuild(root: string) {
     "packages:\n  - packages/cli\n  - packages/desktop\n"
   );
   const target = fileURLToPath(new URL("./advisoryBuildTarget.mjs", import.meta.url));
+  await writeFile(join(root, ".npmrc"), "script-shell=untrusted-build-shell\n");
   for (const [name, script] of [
     ["cli", "build:workspace"],
     ["desktop", "build:standalone"]
@@ -50,7 +51,9 @@ export async function prepareIsolatedWorkspaceBuild(root: string) {
       JSON.stringify({
         name: `isolated-${name}`,
         private: true,
-        scripts: { [script]: `node ${JSON.stringify(target)}` }
+        scripts: {
+          [script]: `node ${JSON.stringify(target)} prepare @planweave-ai/collaboration-protocol && node ${JSON.stringify(target)}`
+        }
       })
     );
   }

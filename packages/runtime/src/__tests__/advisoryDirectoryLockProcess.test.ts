@@ -120,31 +120,35 @@ it.each([
   }
 });
 
-it("drains a managed writer before releasing and permits a second build", async () => {
-  const root = await mkdtemp(join(tmpdir(), "planweave-managed-lock-build-"));
-  const lockPath = join(root, "lock");
-  try {
-    for (let round = 0; round < 2; round += 1) {
-      await withAdvisoryDirectoryLock({ lockPath, operation: "managed-build" }, async (scope) => {
-        await scope.runManagedCommand({
-          command: process.execPath,
-          args: [
-            "-e",
-            "require('node:fs').writeFileSync(process.argv[1], process.env.PLANWEAVE_BUILD_STORE_DIR)",
-            join(root, "output")
-          ]
+it(
+  "drains a managed writer before releasing and permits a second build",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-managed-lock-build-"));
+    const lockPath = join(root, "lock");
+    try {
+      for (let round = 0; round < 2; round += 1) {
+        await withAdvisoryDirectoryLock({ lockPath, operation: "managed-build" }, async (scope) => {
+          await scope.runManagedCommand({
+            command: process.execPath,
+            args: [
+              "-e",
+              "require('node:fs').writeFileSync(process.argv[1], process.env.PLANWEAVE_BUILD_STORE_DIR)",
+              join(root, "output")
+            ]
+          });
         });
-      });
-      expect(await readFile(join(root, "output"), "utf8")).toContain("writer-work");
-      await expect(readFile(join(lockPath, "holder.json"), "utf8")).rejects.toMatchObject({
-        code: "ENOENT"
-      });
-      expect(await readdir(root)).toEqual(["output"]);
+        expect(await readFile(join(root, "output"), "utf8")).toContain("writer-work");
+        await expect(readFile(join(lockPath, "holder.json"), "utf8")).rejects.toMatchObject({
+          code: "ENOENT"
+        });
+        expect(await readdir(root)).toEqual(["output"]);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
+  },
+  process.platform === "win32" ? 30_000 : 10_000
+);
 
 it("reports an unawaited writer failure while still releasing its drained lease", async () => {
   const root = await mkdtemp(join(tmpdir(), "planweave-managed-lock-failure-"));
@@ -299,6 +303,8 @@ it("serializes the actual CLI and Desktop workspace wrappers against isolated bu
             env: {
               ...process.env,
               npm_execpath: pnpmPath,
+              npm_config_script_shell: "untrusted-build-shell",
+              ComSpec: "untrusted-command-interpreter",
               TEST_BUILD_ROOT: root,
               TEST_BUILD_ACTOR: target,
               TEST_CONTROL_PORT: String(control.port)

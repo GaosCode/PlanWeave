@@ -51,15 +51,28 @@ async function runPackageScript(buildTarget: BuildTarget, scope: AdvisoryLockSco
   }
   if (process.platform === "win32" && !process.env.SystemRoot)
     throw new Error("Managed build requires SystemRoot for the audited command interpreter.");
-  const scriptShell =
+  const scriptShell = process.platform === "win32" ? "" : "/bin/sh";
+  const commandInterpreter =
     process.platform === "win32"
       ? join(String(process.env.SystemRoot), "System32", "cmd.exe")
-      : "/bin/sh";
+      : undefined;
+  const env = Object.fromEntries(
+    Object.entries(process.env).map(([key, value]) => [
+      key,
+      key.toLowerCase() === "npm_config_script_shell"
+        ? scriptShell
+        : key.toLowerCase() === "comspec" && commandInterpreter
+          ? commandInterpreter
+          : value
+    ])
+  );
+  env.npm_config_script_shell = scriptShell;
+  if (commandInterpreter) env.ComSpec = commandInterpreter;
   await scope.runManagedCommand({
     command: process.execPath,
     args: [executable, `--config.script-shell=${scriptShell}`, "run", definition.script],
     cwd: definition.cwd,
-    env: { ...process.env, npm_config_script_shell: scriptShell }
+    env
   });
 }
 

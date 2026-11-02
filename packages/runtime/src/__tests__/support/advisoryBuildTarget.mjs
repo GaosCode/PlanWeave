@@ -5,7 +5,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2] ?? "build";
-if (mode === "owner") {
+if (mode === "prepare") {
+  if (process.argv[3] !== "@planweave-ai/collaboration-protocol")
+    throw new Error("Build command arguments were not preserved");
+  await fs.writeFile(
+    join(process.env.TEST_BUILD_ROOT, `prepared-${process.env.TEST_BUILD_ACTOR}`),
+    process.argv[3]
+  );
+} else if (mode === "owner") {
   const { withAdvisoryDirectoryLock } = await import(process.env.TEST_LOCK_MODULE);
   process.on("message", () => {});
   await withAdvisoryDirectoryLock(
@@ -64,6 +71,11 @@ if (mode === "owner") {
     await fs.rename(join(root, "written.tmp"), join(root, "written"));
     send("written");
   } else {
+    if (
+      (await fs.readFile(join(root, `prepared-${actor}`), "utf8")) !==
+      "@planweave-ai/collaboration-protocol"
+    )
+      throw new Error("Build preparation did not complete");
     const sentinel = join(root, "build-occupied");
     await (await fs.open(sentinel, "wx")).close();
     await fs.appendFile(
