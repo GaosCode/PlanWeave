@@ -112,7 +112,19 @@ async function setup() {
   let exchanges = 0;
   const origin = await listen(
     createServer((request, response) => {
-      const exchange = request.url === "/agent-hosts/enrollments/exchange";
+      const path =
+        request.url === "/api/v1/host-enrollments"
+          ? "/api/v1/host-enrollments"
+          : request.url === "/agent-hosts/enrollments/exchange"
+            ? "/agent-hosts/enrollments/exchange"
+            : null;
+      if (path === null) {
+        request.resume();
+        response.writeHead(404);
+        response.end();
+        return;
+      }
+      const exchange = path === "/agent-hosts/enrollments/exchange";
       const drop = exchange && ++exchanges === 1;
       if (drop) response.on("close", () => droppedConnectionClosed.resolve());
       const bytes: Buffer[] = [];
@@ -120,7 +132,7 @@ async function setup() {
         bytes.push(chunk);
       });
       const forward = httpRequest(
-        new URL(request.url ?? "/", upstream),
+        new URL(path, upstream),
         { method: request.method, headers: request.headers },
         (incoming) => {
           const body: Buffer[] = [];
