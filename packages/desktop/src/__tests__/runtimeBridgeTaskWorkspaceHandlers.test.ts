@@ -198,6 +198,34 @@ describe("Task Workspace runtime bridge", () => {
     expect(runtimeMock.listTaskWorkspaceRuns).not.toHaveBeenCalled();
   });
 
+  it("forwards the selected record so Runtime can load that run's full record", async () => {
+    const { runtimeMock } = getRuntimeBridgeMocks();
+    const handler = registeredHandler(desktopBridgeInvokeChannels.listTaskWorkspaceRuns);
+    const input = {
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a",
+      taskId: "T-001",
+      selectedRecordId: "T-001#B-001::RUN-001"
+    };
+    runtimeMock.listTaskWorkspaceRuns.mockResolvedValueOnce({
+      version: "planweave.task-workspace-runs-page/v1",
+      projectRoot: "/tmp/project",
+      canvasId: "canvas-a",
+      taskId: "T-001",
+      limit: 50,
+      items: [],
+      nextCursor: null
+    });
+
+    await handler(null, input);
+
+    // The index row has no RunnerRecordReadModel; the Runtime needs to know which
+    // run the user selected so it can read the full record for it.
+    expect(runtimeMock.listTaskWorkspaceRuns).toHaveBeenCalledWith(input, {
+      selectedRecordId: "T-001#B-001::RUN-001"
+    });
+  });
+
   it("rejects a Runtime run-detail response with mismatched record identity", async () => {
     const { runtimeMock } = getRuntimeBridgeMocks();
     const handler = registeredHandler(desktopBridgeInvokeChannels.getTaskWorkspaceRunDetail);
@@ -264,7 +292,11 @@ describe("Task Workspace runtime bridge", () => {
           usage: {
             currentContext: null,
             runTokens: { available: false, totalTokens: null, reason: "Unavailable." },
-            taskTokens: { available: false, totalTokens: null, reason: "Unavailable." }
+            taskTokens: { available: false, totalTokens: null, reason: "Unavailable." },
+            credits: {
+              availability: "unavailable",
+              reason: "The agent did not report any credit usage for this run."
+            }
           },
           actualConfiguration: { available: false, reason: "Unavailable." },
           nextActions: { version: "planweave.runner-next-actions/v1", actions: [] },

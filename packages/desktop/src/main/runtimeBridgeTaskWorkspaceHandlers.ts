@@ -109,7 +109,9 @@ async function invokeTaskWorkspaceRuns(input: unknown): Promise<TaskWorkspaceRun
     );
   }
   try {
-    const result = await listTaskWorkspaceRuns(parsedInput.data);
+    const result = await listTaskWorkspaceRuns(parsedInput.data, {
+      selectedRecordId: parsedInput.data.selectedRecordId ?? null
+    });
     const parsedResult = taskWorkspaceRunsPageSchema.safeParse(result);
     if (!parsedResult.success) {
       throw new Error(`invalid Runtime response: ${validationFailureMessage(parsedResult.error)}`);

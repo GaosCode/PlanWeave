@@ -55,6 +55,11 @@ export const taskWorkspaceListRunsInputSchema = z
     projectRoot: nonEmptyStringSchema,
     canvasId: canvasIdSchema,
     taskId: taskIdSchema,
+    /**
+     * Lets the Runtime load the selected run's full record (and therefore its
+     * session configuration and usage) instead of the summary-only index row.
+     */
+    selectedRecordId: nonEmptyStringSchema.max(1_024).nullable().optional(),
     cursor: taskWorkspaceRunsCursorSchema.nullable().optional(),
     limit: z.number().int().positive().max(TASK_WORKSPACE_RUNS_MAX_LIMIT).optional()
   })

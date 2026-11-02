@@ -156,7 +156,11 @@ function operationRunItem(options: {
       usage: {
         currentContext: null,
         runTokens: { available: false, totalTokens: null, reason: "Remote operation." },
-        taskTokens: { available: false, totalTokens: null, reason: "Remote operation." }
+        taskTokens: { available: false, totalTokens: null, reason: "Remote operation." },
+        credits: {
+          availability: "unavailable",
+          reason: "Remote operations report credits through Agent Host telemetry."
+        }
       },
       actualConfiguration: {
         available: false,
