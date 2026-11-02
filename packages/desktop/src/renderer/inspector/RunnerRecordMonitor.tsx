@@ -268,7 +268,12 @@ export function RunnerRecordMonitor({
                   </span>
                   {body.cost ? (
                     <span>
-                      {t("acpCost")}: {body.cost.amount} {body.cost.currency}
+                      {t("acpCost")}: {body.cost.amount}
+                      {body.cost.unit === "credits"
+                        ? ` ${t("acpCredits")}`
+                        : body.cost.currency
+                          ? ` ${body.cost.currency}`
+                          : ""}
                     </span>
                   ) : null}
                 </div>

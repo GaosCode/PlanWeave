@@ -22,6 +22,7 @@ export const runnerZhCnCatalog = {
   acpUsedTokens: "已用 Token",
   acpContextWindow: "上下文窗口",
   acpCost: "费用",
+  acpCredits: "积分",
   acpArtifact: "产物",
   acpRevealArtifact: "在文件管理器中显示",
   acpArtifactOpenError: "无法打开产物",

@@ -56,10 +56,14 @@ function usageLabels(t: Translator): TaskWorkspaceUsageLabels {
     currentContext: t("taskWorkspaceCurrentContext"),
     currentRun: t("taskWorkspaceCurrentRun"),
     formatCost: (amount, currency) =>
-      new Intl.NumberFormat(locale(t), {
-        currency,
-        style: "currency"
-      }).format(amount),
+      /^[A-Za-z]{3}$/.test(currency)
+        ? new Intl.NumberFormat(locale(t), {
+            currency,
+            style: "currency"
+          }).format(amount)
+        : `${new Intl.NumberFormat(locale(t)).format(amount)} ${currency}`.trim(),
+    formatCredits: (amount) =>
+      `${new Intl.NumberFormat(locale(t)).format(amount)} ${t("taskWorkspaceCredits")}`,
     formatDateTime: (value) =>
       new Intl.DateTimeFormat(locale(t), {
         dateStyle: "medium",
@@ -81,6 +85,9 @@ function usageLabels(t: Translator): TaskWorkspaceUsageLabels {
     reportedSnapshotCost: t("taskWorkspaceReportedSnapshotCost"),
     runCost: t("taskWorkspaceRunCost"),
     runCostUnavailable: t("taskWorkspaceRunCostUnavailable"),
+    runCredits: t("taskWorkspaceRunCredits"),
+    creditsSamples: (count) => interpolate(t("taskWorkspaceCreditsSamples"), { count }),
+    creditsLastOnly: (count) => interpolate(t("taskWorkspaceCreditsLastOnly"), { count }),
     runWallClock: t("taskWorkspaceRunWallClock"),
     taskCost: t("taskWorkspaceTaskCost"),
     taskTotal: t("taskWorkspaceTaskTotal"),
@@ -93,7 +100,10 @@ function usageLabels(t: Translator): TaskWorkspaceUsageLabels {
         used
       }),
     unavailable: t("unavailable"),
-    usagePercent: (percent) => interpolate(t("taskWorkspaceUsagePercent"), { percent })
+    usagePercent: (percent) =>
+      percent === null
+        ? t("taskWorkspaceUsagePercentUnknown")
+        : interpolate(t("taskWorkspaceUsagePercent"), { percent })
   };
 }
 

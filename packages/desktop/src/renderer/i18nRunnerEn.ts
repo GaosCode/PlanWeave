@@ -21,6 +21,7 @@ export const runnerEnCatalog = {
   acpUsedTokens: "Used tokens",
   acpContextWindow: "Context window",
   acpCost: "Cost",
+  acpCredits: "credits",
   acpArtifact: "Artifact",
   acpRevealArtifact: "Show in file manager",
   acpArtifactOpenError: "Artifact could not be opened",
