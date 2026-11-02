@@ -344,7 +344,8 @@ export function useTaskWorkspaceController(options: {
       }),
       api.listTaskWorkspaceRuns({
         ...canvasRef,
-        taskId: requestedNavigation.taskId
+        taskId: requestedNavigation.taskId,
+        selectedRecordId: diskSelectedRecordId(requestedNavigation.recordId)
       }),
       api.getGraphViewModel(canvasRef)
     ])
@@ -870,6 +871,7 @@ export function useTaskWorkspaceController(options: {
         projectRoot: localNavigation.projectRoot,
         canvasId: localNavigation.canvasId,
         taskId: localNavigation.taskId,
+        selectedRecordId: diskSelectedRecordId(localNavigation.recordId),
         cursor
       });
       if (workspaceRequest.current !== request) {

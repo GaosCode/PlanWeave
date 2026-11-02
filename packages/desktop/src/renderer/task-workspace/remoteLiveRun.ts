@@ -154,7 +154,11 @@ function injectRemoteLiveRun(
       usage: {
         currentContext: null,
         runTokens: { available: false, totalTokens: null, reason: "Remote live attempt." },
-        taskTokens: { available: false, totalTokens: null, reason: "Remote live attempt." }
+        taskTokens: { available: false, totalTokens: null, reason: "Remote live attempt." },
+        credits: {
+          availability: "unavailable",
+          reason: "Remote live attempt has no local credit samples."
+        }
       },
       actualConfiguration: {
         available: false,

@@ -407,7 +407,23 @@ async function projectSummaryRunItem(options: {
   dependenciesSatisfied: boolean;
   now: Date;
 }): Promise<TaskWorkspaceRunListItem> {
-  const record = runIndexAsProjectionRecord(options.entry);
+  const indexed = runIndexAsProjectionRecord(options.entry);
+  /**
+   * An index row carries no RunnerRecordReadModel, so projecting from it alone
+   * can never expose the run's actual session configuration, context usage or
+   * credits — the Inspector reported "unavailable" for every run, including the
+   * one on screen. Reading the full record is only worth it for the run the
+   * user actually selected.
+   */
+  let record = indexed;
+  if (options.selected) {
+    try {
+      record = await getRunRecordFromWorkspace(options.workspace, indexed.recordId);
+    } catch {
+      // A live run may be mid-write; fall back to the index row rather than
+      // failing the whole page.
+    }
+  }
   if ((record.kind ?? "block") !== "block") {
     throw new Error(`Task Workspace list only supports block runs, got '${record.kind}'.`);
   }
@@ -729,7 +745,26 @@ export async function listTaskWorkspaceRuns(
     currentRefs: executionStatus.currentRefs
   });
   const activeSet = new Set(activeRecordIds);
-  const selectedRecordId = options.selectedRecordId ?? null;
+  /**
+   * Mirror the workspace header's default selection.
+   *
+   * `getTaskWorkspace` resolves a selection even when the caller names none: the
+   * single active run, or the newest run. The run list used to keep `null` in
+   * that case, so the row the UI highlighted was a summary-only index entry with
+   * no RunnerRecordReadModel — leaving and re-entering the task therefore showed
+   * the model and reasoning as unavailable again. Only the first page may infer
+   * a default; continuation pages must not re-mark a different record.
+   */
+  const requestedSelection = options.selectedRecordId ?? null;
+  const selectedRecordId =
+    requestedSelection ??
+    (cursor !== null
+      ? null
+      : activeRecordIds.length === 1
+        ? activeRecordIds[0]!
+        : activeRecordIds.length > 1
+          ? null
+          : (pageLocators[0]?.recordId ?? null));
   const hasActiveRun = hasActiveAutoRun || activeRecordIds.length > 0;
 
   const items = await Promise.all(

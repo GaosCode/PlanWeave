@@ -526,6 +526,11 @@ describe("desktop Task Workspace aggregate API", () => {
     expect(
       page.items.find((item) => item.run.record.recordId === recordId)?.run.metadata.submittedAt
     ).toEqual(expect.any(String));
+    // Without an explicit selection the list must default to the newest run, the
+    // same record `getTaskWorkspace` reports. Otherwise the highlighted row stays
+    // a summary-only index entry and the Inspector loses the run's configuration
+    // after the user leaves and re-enters the task.
+    expect(page.items.find((item) => item.selected)?.run.record.recordId).toBe(recordId);
   });
 
   it("groups each feedback run with its source review attempt without duplicate feedback rows", async () => {
