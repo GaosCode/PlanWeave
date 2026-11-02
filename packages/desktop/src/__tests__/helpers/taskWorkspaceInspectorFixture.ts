@@ -417,5 +417,5 @@ export const taskWorkspaceUsageLabelsFixture: TaskWorkspaceUsageLabels = {
   tokens: "Tokens",
   tokensUsed: (used, window) => `${used} / ${window} tokens`,
   unavailable: "Unavailable",
-  usagePercent: (percent) => `${percent}% used`
+  usagePercent: (percent) => (percent === null ? "Context window not reported" : `${percent}% used`)
 };

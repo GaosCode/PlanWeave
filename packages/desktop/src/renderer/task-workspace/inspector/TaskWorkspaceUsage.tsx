@@ -133,7 +133,9 @@ export function TaskWorkspaceUsageDetails({
               snapshot ? (
                 labels.tokensUsed(
                   labels.formatNumber(snapshot.usedTokens),
-                  labels.formatNumber(snapshot.contextWindowTokens)
+                  snapshot.contextWindowTokens === 0
+                    ? labels.unavailable
+                    : labels.formatNumber(snapshot.contextWindowTokens)
                 )
               ) : (
                 <UnavailableValue
@@ -369,7 +371,9 @@ export function TaskWorkspaceUsage({
   const triggerLabel = snapshot
     ? `${labels.contextUsage}: ${labels.tokensUsed(
         labels.formatNumber(snapshot.usedTokens),
-        labels.formatNumber(snapshot.contextWindowTokens)
+        snapshot.contextWindowTokens === 0
+          ? labels.unavailable
+          : labels.formatNumber(snapshot.contextWindowTokens)
       )}; ${labels.usagePercent(percent)}; ${labels.contextSnapshot}`
     : `${labels.contextUsage}: ${labels.unavailable}`;
 
@@ -479,7 +483,9 @@ export function TaskWorkspaceUsage({
                 <div className="text-sm font-medium text-text">
                   {labels.tokensUsed(
                     labels.formatNumber(snapshot.usedTokens),
-                    labels.formatNumber(snapshot.contextWindowTokens)
+                    snapshot.contextWindowTokens === 0
+                      ? labels.unavailable
+                      : labels.formatNumber(snapshot.contextWindowTokens)
                   )}
                 </div>
               </>
