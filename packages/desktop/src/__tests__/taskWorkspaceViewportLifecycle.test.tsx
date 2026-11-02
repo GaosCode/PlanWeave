@@ -363,9 +363,9 @@ describe("Graph viewport across real ReactFlow route lifecycles", () => {
       });
       expect(probe.current.projectSidebar.selectedTaskPanelId).toBe(beta.taskId);
     }
-    const betaButton = screen
-      .getAllByTestId("task-node-block")
-      .find((button) => button.dataset.blockRef === beta.ref)!;
+    const betaButton = (await screen.findAllByTestId("task-node-block")).find(
+      (button) => button.dataset.blockRef === beta.ref
+    )!;
     fireEvent.click(betaButton);
     await waitFor(() =>
       expect(screen.getByTestId("task-workspace-shell")).toHaveAttribute(
@@ -429,7 +429,7 @@ describe("Graph viewport across real ReactFlow route lifecycles", () => {
     await act(async () => probe.current.graphWorkspace.handleOpenBlockInspector(beta.ref));
     expect(probe.current.projectSidebar.selectedTaskPanelId).toBe(beta.taskId);
     // Explicit user focus still works on a route which retains A's history snapshot.
-    expect(probe.flow.setCenter).toHaveBeenCalled();
+    await waitFor(() => expect(probe.flow.setCenter).toHaveBeenCalled());
     await act(async () => {
       await Promise.all(vi.mocked(probe.flow.setCenter).mock.results.map((result) => result.value));
     });
