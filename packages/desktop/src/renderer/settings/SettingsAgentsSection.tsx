@@ -361,6 +361,7 @@ export function SettingsAgentsSection({
           agentMissing: t("agentMissing"),
           agentMissingCannotEnable: t("agentMissingCannotEnable"),
           agentEnableDescription: t("agentEnableDescription"),
+          agentAcpOptionsHint: t("agentAcpOptionsHint"),
           agentAcpAdapterHint: t("agentAcpAdapterHint"),
           agentInstallCommandLabel: t("agentInstallCommandLabel"),
           agentLoginCommandLabel: t("agentLoginCommandLabel"),
