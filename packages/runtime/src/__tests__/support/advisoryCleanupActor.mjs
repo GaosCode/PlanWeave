@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 const { root, mode, moduleUrl } = JSON.parse(process.argv[2]);
 const { withAdvisoryDirectoryLock } = await import(moduleUrl);
 const lockPath = join(root, "lock");
@@ -21,9 +22,14 @@ try {
           "delete before failure"
         );
       } else if (mode === "pipe") {
-        const writer = `const fs=require('node:fs');const path=require('node:path');const store=process.env.PLANWEAVE_BUILD_STORE_DIR;fs.writeFileSync(path.join(store,'pipe-live'),'owned');fs.writeFileSync(${JSON.stringify(join(root, "writer-ready"))},String(process.pid));const t=setInterval(()=>{if(fs.existsSync(${JSON.stringify(join(root, "release"))})){clearInterval(t);fs.writeFileSync(path.join(store,'last-byte'),'writer completed');fs.writeFileSync(${JSON.stringify(join(root, "writer-terminal"))},'done');}},10);process.send('ready');`;
-        const target = `const {spawn}=require('node:child_process');const c=spawn(process.execPath,['-e',${JSON.stringify(writer)}],{stdio:['ignore','inherit','inherit','ipc']});c.once('message',()=>{c.disconnect();c.unref();console.log('PIPE_STDOUT_BEFORE_EXIT');console.error('PIPE_STDERR_BEFORE_EXIT');process.exit(7);});`;
-        await scope.runManagedCommand({ command: process.execPath, args: ["-e", target] });
+        await scope.runManagedCommand({
+          command: process.execPath,
+          args: [
+            fileURLToPath(new URL("./advisoryInheritedPipeTarget.mjs", import.meta.url)),
+            "target",
+            root
+          ]
+        });
       }
       process.send({ event: "entered", actor: mode, pid: process.pid });
     }
