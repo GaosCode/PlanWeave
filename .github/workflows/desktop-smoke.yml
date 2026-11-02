@@ -69,5 +69,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify packaging glob compatibility
+        run: pnpm check:packaging-glob
+
       - name: Run packaged desktop startup and restart smoke
         run: pnpm --dir packages/desktop verify:packaged:mac

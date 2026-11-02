@@ -42,7 +42,7 @@ patchedDependencies:
     hash: def92076ac5babd332ca60d7c2e7bd8d3aa0a85b1a2b444c78ad1956b13645bc
     path: patches/dir-compare@4.2.0.patch
   glob@7.2.3:
-    hash: 769998672ca43127e13fd7989df7e3f9c58abf08368affc1cf1029c8e26631f0
+    hash: b69829ad2bb9eb9a86f70c6c8b7da523049a30c38ecc19125dff72c35c5c748c
     path: patches/glob@7.2.3.patch
 
 importers:
@@ -3821,7 +3821,7 @@ snapshots:
   '@electron/asar@3.4.1(patch_hash=2bee052a0492454b5b3fcadcf2ec963be1e1d2788821aca6e02b6351077c26cc)':
     dependencies:
       commander: 5.1.0
-      glob: 7.2.3(patch_hash=769998672ca43127e13fd7989df7e3f9c58abf08368affc1cf1029c8e26631f0)
+      glob: 7.2.3(patch_hash=b69829ad2bb9eb9a86f70c6c8b7da523049a30c38ecc19125dff72c35c5c748c)
       minimatch: 11.0.3
 
   '@electron/fuses@1.8.0':
@@ -5991,7 +5991,7 @@ snapshots:
     dependencies:
       pump: 3.0.4
 
-  glob@7.2.3(patch_hash=769998672ca43127e13fd7989df7e3f9c58abf08368affc1cf1029c8e26631f0):
+  glob@7.2.3(patch_hash=b69829ad2bb9eb9a86f70c6c8b7da523049a30c38ecc19125dff72c35c5c748c):
     dependencies:
       fs.realpath: 1.0.0
       inflight: 1.0.6
@@ -6683,7 +6683,7 @@ snapshots:
 
   rimraf@2.6.3:
     dependencies:
-      glob: 7.2.3(patch_hash=769998672ca43127e13fd7989df7e3f9c58abf08368affc1cf1029c8e26631f0)
+      glob: 7.2.3(patch_hash=b69829ad2bb9eb9a86f70c6c8b7da523049a30c38ecc19125dff72c35c5c748c)
 
   rolldown@1.1.5:
     dependencies:

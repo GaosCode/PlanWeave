@@ -32,3 +32,38 @@ index 2c4f4801..fe7820e9 100644
 -        m = e.match(pn)
 +        m = pn.test(e)
        }
+diff --git a/common.js b/common.js
+--- a/common.js
++++ b/common.js
+@@ -17,1 +17,22 @@
+ var Minimatch = minimatch.Minimatch
++
++class GlobMinimatch extends Minimatch {
++  make () {
++    if (!this.pattern) {
++      this.empty = true
++      return
++    }
++    this.globSet = this.braceExpand()
++    this.globParts = this.globSet.map(pattern => pattern.split(/\/+/))
++    this.set = this.globParts.map(parts => parts.map(part => this.parse(part)))
++      .filter(parts => parts.indexOf(false) === -1)
++  }
++
++  parse (part) {
++    var parsed = super.parse(part === '**' && this.options.noglobstar ? '*' : part)
++    if (this.options.nocase && typeof parsed === 'string' && parsed !== '') {
++      return { pattern: part, test: entry => entry === parsed }
++    }
++    return parsed
++  }
++}
+@@ -113,5 +134,5 @@
+   // always treat \ in patterns as escapes, not path separators
+-  options.allowWindowsEscape = false
+-
+-  self.minimatch = new Minimatch(pattern, options)
++  options.allowWindowsEscape = process.platform !== 'win32'
++
++  self.minimatch = new GlobMinimatch(pattern.trim(), options)
+   self.options = self.minimatch.options

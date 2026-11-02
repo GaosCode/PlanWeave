@@ -127,8 +127,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # Keep registry and parser failures visible alongside vulnerability findings.
-      - name: Audit dependencies (high/critical)
+      - name: Audit dependencies (moderate/high/critical, including dev)
         run: pnpm audit:security
+
+      - name: Verify packaging glob compatibility
+        run: pnpm check:packaging-glob
 
   node-22-13-compatibility:
     name: Node.js 22.13 compatibility
@@ -688,6 +691,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify packaging glob compatibility
+        run: pnpm check:packaging-glob
 
       - name: Build Desktop
         timeout-minutes: 15
