@@ -132,6 +132,7 @@ const agentProfiles: DesktopAgentToolProfile[] = [
     versionArgs: ["--version"],
     execArgs: ["--acp"],
     fullAccessArgs: [],
+    installCommand: "npm install -g @tencent-ai/codebuddy-code",
     loginCommands: ["codebuddy-code"]
   }
 ];
