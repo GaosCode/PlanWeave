@@ -1,4 +1,5 @@
 import { acpContextUsageSnapshotSchema } from "../../autoRun/acpUsageProjection.js";
+import { acpCreditsUsageSchema } from "../../autoRun/acpCreditsProjection.js";
 import { z } from "zod";
 import {
   acpAgentIdSchema,
@@ -219,7 +220,12 @@ export const taskWorkspaceRunUsageSchema = z
   .object({
     currentContext: taskWorkspaceContextUsageSnapshotSchema.nullable(),
     runTokens: taskWorkspaceUnavailableTokenAccountingSchema,
-    taskTokens: taskWorkspaceUnavailableTokenAccountingSchema
+    taskTokens: taskWorkspaceUnavailableTokenAccountingSchema,
+    /**
+     * Credits consumed by this run. Agents that bill in money report nothing
+     * here, so `availability: "unavailable"` is a normal outcome, not an error.
+     */
+    credits: acpCreditsUsageSchema
   })
   .strict();
 

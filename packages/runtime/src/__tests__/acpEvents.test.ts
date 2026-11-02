@@ -212,7 +212,7 @@ describe("ACP event normalization", () => {
     ).toMatchObject({ kind: "usage_update", usedTokens: 10, contextWindowTokens: 100 });
   });
 
-  it("accepts usage updates that omit the context window or carry an invalid currency", () => {
+  it("accepts usage updates that omit the context window and classifies their cost unit", () => {
     const normalize = (
       used: number,
       size: number,
@@ -235,12 +235,23 @@ describe("ACP event normalization", () => {
       ])
     ).toMatchObject({ usedTokens: 10, contextWindowTokens: 0, cost: null });
 
-    const badCurrency = normalize(10, 100, { amount: 1, currency: "" });
+    const credits = normalize(10, 100, { amount: 1, currency: "" });
     expect(
       projectAcpContextUsage([
-        { sequence: 2, timestamp: "2026-01-01T00:00:01.000Z", body: badCurrency! }
+        { sequence: 2, timestamp: "2026-01-01T00:00:01.000Z", body: credits! }
       ])
-    ).toMatchObject({ usedTokens: 10, contextWindowTokens: 100, cost: null });
+    ).toMatchObject({
+      usedTokens: 10,
+      contextWindowTokens: 100,
+      cost: { amount: 1, currency: null, unit: "credits" }
+    });
+
+    const unformattable = normalize(10, 100, { amount: 2, currency: "US" });
+    expect(
+      projectAcpContextUsage([
+        { sequence: 3, timestamp: "2026-01-01T00:00:02.000Z", body: unformattable! }
+      ])
+    ).toMatchObject({ cost: { amount: 2, currency: null, unit: "unknown" } });
   });
 
   it("ignores provider-only status while preserving authoritative configuration updates", () => {

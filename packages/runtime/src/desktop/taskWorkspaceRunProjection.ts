@@ -1,4 +1,5 @@
 import { projectAcpContextUsage } from "../autoRun/acpUsageProjection.js";
+import { projectAcpCreditsUsage } from "../autoRun/acpCreditsProjection.js";
 import { z } from "zod";
 import { runnerRecordReadModelSchema } from "../autoRun/runnerRecordReadModelContract.js";
 import {
@@ -266,7 +267,10 @@ export function projectTaskWorkspaceRun(options: {
     }),
     usage: {
       currentContext: projectTaskWorkspaceCurrentContextUsage(record.runnerReadModel?.events),
-      ...unavailableTokenUsage()
+      ...unavailableTokenUsage(),
+      credits: projectAcpCreditsUsage(record.runnerReadModel?.events ?? [], {
+        agentId: metadata.agentId ?? null
+      })
     },
     actualConfiguration: record.runnerReadModel?.actualConfiguration ?? {
       available: false,

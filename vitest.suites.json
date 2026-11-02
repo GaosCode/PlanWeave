@@ -580,6 +580,8 @@
         "acpSessionRouter.test.ts",
         "acpRunRecovery.test.ts",
         "acpSessionConfiguration.test.ts",
+        "acpCreditsProjection.test.ts",
+        "acpUsageProjection.test.ts",
         "activeAgentRunRegistry.test.ts",
         "agentProcessEnv.test.ts",
         "agentRunControlContract.test.ts",

@@ -178,6 +178,43 @@ export const runnerPersistedInteractionLeafSchema = z
 
 const toolStatusSchema = z.enum(["pending", "in_progress", "completed", "failed", "cancelled"]);
 
+/**
+ * What a `usage_update` says a turn cost.
+ *
+ * Agents bill in different units. Codex and friends report money, so `currency`
+ * carries an ISO-4217 code. CodeBuddy bills in credits and sends an empty
+ * currency string, which the earlier three-letter requirement rejected outright
+ * — the whole cost object was dropped and the consumption was lost.
+ *
+ * `currency: null` plus `unit: "credits"` keeps both cases in one field, and a
+ * missing `unit` still means "currency" so records written before this field
+ * existed replay unchanged.
+ */
+export const runnerUsageCostSchema = z
+  .object({
+    amount: z.number().nonnegative(),
+    currency: z.string().length(3).nullable(),
+    unit: z.enum(["currency", "credits", "unknown"]).optional()
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.currency !== null && value.unit !== undefined && value.unit !== "currency") {
+      context.addIssue({
+        code: "custom",
+        message: "A three-letter currency implies unit 'currency'.",
+        path: ["unit"]
+      });
+    }
+    if (value.currency === null && value.unit === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "A cost without a currency must declare its unit.",
+        path: ["unit"]
+      });
+    }
+  })
+  .nullable();
+
 export const runnerBodyFragmentSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -245,10 +282,7 @@ export const runnerBodyFragmentSchema = z.discriminatedUnion("kind", [
        * with `size: 0`, which failed the whole run at persistence time.
        */
       contextWindowTokens: z.number().int().nonnegative().safe(),
-      cost: z
-        .object({ amount: z.number().nonnegative(), currency: z.string().length(3) })
-        .strict()
-        .nullable()
+      cost: runnerUsageCostSchema
     })
     .strict(),
   z

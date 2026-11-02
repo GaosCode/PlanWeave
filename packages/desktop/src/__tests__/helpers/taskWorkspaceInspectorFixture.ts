@@ -76,7 +76,12 @@ function runnerModel(): RunnerRecordReadModel {
 }
 
 export function taskWorkspaceInspectorFixture(
-  options: { contextSnapshot?: boolean; includeRunnerModel?: boolean; zeroMetrics?: boolean } = {}
+  options: {
+    contextSnapshot?: boolean;
+    includeRunnerModel?: boolean;
+    zeroMetrics?: boolean;
+    credits?: "reported" | "unavailable";
+  } = {}
 ) {
   const zeroMetrics = options.zeroMetrics === true;
   const effectiveFinishedAt = zeroMetrics ? startedAt : finishedAt;
@@ -127,7 +132,20 @@ export function taskWorkspaceInspectorFixture(
         available: false,
         totalTokens: null,
         reason: "No authoritative task token total exists."
-      }
+      },
+      credits:
+        options.credits === "unavailable"
+          ? {
+              availability: "unavailable",
+              reason: "The agent did not report any credit usage for this run."
+            }
+          : {
+              availability: "reported",
+              lastReportedCredits: 0.66,
+              sampleCount: 5,
+              totalCredits: 4.41,
+              semantics: "delta"
+            }
     },
     actualConfiguration: {
       available: true,
@@ -374,6 +392,7 @@ export const taskWorkspaceUsageLabelsFixture: TaskWorkspaceUsageLabels = {
   currentContext: "Current context",
   currentRun: "Current run",
   formatCost: (amount, currency) => `${currency} ${amount.toFixed(2)}`,
+  formatCredits: (amount) => `${amount} credits`,
   formatDateTime: (value) => value,
   formatDuration: (milliseconds) => `${milliseconds / 1_000}s`,
   formatNumber: (value) => new Intl.NumberFormat("en-US").format(value),
@@ -387,6 +406,9 @@ export const taskWorkspaceUsageLabelsFixture: TaskWorkspaceUsageLabels = {
   reportedSnapshotCost: "Reported session cost snapshot; not final run cost",
   runCost: "Run cost",
   runCostUnavailable: "No authoritative completed-run cost exists.",
+  runCredits: "Credits",
+  creditsSamples: (count) => `${count} turns reported`,
+  creditsLastOnly: (count) => `Latest only (${count} turns reported)`,
   runWallClock: "Run wall-clock",
   taskCost: "Task cost",
   taskTotal: "Task total",
