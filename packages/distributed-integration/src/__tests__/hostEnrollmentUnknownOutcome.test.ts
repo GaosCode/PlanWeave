@@ -1,9 +1,12 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentHostOperator } from "../../../agent-host/src/operator/agentHostOperator.js";
+import {
+  AgentHostOperator,
+  loadAgentHostConfig
+} from "../../../agent-host/src/operator/agentHostOperator.js";
 import { FileHostCredentialStore } from "../../../agent-host/src/credentials/fileCredentialStore.js";
 import {
   handoffInstanceKey,
@@ -147,7 +150,13 @@ async function setup() {
     allowedClientOrigins: [origin],
     tlsTrust: "not_applicable" as const
   };
-  const operator = new AgentHostOperator();
+  const codexPath = join(directory, process.platform === "win32" ? "codex-acp.cmd" : "codex-acp");
+  await writeFile(codexPath, "", { mode: 0o755 });
+  const operator = new AgentHostOperator(null, process.platform, {
+    PATH: directory,
+    PATHEXT: ".CMD",
+    NoDefaultCurrentDirectoryInExePath: "1"
+  });
   const provisioner = new DesktopLocalAgentHostProvisioner({
     platform: "darwin",
     launcher: { executablePath: process.execPath, fixedArgs: [] },
@@ -202,6 +211,7 @@ async function setup() {
     enrollment,
     endpoint,
     operator,
+    codexPath: await realpath(codexPath),
     paths,
     credentials,
     store,
@@ -277,6 +287,9 @@ describe("Host enrollment unknown outcome across HTTP and SQLite", () => {
       }
     });
     expect(status.state).toBe("ready");
+    expect((await loadAgentHostConfig(fixture.paths.configPath)).agentProfiles).toEqual(
+      expect.arrayContaining([expect.objectContaining({ command: fixture.codexPath })])
+    );
     expect(fixture.grants()).toBe(1);
     const active = (await fixture.credentials.read())?.active;
     expect(active?.hostId).toBe(assertOneHost(fixture, pending?.credentialToken));

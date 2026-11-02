@@ -82,6 +82,62 @@ export const workspaceMappingsInventory = [
     "Adversarial Host transport tests report empty mapping observations."
   ),
   inventoryEntry(
+    "wm-agentHostClientLoad-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/agentHostClientLoad.test.ts",
+    "readiness.workspaceMappings: []",
+    "Host transport load tests report empty mapping observations."
+  ),
+  inventoryEntry(
+    "wm-agentHostConnectionLiveness-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/agentHostConnectionLiveness.test.ts",
+    "readiness.workspaceMappings: []",
+    "Host connection liveness tests report empty mapping observations."
+  ),
+  inventoryEntry(
+    "wm-agentHostUpgradeRetry-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/agentHostUpgradeRetry.test.ts",
+    "readiness.workspaceMappings: []",
+    "Host upgrade retry tests report empty mapping observations."
+  ),
+  inventoryEntry(
+    "wm-hostWireBudget-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/hostWireBudget.test.ts",
+    "readiness.workspaceMappings: []",
+    "Host wire budget tests report empty mapping observations."
+  ),
+  inventoryEntry(
+    "wm-hostWirePermission-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/hostWirePermission.test.ts",
+    "readiness.workspaceMappings: []",
+    "Host wire permission tests report empty mapping observations."
+  ),
+  inventoryEntry(
+    "wm-remoteAcpInteractionTerminal-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/agent-host/src/__tests__/remoteAcpInteractionTerminal.test.ts",
+    "readiness.workspaceMappings: []",
+    "Remote ACP terminal interaction tests report empty mapping observations."
+  ),
+  inventoryEntry(
+    "wm-hostControlBudgetNegotiation-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/distributed-integration/src/__tests__/hostControlBudgetNegotiation.test.ts",
+    "readiness.workspaceMappings",
+    "Host control budget negotiation tests include mapping observations in sized readiness payloads."
+  ),
+  inventoryEntry(
     "wm-agentHostOutboxFailureHarness",
     "workspaceMappings",
     "endpoint_readiness",

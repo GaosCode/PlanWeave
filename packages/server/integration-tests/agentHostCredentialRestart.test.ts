@@ -6,10 +6,12 @@ import { join } from "node:path";
 import { WebSocketServer } from "ws";
 import { expect, it, vi } from "vitest";
 import {
+  DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
   exampleExecuteDelivery,
   executionEnvelopeSchema,
   hashExecutionEnvelope,
   HOST_CREDENTIAL_PREVIOUS_TOKEN_GRACE_MS,
+  HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER,
   serverEventSchema
 } from "@planweave-ai/agent-host-protocol";
 import { handleHostCredentialRenewalRequest } from "../src/hostCredentialRenewalHttp.js";
@@ -144,6 +146,9 @@ it("aligns restarted artifacts with real committed credentials when the next ord
     }
   });
   const sockets = new WebSocketServer({ server: http });
+  sockets.on("headers", (headers) => {
+    headers.push(`${HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER}: ${DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES}`);
+  });
   sockets.on("connection", (socket, request) => {
     const auth = authenticateAgentHostRequest(request, hosts, hostId, admission);
     if (!auth.ok) {

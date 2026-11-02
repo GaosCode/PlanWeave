@@ -6,8 +6,10 @@ import { join } from "node:path";
 import { WebSocketServer } from "ws";
 import { expect, it } from "vitest";
 import {
+  DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
   exampleExecuteDelivery,
   HOST_CREDENTIAL_PREVIOUS_TOKEN_GRACE_MS,
+  HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER,
   hostEventSchema,
   serverEventSchema
 } from "@planweave-ai/agent-host-protocol";
@@ -157,6 +159,9 @@ it("delivers the original execution report after two real credential rotations, 
     response.end(JSON.stringify({ ref: `artifact:sha256:${digest(bytes)}` }));
   });
   const sockets = new WebSocketServer({ server: http });
+  sockets.on("headers", (headers) => {
+    headers.push(`${HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER}: ${DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES}`);
+  });
   sockets.on("connection", (socket, request) => {
     const auth = authenticateAgentHostRequest(request, hosts, hostId, admission);
     if (!auth.ok) {
