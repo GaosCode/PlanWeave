@@ -4,7 +4,10 @@ import "@testing-library/jest-dom/vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
-import { TaskWorkspaceUsage } from "../renderer/task-workspace/inspector/TaskWorkspaceUsage";
+import {
+  TaskWorkspaceUsage,
+  TaskWorkspaceUsageDetails
+} from "../renderer/task-workspace/inspector/TaskWorkspaceUsage";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import {
   taskWorkspaceInspectorFixture,
@@ -198,5 +201,32 @@ describe("TaskWorkspaceUsage", () => {
     expect(within(tooltip).getByText("0 / 25,800 tokens")).toBeInTheDocument();
     expect(within(tooltip).getByText("0% used")).toBeInTheDocument();
     expect(screen.queryByText("USD 0.00")).not.toBeInTheDocument();
+  });
+
+  it("shows the credited total together with the number of reported turns", () => {
+    const fixture = taskWorkspaceInspectorFixture();
+    render(
+      <TaskWorkspaceUsageDetails
+        labels={labels}
+        selectedRun={fixture.selectedRun}
+        workspace={fixture.workspace}
+      />
+    );
+    expect(screen.getByText(/4\.41 credits/)).toBeInTheDocument();
+    expect(screen.getByText("5 turns reported")).toBeInTheDocument();
+  });
+
+  it("explains why a run reports no credits at all", () => {
+    const fixture = taskWorkspaceInspectorFixture({ credits: "unavailable" });
+    render(
+      <TaskWorkspaceUsageDetails
+        labels={labels}
+        selectedRun={fixture.selectedRun}
+        workspace={fixture.workspace}
+      />
+    );
+    expect(
+      screen.getByText("The agent did not report any credit usage for this run.")
+    ).toBeInTheDocument();
   });
 });

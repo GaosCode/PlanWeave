@@ -18,6 +18,7 @@ export type TaskWorkspaceUsageLabels = {
   currentContext: string;
   currentRun: string;
   formatCost: (amount: number, currency: string) => string;
+  formatCredits: (amount: number) => string;
   formatDateTime: (value: string) => string;
   formatDuration: (milliseconds: number) => string;
   formatNumber: (value: number) => string;
@@ -31,6 +32,9 @@ export type TaskWorkspaceUsageLabels = {
   reasoning: string;
   runCost: string;
   runCostUnavailable: string;
+  runCredits: string;
+  creditsSamples: (count: number) => string;
+  creditsLastOnly: (count: number) => string;
   runWallClock: string;
   taskCost: string;
   taskTotal: string;
@@ -39,7 +43,7 @@ export type TaskWorkspaceUsageLabels = {
   tokens: string;
   tokensUsed: (usedTokens: string, contextWindowTokens: string) => string;
   unavailable: string;
-  usagePercent: (percent: number) => string;
+  usagePercent: (percent: number | null) => string;
 };
 
 function UnavailableValue({ reason, unavailable }: { reason: string; unavailable: string }) {
@@ -152,7 +156,11 @@ export function TaskWorkspaceUsageDetails({
             value={
               snapshot?.cost ? (
                 <span>
-                  {labels.formatCost(snapshot.cost.amount, snapshot.cost.currency)}
+                  {snapshot.cost.unit === "credits"
+                    ? labels.formatCredits(snapshot.cost.amount)
+                    : snapshot.cost.currency
+                      ? labels.formatCost(snapshot.cost.amount, snapshot.cost.currency)
+                      : labels.formatNumber(snapshot.cost.amount)}
                   <span className="mt-0.5 block text-[10px] font-normal text-text-muted">
                     {labels.reportedSnapshotCost}
                   </span>
@@ -209,12 +217,29 @@ export function TaskWorkspaceUsageDetails({
             }
           />
           <Metric
-            label={labels.runCost}
+            label={labels.runCredits}
             value={
-              <UnavailableValue
-                reason={labels.runCostUnavailable}
-                unavailable={labels.unavailable}
-              />
+              run && run.usage.credits.availability === "reported" ? (
+                <span>
+                  {run.usage.credits.totalCredits !== null
+                    ? labels.formatCredits(run.usage.credits.totalCredits)
+                    : labels.formatCredits(run.usage.credits.lastReportedCredits)}
+                  <span className="mt-0.5 block text-[10px] font-normal text-text-muted">
+                    {run.usage.credits.totalCredits !== null
+                      ? labels.creditsSamples(run.usage.credits.sampleCount)
+                      : labels.creditsLastOnly(run.usage.credits.sampleCount)}
+                  </span>
+                </span>
+              ) : (
+                <UnavailableValue
+                  reason={
+                    run && run.usage.credits.availability === "unavailable"
+                      ? run.usage.credits.reason
+                      : labels.runCostUnavailable
+                  }
+                  unavailable={labels.unavailable}
+                />
+              )
             }
           />
           <Metric
@@ -345,7 +370,7 @@ export function TaskWorkspaceUsage({
     ? `${labels.contextUsage}: ${labels.tokensUsed(
         labels.formatNumber(snapshot.usedTokens),
         labels.formatNumber(snapshot.contextWindowTokens)
-      )}; ${labels.usagePercent(percent ?? 0)}; ${labels.contextSnapshot}`
+      )}; ${labels.usagePercent(percent)}; ${labels.contextSnapshot}`
     : `${labels.contextUsage}: ${labels.unavailable}`;
 
   return (
@@ -450,7 +475,7 @@ export function TaskWorkspaceUsage({
             <div className="text-text-muted">{labels.contextUsage}</div>
             {snapshot ? (
               <>
-                <div className="text-text-muted">{labels.usagePercent(percent ?? 0)}</div>
+                <div className="text-text-muted">{labels.usagePercent(percent)}</div>
                 <div className="text-sm font-medium text-text">
                   {labels.tokensUsed(
                     labels.formatNumber(snapshot.usedTokens),

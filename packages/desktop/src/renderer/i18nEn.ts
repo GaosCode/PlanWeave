@@ -1055,6 +1055,8 @@ export const enCatalog = {
   agentMissingCannotEnable: "Cannot enable until this command is installed.",
   agentEnableDescription:
     "When enabled, PlanWeave invokes `{command}` as the common execution entry.",
+  agentAcpOptionsHint:
+    "Expand the arrow on the right to configure the model, reasoning effort, and permission mode.",
   agentAcpAdapterHint:
     "ACP uses a separate adapter from the CLI. Install the adapter, then click Refresh.",
   agentInstallCommandLabel: "Install command",
@@ -1284,6 +1286,10 @@ export const enCatalog = {
   taskWorkspaceContextUnavailable: "No authoritative current-context snapshot was recorded.",
   taskWorkspaceContextUsage: "Context usage",
   taskWorkspaceCost: "Cost",
+  taskWorkspaceCredits: "credits",
+  taskWorkspaceRunCredits: "Credits",
+  taskWorkspaceCreditsSamples: "{count} turns reported",
+  taskWorkspaceCreditsLastOnly: "Latest only ({count} turns reported)",
   taskWorkspaceCurrentContext: "Current context",
   taskWorkspaceCurrentRun: "Current run",
   taskWorkspaceNoSnapshotCost: "No cost was reported with the latest context snapshot.",
@@ -1303,6 +1309,7 @@ export const enCatalog = {
   taskWorkspaceTokens: "Tokens",
   taskWorkspaceTokensUsed: "{used} / {contextWindow} tokens",
   taskWorkspaceUsagePercent: "{percent}% used",
+  taskWorkspaceUsagePercentUnknown: "Context window not reported",
   taskWorkspaceActiveRuns: "Active runs: {count}",
   taskWorkspaceOverview: "Task overview",
   taskWorkspaceAnnotationFeedback: "Feedback",
