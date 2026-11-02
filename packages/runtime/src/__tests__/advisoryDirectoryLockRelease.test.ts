@@ -151,3 +151,45 @@ it("recovers when both cleanup attempts remove metadata before failing", async (
     )
   ).resolves.toBe("recovered");
 });
+
+function transientDenial(): Error {
+  return Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" });
+}
+
+it("retries transient denials while retiring, removing, and pruning the released lease", async () => {
+  const options = await fixture(fs.rm);
+  const deniedOnce = new Set<string>();
+  function denyFirst(key: string) {
+    if (deniedOnce.has(key)) return;
+    deniedOnce.add(key);
+    throw transientDenial();
+  }
+  options.fs.rename = async (from, to) => {
+    if (to.includes("drained-v2-")) denyFirst("rename");
+    await fs.rename(from, to);
+  };
+  options.fs.rm = async (path, removal) => {
+    if (path.includes("drained-v2-")) denyFirst("rm");
+    await fs.rm(path, removal);
+  };
+  options.fs.rmdir = async (path) => {
+    denyFirst("rmdir");
+    await fs.rmdir(path);
+  };
+  await expect(withAdvisoryDirectoryLock(options, async () => "entered")).resolves.toBe("entered");
+  expect(deniedOnce).toEqual(new Set(["rename", "rm", "rmdir"]));
+  await expect(fs.access(options.lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("leaves a stale empty root instead of failing release when its removal stays denied", async () => {
+  const options = await fixture(fs.rm);
+  options.fs.rmdir = async () => {
+    throw transientDenial();
+  };
+  await expect(withAdvisoryDirectoryLock(options, async () => "entered")).resolves.toBe("entered");
+  expect(await fs.readdir(options.lockPath)).toEqual([]);
+  options.fs.rmdir = fs.rmdir;
+  await expect(
+    withAdvisoryDirectoryLock({ ...options, timeoutMs: 500 }, async () => "recovered")
+  ).resolves.toBe("recovered");
+});
