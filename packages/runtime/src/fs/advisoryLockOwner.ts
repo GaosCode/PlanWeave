@@ -1,5 +1,6 @@
 import { lstat, mkdir, readdir, readFile, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setTimeout as wait } from "node:timers/promises";
 import { z } from "zod";
 import { optionalStat } from "./optionalFile.js";
 
@@ -33,6 +34,15 @@ export const defaultLockFs: AdvisoryLockFs = {
 
 export function isErrno(error: unknown, code: string): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === code);
+}
+
+// Windows denies directory renames and removals while a competing process still holds the
+// same path open. These codes are transient there and are retried on a short fixed budget.
+const retryableCleanupErrorCodes = new Set(["EACCES", "EBUSY", "EPERM"]);
+const cleanupRetryDelaysMs = [10, 20, 40, 80, 160, 320] as const;
+function isRetryableCleanupError(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  return retryableCleanupErrorCodes.has(String(error.code));
 }
 
 export const lockHolderSchema = z
@@ -125,23 +135,48 @@ export async function removeExactLockOwner(
 ): Promise<void> {
   if (!ownerName.test(name)) throw new Error("Invalid lock lease identity");
   const drainedName = name.replace(/^lease-v2-/, "drained-v2-");
-  if (drainedName !== name) {
-    try {
-      await fs.rename(join(lockPath, name), join(lockPath, drainedName));
-    } catch (error) {
-      // Another cleanup may already have retired or removed this exact UUID.
-      if (!isErrno(error, "ENOENT")) throw error;
-    }
-  }
-  await fs.rm(join(lockPath, drainedName), { recursive: true, force: true });
+  if (drainedName !== name) await retireExactLockOwner(lockPath, name, drainedName, fs);
+  await retryCleanup(() => fs.rm(join(lockPath, drainedName), { recursive: true, force: true }));
   await removeEmptyLockRoot(lockPath, fs);
+}
+
+/**
+ * Retire one lease by renaming it to its drained identity.
+ * Windows denies the rename while a competing acquirer still holds the same lease directory
+ * open for inspection; a vanished source means another cleanup already retired this UUID.
+ */
+async function retireExactLockOwner(
+  lockPath: string,
+  name: string,
+  drainedName: string,
+  fs: AdvisoryLockFs
+): Promise<void> {
+  try {
+    await retryCleanup(() => fs.rename(join(lockPath, name), join(lockPath, drainedName)));
+  } catch (error) {
+    if (!isErrno(error, "ENOENT")) throw error;
+  }
 }
 
 export async function removeEmptyLockRoot(lockPath: string, fs: AdvisoryLockFs): Promise<void> {
   try {
-    await fs.rmdir(lockPath);
+    await retryCleanup(() => fs.rmdir(lockPath));
   } catch (error) {
-    if (!isErrno(error, "ENOENT") && !isErrno(error, "ENOTEMPTY") && !isErrno(error, "EEXIST"))
-      throw error;
+    if (isErrno(error, "ENOENT") || isErrno(error, "ENOTEMPTY") || isErrno(error, "EEXIST")) return;
+    // An empty root carries no owner. If Windows still denies removal, the next acquirer
+    // inspects it as "empty" and retries, so a stale empty root must not fail the release.
+    if (!isRetryableCleanupError(error)) throw error;
+  }
+}
+
+async function retryCleanup<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      const retryDelayMs = cleanupRetryDelaysMs[attempt];
+      if (retryDelayMs === undefined || !isRetryableCleanupError(error)) throw error;
+      await wait(retryDelayMs);
+    }
   }
 }
