@@ -369,6 +369,7 @@
         "managedContentHomeLifecycle.test.ts",
         "cliInstallationCard.test.tsx",
         "acpDesktopMockE2E.test.tsx",
+        "acpDesktopMockE2E.codebuddy.test.tsx",
         "appUpdateHandlers.test.ts",
         "buildMetadata.test.ts",
         "canvasCommandClient.test.ts",
