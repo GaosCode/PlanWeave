@@ -7,6 +7,7 @@ const profiles = {
     versionCommand: { command: "claude-agent-acp", args: ["--version"] }
   },
   "opencode-acp": { versionCommand: { command: "opencode", args: ["--version"] } },
+  "codebuddy-acp": { versionCommand: { command: "codebuddy-code", args: ["--version"] } },
   "pi-acp": { versionCommand: null }
 };
 
