@@ -35,7 +35,7 @@ import {
 } from "../process/managedProcessTree.js";
 import { defaultAgentProcessEnvironmentPolicy } from "../process/agentProcessEnv.js";
 import {
-  ACP_FORCE_EXIT_CONFIRM_MS,
+  ACP_FORCE_EXIT_CONFIRM_WINDOW_MS,
   acpShutdownPolicySchema,
   type AcpShutdownPolicy
 } from "../acpProfile/schema.js";
@@ -252,7 +252,7 @@ class SubprocessAcpConnection implements AcpConnection {
       cwd: options.spawnCwd === null ? undefined : (options.spawnCwd ?? options.cwd),
       env: defaultAgentProcessEnvironmentPolicy.apply(options.env),
       graceMs: shutdown.terminateGraceMs,
-      forceExitConfirmMs: ACP_FORCE_EXIT_CONFIRM_MS
+      forceExitConfirmMs: ACP_FORCE_EXIT_CONFIRM_WINDOW_MS
     });
     this.process = managed.child;
     this.processTree = options.decorateProcessTree?.(managed.tree) ?? managed.tree;

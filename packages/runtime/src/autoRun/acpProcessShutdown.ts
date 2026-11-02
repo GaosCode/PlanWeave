@@ -1,4 +1,4 @@
-import { ACP_FORCE_EXIT_CONFIRM_MS, type AcpShutdownPolicy } from "../acpProfile/schema.js";
+import { ACP_FORCE_EXIT_CONFIRM_WINDOW_MS, type AcpShutdownPolicy } from "../acpProfile/schema.js";
 import type {
   ManagedProcessTree,
   ProcessTerminationOptions
@@ -19,7 +19,10 @@ export async function shutdownAcpProcess(options: AcpProcessShutdownOptions): Pr
   const exitedAfterEof = await options.waitForRootExit(
     Math.min(options.policy.eofDrainMs, options.deadline.remainingMs())
   );
-  const forceExitConfirmMs = Math.min(ACP_FORCE_EXIT_CONFIRM_MS, options.deadline.remainingMs());
+  const forceExitConfirmMs = Math.min(
+    ACP_FORCE_EXIT_CONFIRM_WINDOW_MS,
+    options.deadline.remainingMs()
+  );
   const graceMs = Math.min(
     options.policy.terminateGraceMs,
     Math.max(0, options.deadline.remainingMs() - forceExitConfirmMs)

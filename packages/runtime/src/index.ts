@@ -51,6 +51,7 @@ export {
   acpShutdownPolicySchema,
   ACP_EOF_DRAIN_MS,
   ACP_FORCE_EXIT_CONFIRM_MS,
+  ACP_FORCE_EXIT_CONFIRM_WINDOW_MS,
   ACP_TERMINATE_GRACE_MS,
   DEFAULT_ACP_SHUTDOWN_POLICY,
   agentEnvironmentContractSchema,
