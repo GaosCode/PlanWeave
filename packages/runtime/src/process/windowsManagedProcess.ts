@@ -104,6 +104,7 @@ function logWindowsProcess(event: string, extra: Record<string, unknown> = {}): 
 export const WINDOWS_GRACEFUL_TASKKILL_TIMEOUT_MS = 8_000;
 const WINDOWS_FORCE_TASKKILL_TIMEOUT_MS = 15_000;
 const WINDOWS_JOB_TERMINATE_TIMEOUT_MS = 15_000;
+export const WINDOWS_JOB_EXIT_CONFIRM_TIMEOUT_MS = 5_000;
 
 export function windowsTaskKillArgs(pid: number, force: boolean): string[] {
   assertSafeManagedPid(pid);

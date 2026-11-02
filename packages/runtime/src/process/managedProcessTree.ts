@@ -4,6 +4,7 @@ import {
   createWindowsJobOwnership,
   createWindowsProcessTreeAdapter,
   resolveWindowsCommand,
+  WINDOWS_JOB_EXIT_CONFIRM_TIMEOUT_MS,
   type WindowsJobLaunchStrategy,
   type WindowsJobOwnership,
   windowsLauncherArgs,
@@ -486,7 +487,12 @@ function createManagedProcessTree(options: {
             }
             throw forceError;
           }
-          await waitForForcedExit(reason, remainingForceConfirmation);
+          await waitForForcedExit(
+            reason,
+            adapter.name === "windows"
+              ? remainingBudget(effectiveConfirmMs)
+              : remainingForceConfirmation
+          );
           assertDeadline();
           const outcome = rootExitedBeforeGraceful ? "graceful" : "forced";
           logProcessTree("terminate-return", { pid, reason, outcome });
@@ -550,10 +556,14 @@ function createManagedProcessTree(options: {
           }
         }
 
+        const remainingConfirmation =
+          adapter.name === "windows"
+            ? remainingBudget(effectiveConfirmMs)
+            : remainingForceConfirmation;
         if (forceExitConfirmed) {
-          await waitForChildExitBounded("force-confirm", remainingForceConfirmation());
+          await waitForChildExitBounded("force-confirm", remainingConfirmation());
         } else {
-          await waitForForcedExit(reason, remainingForceConfirmation);
+          await waitForForcedExit(reason, remainingConfirmation);
         }
         assertDeadline();
         const outcome = rootExitedDuringGrace ? "graceful" : "forced";
@@ -588,7 +598,9 @@ function createManagedProcessTree(options: {
 export function spawnManagedProcess(options: SpawnManagedProcessOptions): ManagedChildProcess {
   let adapter = options.adapter ?? defaultAdapter;
   const graceMs = options.graceMs ?? DEFAULT_PROCESS_TREE_GRACE_MS;
-  const forceExitConfirmMs = options.forceExitConfirmMs ?? graceMs;
+  const forceExitConfirmMs =
+    options.forceExitConfirmMs ??
+    (adapter.name === "windows" ? WINDOWS_JOB_EXIT_CONFIRM_TIMEOUT_MS : graceMs);
   if (!Number.isFinite(graceMs) || graceMs < 0) {
     throw new Error(
       `Managed process graceMs must be a non-negative number; got ${String(graceMs)}`
