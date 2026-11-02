@@ -789,6 +789,32 @@ it("does not reuse the active administrator from another Server", async () => {
   expect(api.getManagementAuthorization).not.toHaveBeenCalled();
   expect(screen.getByRole("button")).toBeDisabled();
 });
+
+it("keeps the restore entry disabled while the initial management check is in flight", async () => {
+  const pending = deferred<{
+    profileId: string;
+    authorization: null;
+    errorCode: string;
+  }>();
+  api.getManagementAuthorization.mockReturnValue(pending.promise);
+  await act(async () => {
+    render(<Authorization />);
+  });
+  const action = screen.getByRole("button", { name: t("serverManagementDetails") });
+  await waitFor(() =>
+    expect(api.getManagementAuthorization).toHaveBeenCalledWith({ profileId: "one" })
+  );
+  expect(action).toBeDisabled();
+  await act(async () => {
+    pending.resolve({
+      profileId: "one",
+      authorization: null,
+      errorCode: "operator_credential_missing"
+    });
+  });
+  await waitFor(() => expect(action).toBeEnabled());
+});
+
 it("offers only administrator identities from the same Server", async () => {
   api.getOperatorControlStatus.mockResolvedValue({
     ...status,
