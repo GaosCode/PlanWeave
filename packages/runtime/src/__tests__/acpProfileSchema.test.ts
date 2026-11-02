@@ -18,7 +18,7 @@ function descriptor(overrides: Record<string, unknown> = {}) {
     launch: { command: "/opt/custom/bin/custom-acp", args: ["serve"] },
     environment: [{ name: "CUSTOM_API_KEY", required: true }],
     sessionDefaults: { modeId: null, configOptions: {} },
-    shutdown: { eofDrainMs: 100, terminateGraceMs: 200, cleanupDeadlineMs: 1_000 },
+    shutdown: { eofDrainMs: 100, terminateGraceMs: 200, cleanupDeadlineMs: 2_300 },
     capabilities: { required: ["session", "prompt"], optional: ["cancel"] },
     connection: { mode: "dedicated" },
     ...overrides
@@ -163,7 +163,7 @@ describe("ACP profile schemas", () => {
     expect(DEFAULT_ACP_SHUTDOWN_POLICY).toEqual({
       eofDrainMs: 6_000,
       terminateGraceMs: 3_000,
-      cleanupDeadlineMs: 9_250
+      cleanupDeadlineMs: 11_000
     });
     expect(() =>
       acpShutdownPolicySchema.parse({

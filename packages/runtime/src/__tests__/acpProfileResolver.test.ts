@@ -37,14 +37,15 @@ function reader(catalog: AcpProfileCatalog) {
 }
 
 describe("ACP profile resolver", () => {
-  it("adapts all five built-in ACP profiles to one resolved contract", async () => {
+  it("adapts all six built-in ACP profiles to one resolved contract", async () => {
     const builtins = builtinAcpProfileCatalog(nativeHost);
     expect(builtins.map((profile) => profile.id)).toEqual([
       "codex-acp",
       "opencode-acp",
       "claude-code-acp",
       "pi-acp",
-      "grok-acp"
+      "grok-acp",
+      "codebuddy-acp"
     ]);
     expect(builtins.find((profile) => profile.id === "pi-acp")?.environment).toEqual(
       expect.arrayContaining([
@@ -58,7 +59,8 @@ describe("ACP profile resolver", () => {
       ["opencode-acp", { command: "opencode", args: ["acp"] }],
       ["claude-code-acp", { command: "claude-agent-acp", args: [] }],
       ["pi-acp", { command: "pi-acp", args: [] }],
-      ["grok-acp", { command: "grok", args: ["--no-auto-update", "agent", "stdio"] }]
+      ["grok-acp", { command: "grok", args: ["--no-auto-update", "agent", "stdio"] }],
+      ["codebuddy-acp", { command: "codebuddy-code", args: ["--acp"] }]
     ]);
     const resolver = new CatalogAcpProfileResolver(
       reader(emptyAcpProfileCatalog()),
