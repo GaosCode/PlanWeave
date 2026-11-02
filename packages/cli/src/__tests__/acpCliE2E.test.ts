@@ -24,7 +24,8 @@ const acpProfiles = {
   "claude-code-acp": "claude-agent-acp",
   "opencode-acp": "opencode",
   "pi-acp": "pi-acp",
-  "grok-acp": "grok"
+  "grok-acp": "grok",
+  "codebuddy-acp": "codebuddy-code"
 } as const;
 
 let fakeAcpBinPromise: Promise<{ bin: string; nodeOptions: string | undefined }> | undefined;
