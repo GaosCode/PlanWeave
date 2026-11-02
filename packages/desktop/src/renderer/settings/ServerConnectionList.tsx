@@ -190,6 +190,7 @@ export function ServerConnectionList({
                           variant="link"
                           size="sm"
                           className="h-auto px-0 py-1"
+                          data-testid="server-management-restore"
                           disabled={access.disabled}
                           onClick={access.open}
                         >

@@ -15,8 +15,8 @@ export async function runManagementAuthorizationSmoke(
       (async () => {
         const bridge = window.planweaveOperatorControl;
         if (!bridge) throw new Error("Typed operator bridge is unavailable.");
-        const waitFor = async (predicate, label) => {
-          for (let attempt = 0; attempt < 160; attempt += 1) {
+        const waitFor = async (predicate, label, attempts = 160) => {
+          for (let attempt = 0; attempt < attempts; attempt += 1) {
             const value = await predicate();
             if (value) return value;
             await new Promise((resolve) => setTimeout(resolve, 50));
@@ -36,22 +36,78 @@ export async function runManagementAuthorizationSmoke(
         document.querySelector('[data-testid="settings-nav-connections"]')?.click();
         await waitFor(() => document.querySelector('[data-testid="settings-connections-section"]'), "Connections settings");
         document.querySelector('[data-testid="settings-connections-tab-server"]')?.click();
-        const row = await waitFor(
-          () => [...document.querySelectorAll('[data-testid="server-connection-row"]')]
-            .find((element) => element.textContent?.includes(${JSON.stringify(serverBaseUrl)})),
-          "remembered Server row"
-        );
-        const restore = await waitFor(
-          () => [...row.querySelectorAll('button')].find((button) =>
-            /Restore|恢复/.test(button.textContent ?? "")
-          ),
-          "management restore action"
-        );
-        restore.click();
-        const identity = await waitFor(
-          () => document.querySelector('[data-testid="management-server-identity"]'),
-          "management identity"
-        );
+        const findRow = () =>
+          [...document.querySelectorAll('[data-testid="server-connection-row"]')]
+            .find((element) => element.textContent?.includes(${JSON.stringify(serverBaseUrl)}));
+        const row = await waitFor(findRow, "remembered Server row");
+        // The row disables "Restore access" while its authorization check is in
+        // flight, so a click issued too early is dropped without any signal.
+        const restoreControl = () =>
+          [...(findRow() ?? row).querySelectorAll("button")].find(
+            (button) =>
+              (button.dataset.testid === "server-management-restore" ||
+                /Restore|恢复/.test(button.textContent ?? "")) &&
+              !button.disabled
+          );
+        const managementDiagnostics = async () => {
+          const currentRow = findRow() ?? row;
+          let status = null;
+          try {
+            status = await bridge.getOperatorControlStatus();
+          } catch {
+            status = null;
+          }
+          return {
+            rowConnected: currentRow.isConnected,
+            row: currentRow.textContent?.slice(0, 200) ?? null,
+            buttons: [...currentRow.querySelectorAll("button")].map((button) => ({
+              label: button.textContent?.trim() ?? null,
+              disabled: button.disabled,
+              connected: button.isConnected
+            })),
+            dialogs: document.querySelectorAll('[role="dialog"]').length,
+            identities: [...document.querySelectorAll('[data-testid="management-server-identity"]')]
+              .map((element) => element.textContent?.slice(0, 200) ?? null),
+            alerts: [...document.querySelectorAll('[role="alert"]')]
+              .map((element) => element.textContent?.trim() ?? null),
+            operator: status
+              ? {
+                  activeProfileId: status.activeProfileId,
+                  profiles: status.profiles.map((profile) => ({
+                    profileId: profile.profileId,
+                    serverBaseUrl: profile.serverBaseUrl,
+                    hasOperatorCredential: profile.hasOperatorCredential
+                  }))
+                }
+              : null
+          };
+        };
+        const openManagementDialog = async () => {
+          for (let attempt = 0; attempt < 4; attempt += 1) {
+            const control = await waitFor(
+              restoreControl,
+              "enabled management restore action",
+              attempt === 0 ? 80 : 20
+            );
+            control.click();
+            try {
+              return await waitFor(
+                () => document.querySelector('[data-testid="management-server-identity"]'),
+                "management identity",
+                40
+              );
+            } catch {
+              // A concurrent status refresh can drop the click; retry the control.
+            }
+          }
+          throw new Error("Timed out waiting for management identity");
+        };
+        let identity;
+        try {
+          identity = await openManagementDialog();
+        } catch (error) {
+          throw new Error(String(error) + ": " + JSON.stringify(await managementDiagnostics()));
+        }
         if (!identity.textContent?.includes(${JSON.stringify(serverBaseUrl)})) {
           throw new Error("Management dialog showed a different Server origin.");
         }
@@ -62,22 +118,45 @@ export async function runManagementAuthorizationSmoke(
         );
         if (!advanced) throw new Error("Management import section is unavailable.");
         advanced.click();
-        const importAction = await waitFor(
-          () => [...dialog.querySelectorAll('button')].find((button) =>
-            /Import|导入/.test(button.textContent ?? "")
-          ),
-          "management import action"
-        );
-        importAction.click();
-        const authorization = await waitFor(
-          async () => {
-            const view = await bridge.getManagementAuthorization({ profileId });
-            return view.authorization && view.deviceId && view.devices?.some((device) =>
-              device.deviceId === view.deviceId && !device.revokedAt
-            ) ? view : null;
-          },
-          "Server-backed management authorization"
-        );
+        const findImportControl = () =>
+          [...dialog.querySelectorAll("button")].find(
+            (button) => /Import|导入/.test(button.textContent ?? "") && !button.disabled
+          );
+        const authorizeManagement = async () => {
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            const action = await waitFor(
+              findImportControl,
+              "enabled management import action",
+              attempt === 0 ? 80 : 20
+            );
+            action.click();
+            try {
+              return await waitFor(
+                async () => {
+                  const view = await bridge.getManagementAuthorization({ profileId });
+                  return view.authorization &&
+                    view.deviceId &&
+                    view.devices?.some(
+                      (device) => device.deviceId === view.deviceId && !device.revokedAt
+                    )
+                    ? view
+                    : null;
+                },
+                "Server-backed management authorization",
+                60
+              );
+            } catch {
+              // The click is dropped while the row re-checks authorization.
+            }
+          }
+          throw new Error("Timed out waiting for Server-backed management authorization");
+        };
+        let authorization;
+        try {
+          authorization = await authorizeManagement();
+        } catch (error) {
+          throw new Error(String(error) + ": " + JSON.stringify(await managementDiagnostics()));
+        }
         await waitFor(
           () => dialog.textContent?.includes(authorization.devices.find((device) =>
             device.deviceId === authorization.deviceId
