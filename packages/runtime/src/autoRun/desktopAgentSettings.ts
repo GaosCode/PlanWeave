@@ -36,7 +36,7 @@ const desktopAgentNames = {
   opencode: ["opencode"],
   pi: ["pi", "pi-auto"],
   grok: ["grok"],
-  codebuddy: ["codebuddy"]
+  codebuddy: []
 } as const satisfies Record<DesktopAgentKind, readonly string[]>;
 
 const desktopAgentAcpNames = {

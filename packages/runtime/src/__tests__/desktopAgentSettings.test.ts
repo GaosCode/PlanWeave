@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { builtinAgentProfiles } from "../autoRun/agentRegistry.js";
+import { isBuiltinExecutorName } from "../executorNames.js";
 import {
   applyDesktopAgentSettingsToBuiltinProfiles,
   selectedDesktopAgentHost,
@@ -30,6 +31,18 @@ async function writeSettings(value: unknown): Promise<void> {
 }
 
 describe("desktop agent transport settings", () => {
+  it.each([
+    "cli",
+    "acp"
+  ])("offers only registered builtin profiles with %s transport", async (agentTransport) => {
+    await writeSettings({ execution: { agentTransport } });
+    const profiles = applyDesktopAgentSettingsToBuiltinProfiles(builtinAgentProfiles());
+
+    for (const name of Object.keys(profiles)) {
+      expect(isBuiltinExecutorName(name), `Unregistered builtin executor '${name}'`).toBe(true);
+    }
+  });
+
   it("maps canonical builtin agent names to ACP without rewriting explicit legacy profiles", async () => {
     await writeSettings({ execution: { agentTransport: "acp" } });
 

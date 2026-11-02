@@ -125,6 +125,32 @@ describe("changeAgentEndpointSelection", () => {
     expect(savePreference).toHaveBeenCalledWith('["remote","w","p","c","task","T-001"]', localGrok);
   });
 
+  it("changes a custom codebuddy executor when the built-in ACP endpoint is selected", async () => {
+    const endpoint: AvailableAgentEndpoint = {
+      ...localCodex,
+      id: "local:codebuddy-acp",
+      executorName: "codebuddy-acp",
+      displayName: "CodeBuddy",
+      localExecutorName: "codebuddy-acp",
+      capabilities: ["acp.codebuddy"]
+    };
+    const changeLogicalExecutor = vi.fn().mockResolvedValue(true);
+    const savePreference = vi.fn().mockResolvedValue(undefined);
+
+    await changeAgentEndpointSelection({
+      endpointId: endpoint.id,
+      endpoints: [endpoint],
+      preferenceKey: "task-preference",
+      currentLogicalExecutorName: "codebuddy",
+      changeLogicalExecutor,
+      savePreference,
+      setError: vi.fn()
+    });
+
+    expect(changeLogicalExecutor).toHaveBeenCalledWith("codebuddy-acp");
+    expect(savePreference).toHaveBeenCalledWith("task-preference", endpoint);
+  });
+
   it("clears block executor and block preference when inheriting the task", async () => {
     const changeLogicalExecutor = vi.fn().mockResolvedValue(true);
     const savePreference = vi.fn().mockResolvedValue(undefined);
