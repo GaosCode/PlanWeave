@@ -35,6 +35,7 @@ type AgentSettingsPanelProps = {
     agentMissing: string;
     agentMissingCannotEnable: string;
     agentEnableDescription: string;
+    agentAcpOptionsHint: string;
     agentAcpAdapterHint: string;
     agentInstallCommandLabel: string;
     agentLoginCommandLabel: string;
@@ -235,6 +236,11 @@ export function AgentSettingsPanel({
                   </span>
                   {!agent.installed ? <span>{labels.agentMissingCannotEnable}</span> : null}
                   <span>{labels.agentEnableDescription.replace("{command}", command)}</span>
+                  {supportsAcpOptions && agent.installed ? (
+                    <span className="text-xs text-muted-foreground/90">
+                      {labels.agentAcpOptionsHint}
+                    </span>
+                  ) : null}
                   {!agent.installed && agent.runnerKind === "acp" && agent.installCommand ? (
                     <div
                       className="mt-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-xs"
