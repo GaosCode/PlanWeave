@@ -121,7 +121,8 @@ function runnerIdentity(metadata: Record<string, unknown>): {
       agentId === "opencode" ||
       agentId === "claude-code" ||
       agentId === "pi" ||
-      agentId === "grok") &&
+      agentId === "grok" ||
+      agentId === "codebuddy") &&
     (runnerKind === "cli" || runnerKind === "acp")
   ) {
     return { agentId, runnerKind };
