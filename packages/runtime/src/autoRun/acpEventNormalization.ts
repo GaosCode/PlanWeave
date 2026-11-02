@@ -16,6 +16,7 @@ import {
   type PersistedPendingInteraction
 } from "./runnerContractSchemas.js";
 import { sessionConfigurationFromProtocol } from "./acpSessionConfiguration.js";
+import { normalizeAcpUsageUpdate } from "./acpUsageProjection.js";
 
 export type AcpNormalizedEventBody = NormalizedRunnerEvent["body"];
 
@@ -198,9 +199,11 @@ export function normalizeAcpSessionNotification(
     case "usage_update":
       return {
         kind: "usage_update",
-        usedTokens: update.used,
-        contextWindowTokens: update.size,
-        cost: update.cost ? { amount: update.cost.amount, currency: update.cost.currency } : null
+        ...normalizeAcpUsageUpdate({
+          used: update.used,
+          size: update.size,
+          cost: update.cost ?? null
+        })
       };
     case "current_mode_update":
       return { kind: "session_mode_update", currentModeId: update.currentModeId };

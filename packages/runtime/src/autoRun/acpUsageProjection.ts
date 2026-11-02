@@ -49,6 +49,31 @@ function normalizeUsage(body: {
   return { usedTokens, contextWindowTokens, cost };
 }
 
+/**
+ * Normalise a raw ACP `usage_update` payload into the runner event shape.
+ *
+ * Agents may emit a partial payload: no window size (`size: 0`), or a cost
+ * object whose currency is missing or malformed. Normalise instead of throwing,
+ * so a cosmetic telemetry gap cannot fail an otherwise healthy run. The same
+ * sanitiser feeds the persisted event stream, which validates against the
+ * agent-host wire contract.
+ */
+export function normalizeAcpUsageUpdate(update: {
+  used: number;
+  size: number;
+  cost: { amount: number; currency: string } | null;
+}): {
+  usedTokens: number;
+  contextWindowTokens: number;
+  cost: { amount: number; currency: string } | null;
+} {
+  return normalizeUsage({
+    usedTokens: update.used,
+    contextWindowTokens: update.size,
+    cost: update.cost
+  });
+}
+
 export function projectAcpContextUsage(
   events: readonly Pick<NormalizedRunnerEvent, "sequence" | "timestamp" | "body">[]
 ): z.infer<typeof acpContextUsageSnapshotSchema> | null {

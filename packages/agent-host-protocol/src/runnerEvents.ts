@@ -239,7 +239,12 @@ export const runnerBodyFragmentSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("usage_update"),
       usedTokens: z.number().int().nonnegative().safe(),
-      contextWindowTokens: z.number().int().positive().safe(),
+      /**
+       * Zero means "the agent did not report a context window". Requiring a
+       * positive value rejected real agents that emit a terminal usage update
+       * with `size: 0`, which failed the whole run at persistence time.
+       */
+      contextWindowTokens: z.number().int().nonnegative().safe(),
       cost: z
         .object({ amount: z.number().nonnegative(), currency: z.string().length(3) })
         .strict()
