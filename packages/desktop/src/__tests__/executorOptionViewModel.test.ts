@@ -138,6 +138,36 @@ describe("executor option view model", () => {
     ).toMatchObject({ disabled: true, detected: false, detectionMessage: "not found" });
   });
 
+  it.each([
+    "cli",
+    "acp"
+  ] as const)("uses ACP availability for CodeBuddy when the global transport is %s", (agentTransport) => {
+    const [option] = buildExecutorOptionViews({
+      agentDetections: [
+        {
+          kind: "codebuddy",
+          runnerKind: "acp",
+          name: "CodeBuddy",
+          command: "codebuddy-code",
+          versionArgs: ["--version"],
+          execArgs: ["--acp"],
+          fullAccessArgs: [],
+          installed: false,
+          version: null,
+          unavailableReason: "CodeBuddy is not installed"
+        }
+      ],
+      agentTransport,
+      executorOptions: ["codebuddy-acp"]
+    });
+
+    expect(option).toMatchObject({
+      disabled: true,
+      detected: false,
+      detectionMessage: "CodeBuddy is not installed"
+    });
+  });
+
   it("derives only verified ACP host capability evidence for local options", () => {
     const detections = [
       {

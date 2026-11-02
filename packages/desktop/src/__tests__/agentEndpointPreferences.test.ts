@@ -152,16 +152,24 @@ describe("desktopAgentEndpointPreferenceSchema", () => {
 
 describe("selectedAgentEndpointId", () => {
   it.each([
-    "pi-auto",
-    "pi-acp"
-  ])("maps the built-in alias %s to the canonical local Endpoint", (executorName) => {
+    { executorName: "pi-auto", optionName: "pi" },
+    { executorName: "pi-acp", optionName: "pi" },
+    { executorName: "codebuddy-acp", optionName: "codebuddy-acp" }
+  ])("restores the local Endpoint for $executorName", ({ executorName, optionName }) => {
     expect(
       selectedAgentEndpointId({
         executorName,
         preference: undefined,
         endpoints: []
       })
-    ).toEqual({ kind: "default_local", id: "local:pi" });
+    ).toEqual({ kind: "default_local", id: `local:${optionName}` });
+    expect(
+      selectedAgentEndpointId({
+        executorName,
+        preference: { kind: "local", executorName: optionName },
+        endpoints: []
+      })
+    ).toEqual({ kind: "endpoint", id: `local:${optionName}` });
   });
 
   it("returns default_local when no preference was ever saved", () => {

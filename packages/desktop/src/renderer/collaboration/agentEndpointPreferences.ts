@@ -1,5 +1,5 @@
 import type { DesktopAgentEndpointPreference } from "../../shared/desktopSettings";
-import { canonicalBuiltinExecutorName } from "@planweave-ai/runtime/browser";
+import { canonicalExecutorName } from "../executors/executorOptionViewModel";
 import type { AvailableAgentEndpoint } from "./agentEndpointViewModel";
 
 export type AgentEndpointPreferenceScope =
@@ -77,7 +77,7 @@ export function selectedAgentEndpointId(input: {
   endpoints: readonly AvailableAgentEndpoint[];
   defaultMode?: "local" | "unassigned";
 }): EndpointSelection {
-  const executorName = canonicalBuiltinExecutorName(input.executorName);
+  const executorName = canonicalExecutorName(input.executorName);
   if (!input.preference) {
     if (input.defaultMode === "unassigned") {
       return { kind: "unassigned", executorName };
@@ -86,7 +86,7 @@ export function selectedAgentEndpointId(input: {
   }
 
   if (input.preference.kind === "local") {
-    const preferredExecutorName = canonicalBuiltinExecutorName(input.preference.executorName);
+    const preferredExecutorName = canonicalExecutorName(input.preference.executorName);
     if (preferredExecutorName !== executorName) {
       return {
         kind: "mismatch",
@@ -103,10 +103,10 @@ export function selectedAgentEndpointId(input: {
       detail: `agent_endpoint_unknown:${input.preference.remoteEndpointId}`
     };
   }
-  if (canonicalBuiltinExecutorName(endpoint.executorName) !== executorName) {
+  if (canonicalExecutorName(endpoint.executorName) !== executorName) {
     return {
       kind: "mismatch",
-      detail: `${canonicalBuiltinExecutorName(endpoint.executorName)}->${executorName}`
+      detail: `${canonicalExecutorName(endpoint.executorName)}->${executorName}`
     };
   }
   return { kind: "endpoint", id: endpoint.id };

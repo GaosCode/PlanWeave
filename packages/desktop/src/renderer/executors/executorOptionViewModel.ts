@@ -36,7 +36,7 @@ const executorAgentDetectionBindings: Record<string, ExecutorAgentDetectionBindi
   "claude-code": { kind: "claude-code" },
   pi: { kind: "pi" },
   grok: { kind: "grok" },
-  codebuddy: { kind: "codebuddy" }
+  codebuddy: { kind: "codebuddy", fixedTransport: "acp" }
 };
 
 export function builtinExecutorAgentKind(name: string): DesktopAgentKind | null {
@@ -62,7 +62,8 @@ export function executorDisplayName(name: string): string {
 }
 
 export function canonicalExecutorName(name: string): string {
-  return canonicalBuiltinExecutorName(name);
+  const canonicalName = canonicalBuiltinExecutorName(name);
+  return isBuiltinExecutorName(canonicalName) ? canonicalName : name;
 }
 
 export function executorOptionName(
@@ -106,7 +107,7 @@ function detectionForName(
   if (literalExecutorNames.has(name) && !isBuiltinExecutorName(name)) {
     return null;
   }
-  const binding = executorAgentDetectionBindings[canonicalExecutorName(name)];
+  const binding = executorAgentDetectionBindings[canonicalBuiltinExecutorName(name)];
   if (!binding) {
     return null;
   }

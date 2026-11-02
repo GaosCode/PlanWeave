@@ -10,9 +10,12 @@ import { activeAgentRunRegistry } from "../../../runtime/src/autoRun/activeAgent
 import { codebuddyAgentDefinition } from "../../../runtime/src/autoRun/codebuddyIntegration";
 import {
   getAutoRunState,
+  getGraphViewModel,
   respondToDesktopAgentRequest,
   startAutoRun,
-  stopAutoRun
+  stopAutoRun,
+  updateBlockExecutor,
+  updateTaskExecutor
 } from "../../../runtime/src/desktop/index";
 import {
   consumeRunnerRecordReadModel,
@@ -24,6 +27,10 @@ import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHe
 import { manifestTestBuilder } from "../../../runtime/src/__tests__/manifestTestBuilder";
 import { RunnerRecordMonitor } from "../renderer/inspector/RunnerRecordMonitor";
 import { createTranslator } from "../renderer/i18n";
+import {
+  buildExecutorOptionViews,
+  executorDisplayName
+} from "../renderer/executors/executorOptionViewModel";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 
 const fixture = join(process.cwd(), "packages/runtime/src/__tests__/support/acpMockAgent.mjs");
@@ -46,10 +53,27 @@ async function waitFor<T>(read: () => T | Promise<T>, accept: (value: T) => bool
 }
 
 describe("provider-free CodeBuddy ACP Desktop E2E", () => {
-  it("drives codebuddy-acp through intervention, submit, cleanup, and stale replay", async () => {
+  it("assigns CodeBuddy from Desktop options through intervention, submit, cleanup, and stale replay", async () => {
     const workspace = await createTestWorkspace(
-      manifestTestBuilder().withDefaultExecutor("codebuddy-acp").build()
+      manifestTestBuilder().withDefaultExecutor("manual").build()
     );
+    const graph = await getGraphViewModel(workspace.root);
+    const options = buildExecutorOptionViews({
+      executorOptions: graph.executorOptions,
+      literalExecutorNames: graph.packageExecutorNames
+    }).filter((candidate) => executorDisplayName(candidate.name) === "CodeBuddy");
+    expect(options).toHaveLength(1);
+    const [option] = options;
+    if (!option) throw new Error("Expected a CodeBuddy Desktop option.");
+    await expect(updateTaskExecutor(workspace.root, "T-001", option.name)).resolves.toMatchObject({
+      ok: true
+    });
+    await expect(
+      updateBlockExecutor(workspace.root, "T-001#B-001", option.name)
+    ).resolves.toMatchObject({ ok: true });
+    await expect(updateBlockExecutor(workspace.root, "T-001#B-001", null)).resolves.toMatchObject({
+      ok: true
+    });
     const previousLaunch = codebuddyAgentDefinition.acp.launch;
     codebuddyAgentDefinition.acp.launch = {
       command: process.execPath,
@@ -141,8 +165,10 @@ describe("provider-free CodeBuddy ACP Desktop E2E", () => {
           t={createTranslator("en")}
         />
       );
-      const option = await screen.findByRole("button", { name: /redacted|password|allow/i });
-      fireEvent.click(option);
+      const permissionOption = await screen.findByRole("button", {
+        name: /redacted|password|allow/i
+      });
+      fireEvent.click(permissionOption);
       await waitFor(
         () => getAutoRunState(started.runId),
         (value) => value.phase === "paused" && value.stepCount === 1
