@@ -84,7 +84,13 @@ describe("desktop agent tool detection", () => {
       { command: "claude-agent-acp", installed: true, runnerKind: "acp", version: null },
       { command: "opencode", installed: true, runnerKind: "acp", version: null },
       { command: "pi-acp", installed: true, runnerKind: "acp", version: null },
-      { command: "grok", installed: true, runnerKind: "acp", version: null }
+      { command: "grok", installed: true, runnerKind: "acp", version: null },
+      {
+        command: "codebuddy-code",
+        installed: true,
+        runnerKind: "acp",
+        version: "codebuddy-code 1.2.3"
+      }
     ]);
     expect(execFileMock).toHaveBeenCalledWith(
       "codex",
