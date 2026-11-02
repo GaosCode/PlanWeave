@@ -467,7 +467,7 @@ describe("Task Workspace run projection", () => {
       observedAt: "2026-07-13T00:00:02.000Z",
       usedTokens: 35,
       contextWindowTokens: 100,
-      cost: { amount: 2, currency: "USD" }
+      cost: { amount: 2, currency: "USD", unit: "currency" }
     });
     expect(projected.usage.currentContext?.usedTokens).not.toBe(55);
     expect(projected.usage.runTokens).toMatchObject({ available: false, totalTokens: null });
