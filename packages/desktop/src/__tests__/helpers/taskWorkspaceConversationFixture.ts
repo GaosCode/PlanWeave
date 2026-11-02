@@ -163,7 +163,11 @@ export function selection(
     usage: {
       currentContext: null,
       runTokens: { available: false, totalTokens: null, reason: "Unavailable." },
-      taskTokens: { available: false, totalTokens: null, reason: "Unavailable." }
+      taskTokens: { available: false, totalTokens: null, reason: "Unavailable." },
+      credits: {
+        availability: "unavailable",
+        reason: "The agent did not report any credit usage for this run."
+      }
     },
     actualConfiguration: { available: false, reason: "Unavailable." },
     nextActions: {
