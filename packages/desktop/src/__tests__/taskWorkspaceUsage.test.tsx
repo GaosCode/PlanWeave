@@ -17,6 +17,60 @@ import {
 afterEach(cleanupRendererTestEnvironment);
 
 describe("TaskWorkspaceUsage", () => {
+  it.each([
+    { source: "local", usedTokens: 0 },
+    { source: "local", usedTokens: 200 },
+    { source: "remote", usedTokens: 0 },
+    { source: "remote", usedTokens: 200 }
+  ])("shows unknown capacity for a $source snapshot with $usedTokens tokens", async ({
+    source,
+    usedTokens
+  }) => {
+    const fixture = taskWorkspaceInspectorFixture();
+    const snapshot = fixture.selectedRun.item.run.usage.currentContext;
+    if (!snapshot) throw new Error("Expected a context snapshot.");
+    const unknownCapacitySnapshot = { ...snapshot, usedTokens, contextWindowTokens: 0 };
+    if (source === "local") {
+      fixture.selectedRun.item.run.usage.currentContext = unknownCapacitySnapshot;
+    }
+    const remoteTelemetry =
+      source === "remote"
+        ? {
+            executionAttemptId: "remote-attempt",
+            sessionId: "remote-session",
+            loadSession: true,
+            actualConfiguration: { available: false as const, reason: "Not reported" },
+            currentContext: unknownCapacitySnapshot,
+            cumulativeUsage: null
+          }
+        : undefined;
+    const props = {
+      labels,
+      selectedRun: fixture.selectedRun,
+      workspace: fixture.workspace,
+      remoteTelemetry
+    };
+    const user = userEvent.setup();
+    const view = render(
+      <>
+        <TaskWorkspaceUsage {...props} />
+        <TaskWorkspaceUsageDetails {...props} />
+      </>
+    );
+    const trigger = screen.getByRole("button", {
+      name: new RegExp(
+        `Context usage: ${usedTokens} / Unavailable tokens; Context window not reported`
+      )
+    });
+    expect(trigger).toHaveTextContent("—");
+    expect(screen.getByText(`${usedTokens} / Unavailable tokens`)).toBeInTheDocument();
+    expect(view.container).not.toHaveTextContent(/NaN|Infinity|0% used/);
+    await user.hover(trigger);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(within(tooltip).getByText("Context window not reported")).toBeInTheDocument();
+    expect(within(tooltip).getByText(`${usedTokens} / Unavailable tokens`)).toBeInTheDocument();
+  });
+
   it("labels reasoning and mode separately even when their values match", () => {
     const fixture = taskWorkspaceInspectorFixture();
     const configuration = fixture.selectedRun.item.run.actualConfiguration;
