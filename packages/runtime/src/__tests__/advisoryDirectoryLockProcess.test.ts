@@ -277,109 +277,114 @@ it.skipIf(process.platform === "win32")(
   }
 );
 
-it("serializes the actual CLI and Desktop workspace wrappers against isolated build targets", async () => {
-  const root = await mkdtemp(join(tmpdir(), "planweave-wrapper-competition-"));
-  const control = await createAdvisoryControlServer();
-  const actors: ReturnType<typeof observeActor>[] = [];
-  try {
-    const { wrapper } = await prepareIsolatedWorkspaceBuild(root);
-    const pnpmPath = process.env.npm_execpath;
-    if (!pnpmPath) throw new Error("Run this workspace wrapper regression through pnpm test:file");
-    function launch(target: string) {
-      const actor = observeActor(
-        spawn(
-          process.execPath,
-          [
-            "--import",
-            "tsx",
-            "--import",
-            new URL("./support/advisoryBuildObserve.mjs", import.meta.url).href,
-            wrapper,
-            target
-          ],
-          {
-            cwd: root,
-            stdio: ["ignore", "ignore", "pipe", "ipc"],
-            env: {
-              ...process.env,
-              npm_execpath: pnpmPath,
-              npm_config_script_shell: "untrusted-build-shell",
-              ComSpec: "untrusted-command-interpreter",
-              TEST_BUILD_ROOT: root,
-              TEST_BUILD_ACTOR: target,
-              TEST_CONTROL_PORT: String(control.port)
+it(
+  "serializes the actual CLI and Desktop workspace wrappers against isolated build targets",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-wrapper-competition-"));
+    const control = await createAdvisoryControlServer();
+    const actors: ReturnType<typeof observeActor>[] = [];
+    try {
+      const { wrapper } = await prepareIsolatedWorkspaceBuild(root);
+      const pnpmPath = process.env.npm_execpath;
+      if (!pnpmPath)
+        throw new Error("Run this workspace wrapper regression through pnpm test:file");
+      function launch(target: string) {
+        const actor = observeActor(
+          spawn(
+            process.execPath,
+            [
+              "--import",
+              "tsx",
+              "--import",
+              new URL("./support/advisoryBuildObserve.mjs", import.meta.url).href,
+              wrapper,
+              target
+            ],
+            {
+              cwd: root,
+              stdio: ["ignore", "ignore", "pipe", "ipc"],
+              env: {
+                ...process.env,
+                npm_execpath: pnpmPath,
+                npm_config_script_shell: "untrusted-build-shell",
+                ComSpec: "untrusted-command-interpreter",
+                TEST_BUILD_ROOT: root,
+                TEST_BUILD_ACTOR: target,
+                TEST_CONTROL_PORT: String(control.port)
+              }
             }
-          }
+          )
+        );
+        actors.push(actor);
+        return actor;
+      }
+      const cli = launch("cli");
+      const first = await Promise.race([
+        control.wait("cli", "build-entered"),
+        cli.done.then((result) => {
+          throw new Error(`CLI wrapper exited before target: ${JSON.stringify(result)}`);
+        })
+      ]);
+      const desktop = launch("desktop");
+      await desktop.wait("contended");
+      expect(
+        control.messages.some(
+          (message) => message.actor === "desktop" && message.event === "build-entered"
         )
-      );
-      actors.push(actor);
-      return actor;
+      ).toBe(false);
+      const lockPath = join(root, ".planweave-workspace-consumer-build.lock");
+      const ownerPath = join(lockPath, (await readdir(lockPath))[0]);
+      expect(JSON.parse(await readFile(join(ownerPath, "holder.json"), "utf8"))).toMatchObject({
+        pid: cli.child.pid
+      });
+      control.send("cli", "release");
+      expect((await cli.done).code).toBe(0);
+      const second = await Promise.race([
+        control.wait("desktop", "build-entered"),
+        desktop.done.then((result) => {
+          throw new Error(`Desktop wrapper exited before target: ${JSON.stringify(result)}`);
+        })
+      ]);
+      expect(first.store).not.toBe(second.store);
+      expect(String(first.store)).toContain("writer-work");
+      expect(String(second.store)).toContain("writer-work");
+      control.send("desktop", "release");
+      expect((await desktop.done).code).toBe(0);
+      expect(JSON.parse(await readFile(join(root, "registry.json"), "utf8"))).toEqual([
+        "cli",
+        "desktop"
+      ]);
+      const trace = (await readFile(join(root, "build-trace.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) =>
+          z
+            .object({ event: z.enum(["enter", "exit"]), actor: z.string(), pid: z.number() })
+            .parse(JSON.parse(line))
+        );
+      expect(trace.map((event) => [event.event, event.actor])).toEqual([
+        ["enter", "cli"],
+        ["exit", "cli"],
+        ["enter", "desktop"],
+        ["exit", "desktop"]
+      ]);
+      await expect(readdir(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
+      console.info("WORKSPACE_WRAPPER_EXCLUSION", JSON.stringify(trace));
+    } finally {
+      const cleanupFailures: unknown[] = [];
+      const group = await readIsolatedBuildGroup(root).catch((error) => {
+        cleanupFailures.push(error);
+        return undefined;
+      });
+      await Promise.all(actors.map((actor) => actor.stop()));
+      if (group && (await createPosixProcessTreeAdapter().isTreeAlive(group))) {
+        process.kill(-group, "SIGKILL");
+        expect(await createPosixProcessTreeAdapter().awaitTreeExit(group, 5000)).toBe(true);
+      }
+      await control.close();
+      await rm(root, { recursive: true, force: true });
+      expect(cleanupFailures).toEqual([]);
     }
-    const cli = launch("cli");
-    const first = await Promise.race([
-      control.wait("cli", "build-entered"),
-      cli.done.then((result) => {
-        throw new Error(`CLI wrapper exited before target: ${JSON.stringify(result)}`);
-      })
-    ]);
-    const desktop = launch("desktop");
-    await desktop.wait("contended");
-    expect(
-      control.messages.some(
-        (message) => message.actor === "desktop" && message.event === "build-entered"
-      )
-    ).toBe(false);
-    const lockPath = join(root, ".planweave-workspace-consumer-build.lock");
-    const ownerPath = join(lockPath, (await readdir(lockPath))[0]);
-    expect(JSON.parse(await readFile(join(ownerPath, "holder.json"), "utf8"))).toMatchObject({
-      pid: cli.child.pid
-    });
-    control.send("cli", "release");
-    expect((await cli.done).code).toBe(0);
-    const second = await Promise.race([
-      control.wait("desktop", "build-entered"),
-      desktop.done.then((result) => {
-        throw new Error(`Desktop wrapper exited before target: ${JSON.stringify(result)}`);
-      })
-    ]);
-    expect(first.store).not.toBe(second.store);
-    expect(String(first.store)).toContain("writer-work");
-    expect(String(second.store)).toContain("writer-work");
-    control.send("desktop", "release");
-    expect((await desktop.done).code).toBe(0);
-    expect(JSON.parse(await readFile(join(root, "registry.json"), "utf8"))).toEqual([
-      "cli",
-      "desktop"
-    ]);
-    const trace = (await readFile(join(root, "build-trace.jsonl"), "utf8"))
-      .trim()
-      .split("\n")
-      .map((line) =>
-        z
-          .object({ event: z.enum(["enter", "exit"]), actor: z.string(), pid: z.number() })
-          .parse(JSON.parse(line))
-      );
-    expect(trace.map((event) => [event.event, event.actor])).toEqual([
-      ["enter", "cli"],
-      ["exit", "cli"],
-      ["enter", "desktop"],
-      ["exit", "desktop"]
-    ]);
-    await expect(readdir(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
-    console.info("WORKSPACE_WRAPPER_EXCLUSION", JSON.stringify(trace));
-  } finally {
-    const cleanupFailures: unknown[] = [];
-    const group = await readIsolatedBuildGroup(root).catch((error) => {
-      cleanupFailures.push(error);
-      return undefined;
-    });
-    await Promise.all(actors.map((actor) => actor.stop()));
-    if (group && (await createPosixProcessTreeAdapter().isTreeAlive(group))) {
-      process.kill(-group, "SIGKILL");
-      expect(await createPosixProcessTreeAdapter().awaitTreeExit(group, 5000)).toBe(true);
-    }
-    await control.close();
-    await rm(root, { recursive: true, force: true });
-    expect(cleanupFailures).toEqual([]);
-  }
-});
+  },
+  process.platform === "win32" ? 30_000 : 10_000
+);
