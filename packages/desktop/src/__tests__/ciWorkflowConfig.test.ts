@@ -238,7 +238,8 @@ describe("CI workflow configuration", () => {
       readFile(resolve(repoRoot, "package.json"), "utf8")
     ]);
     const { scripts } = JSON.parse(packageSource) as { scripts: Record<string, string> };
-    expect(scripts["audit:security"]).toContain("audit --prod --audit-level=high");
+    expect(scripts["audit:security"]).toContain("pnpm@11.4.0 audit --audit-level=moderate");
+    expect(scripts["audit:security"]).not.toMatch(/--(?:prod(?:uction)?|dev)(?:\s|$)/);
     expect(scripts["verify:push"]).toContain("pnpm audit:security &&");
     const audit = workflowJob(workflow, "dependency-audit");
     expect(audit).toContain("run: pnpm audit:security");
