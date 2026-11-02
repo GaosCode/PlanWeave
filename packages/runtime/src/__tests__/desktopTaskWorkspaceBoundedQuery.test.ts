@@ -563,7 +563,12 @@ describe("Task Workspace bounded query contract", () => {
         text.endsWith("events.ndjson")
       );
     });
-    expect(heavyReadsOnList).toHaveLength(0);
+    // Exactly one row — the selected one — is expanded into its full record so the
+    // Inspector can show the actual session configuration and usage. The page as a
+    // whole stays bounded: no other run's heavy content is touched.
+    const heavyListPaths = heavyReadsOnList.map(([path]) => String(path));
+    expect(heavyListPaths.length).toBeGreaterThan(0);
+    expect(heavyListPaths.every((path) => path.includes("RUN-003"))).toBe(true);
 
     readFileSpy.mockClear();
     const detail = await getTaskWorkspaceRunDetail({
