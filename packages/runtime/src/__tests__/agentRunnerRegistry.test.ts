@@ -84,7 +84,8 @@ describe("AgentRunner registries", () => {
       "opencode",
       "claude-code",
       "pi",
-      "grok"
+      "grok",
+      "codebuddy"
     ]);
     expect(registeredAgentRunners().map((runner) => runner.transport)).toEqual(["cli", "acp"]);
 
