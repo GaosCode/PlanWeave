@@ -103,7 +103,11 @@ export function useTaskWorkspaceRunFreshness() {
     }
     return (
       (listed.run.metadata.submittedAt === null && detail.metadata.submittedAt !== null) ||
-      (listed.run.duration.finishedAt === null && detail.duration.finishedAt !== null)
+      (listed.run.duration.finishedAt === null && detail.duration.finishedAt !== null) ||
+      (listed.run.metadata.terminalState === null &&
+        detail.metadata.terminalState !== null &&
+        listed.run.metadata.exitCode === detail.metadata.exitCode &&
+        listed.active === load.item.active)
     );
   }, []);
 
