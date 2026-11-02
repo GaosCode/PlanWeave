@@ -21,6 +21,7 @@ import {
   useControlledNavigationHarness
 } from "./helpers/taskWorkspaceControllerHarness";
 import { navigation, runnerModel } from "./helpers/taskWorkspaceControllerModelFixture";
+import { taskWorkspaceInspectorFixture } from "./helpers/taskWorkspaceInspectorFixture";
 
 const useProjectWorkspace = vi.hoisted(() => vi.fn());
 const sendAgentPrompt = vi.hoisted(() => vi.fn<DesktopBridgeApi["sendAgentPrompt"]>());
@@ -207,6 +208,52 @@ async function warmed() {
 }
 
 describe("cached Task Workspace composer through the production controller and route", () => {
+  it("hydrates completed details when the summary has not projected the terminal outcome", async () => {
+    const { api, models } = fixture();
+    const finishedAt = "2026-07-13T00:00:10.000Z";
+    const configuration = taskWorkspaceInspectorFixture().selectedRun.item.run.actualConfiguration;
+    models.get(a)!.actualConfiguration = configuration;
+    const list = api.listTaskWorkspaceRuns.getMockImplementation()!;
+    api.listTaskWorkspaceRuns.mockImplementation(async () => {
+      const page = await list();
+      for (const item of page.items) {
+        item.run.duration.finishedAt = finishedAt;
+        item.run.metadata.submittedAt = finishedAt;
+        item.run.metadata.exitCode = 0;
+        item.run.metadata.terminalState = null;
+        item.run.capabilities.prompt = {
+          available: false,
+          reason: "The summary has no runner read model.",
+          identity: null,
+          inFlight: false
+        };
+        item.run.runIdentity.runSessionId = null;
+        item.run.runIdentity.desktopRunId = null;
+      }
+      return page;
+    });
+    const detail = api.getTaskWorkspaceRunDetail.getMockImplementation()!;
+    api.getTaskWorkspaceRunDetail.mockImplementation(async (input) => {
+      const value = await detail(input);
+      value.item.run.duration.finishedAt = finishedAt;
+      value.item.run.metadata.submittedAt = finishedAt;
+      value.item.run.metadata.exitCode = 0;
+      value.item.run.actualConfiguration = configuration;
+      return value;
+    });
+
+    render(<Harness api={api} />);
+    await selected(a);
+    expect(screen.getByText("gpt-5")).toBeInTheDocument();
+    expect(
+      screen.queryByText("The prompt identity does not match the selected run.")
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh runtime" }));
+    await waitFor(() => expect(api.getTaskWorkspace).toHaveBeenCalledTimes(2));
+    await selected(a);
+    expect(screen.getByText("gpt-5")).toBeInTheDocument();
+  });
+
   it("retains A/B drafts in the same cached mounted tree", async () => {
     const { choose } = await warmed();
     edit("A original");
