@@ -7,7 +7,14 @@ const MAX_ENVIRONMENT_COUNT = 128;
 const MAX_ARGUMENT_COUNT = 128;
 const MIN_SHUTDOWN_STAGE_MS = 10;
 const MAX_SHUTDOWN_STAGE_MS = 30_000;
-export const ACP_FORCE_EXIT_CONFIRM_MS = 250;
+/**
+ * Window granted to confirm that a force-terminated process tree is actually gone.
+ *
+ * 250ms was too tight on Windows: terminating the Job can itself take several
+ * hundred milliseconds, which consumed the window before the confirmation await
+ * started and made teardown fail with "did not exit after force termination".
+ */
+export const ACP_FORCE_EXIT_CONFIRM_MS = 2000;
 const MAX_CLEANUP_DEADLINE_MS = 120_000;
 
 /** Default window to drain stdin EOF before SIGTERM. */
