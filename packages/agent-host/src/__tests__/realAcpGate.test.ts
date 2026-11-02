@@ -45,6 +45,7 @@ describe("real ACP gate and profile resolution", () => {
     const profiles = listSupportedHostAcpProfiles();
     expect(profiles.map((profile) => profile.profileId).sort()).toEqual([
       "claude-code-acp",
+      "codebuddy-acp",
       "codex-acp",
       "grok-acp",
       "opencode-acp",
