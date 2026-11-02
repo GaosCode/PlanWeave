@@ -18,7 +18,7 @@ function descriptor(overrides: Record<string, unknown> = {}) {
     launch: { command: "/opt/custom/bin/custom-acp", args: ["serve"] },
     environment: [{ name: "CUSTOM_API_KEY", required: true }],
     sessionDefaults: { modeId: null, configOptions: {} },
-    shutdown: { eofDrainMs: 100, terminateGraceMs: 200, cleanupDeadlineMs: 2_300 },
+    shutdown: { eofDrainMs: 100, terminateGraceMs: 200, cleanupDeadlineMs: 1_000 },
     capabilities: { required: ["session", "prompt"], optional: ["cancel"] },
     connection: { mode: "dedicated" },
     ...overrides

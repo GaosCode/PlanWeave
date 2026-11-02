@@ -8,13 +8,20 @@ const MAX_ARGUMENT_COUNT = 128;
 const MIN_SHUTDOWN_STAGE_MS = 10;
 const MAX_SHUTDOWN_STAGE_MS = 30_000;
 /**
+ * Minimum budget a custom shutdown policy must leave for force-exit confirmation.
+ *
+ * This is the schema floor, kept at the historical 250ms so existing profiles stay
+ * valid. The runtime grants the larger {@link ACP_FORCE_EXIT_CONFIRM_WINDOW_MS} window
+ * and clamps it to whatever the policy deadline still allows.
+ */
+export const ACP_FORCE_EXIT_CONFIRM_MS = 250;
+/**
  * Window granted to confirm that a force-terminated process tree is actually gone.
  *
  * 250ms was too tight on Windows: terminating the Job can itself take several
- * hundred milliseconds, which consumed the window before the confirmation await
- * started and made teardown fail with "did not exit after force termination".
+ * hundred milliseconds, and the confirmation then started with an exhausted budget.
  */
-export const ACP_FORCE_EXIT_CONFIRM_MS = 2000;
+export const ACP_FORCE_EXIT_CONFIRM_WINDOW_MS = 2000;
 const MAX_CLEANUP_DEADLINE_MS = 120_000;
 
 /** Default window to drain stdin EOF before SIGTERM. */
@@ -116,7 +123,7 @@ export const DEFAULT_ACP_SHUTDOWN_POLICY: AcpShutdownPolicy = Object.freeze(
   acpShutdownPolicySchema.parse({
     eofDrainMs: ACP_EOF_DRAIN_MS,
     terminateGraceMs: ACP_TERMINATE_GRACE_MS,
-    cleanupDeadlineMs: ACP_EOF_DRAIN_MS + ACP_TERMINATE_GRACE_MS + ACP_FORCE_EXIT_CONFIRM_MS
+    cleanupDeadlineMs: ACP_EOF_DRAIN_MS + ACP_TERMINATE_GRACE_MS + ACP_FORCE_EXIT_CONFIRM_WINDOW_MS
   })
 );
 
