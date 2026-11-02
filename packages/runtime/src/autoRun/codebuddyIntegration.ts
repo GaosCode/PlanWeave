@@ -38,6 +38,7 @@ export const codebuddyAgentDefinition: AgentDefinition = {
     },
     capabilities: ["session", "prompt", "cancel", "streaming", "tool-updates"],
     optionalCapabilities: [
+      "permission",
       "authentication",
       "image",
       "embedded-context",
