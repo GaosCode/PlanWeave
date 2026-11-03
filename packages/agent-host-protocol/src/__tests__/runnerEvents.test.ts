@@ -122,6 +122,55 @@ describe("remote runner event v2", () => {
     ).toBe(false);
   });
 
+  it("classifies usage costs by unit and keeps legacy records byte-identical", () => {
+    const usage = (cost: unknown) =>
+      runnerBodyFragmentSchema.safeParse({
+        kind: "usage_update",
+        usedTokens: 10,
+        contextWindowTokens: 100,
+        cost
+      });
+
+    expect(usage({ amount: 1.97, currency: "USD" })).toMatchObject({
+      success: true,
+      data: { cost: { amount: 1.97, currency: "USD" } }
+    });
+    expect(usage({ amount: 0.66, currency: null, unit: "credits" })).toMatchObject({
+      success: true,
+      data: { cost: { amount: 0.66, currency: null, unit: "credits" } }
+    });
+    // A three-letter currency always means money, and `unit: "currency"` needs something to format.
+    expect(usage({ amount: 1, currency: "USD", unit: "credits" }).success).toBe(false);
+    expect(usage({ amount: 1, currency: null, unit: "currency" }).success).toBe(false);
+    // A cost without a currency must say what it is.
+    expect(usage({ amount: 1, currency: null }).success).toBe(false);
+
+    // Agents close a session with `{used: 0, size: 0}`; it must not fail persistence.
+    expect(
+      runnerBodyFragmentSchema.safeParse({
+        kind: "usage_update",
+        usedTokens: 0,
+        contextWindowTokens: 0,
+        cost: null
+      }).success
+    ).toBe(true);
+
+    // A record written before `unit` existed replays unchanged — no injected field.
+    expect(
+      runnerBodyFragmentSchema.parse({
+        kind: "usage_update",
+        usedTokens: 10,
+        contextWindowTokens: 100,
+        cost: { amount: 1.97, currency: "USD" }
+      })
+    ).toEqual({
+      kind: "usage_update",
+      usedTokens: 10,
+      contextWindowTokens: 100,
+      cost: { amount: 1.97, currency: "USD" }
+    });
+  });
+
   it("rejects oversized nested content and recursively redacts structured secrets", () => {
     expect(
       remoteRunnerEventBatchV2Schema.safeParse(
