@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 import type { DesktopGraphViewModel, DesktopProjectSummary } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GraphView } from "../renderer/views/GraphView";
@@ -34,7 +34,20 @@ vi.mock("@xyflow/react", async () => {
         );
       }, [props.onInit]);
       reactFlowMock.props.push(props);
-      return <div data-testid="react-flow">{props.children as React.ReactNode}</div>;
+      return (
+        <div data-testid="react-flow">
+          <button
+            type="button"
+            aria-label="Canvas background"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={props.onPaneClick as React.MouseEventHandler<HTMLButtonElement>}
+          />
+          {props.children as React.ReactNode}
+        </div>
+      );
     }
   };
 });
@@ -143,6 +156,7 @@ function defaultProps(
     autoRunState: null,
     runtimeAvailability: { kind: "not_applicable" },
     edges: [],
+    clearPinnedResource: vi.fn(),
     edgeTypes: {} as ComponentProps<typeof GraphView>["edgeTypes"],
     graph: graph(),
     handleAutoRunClick: vi.fn().mockResolvedValue(undefined),
@@ -199,6 +213,31 @@ afterEach(() => {
 });
 
 describe("GraphView viewport fitting", () => {
+  it("dismisses the mini panel on canvas clicks that stop pointer propagation and on Escape", async () => {
+    const user = (await import("@testing-library/user-event")).default.setup();
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Show panel
+          </button>
+          <GraphView {...defaultProps({ miniRunPanelOpen: open, setMiniRunPanelOpen: setOpen })} />
+        </>
+      );
+    }
+    render(<Harness />);
+    expect(screen.getByTestId("auto-run-mini-panel")).toBeVisible();
+    await user.click(screen.getByText("Mini Run Panel"));
+    expect(screen.getByTestId("auto-run-mini-panel")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Canvas background" }));
+    expect(screen.queryByTestId("auto-run-mini-panel")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Show panel" }));
+    expect(screen.getByTestId("auto-run-mini-panel")).toBeVisible();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByTestId("auto-run-mini-panel")).not.toBeInTheDocument();
+  });
+
   it.each([
     true,
     false
