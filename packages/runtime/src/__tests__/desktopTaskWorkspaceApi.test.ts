@@ -46,9 +46,10 @@ async function loadComposedTaskWorkspace(
     {
       projectRoot: input.projectRoot,
       canvasId: input.canvasId,
-      taskId: input.taskId
+      taskId: input.taskId,
+      selectedRecordId: header.selectedRecordId
     },
-    { now: options.now, selectedRecordId: header.selectedRecordId }
+    { now: options.now }
   );
   return composeTaskWorkspaceRuns(header, page.items, options);
 }
@@ -332,6 +333,45 @@ describe("desktop Task Workspace aggregate API", () => {
     expect(workspace.selectedRecordId).toBe("T-001#B-001::RUN-002");
     expect(workspace.blocks[0]?.runs.map((item) => item.active)).toEqual([false, true]);
     expect(workspace.duration.wallClock.totalMs).toBe(11_000);
+  });
+
+  it.each([
+    false,
+    true
+  ])("honours the requested older run with pagination=%s", async (paginated) => {
+    const { root, init } = await createTestWorkspace();
+    await writeBlockRun({
+      resultsDir: init.workspace.resultsDir,
+      blockId: "B-001",
+      runId: "RUN-001",
+      startedAt: "2026-07-13T00:00:00.000Z",
+      finishedAt: "2026-07-13T00:00:01.000Z"
+    });
+    await writeBlockRun({
+      resultsDir: init.workspace.resultsDir,
+      blockId: "B-001",
+      runId: "RUN-002",
+      startedAt: "2026-07-13T00:00:02.000Z",
+      finishedAt: "2026-07-13T00:00:03.000Z"
+    });
+    const input = {
+      projectRoot: root,
+      canvasId: "default",
+      taskId: "T-001",
+      selectedRecordId: "T-001#B-001::RUN-001",
+      limit: paginated ? 1 : 2
+    };
+    const first = await listTaskWorkspaceRuns(input);
+    if (paginated) {
+      expect(first.items.every((item) => !item.selected)).toBe(true);
+      expect(first.nextCursor).not.toBeNull();
+    }
+    const page = paginated
+      ? await listTaskWorkspaceRuns({ ...input, cursor: first.nextCursor })
+      : first;
+    expect(
+      page.items.filter((item) => item.selected).map((item) => item.run.record.recordId)
+    ).toEqual(["T-001#B-001::RUN-001"]);
   });
 
   it("preserves explicit missing prompt state without fabricating prompt content", async () => {
