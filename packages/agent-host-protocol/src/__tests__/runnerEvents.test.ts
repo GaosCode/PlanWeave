@@ -15,6 +15,7 @@ const persistedInteraction = {
   nonActionableReason: "persisted_history" as const
 };
 const allowedBodies = [
+  { kind: "activity", activity: "thinking" },
   { kind: "lifecycle", state: "running", message: "running" },
   { kind: "output", stream: "stdout", content: "output", redaction },
   {
@@ -96,6 +97,13 @@ describe("remote runner event v2", () => {
   });
 
   it("rejects unknown leaves, Runtime artifacts, and unredacted secrets", () => {
+    expect(
+      runnerBodyFragmentSchema.safeParse({
+        kind: "activity",
+        activity: "thinking",
+        content: "private reasoning"
+      }).success
+    ).toBe(false);
     expect(runnerBodyFragmentSchema.safeParse({ kind: "message", role: "assistant" }).success).toBe(
       false
     );

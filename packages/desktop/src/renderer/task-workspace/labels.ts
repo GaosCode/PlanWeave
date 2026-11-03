@@ -269,6 +269,7 @@ export function taskWorkspaceInspectorLabels(t: Translator): TaskWorkspaceInspec
     emptyDiagnostics: t("taskWorkspaceEmptyDiagnostics"),
     emptyEvents: t("taskWorkspaceEmptyEvents"),
     eventKinds: {
+      activity: t("acpThinking"),
       artifact: t("taskWorkspaceEventArtifact"),
       diagnostic: t("taskWorkspaceEventDiagnostic"),
       interaction: t("taskWorkspaceEventInteraction"),

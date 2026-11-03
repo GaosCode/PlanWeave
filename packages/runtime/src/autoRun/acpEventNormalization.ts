@@ -22,8 +22,7 @@ export type AcpNormalizedEventBody = NormalizedRunnerEvent["body"];
 
 const nonConversationSessionUpdateSchema = z.discriminatedUnion("sessionUpdate", [
   z.object({ sessionUpdate: z.literal("available_commands_update") }).passthrough(),
-  z.object({ sessionUpdate: z.literal("session_info_update") }).passthrough(),
-  z.object({ sessionUpdate: z.literal("agent_thought_chunk") }).passthrough()
+  z.object({ sessionUpdate: z.literal("session_info_update") }).passthrough()
 ]);
 
 export function createAcpInteractionRequestId(
@@ -137,6 +136,8 @@ export function normalizeAcpSessionNotification(
   const update = notification.update;
   if (nonConversationSessionUpdateSchema.safeParse(update).success) return null;
   switch (update.sessionUpdate) {
+    case "agent_thought_chunk":
+      return { kind: "activity", activity: "thinking" };
     case "agent_message_chunk":
     case "user_message_chunk": {
       const content = textContent(update.content);
@@ -224,4 +225,21 @@ export function normalizeAcpSessionNotification(
       };
     }
   }
+}
+
+export function createAcpSessionNotificationNormalizer() {
+  let thinkingSession: string | null = null;
+  return (notification: SessionNotification): AcpNormalizedEventBody | null => {
+    const body = normalizeAcpSessionNotification(notification);
+    if (body?.kind === "activity") {
+      if (thinkingSession === notification.sessionId) return null;
+      thinkingSession = notification.sessionId;
+    } else if (
+      body &&
+      (body.kind === "message" || body.kind === "tool_call" || body.kind === "tool_update")
+    ) {
+      thinkingSession = null;
+    }
+    return body;
+  };
 }

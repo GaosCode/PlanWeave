@@ -573,6 +573,7 @@
         "acpAuthentication.test.ts",
         "acpConversationProjection.test.ts",
         "acpConversationTurn.test.ts",
+        "acpEventNormalization.test.ts",
         "acpGrokLiveSmokeAuthGuard.test.ts",
         "acpProcessShutdown.test.ts",
         "acpProfileResolver.test.ts",

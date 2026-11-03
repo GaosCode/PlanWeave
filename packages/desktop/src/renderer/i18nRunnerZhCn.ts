@@ -56,6 +56,7 @@ export const runnerZhCnCatalog = {
   acpPromptLabel: "向 Agent 发送消息",
   acpPromptPlaceholder: "继续提问或调整 Agent 的方向…",
   acpPromptHint: "Enter 发送 · Shift+Enter 换行",
+  acpThinking: "正在思考…",
   acpPromptUnavailable: "此会话无法继续接收消息。",
   acpSendPrompt: "发送消息",
   acpPromptSending: "Agent 正在处理…",
