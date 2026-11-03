@@ -464,6 +464,7 @@ export function GraphView({
           }}
           onPaneClick={() => {
             clearPinnedResource();
+            setMiniRunPanelOpen(false);
           }}
           onSelectionChange={presence?.onSelectionChange}
           onNodeDragStop={(event, node) => void onNodeDragStop(event, node)}
