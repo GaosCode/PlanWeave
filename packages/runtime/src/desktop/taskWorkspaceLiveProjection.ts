@@ -1,3 +1,4 @@
+import { projectAcpCreditsUsage } from "../autoRun/acpCreditsProjection.js";
 import type { RunnerRecordReadModel } from "../autoRun/runnerRecordReadModelContract.js";
 import type { RunnerRunIdentity } from "../autoRun/runnerContractSchemas.js";
 import {
@@ -144,7 +145,10 @@ function projectBlock(options: {
         usage: liveModel
           ? {
               ...item.run.usage,
-              currentContext: projectTaskWorkspaceCurrentContextUsage(liveModel.events)
+              currentContext: projectTaskWorkspaceCurrentContextUsage(liveModel.events),
+              credits: projectAcpCreditsUsage(liveModel.events, {
+                agentId: item.run.metadata.agentId
+              })
             }
           : item.run.usage,
         actualConfiguration: liveModel
