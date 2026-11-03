@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { killTmuxSessionsForRun } from "../autoRun/tmuxExecutor.js";
+import { isExecutorCancelledError } from "../autoRun/executorCancellation.js";
 import { listExecutorProfilesForManifest } from "../autoRun/executors.js";
 import {
   activeAgentRunRegistry,
@@ -425,6 +426,10 @@ async function runLoop(runId: string): Promise<void> {
         if (operation) operation.inFlight = false;
         const afterError = runs.get(runId);
         if (!afterError || stopIntents.has(runId) || afterError.phase === "stopped") {
+          return;
+        }
+        if (isExecutorCancelledError(error)) {
+          await setState(runId, { phase: "stopped", error: null }, "run_stopped");
           return;
         }
         await setState(

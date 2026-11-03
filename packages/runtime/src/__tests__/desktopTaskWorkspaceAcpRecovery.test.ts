@@ -1,9 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { recordBlockRunInIndex } from "../autoRun/blockRunIndex.js";
 import { gateAcpCapabilities } from "../autoRun/acpCapabilityGate.js";
 import { codexAgentDefinition } from "../autoRun/codexIntegration.js";
@@ -15,6 +15,7 @@ import { runnerPermissionInteractionRequestSchema } from "../autoRun/runnerInter
 import { PersistentRunnerInteractionStore } from "../autoRun/runnerInteractionStore.js";
 import {
   getTaskWorkspaceRunDetail,
+  cancelDesktopAgentRun,
   getAutoRunState,
   getLatestAutoRunSummaryWithDiagnostics,
   listPendingRunnerInteractions,
@@ -365,6 +366,103 @@ async function driveAutoRunWithPermissions(
 }
 
 describe("desktop Task Workspace ACP recovery", () => {
+  it("stops a live run without failure and recovers its session from the released ready Block", async () => {
+    const fixture = await createTestWorkspace(
+      manifestTestBuilder().withDefaultExecutor("codex-acp").build()
+    );
+    const controlDir = join(fixture.root, "acp-control");
+    await mkdir(controlDir);
+    await writeFile(join(controlDir, "pause-at"), "session/prompt");
+    await writeFile(join(controlDir, "pause"), "");
+    const previousLaunch = codexAgentDefinition.acp.launch;
+    const launch = {
+      command: process.execPath,
+      args: [acpMockAgent, "recovery-permission-artifact", "--control-dir", controlDir],
+      source: previousLaunch?.source ?? "built_in"
+    };
+    codexAgentDefinition.acp.launch = launch;
+    try {
+      await trustCommand(fixture.init.workspace, launch.command, launch.args);
+      const input = {
+        projectRoot: fixture.root,
+        canvasId: "default",
+        taskId: "T-001",
+        recordId: "T-001#B-001::RUN-001"
+      };
+      await startAutoRun(fixture.root, "default", { kind: "block", blockRef: "T-001#B-001" }, 20);
+      await vi.waitFor(async () => {
+        expect(await readFile(join(controlDir, "lifecycle.log"), "utf8")).toContain(
+          "paused session/prompt"
+        );
+      });
+      const live = await getTaskWorkspaceRunDetail(input);
+      const cancel = live.item.run.capabilities.cancel.identity;
+      if (!cancel) throw new Error("Expected the live run cancellation identity.");
+      await cancelDesktopAgentRun(
+        { projectRoot: fixture.root, canvasId: "default" },
+        input.recordId,
+        cancel
+      );
+      await vi.waitFor(
+        async () => {
+          expect(["stopped", "failed"]).toContain(
+            (await getLatestAutoRunSummaryWithDiagnostics(fixture.root, "default")).state?.phase
+          );
+        },
+        { timeout: 10_000 }
+      );
+      const stopped = (await getLatestAutoRunSummaryWithDiagnostics(fixture.root, "default")).state;
+      if (!stopped) throw new Error("Expected the persisted stopped Auto Run.");
+      expect.soft(stopped).toMatchObject({ phase: "stopped", error: null });
+      expect
+        .soft(await readFile(stopped.eventLogPath, "utf8"))
+        .not.toContain('"type":"run_failed"');
+      const source = await getTaskWorkspaceRunDetail(input);
+      expect(source.item.run.metadata.terminalState).toBe("cancelled");
+      expect((await readState(fixture.init.workspace.stateFile)).blocks["T-001#B-001"].status).toBe(
+        "ready"
+      );
+      const recovery = source.item.run.capabilities.recoverAcpSession;
+      expect(recovery.available).toBe(true);
+      if (!recovery.identity) throw new Error("Expected recovery of the stopped ACP session.");
+      const sourcePath = join(
+        fixture.init.workspace.resultsDir,
+        "T-001/blocks/B-001/runs/RUN-001/metadata.json"
+      );
+      const sourceMetadata = await readFile(sourcePath, "utf8");
+      await unlink(join(controlDir, "pause"));
+      const recovered = await recoverTaskWorkspaceAcpRun(recovery.identity, {
+        source: "cancellation-regression",
+        reason: "Continue the stopped session."
+      });
+      expect(await driveAutoRunWithPermissions(fixture.root, recovered.state.runId)).toMatchObject({
+        phase: "completed",
+        error: null
+      });
+      const recoveryPath = join(
+        fixture.init.workspace.resultsDir,
+        "T-001/blocks/B-001/runs/RUN-002"
+      );
+      expect(JSON.parse(await readFile(join(recoveryPath, "metadata.json"), "utf8"))).toMatchObject(
+        {
+          recovery: { sourceRunId: "RUN-001", sourceSessionId: recovery.identity.sessionId },
+          sessionId: recovery.identity.sessionId,
+          status: "completed"
+        }
+      );
+      expect(await readFile(join(recoveryPath, "report.md"), "utf8")).toBe(
+        "recovered implementation\n"
+      );
+      expect(await readFile(sourcePath, "utf8")).toBe(sourceMetadata);
+      expect(
+        (await getTaskWorkspaceRunDetail(input)).item.run.capabilities.recoverAcpSession.available
+      ).toBe(false);
+    } finally {
+      await shutdownDesktopAutoRuns();
+      codexAgentDefinition.acp.launch = previousLaunch;
+    }
+  }, 20_000);
+
   it("fails closed for a stale live owner and reconciles only after that PID exits", async () => {
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
       stdio: "ignore"

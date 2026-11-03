@@ -177,7 +177,11 @@ export function evaluateAcpRunRecovery(
   if (!input.loadSessionAvailable) {
     return { available: false, reason: "load_session_unavailable" };
   }
-  if (input.blockStatus !== "blocked") return { available: false, reason: "block_not_blocked" };
+  if (
+    input.blockStatus !== "blocked" &&
+    !(input.blockStatus === "ready" && input.interruptionReason === "recoverable_cancel")
+  )
+    return { available: false, reason: "block_not_blocked" };
   if (!input.dependenciesCompleted) {
     return { available: false, reason: "dependencies_incomplete" };
   }
