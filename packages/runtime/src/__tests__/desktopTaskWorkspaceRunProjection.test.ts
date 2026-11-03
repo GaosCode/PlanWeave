@@ -149,9 +149,9 @@ function blockRecord(overrides: Partial<DesktopRunRecord> = {}): DesktopRunRecor
 }
 
 describe("Task Workspace run projection", () => {
-  function workspaceForRun() {
+  function workspaceForRun(record = blockRecord()) {
     const run = projectTaskWorkspaceRun({
-      record: blockRecord(),
+      record,
       runIdentity,
       now: new Date("2026-07-13T00:00:02.000Z")
     });
@@ -252,6 +252,52 @@ describe("Task Workspace run projection", () => {
     expect(selected?.run.capabilities.prompt).toEqual(model.intervention.prompt);
     expect(selected?.run.capabilities.cancel).toEqual(model.intervention.cancel);
     expect(projected.duration.wallClock).toMatchObject({ available: true, totalMs: 5_000 });
+  });
+
+  it("updates credit totals as live usage arrives without reloading the run", () => {
+    const creditRunner = { ...runner, agentId: "codebuddy" as const };
+    const workspace = workspaceForRun(
+      blockRecord({
+        executor: "codebuddy-acp",
+        metadata: { runnerKind: "acp", agentId: "codebuddy" },
+        runnerReadModel: null
+      })
+    );
+    const events = [0.59, 0.66, null].map((amount, index) =>
+      normalizedRunnerEventSchema.parse({
+        ...usageEvent(index + 1, 0, `2026-07-13T00:00:0${index + 1}.000Z`),
+        runner: creditRunner,
+        body: {
+          kind: "usage_update",
+          usedTokens: 0,
+          contextWindowTokens: 0,
+          cost: amount === null ? null : { amount, currency: null, unit: "credits" }
+        }
+      })
+    );
+    let projected = workspace;
+    for (const [index, totalCredits, sampleCount] of [
+      [1, 0.59, 1],
+      [2, 1.25, 2],
+      [3, 1.25, 2]
+    ]) {
+      const model = readModel(events.slice(0, index));
+      model.cursor.canonicalIdentity!.runner = creditRunner;
+      projected = projectTaskWorkspaceLiveSnapshot({
+        workspace: projected,
+        recordId: "T-001#B-001::RUN-001",
+        model,
+        now: new Date("2026-07-13T00:00:05.000Z")
+      });
+      expect(projected.blocks[0]?.runs[0]?.run.usage.credits).toEqual({
+        availability: "reported",
+        lastReportedCredits: index === 1 ? 0.59 : 0.66,
+        totalCredits,
+        sampleCount,
+        semantics: "delta"
+      });
+    }
+    expect(workspace.blocks[0]?.runs[0]?.run.usage.credits.availability).toBe("unavailable");
   });
 
   it("rejects a live model whose canonical identity differs from the selected record", () => {
