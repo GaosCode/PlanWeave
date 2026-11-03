@@ -229,6 +229,14 @@ export function useTaskWorkspaceController(options: {
 
   useEffect(() => {
     void refreshVersion;
+    /**
+     * The request counter only rejects stale *requests*: it still equals `request` after
+     * unmount, so a late rejection went on to call `setWorkspaceLoad`. Once the test
+     * environment is torn down React reads `window` while resolving the update priority and
+     * throws `ReferenceError: window is not defined` as an unhandled rejection — failing the
+     * suite even though every assertion had already passed.
+     */
+    let cancelled = false;
     const request = ++workspaceRequest.current;
     const requestedNavigation = navigationRef.current;
     if (!requestedNavigation) {
@@ -280,7 +288,7 @@ export function useTaskWorkspaceController(options: {
           })
         )
         .then((loaded) => {
-          if (workspaceRequest.current !== request) return;
+          if (cancelled || workspaceRequest.current !== request) return;
           const currentNavigation = navigationRef.current;
           if (
             !currentNavigation ||
@@ -316,7 +324,7 @@ export function useTaskWorkspaceController(options: {
           });
         })
         .catch((error: unknown) => {
-          if (workspaceRequest.current !== request) return;
+          if (cancelled || workspaceRequest.current !== request) return;
           setWorkspaceLoad({
             error: errorMessage(error),
             key,
@@ -327,7 +335,10 @@ export function useTaskWorkspaceController(options: {
             workspace: null
           });
         });
-      return;
+      // The workspace branch starts its own async chain, so it needs the same teardown guard.
+      return () => {
+        cancelled = true;
+      };
     }
     if (!api) return;
     if (isWorkspaceTaskWorkspaceNavigation(requestedNavigation)) return;
@@ -350,7 +361,7 @@ export function useTaskWorkspaceController(options: {
       api.getGraphViewModel(canvasRef)
     ])
       .then(([header, runsPage, graph]) => {
-        if (workspaceRequest.current !== request) {
+        if (cancelled || workspaceRequest.current !== request) {
           return;
         }
         const currentNavigation = navigationRef.current;
@@ -509,7 +520,7 @@ export function useTaskWorkspaceController(options: {
         });
       })
       .catch((error: unknown) => {
-        if (workspaceRequest.current !== request) {
+        if (cancelled || workspaceRequest.current !== request) {
           return;
         }
         setWorkspaceLoad({
@@ -522,6 +533,9 @@ export function useTaskWorkspaceController(options: {
           workspace: null
         });
       });
+    return () => {
+      cancelled = true;
+    };
   }, [
     api,
     collaborationApi,
