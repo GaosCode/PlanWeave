@@ -100,7 +100,7 @@ const messages: Record<AcpRunRecoveryUnavailableReason, string> = {
     "The configured execution host or WSL distribution no longer matches the source run.",
   launch_mismatch: "The configured ACP launch no longer matches the source run.",
   load_session_unavailable: "The source or current Agent does not support session/load.",
-  block_not_blocked: "Recovery requires the Block to remain blocked.",
+  block_not_blocked: "Recovery requires a blocked Block or a ready Block after cancellation.",
   dependencies_incomplete: "Recovery requires every Block dependency to be completed.",
   active_run_exists: "Recovery is unavailable while an Auto Run is active or resumable.",
   newer_recovery_exists: "A newer recovery attempt already exists for this source run.",
@@ -340,11 +340,13 @@ export async function recoverTaskWorkspaceAcpRun(
       interruptionReason: metadata.recoveryInterruptionReason,
       lastToolStateSummary: projectAcpRecoveryToolSummary(record)
     });
-    await unblockBlock({
-      projectRoot: workspace,
-      ref: identity.claimRef,
-      reason: `ACP recovery requested by '${requestedBy}': ${reason}`
-    });
+    if (requireBlockState(context.state, identity.claimRef).status === "blocked") {
+      await unblockBlock({
+        projectRoot: workspace,
+        ref: identity.claimRef,
+        reason: `ACP recovery requested by '${requestedBy}': ${reason}`
+      });
+    }
     try {
       return await initializeAutoRunUnderCanvasLock(
         workspace,
@@ -360,7 +362,7 @@ export async function recoverTaskWorkspaceAcpRun(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
-        `ACP recovery unblocked '${identity.claimRef}', but starting the recovery Auto Run failed. The Block remains ready: ${message}`,
+        `Starting ACP recovery for '${identity.claimRef}' failed. The Block remains ready: ${message}`,
         { cause: error }
       );
     }

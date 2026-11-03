@@ -87,6 +87,7 @@ describe("ACP interruption recovery contract", () => {
     ["resolvedLaunch", { command: "codex-acp", args: [] }, "launch_mismatch"],
     ["loadSessionAvailable", false, "load_session_unavailable"],
     ["blockStatus", "completed", "block_not_blocked"],
+    ["blockStatus", "ready", "block_not_blocked"],
     ["dependenciesCompleted", false, "dependencies_incomplete"],
     ["activeOrResumableRun", true, "active_run_exists"],
     ["newerRecoveryChild", true, "newer_recovery_exists"],
