@@ -97,7 +97,7 @@ describe("ACP connection process cleanup", () => {
             expect(options?.deadline?.expiresAt).toBe(ownerCleanup?.deadline.expiresAt);
             expect(options?.deadline?.remainingMs).toBe(ownerCleanup?.deadline.remainingMs);
             if (precedingCleanupMs > 0) {
-              expect(options?.graceMs).toBe(0);
+              expect(options?.graceMs).toBe(policy.terminateGraceMs);
               expect(options?.forceExitConfirmMs).toBeGreaterThan(0);
             }
             const deadline = performance.now() + 2_000;
