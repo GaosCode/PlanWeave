@@ -500,6 +500,10 @@ jobs:
       - name: Build packages
         run: pnpm build
 
+      - name: Verify macOS ACP process cleanup
+        if: runner.os == 'macOS'
+        run: pnpm test:file packages/runtime/src/__tests__/acpConnectionCleanup.test.ts
+
       - name: Create test report directory
         run: node -e "require('node:fs').mkdirSync('reports',{recursive:true})"
 
