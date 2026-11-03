@@ -703,7 +703,7 @@ export async function getTaskWorkspace(
  */
 export async function listTaskWorkspaceRuns(
   rawInput: TaskWorkspaceListRunsInput,
-  options: { now?: Date; selectedRecordId?: string | null } = {}
+  options: { now?: Date } = {}
 ): Promise<TaskWorkspaceRunsPage> {
   const input = taskWorkspaceListRunsInputSchema.parse(rawInput);
   const limit = input.limit ?? TASK_WORKSPACE_RUNS_DEFAULT_LIMIT;
@@ -755,7 +755,7 @@ export async function listTaskWorkspaceRuns(
    * the model and reasoning as unavailable again. Only the first page may infer
    * a default; continuation pages must not re-mark a different record.
    */
-  const requestedSelection = options.selectedRecordId ?? null;
+  const requestedSelection = input.selectedRecordId ?? null;
   const selectedRecordId =
     requestedSelection ??
     (cursor !== null

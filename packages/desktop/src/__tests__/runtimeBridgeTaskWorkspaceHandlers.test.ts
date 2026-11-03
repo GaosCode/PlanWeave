@@ -219,11 +219,7 @@ describe("Task Workspace runtime bridge", () => {
 
     await handler(null, input);
 
-    // The index row has no RunnerRecordReadModel; the Runtime needs to know which
-    // run the user selected so it can read the full record for it.
-    expect(runtimeMock.listTaskWorkspaceRuns).toHaveBeenCalledWith(input, {
-      selectedRecordId: "T-001#B-001::RUN-001"
-    });
+    expect(runtimeMock.listTaskWorkspaceRuns).toHaveBeenCalledWith(input);
   });
 
   it("rejects a Runtime run-detail response with mismatched record identity", async () => {

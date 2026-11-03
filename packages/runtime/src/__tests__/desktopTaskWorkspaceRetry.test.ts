@@ -36,9 +36,10 @@ async function loadComposedTaskWorkspace(
     {
       projectRoot: input.projectRoot,
       canvasId: input.canvasId,
-      taskId: input.taskId
+      taskId: input.taskId,
+      selectedRecordId: header.selectedRecordId
     },
-    { now: options.now, selectedRecordId: header.selectedRecordId }
+    { now: options.now }
   );
   let composed = composeTaskWorkspaceRuns(header, page.items, options);
   const selectedId = composed.selectedRecordId;
