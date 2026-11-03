@@ -47,6 +47,65 @@ function retrySelection(runId: string) {
 }
 
 describe("Task Workspace conversation actions", () => {
+  it("shows thinking activity without its contents and clears it for output, cancellation and run changes", () => {
+    const model = readModel();
+    const selectedRun = selection({ model });
+    const event = {
+      version: "planweave.runner-event/v1" as const,
+      sequence: 1,
+      timestamp: "2026-07-13T00:00:00.000Z",
+      identity: selectedRun.item.run.runIdentity,
+      runner: {
+        version: "planweave.runner/v1" as const,
+        runnerKind: "acp" as const,
+        agentId: "codex" as const
+      },
+      body: { kind: "activity" as const, activity: "thinking" as const }
+    };
+    const props = { api: {}, liveStatus: "live" as const, selectedRun, t };
+    const thinking = { ...model, events: [event] };
+    const view = render(<TaskWorkspaceComposer {...props} runnerModel={thinking} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking");
+    view.rerender(
+      <TaskWorkspaceComposer
+        {...props}
+        runnerModel={{
+          ...thinking,
+          events: [
+            event,
+            {
+              ...event,
+              sequence: 2,
+              body: {
+                kind: "message",
+                role: "assistant",
+                messageId: "reply",
+                chunk: true,
+                content: "Answer",
+                redaction: { classes: [], replaced: 0 }
+              }
+            }
+          ]
+        }}
+      />
+    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    view.rerender(
+      <TaskWorkspaceComposer {...props} runnerModel={{ ...thinking, terminal: true }} />
+    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    view.rerender(<TaskWorkspaceComposer {...props} runnerModel={thinking} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking");
+    view.rerender(
+      <TaskWorkspaceComposer
+        {...props}
+        selectedRun={retrySelection("RUN-002")}
+        runnerModel={readModel()}
+      />
+    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("keeps cached A/B drafts and newer revisions when A succeeds after selecting B", async () => {
     const base = readModel();
     const first = { ...base, terminal: true, cursor: { ...base.cursor, terminal: true } };

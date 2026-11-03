@@ -97,6 +97,7 @@ export class DefaultAcpEventRetentionPolicy implements AcpEventRetentionPolicy {
   classify(body: NormalizedRunnerEvent["body"]): "ordinary" | "control" {
     switch (body.kind) {
       case "message":
+      case "activity":
       case "tool_update":
       case "output":
       case "usage_update":

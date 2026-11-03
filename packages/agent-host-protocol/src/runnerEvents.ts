@@ -328,7 +328,8 @@ export const runnerBodyFragmentSchema = z.discriminatedUnion("kind", [
       code: runnerDiagnosticCodeLeafSchema,
       message: safeMessageSchema
     })
-    .strict()
+    .strict(),
+  z.object({ kind: z.literal("activity"), activity: z.literal("thinking") }).strict()
 ]);
 
 export const engineUsageSnapshotLeafSchema = z

@@ -27,7 +27,7 @@ import {
   AcpSharedConnectionCleanupError,
   AcpSharedConnectionLostError
 } from "./acpSharedConnectionErrors.js";
-import { normalizeAcpSessionNotification } from "./acpEventNormalization.js";
+import { createAcpSessionNotificationNormalizer } from "./acpEventNormalization.js";
 import { normalizedRedactedContent } from "./normalizedEventContract.js";
 import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
 import { assistantTextChunk } from "./acpExecutionOutput.js";
@@ -231,9 +231,10 @@ async function executeAcpOutcome(
     }
   };
 
+  const normalizeSessionNotification = createAcpSessionNotificationNormalizer();
   const relaySessionUpdate = async (notification: SessionNotification): Promise<void> => {
     if (sessionUpdateFailure === undefined) {
-      const normalized = normalizeAcpSessionNotification(notification);
+      const normalized = normalizeSessionNotification(notification);
       if (!normalized) return;
       const outputChunk = assistantTextChunk(notification);
       if (outputChunk !== null) {

@@ -175,6 +175,8 @@ function projectedEventSummary(
     }
   }
   switch (body.kind) {
+    case "activity":
+      return body.activity;
     case "message":
     case "plan_update":
     case "output":

@@ -16,6 +16,7 @@ import {
 } from "./TaskWorkspaceCancelRunAction";
 import { TaskWorkspaceRetryRunAction } from "./TaskWorkspaceRetryRunAction";
 import { TaskWorkspaceRecoverAcpRunAction } from "./TaskWorkspaceRecoverAcpRunAction";
+import { TaskWorkspaceActivity } from "./TaskWorkspaceActivity";
 
 type ComposerApi = Partial<
   Pick<
@@ -210,7 +211,13 @@ function AcpComposer({
       cancelling={prompt.cancelling}
       error={prompt.error}
       t={t}
-    />
+    >
+      <TaskWorkspaceActivity
+        model={model}
+        active={!model.terminal || prompt.inFlight}
+        label={t("acpThinking")}
+      />
+    </AcpComposerSurface>
   );
 }
 

@@ -56,6 +56,7 @@ export const runnerEnCatalog = {
   acpPromptLabel: "Message the agent",
   acpPromptPlaceholder: "Ask a follow-up or steer the agent…",
   acpPromptHint: "Enter to send · Shift+Enter for a new line",
+  acpThinking: "Thinking…",
   acpPromptUnavailable: "This session cannot accept another message.",
   acpSendPrompt: "Send message",
   acpPromptSending: "Agent is working…",

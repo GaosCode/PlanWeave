@@ -32,7 +32,7 @@ import {
   type AcpConversationTurnQueryResult,
   type AcpConversationTurnState
 } from "./acpConversationTurnContract.js";
-import { normalizeAcpSessionNotification } from "./acpEventNormalization.js";
+import { createAcpSessionNotificationNormalizer } from "./acpEventNormalization.js";
 import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
 import type { AcpCompletedConversationWriter } from "./acpEventStore.js";
 import {
@@ -408,10 +408,11 @@ export class AcpConversationTurnCoordinator {
       signal
     );
     signal.throwIfAborted();
+    const normalizeSessionNotification = createAcpSessionNotificationNormalizer();
     const sessionHandlers: AcpSessionHandlerPort = {
       onSessionUpdate: async (notification: SessionNotification) => {
         if (!persistNotifications || notification.sessionId !== input.identity.sessionId) return;
-        const normalized = normalizeAcpSessionNotification(notification);
+        const normalized = normalizeSessionNotification(notification);
         if (normalized) await append(normalized);
       },
       onPermissionRequest: async () => ({ outcome: { outcome: "cancelled" } }),

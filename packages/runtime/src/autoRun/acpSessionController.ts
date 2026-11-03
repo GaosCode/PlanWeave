@@ -39,7 +39,7 @@ import { redactAcpProtocolPayload, redactRunnerEventText } from "./runnerEventRe
 import { normalizedRedactedContent } from "./normalizedEventContract.js";
 import type { LivePendingRequestHandle, RunnerInteractionBroker } from "./liveControl.js";
 import {
-  normalizeAcpSessionNotification,
+  createAcpSessionNotificationNormalizer,
   normalizeAcpTerminalOutput
 } from "./acpEventNormalization.js";
 import {
@@ -314,8 +314,9 @@ export class AcpSessionController {
       if (abortController.signal.aborted) {
         throw new ExecutorCancelledError(diagnostic(abortController.signal.reason));
       }
+      const normalizeSessionNotification = createAcpSessionNotificationNormalizer();
       const eventSink = async (notification: SessionNotification): Promise<void> => {
-        const normalized = normalizeAcpSessionNotification(notification);
+        const normalized = normalizeSessionNotification(notification);
         if (eventStore && normalized) {
           await eventStore.append(
             normalized,
