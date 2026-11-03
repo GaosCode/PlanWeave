@@ -122,6 +122,43 @@ async function writeFeedbackRun(options: {
 }
 
 describe("desktop Task Workspace aggregate API", () => {
+  it("keeps a stopped run cancelled in unselected, selected and paginated summaries", async () => {
+    const { root, init } = await createTestWorkspace(basicManifest());
+    for (const runId of ["RUN-001", "RUN-002"]) {
+      const runsRoot = join(init.workspace.resultsDir, "T-001/blocks/B-001/runs");
+      const runDir = join(runsRoot, runId);
+      await mkdir(runDir, { recursive: true });
+      await writeJsonFile(join(runDir, "metadata.json"), {
+        runId,
+        ref: "T-001#B-001",
+        executor: "codex-acp",
+        adapter: "agent",
+        status: "cancelled",
+        outcome: "cancelled",
+        exitCode: 130,
+        startedAt: "2026-07-13T00:00:00.000Z",
+        finishedAt: "2026-07-13T00:00:01.000Z"
+      });
+      await recordBlockRunInIndex(runsRoot, runId);
+    }
+    const input = { projectRoot: root, canvasId: "default", taskId: "T-001" };
+    const first = await listTaskWorkspaceRuns({ ...input, limit: 1 });
+    const page = await listTaskWorkspaceRuns({ ...input, limit: 1, cursor: first.nextCursor });
+    for (const result of [
+      first,
+      page,
+      await listTaskWorkspaceRuns({ ...input, selectedRecordId: "T-001#B-001::RUN-001" })
+    ]) {
+      expect(result.items.map((item) => item.run.metadata.terminalState)).toEqual(
+        result.items.map(() => "cancelled")
+      );
+    }
+    expect(
+      (await getTaskWorkspaceRunDetail({ ...input, recordId: "T-001#B-001::RUN-001" })).item.run
+        .metadata.terminalState
+    ).toBe("cancelled");
+  });
+
   it("uses graph order, deterministic retries, overlap-safe wall clock, and summed agent time", async () => {
     const { root, init } = await createTestWorkspace(parallelManifest());
     await writeBlockRun({

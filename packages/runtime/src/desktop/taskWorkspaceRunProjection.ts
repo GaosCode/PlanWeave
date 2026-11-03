@@ -4,6 +4,7 @@ import { z } from "zod";
 import { runnerRecordReadModelSchema } from "../autoRun/runnerRecordReadModelContract.js";
 import {
   executionWaveIdSchema,
+  runnerTerminalStateSchema,
   runnerNextActionsSchema,
   runnerRunIdentitySchema,
   type RunnerRunIdentity
@@ -56,6 +57,13 @@ const taskWorkspaceProjectionMetadataSchema = z
   .object({
     submittedAt: z.string().datetime().optional(),
     executionWaveId: executionWaveIdSchema.optional(),
+    outcome: z
+      .union([
+        runnerTerminalStateSchema,
+        z.literal("timed_out").transform(() => "failed" as const),
+        z.literal("running").transform(() => null)
+      ])
+      .optional(),
     runnerKind: runnerTransportSchema.nullable().optional(),
     agentId: agentFamilySchema.nullable().optional()
   })
@@ -257,7 +265,10 @@ export function projectTaskWorkspaceRun(options: {
       tmuxSessionId: record.tmuxSessionId ?? null,
       exitCode: record.exitCode,
       submittedAt: metadata.submittedAt ?? null,
-      terminalState: terminalState?.kind === "terminal" ? terminalState.outcome.state : null
+      terminalState:
+        terminalState?.kind === "terminal"
+          ? terminalState.outcome.state
+          : (metadata.outcome ?? null)
     },
     executionWaveId: metadata.executionWaveId ?? null,
     duration: projectTaskWorkspaceRunDuration({
