@@ -311,6 +311,7 @@
         "taskWorkspaceRouteWiring.test.tsx",
         "taskWorkspaceSharedPromptAuthority.test.tsx",
         "taskWorkspaceShell.test.tsx",
+        "taskWorkspaceTeardownGuard.test.tsx",
         "taskWorkspaceTimeline.test.tsx",
         "taskWorkspaceTimelineProjection.test.ts",
         "taskWorkspaceUsage.test.tsx",
