@@ -18,7 +18,7 @@
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178c6?style=for-the-badge" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Node.js-43853d?style=for-the-badge" />
   <img alt="desktop" src="https://img.shields.io/badge/desktop-Electron-47848f?style=for-the-badge" />
-  <img alt="agents" src="https://img.shields.io/badge/agents-Codex%20%7C%20Claude%20Code%20%7C%20OpenCode%20%7C%20Pi%20%7C%20Grok-6f42c1?style=for-the-badge" />
+  <img alt="agents" src="https://img.shields.io/badge/agents-Codex%20%7C%20Claude%20Code%20%7C%20OpenCode%20%7C%20Pi%20%7C%20Grok%20%7C%20CodeBuddy-6f42c1?style=for-the-badge" />
 </p>
 <!-- planweave-badges:end -->
 
@@ -38,7 +38,7 @@ PlanWeave 可以把模糊目标或通过 Chat 生成的计划落到任务图里�
 - **零配置上手**：安装 CLI 和 agent skills 后，只需几个命令和 skill prompt，就能在现有项目里创建、执行和检查计划。
 - **有边界的图上下文**：Agent 执行时拿到当前 block 和相关任务图上下文，需要时可以继续查看更多信息。
 - **职责聚焦**：每次 claim 都把一个聚焦 block 交给一个专门的 Agent，减少无关计划、陈旧讨论和额外 token 对上下文的污染。
-- **不同节点和块可指定不同 Agent**：实现块可以用 Codex，也可以把某些块交给 Claude Code、OpenCode、Pi 或 Grok，确定性检查可以交给本地命令。
+- **不同节点和块可指定不同 Agent**：实现块可以用 Codex，也可以把某些块交给 Claude Code、OpenCode、Pi、Grok 或 CodeBuddy，确定性检查可以交给本地命令。
 - **多人协作与远程 Agent**：成员可以在共享工作区中协作、指派任务和讨论进展，也可以通过其他设备上的 Agent Host 执行 block。
 - **通过 MCP 让 ChatGPT 生成计划**：把 ChatGPT 连接到 PlanWeave 本机 MCP server、headless systemd tunnel 或桌面端 secure tunnel 后，可以让它创建画布、任务、Blocks、Review Pipeline 和依赖关系。
 - **全自动一站式完成任务流**：从 claim block、执行、记录报告、Review、生成反馈到继续修复，形成闭环。
@@ -101,7 +101,7 @@ xattr -dr com.apple.quarantine "/Applications/PlanWeave.app"
 
 ## Agent 执行方式
 
-PlanWeave 支持 executor profile，因此同一张任务图里的不同 block 可以分别使用 Codex、Claude Code、OpenCode、Pi、Grok 或 Local Review 命令。Runtime 会把已接受结果继续送入 Review/Feedback 循环。
+PlanWeave 支持 executor profile，因此同一张任务图里的不同 block 可以分别使用 Codex、Claude Code、OpenCode、Pi、Grok、CodeBuddy 或 Local Review 命令。Runtime 会把已接受结果继续送入 Review/Feedback 循环。
 
 每次 block run 都会写入可追踪产物，包括 prompt、stdout、stderr、report、metadata 和可用的监控命令。
 
@@ -222,7 +222,7 @@ planweave run-session <session-id> --json
 
 ### ACP runners
 
-PlanWeave 为 Codex、Claude Code、OpenCode、Pi 和 Grok 提供显式 ACP profile：`codex-acp`、`claude-code-acp`、`opencode-acp`、`pi-acp` 和 `grok-acp`。
+PlanWeave 为 Codex、Claude Code、OpenCode、Pi、Grok 和 CodeBuddy 提供显式 ACP profile：`codex-acp`、`claude-code-acp`、`opencode-acp`、`pi-acp`、`grok-acp` 和 `codebuddy-acp`。
 
 安装所选 Agent 并完成认证，然后检查并运行对应 profile：
 
@@ -230,6 +230,8 @@ PlanWeave 为 Codex、Claude Code、OpenCode、Pi 和 Grok 提供显式 ACP prof
 planweave executors test codex-acp --json
 planweave run --once --executor codex-acp --timeout 120000 --json
 ```
+
+`codebuddy-acp` 使用 `@tencent-ai/codebuddy-code` npm 包启动 `codebuddy-code --acp`。它只支持 ACP：WorkBuddy 桌面端内置的 CLI 无法运行 `--acp`，PlanWeave 也不为它提供 `--print` profile，避免 Agent 继承完整的宿主环境。
 
 ACP 预检会协商所选 Agent 声明的认证方式，并可使用已经配置好的非交互认证凭据。如果需要用户操作，CLI 和 Desktop 会显示下一步；交互式登录仍由 Agent 自己处理，PlanWeave 不会自动启动。PlanWeave 不会在 run metadata 或 Desktop state 中持久化 Agent 凭据值。
 

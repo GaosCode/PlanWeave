@@ -19,7 +19,7 @@
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178c6?style=for-the-badge" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Node.js-43853d?style=for-the-badge" />
   <img alt="desktop" src="https://img.shields.io/badge/desktop-Electron-47848f?style=for-the-badge" />
-  <img alt="agents" src="https://img.shields.io/badge/agents-Codex%20%7C%20Claude%20Code%20%7C%20OpenCode%20%7C%20Pi%20%7C%20Grok-6f42c1?style=for-the-badge" />
+  <img alt="agents" src="https://img.shields.io/badge/agents-Codex%20%7C%20Claude%20Code%20%7C%20OpenCode%20%7C%20Pi%20%7C%20Grok%20%7C%20CodeBuddy-6f42c1?style=for-the-badge" />
 </p>
 <!-- planweave-badges:end -->
 
@@ -38,7 +38,7 @@ That makes PlanWeave a better fit for complex engineering work: parallel impleme
 - **Zero-config start**: install the CLI and agent skills, then use a few commands and skill prompts to create, run, and inspect a plan in an existing project.
 - **Scoped graph context**: agents receive the current block plus relevant task graph context, and can inspect more when needed.
 - **Focused responsibilities**: each claim hands one focused block to one agent, keeping context clean and avoiding unrelated plans, stale discussion, and wasted tokens.
-- **Per-node and per-block agent routing**: use Codex for one block, Claude Code, OpenCode, Pi, or Grok for another, and use local review scripts where deterministic checks are enough.
+- **Per-node and per-block agent routing**: use Codex for one block, Claude Code, OpenCode, Pi, Grok, or CodeBuddy for another, and use local review scripts where deterministic checks are enough.
 - **Team collaboration and remote agents**: collaborate with members in shared workspaces, assign work, discuss progress, and execute blocks through Agent Hosts running on other devices.
 - **MCP authoring for ChatGPT**: connect ChatGPT to PlanWeave through the local MCP server, a headless systemd tunnel, or the desktop secure tunnel, then ask it to create canvases, tasks, blocks, review pipelines, and dependencies.
 - **Full auto-run workflow**: PlanWeave can claim blocks, run agents, collect reports, handle review feedback, and continue the task flow.
@@ -101,7 +101,7 @@ For repository layout, source setup, tests, and packaging commands, see [Develop
 
 ## Agent Execution
 
-PlanWeave supports executor profiles, so different blocks can run through Codex, Claude Code, OpenCode, Pi, Grok, or local review commands. The runtime carries accepted results through review-feedback loops.
+PlanWeave supports executor profiles, so different blocks can run through Codex, Claude Code, OpenCode, Pi, Grok, CodeBuddy, or local review commands. The runtime carries accepted results through review-feedback loops.
 
 Each block run writes durable output under the PlanWeave workspace, including prompt, stdout, stderr, report, metadata, and monitor commands when available.
 
@@ -222,7 +222,7 @@ planweave run-session <session-id> --json
 
 ### ACP runners
 
-PlanWeave provides explicit ACP profiles for Codex, Claude Code, OpenCode, Pi, and Grok: `codex-acp`, `claude-code-acp`, `opencode-acp`, `pi-acp`, and `grok-acp`.
+PlanWeave provides explicit ACP profiles for Codex, Claude Code, OpenCode, Pi, Grok, and CodeBuddy: `codex-acp`, `claude-code-acp`, `opencode-acp`, `pi-acp`, `grok-acp`, and `codebuddy-acp`.
 
 Install and authenticate the selected agent, then verify and run its profile:
 
@@ -230,6 +230,8 @@ Install and authenticate the selected agent, then verify and run its profile:
 planweave executors test codex-acp --json
 planweave run --once --executor codex-acp --timeout 120000 --json
 ```
+
+`codebuddy-acp` launches `codebuddy-code --acp` from the `@tencent-ai/codebuddy-code` npm package. It is ACP-only: the CLI bundled with the WorkBuddy desktop cannot run `--acp`, and PlanWeave ships no `--print` profile for it so the agent never inherits the full host environment.
 
 ACP preflight negotiates the authentication methods advertised by the selected agent and can use credentials already configured for non-interactive authentication. If user action is required, CLI and Desktop show the next step; interactive login remains agent-owned and is not started automatically. PlanWeave does not persist agent credential values in run metadata or Desktop state.
 

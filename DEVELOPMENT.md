@@ -34,7 +34,7 @@ Module and security boundaries:
 | Assignment metadata | Server `work_assignments` CAS revision | Claim state; auto-start of remote runs |
 | Human comments / attachments | Server comments + attachment HTTP (separate blob root) | ACP streams; Host mailbox; Runtime submit |
 | Desktop collab UI | Renderer hooks → preload → main vault/client → contracts package | DOM as business state; renderer-held secrets |
-| Compatibility | Matching package majors + `agentHostProtocolVersion` | Cross-major silent downgrade; ACP→CLI fallback |
+| Compatibility | Matching package majors + `agentHostProtocolVersion`; runner event bodies evolve additively | Cross-major silent downgrade; ACP→CLI fallback |
 
 All published packages require **Node.js >= 22.13**. This is the first Node.js 22 release where the built-in `node:sqlite` module used by Runtime, Server, and Agent Host is available without a runtime flag. Production transport is HTTPS/WSS; loopback plain HTTP/WS requires explicit `allowInsecureDevelopment`.
 
@@ -257,9 +257,12 @@ pnpm exec vitest run \
   packages/runtime/src/__tests__/acpGrokLiveSmoke.test.ts \
   packages/runtime/src/__tests__/acpRunnerLifecycle.test.ts \
   packages/runtime/src/__tests__/acpEventController.test.ts \
+  packages/runtime/src/__tests__/acpUsageProjection.test.ts \
+  packages/runtime/src/__tests__/acpCreditsProjection.test.ts \
   packages/cli/src/__tests__/acpCliE2E.test.ts \
   packages/cli/src/__tests__/acpLiveSmoke.test.ts \
-  packages/desktop/src/__tests__/acpDesktopMockE2E.test.tsx
+  packages/desktop/src/__tests__/acpDesktopMockE2E.test.tsx \
+  packages/desktop/src/__tests__/acpDesktopMockE2E.codebuddy.test.tsx
 ```
 
 For live verification, run the smoke command for each configured profile:
@@ -269,6 +272,7 @@ node scripts/acp-live-smoke.mjs --profile codex-acp --evidence /tmp/codex-acp.js
 node scripts/acp-live-smoke.mjs --profile claude-code-acp --evidence /tmp/claude-code-acp.json
 node scripts/acp-live-smoke.mjs --profile opencode-acp --evidence /tmp/opencode-acp.json
 node scripts/acp-live-smoke.mjs --profile pi-acp --evidence /tmp/pi-acp.json
+node scripts/acp-live-smoke.mjs --profile codebuddy-acp --evidence /tmp/codebuddy-acp.json
 ```
 
 Use `--cancellation-timeout <ms>` when an agent needs longer to enter the running state.
