@@ -231,8 +231,6 @@ planweave executors test codex-acp --json
 planweave run --once --executor codex-acp --timeout 120000 --json
 ```
 
-`codebuddy-acp` 使用 `@tencent-ai/codebuddy-code` npm 包启动 `codebuddy-code --acp`。它只支持 ACP：WorkBuddy 桌面端内置的 CLI 无法运行 `--acp`，PlanWeave 也不为它提供 `--print` profile，避免 Agent 继承完整的宿主环境。
-
 ACP 预检会协商所选 Agent 声明的认证方式，并可使用已经配置好的非交互认证凭据。如果需要用户操作，CLI 和 Desktop 会显示下一步；交互式登录仍由 Agent 自己处理，PlanWeave 不会自动启动。PlanWeave 不会在 run metadata 或 Desktop state 中持久化 Agent 凭据值。
 
 ACP run 通过 CLI 和 Desktop 提供结构化进度、产物、usage 和交互请求。

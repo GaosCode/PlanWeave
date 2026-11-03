@@ -231,8 +231,6 @@ planweave executors test codex-acp --json
 planweave run --once --executor codex-acp --timeout 120000 --json
 ```
 
-`codebuddy-acp` launches `codebuddy-code --acp` from the `@tencent-ai/codebuddy-code` npm package. It is ACP-only: the CLI bundled with the WorkBuddy desktop cannot run `--acp`, and PlanWeave ships no `--print` profile for it so the agent never inherits the full host environment.
-
 ACP preflight negotiates the authentication methods advertised by the selected agent and can use credentials already configured for non-interactive authentication. If user action is required, CLI and Desktop show the next step; interactive login remains agent-owned and is not started automatically. PlanWeave does not persist agent credential values in run metadata or Desktop state.
 
 ACP runs expose structured progress, artifacts, usage, and interaction requests through CLI and Desktop.
