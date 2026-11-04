@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonicalizeJson } from "@planweave-ai/agent-host-protocol";
@@ -64,6 +65,38 @@ function seedTurns(f: Awaited<ReturnType<typeof setup>>, prefix: string, count: 
 }
 
 describe("ACP conversation payload retention", () => {
+  it("compacts old v1 events using their original replay digests and keeps retained history readable", async () => {
+    const f = await setup();
+    seedTurns(f, f.operation.id, 21);
+    f.db
+      .prepare(
+        "UPDATE acp_conversation_events SET event_json=json_set(event_json,'$.protocolVersion',1)"
+      )
+      .run();
+    const turnId = `${f.operation.id}-000`;
+    const event = JSON.parse(
+      String(
+        f.db.prepare("SELECT event_json FROM acp_conversation_events WHERE turn_id=?").get(turnId)
+          ?.event_json
+      )
+    );
+    const digest = createHash("sha256").update(canonicalizeJson(event)).digest("hex");
+    f.advance(31 * day);
+    expect(f.retention.compactBatch().compacted).toBe(1);
+    expect(
+      f.db
+        .prepare(
+          "SELECT event_digest FROM acp_conversation_event_digests WHERE turn_id=? AND sequence=1"
+        )
+        .get(turnId)?.event_digest
+    ).toBe(digest);
+    const page = f.service.page(f.operation, "operator-one");
+    expect(page.retention?.compactedTurnIds).toEqual([turnId]);
+    expect(page.events).toHaveLength(20);
+    expect(page.events.every((event) => event.protocolVersion === 1)).toBe(true);
+    expect(f.retention.compactBatch().compacted).toBe(0);
+  });
+
   it("uses its own terminal age, protects the latest twenty, and writes replay evidence before removing payloads", async () => {
     const f = await setup();
     f.service.act(f.operation, "operator-one", f.prompt);

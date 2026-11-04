@@ -97,7 +97,7 @@ describe("authoritative Agent Host execution state", () => {
     states.push(upgraded);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 11
+      version: 12
     });
     expect(
       inspected.prepare("PRAGMA table_info(agent_host_conversation_turns)").all()

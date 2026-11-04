@@ -182,6 +182,8 @@ export {
   canvasRuntimeResetResultSchema,
   canvasRuntimeResetStatusResultSchema,
   canvasRuntimeRequestCommandSchema,
+  storedCanvasRuntimeCommandSchema,
+  storedCanvasRuntimeRequestCommandSchema,
   canvasRuntimeRequestIdSchema,
   canvasRuntimeResponsePayloadSchema,
   canvasRuntimeSourceEvidenceSchema,
@@ -196,6 +198,7 @@ export {
   type CanvasRuntimeLogicalScope,
   type CanvasRuntimeOperation,
   type CanvasRuntimeRequestCommand,
+  type StoredCanvasRuntimeRequestCommand,
   type CanvasRuntimeRequestId,
   type CanvasRuntimeResponsePayload,
   type CanvasRuntimeSourceEvidence

@@ -4,6 +4,7 @@ import { artifactRefSchema } from "./artifacts.js";
 import { opaqueIdentifierSchema } from "./identifiers.js";
 import { OUTPUT_MAX_ARTIFACT_BYTES } from "./limits.js";
 import { agentHostProtocolVersionSchema } from "./version.js";
+import { storedProtocolRecord } from "./storedProtocolRecord.js";
 
 export const CANVAS_RUNTIME_JSON_MAX_DEPTH = 13 as const;
 export const CANVAS_RUNTIME_JSON_MAX_ARRAY_ITEMS = 100_000 as const;
@@ -284,6 +285,17 @@ export const canvasRuntimeCancelCommandSchema = z
     message: "Canvas Runtime cancel request must have its own request identity.",
     path: ["targetRequestId"]
   });
+
+export const storedCanvasRuntimeRequestCommandSchema = storedProtocolRecord(
+  canvasRuntimeRequestCommandSchema
+);
+export const storedCanvasRuntimeCommandSchema = z.union([
+  storedCanvasRuntimeRequestCommandSchema,
+  storedProtocolRecord(canvasRuntimeCancelCommandSchema)
+]);
+export type StoredCanvasRuntimeRequestCommand = z.infer<
+  typeof storedCanvasRuntimeRequestCommandSchema
+>;
 
 export const canvasRuntimeUnavailableReasonSchema = z.enum([
   "runtime_not_attached",

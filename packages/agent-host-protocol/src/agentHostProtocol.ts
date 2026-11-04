@@ -6,7 +6,8 @@ import {
 } from "./historicalPermissionReplay.js";
 import {
   acpConversationCommandSchema,
-  acpConversationEventSchema
+  acpConversationEventSchema,
+  storedAcpConversationCommandSchema
 } from "./acpConversationProtocol.js";
 import { remoteRunnerEventBatchV2Schema } from "./runnerEvents.js";
 import { capabilitiesSchema } from "./capabilities.js";
@@ -43,7 +44,8 @@ import { hostCapacitySchema, hostReadinessObservationSchema } from "./hostReadin
 import {
   canvasRuntimeCancelCommandSchema,
   canvasRuntimeRequestCommandSchema,
-  canvasRuntimeResponsePayloadSchema
+  canvasRuntimeResponsePayloadSchema,
+  storedCanvasRuntimeCommandSchema
 } from "./canvasRuntimeProtocol.js";
 
 export const PROTOCOL_ERROR_MESSAGE_MAX_LENGTH = 4_096 as const;
@@ -146,9 +148,8 @@ export const storedMailboxCommandSchema = z.union([
   storedExecuteBlockCommandSchema,
   storedProtocolRecord(cancelExecutionCommandSchema),
   storedProtocolRecord(resumeExecutionCommandSchema),
-  storedProtocolRecord(canvasRuntimeRequestCommandSchema),
-  storedProtocolRecord(canvasRuntimeCancelCommandSchema),
-  storedProtocolRecord<z.infer<typeof acpConversationCommandSchema>>(acpConversationCommandSchema),
+  storedCanvasRuntimeCommandSchema,
+  storedAcpConversationCommandSchema,
   interactionSettlementSchema
 ]);
 

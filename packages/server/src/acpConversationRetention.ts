@@ -1,6 +1,6 @@
 import {
   acpConversationActionSchema,
-  acpConversationEventSchema
+  storedAcpConversationEventSchema
 } from "@planweave-ai/agent-host-protocol";
 import { acpConversationDigest } from "./acpConversationReplay.js";
 import { AcpConversationRetentionCandidates } from "./acpConversationRetentionCandidates.js";
@@ -65,7 +65,7 @@ export class AcpConversationRetention {
       throw new Error("acp_conversation_retention_event_sequence_incomplete");
     let lastCursor = 0;
     const digests = events.map((row, index) => {
-      const event = acpConversationEventSchema.parse(JSON.parse(String(row.event_json)));
+      const event = storedAcpConversationEventSchema.parse(JSON.parse(String(row.event_json)));
       if (
         event.sequence !== index + 1 ||
         event.sequence !== row.sequence ||
