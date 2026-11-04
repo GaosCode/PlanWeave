@@ -429,6 +429,11 @@ async function main() {
     );
     run(process.execPath, [collaborationImportSmokePath], { cwd: installDir });
 
+    const { agentHostProtocolVersion } = await import(
+      pathToFileURL(
+        join(installDir, "node_modules/@planweave-ai/agent-host-protocol/dist/index.js")
+      ).href
+    );
     const serverPackageRoot = join(installDir, "node_modules/@planweave-ai/server");
     const hostPackageRoot = join(installDir, "node_modules/@planweave-ai/agent-host");
     for (const relativePath of packageMeta.server.requiredPaths) {
@@ -571,7 +576,7 @@ async function main() {
       if (readiness.status !== 200 || readinessBody.status !== "ready") {
         throw new Error(`readyz_failed:${JSON.stringify(readinessBody)}`);
       }
-      if (version.status !== 200 || versionBody.protocolVersion !== 1) {
+      if (version.status !== 200 || versionBody.protocolVersion !== agentHostProtocolVersion) {
         throw new Error(`version_failed:${JSON.stringify(versionBody)}`);
       }
 
