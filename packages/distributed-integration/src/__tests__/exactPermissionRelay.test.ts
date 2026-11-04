@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createServer } from "node:http";
 import { WebSocket } from "ws";
 import { createHash } from "node:crypto";
@@ -141,7 +142,7 @@ describe("exact permission durable Server and Host relay", () => {
       socket.send(
         JSON.stringify({
           type: "host.hello",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           supportedExecutionEnvelopeVersions: [1, 2],
           lastAcknowledgedSequence: 0,
           capabilities: [],
@@ -159,7 +160,11 @@ describe("exact permission durable Server and Host relay", () => {
       );
       const { options: _options, ...legacyRequest } = requestFor(fixture);
       socket.send(
-        JSON.stringify({ ...legacyRequest, protocolVersion: 1, messageId: "legacy-on-live" })
+        JSON.stringify({
+          ...legacyRequest,
+          protocolVersion: agentHostProtocolVersion,
+          messageId: "legacy-on-live"
+        })
       );
       expect(await reply).toMatchObject(
         version === "1"
@@ -206,7 +211,7 @@ describe("exact permission durable Server and Host relay", () => {
     const deliver = (message: typeof execute) =>
       mailboxDeliverySchema.parse({
         type: "mailbox.message",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         sequence: message.sequence,
         previousSequence: message.previousSequence,
         messageId: message.messageId,

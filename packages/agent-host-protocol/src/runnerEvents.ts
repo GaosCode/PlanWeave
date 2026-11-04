@@ -189,12 +189,6 @@ const toolStatusSchema = z.enum(["pending", "in_progress", "completed", "failed"
  * `currency: null` plus `unit: "credits"` keeps both cases in one field, and a
  * missing `unit` still means "currency" so records written before this field
  * existed replay unchanged.
- *
- * Compatibility: runner bodies evolve *additively*. Optional fields may be added
- * and may gain meaning, but an existing field never changes type or becomes
- * required, so `agentHostProtocolVersion` only moves for a breaking change.
- * Readers must tolerate optional fields they do not know yet; writers must never
- * assume an older reader has seen them.
  */
 export const runnerUsageCostSchema = z
   .object({

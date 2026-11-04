@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
@@ -249,7 +250,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     );
     fixture.coordination.dispatches.interrupt(hostA.id, "retry-revalidate-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "retry-revalidate-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,
@@ -375,7 +376,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     );
     fixture.coordination.dispatches.interrupt(hostA.id, "retry-concurrent-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "retry-concurrent-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,
@@ -470,7 +471,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     );
     fixture.coordination.dispatches.interrupt(hostA.id, "retry-runtime-only-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "retry-runtime-only-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,
@@ -604,7 +605,7 @@ describe("assignment × dispatch integration (HC-002#B-003)", () => {
     );
     fixture.coordination.dispatches.interrupt(hostA.id, "retry-deny-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "retry-deny-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,

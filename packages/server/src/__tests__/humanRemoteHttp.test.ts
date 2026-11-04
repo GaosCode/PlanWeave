@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createServer, type Server as HttpServer } from "node:http";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { rm } from "node:fs/promises";
@@ -1025,7 +1026,7 @@ describe("human remote operation HTTP", () => {
     );
     fixture.coordination.dispatches.interrupt(fixture.host.id, "human-resume-interrupt", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "human-resume-interrupt",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,

@@ -1,3 +1,7 @@
+import {
+  agentHostProtocolVersion,
+  agentHostProtocolVersionSchema
+} from "@planweave-ai/agent-host-protocol";
 import { AcpConversationError } from "./acpConversationService.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
@@ -52,7 +56,7 @@ const versionResponseSchema = z
   .object({
     serverVersion: z.string().min(1).max(64),
     serverBuildRevision: buildRevisionSchema,
-    protocolVersion: z.literal(1),
+    protocolVersion: agentHostProtocolVersionSchema,
     remoteRunnerEvents: remoteRunnerEventServerCapabilitySchema,
     limits: z
       .object({
@@ -566,7 +570,7 @@ export async function handleOperatorHttpRequest(
         versionResponseSchema.parse({
           serverVersion: options.serverVersion,
           serverBuildRevision: options.serverBuildRevision,
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           remoteRunnerEvents: options.service.remoteRunnerEventCapability?.() ?? {
             available: false
           },

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -54,7 +55,7 @@ it.each([
         : { kind, stream: "stdout" as const, content: "", redaction: { classes: [], replaced: 0 } };
   const probe = {
     type: "acp_conversation.event" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     operationId: command.operationId,
     turnId: command.turnId,
     executionAttemptId: command.executionAttemptId,

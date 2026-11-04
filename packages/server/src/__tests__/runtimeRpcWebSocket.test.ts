@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { CANVAS_RUNTIME_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import { createServer, type Server as HttpServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -118,7 +119,7 @@ async function initialize(socket: WebSocket): Promise<void> {
   socket.send(
     JSON.stringify({
       type: "host.hello",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: 0,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],

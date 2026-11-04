@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -140,7 +141,7 @@ describe("portable Agent Host setup", () => {
         response.end(
           JSON.stringify({
             type: "host.enrollment.completed",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             enrollmentAttemptId: parsed.enrollmentAttemptId,
             hostId: "host-fleet-portable",
             credentialExpiresAt: "2030-06-30T00:00:00.000Z",
@@ -339,7 +340,7 @@ describe("portable Agent Host setup", () => {
         response.end(
           JSON.stringify({
             type: "host.enrollment.completed",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             enrollmentAttemptId: parsed.enrollmentAttemptId,
             hostId: "host-portable-operator",
             workspaceId: "workspace-portable-operator",
@@ -483,7 +484,7 @@ describe("portable Agent Host setup", () => {
     await new AgentHostEnrollmentService(config, store, {
       exchange: async (request) => ({
         type: "host.enrollment.completed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         enrollmentAttemptId: request.enrollmentAttemptId,
         hostId: "host-existing-active",
         workspaceId,
@@ -539,7 +540,7 @@ describe("portable Agent Host setup", () => {
         response.end(
           JSON.stringify({
             type: "host.enrollment.completed",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             enrollmentAttemptId: parsed.enrollmentAttemptId,
             hostId: enrollments === 1 ? "host-recover-original" : "host-recover-replacement",
             workspaceId: "workspace-portable-recover",
@@ -690,7 +691,7 @@ describe("portable Agent Host setup", () => {
         response.end(
           JSON.stringify({
             type: "host.enrollment.completed",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             enrollmentAttemptId: parsed.enrollmentAttemptId,
             hostId: "host-pending-restart",
             workspaceId,
@@ -750,7 +751,7 @@ describe("portable Agent Host setup", () => {
     await new AgentHostEnrollmentService(config, store, {
       exchange: async (request) => ({
         type: "host.enrollment.completed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         enrollmentAttemptId: request.enrollmentAttemptId,
         hostId: "host-replacement",
         workspaceId,

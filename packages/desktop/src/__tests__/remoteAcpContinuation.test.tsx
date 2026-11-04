@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { Profiler } from "react";
 import { desktopRemoteAcpConversationPageSchema } from "../shared/remoteAcpConversation";
 import type { AcpPermissionOption } from "@planweave-ai/agent-host-protocol/browser";
@@ -89,7 +90,7 @@ describe("remote ACP composer continuation", () => {
       cursor: 1,
       events: [
         {
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           type: "acp_conversation.event",
           operationId: scope.operationId,
           executionAttemptId: turn.executionAttemptId,
@@ -161,7 +162,7 @@ describe("remote ACP composer continuation", () => {
         cursor: 2,
         events: [
           {
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             type: "acp_conversation.event",
             operationId: scope.operationId,
             executionAttemptId: turn.executionAttemptId,
@@ -267,7 +268,7 @@ describe("remote ACP composer continuation", () => {
       turns,
       events: turns.flatMap((turn, index) =>
         fragments(index === 0 ? 200 : 50).map((fragment, sequence) => ({
-          protocolVersion: 1 as const,
+          protocolVersion: agentHostProtocolVersion,
           type: "acp_conversation.event" as const,
           operationId: scope.operationId,
           executionAttemptId: turn.executionAttemptId,
@@ -672,7 +673,7 @@ const timestamp = "2030-01-01T00:00:00.000Z";
 
 function message(turnId: string, sequence: number, content: string) {
   return {
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     type: "acp_conversation.event",
     operationId: scope.operationId,
     executionAttemptId: "attempt-one",

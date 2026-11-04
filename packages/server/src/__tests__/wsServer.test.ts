@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createServer, type Server as HttpServer } from "node:http";
 import { loopbackHttpTransportAdmission } from "./support/transportAdmission.js";
 import { rm } from "node:fs/promises";
@@ -294,7 +295,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex"],
@@ -303,13 +304,14 @@ describe("agent host WebSocket transport", () => {
     );
     await expect(events.next()).resolves.toEqual({
       type: "host.welcome",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       serverTime: expect.any(String),
       heartbeatIntervalMs: 30000,
       leaseDurationMs: 60000
     });
   });
   it.each([
+    { label: "old wire protocol", supportedVersions: [1, 2], pendingV1: false, wireVersion: 1 },
     { label: "missing envelope versions", supportedVersions: undefined, pendingV1: false },
     { label: "v2-only with pending v1", supportedVersions: [2], pendingV1: true }
   ])("rejects a Host with $label before it can remain online", async (input) => {
@@ -347,7 +349,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: input.wireVersion ?? agentHostProtocolVersion,
         ...(input.supportedVersions
           ? { supportedExecutionEnvelopeVersions: input.supportedVersions }
           : {}),
@@ -359,6 +361,9 @@ describe("agent host WebSocket transport", () => {
 
     await expect(events.next()).resolves.toMatchObject({ type: "protocol.error" });
     expect(coordination.hosts.getRequired(registration.host.id).lastSeenAt).toBeUndefined();
+    if (input.wireVersion === 1) {
+      expect(coordination.hosts.getRequired(registration.host.id).readiness).toBeUndefined();
+    }
   });
 
   it("does not block Host event acknowledgements while availability recovery waits on Host RPC", async () => {
@@ -397,7 +402,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex"],
@@ -411,7 +416,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.heartbeat",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "heartbeat-during-recovery",
         activeLeases: []
       })
@@ -520,7 +525,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
@@ -667,7 +672,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: [
@@ -708,7 +713,7 @@ describe("agent host WebSocket transport", () => {
     coordination.actions.transition(resumeActionId, "delivered");
     const resume = coordination.mailbox.enqueueOnce(resumeActionId, registration.host.id, {
       type: "resume_execution",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,
       executionAttemptId: dispatch.executionAttemptId,
@@ -728,7 +733,7 @@ describe("agent host WebSocket transport", () => {
       socket.send(
         JSON.stringify({
           type: "mailbox.ack",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           messageId: `ack-${message.sequence}`,
           sequence: message.sequence
         })
@@ -739,7 +744,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "dispatch.accepted",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "action-accepted",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -759,7 +764,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "mailbox.ack",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: `ack-${cancel.sequence}`,
         sequence: cancel.sequence
       })
@@ -769,7 +774,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "dispatch.interrupted",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "cancel-crash-interrupted",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -801,7 +806,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "dispatch.failed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "cancel-terminal",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -825,7 +830,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "canvas_runtime.response",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "cancel-terminal-runtime-response",
         requestId: runtimeRequest.command.requestId,
         response: {
@@ -882,7 +887,7 @@ describe("agent host WebSocket transport", () => {
     firstSocket.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
@@ -911,7 +916,7 @@ describe("agent host WebSocket transport", () => {
     firstSocket.send(
       JSON.stringify({
         type: "dispatch.accepted",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "accepted-observations",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -925,7 +930,7 @@ describe("agent host WebSocket transport", () => {
     firstSocket.send(
       JSON.stringify({
         type: "acp.events",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         eventProtocolVersion: 2,
         messageId: "acp-observation-1",
         dispatchId: dispatch.id,
@@ -962,7 +967,7 @@ describe("agent host WebSocket transport", () => {
     firstSocket.send(
       JSON.stringify({
         type: "interaction.permission_requested",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "permission-observation-1",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -992,7 +997,7 @@ describe("agent host WebSocket transport", () => {
     firstSocket.send(
       JSON.stringify({
         type: "host.heartbeat",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "heartbeat-expire-observation",
         activeLeases: [
           {
@@ -1020,7 +1025,7 @@ describe("agent host WebSocket transport", () => {
     secondSocket.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
@@ -1043,14 +1048,14 @@ describe("agent host WebSocket transport", () => {
     secondSocket.send(
       JSON.stringify({
         type: "mailbox.ack",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "ack-1",
         sequence: firstDelivery.sequence
       })
     );
     await expect(secondEvents.next()).resolves.toEqual({
       type: "host.event_ack",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "ack-1"
     });
     expect(coordination.hosts.getRequired(registration.host.id).lastAcknowledgedSequence).toBe(
@@ -1095,7 +1100,7 @@ describe("agent host WebSocket transport", () => {
     first.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
@@ -1117,7 +1122,7 @@ describe("agent host WebSocket transport", () => {
     first.send(
       JSON.stringify({
         type: "dispatch.accepted",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "offline-expiry-accepted",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -1128,7 +1133,7 @@ describe("agent host WebSocket transport", () => {
     first.send(
       JSON.stringify({
         type: "interaction.elicitation_requested",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "offline-expiry-request",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -1152,7 +1157,7 @@ describe("agent host WebSocket transport", () => {
     second.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
@@ -1165,7 +1170,7 @@ describe("agent host WebSocket transport", () => {
     second.send(
       JSON.stringify({
         type: "host.heartbeat",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "offline-expiry-heartbeat",
         activeLeases: [
           {
@@ -1194,7 +1199,7 @@ describe("agent host WebSocket transport", () => {
     third.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
@@ -1249,7 +1254,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
@@ -1271,7 +1276,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "dispatch.accepted",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "accepted-interruption",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -1286,7 +1291,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "dispatch.interrupted",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "interrupted-1",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -1323,7 +1328,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "dispatch.progress",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "adversarial-progress",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -1335,7 +1340,7 @@ describe("agent host WebSocket transport", () => {
     // Free-form internal errors stay redacted on the wire; full detail is Server-logged only.
     expect(rejection).toEqual({
       type: "protocol.error",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       code: "event_rejected",
       message: "The server rejected the host event."
     });
@@ -1345,7 +1350,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.heartbeat",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "heartbeat-after-adversarial-error",
         activeLeases: []
       })
@@ -1359,7 +1364,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "lease.renew",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "unsupported-renewal",
         dispatchId: dispatch.id,
         leaseId: dispatch.leaseId,
@@ -1374,7 +1379,7 @@ describe("agent host WebSocket transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.heartbeat",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "heartbeat-after-unsupported-renew",
         activeLeases: []
       })
@@ -1445,7 +1450,7 @@ describe("agent host WebSocket transport", () => {
     for (const softDrop of softDropEvents) {
       socket.send(
         JSON.stringify({
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           dispatchId: dispatch.id,
           leaseId: dispatch.leaseId,
           executionAttemptId: dispatch.executionAttemptId,

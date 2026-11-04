@@ -1,3 +1,4 @@
+import { storedMailboxCommandSchema } from "@planweave-ai/agent-host-protocol";
 import {
   finishDispatchTerminal,
   type DispatchTerminalTransition
@@ -120,7 +121,9 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
       .get(executeMailboxMessageId(operation.dispatchId));
     const mailbox = mailboxRow
       ? (() => {
-          const command = mailboxCommandSchema.parse(JSON.parse(String(mailboxRow.command_json)));
+          const command = storedMailboxCommandSchema.parse(
+            JSON.parse(String(mailboxRow.command_json))
+          );
           if (
             command.type !== "execute_block" ||
             command.dispatchId !== operation.dispatchId ||

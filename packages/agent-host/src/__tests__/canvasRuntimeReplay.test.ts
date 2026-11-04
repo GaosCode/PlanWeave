@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -92,7 +93,7 @@ function request(
       : operation;
   return {
     type: "canvas_runtime.request" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     requestId,
     scope,
     deadline: "2099-01-01T00:00:00.000Z",
@@ -103,7 +104,7 @@ function request(
 function cancel(requestId: string, targetRequestId: string) {
   return {
     type: "canvas_runtime.cancel" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     requestId,
     targetRequestId,
     scope,
@@ -117,7 +118,7 @@ function delivery(
 ) {
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-${sequence}`,
@@ -174,7 +175,7 @@ describe("Canvas Runtime Host replay", () => {
     state.canvasRuntime.begin(terminal.requestId);
     state.canvasRuntime.complete(terminal.requestId, {
       type: "canvas_runtime.response",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       requestId: terminal.requestId,
       response: {
         outcome: "error",

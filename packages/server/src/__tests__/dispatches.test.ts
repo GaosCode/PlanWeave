@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -614,7 +615,7 @@ describe("DispatchService (test-only thin stack)", () => {
     });
     reopenedCoordination.dispatches.interrupt(registration.host.id, "interrupt-reopen", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "interrupt-reopen",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,

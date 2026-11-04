@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { describe, expect, it, vi } from "vitest";
 import {
   deviceSessionIdSchema,
@@ -129,7 +130,7 @@ describe("Human observation before remote dispatch", () => {
     );
     fixture.dispatches.interrupt(fixture.host.id, "observe-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "observe-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,

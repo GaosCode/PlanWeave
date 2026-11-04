@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -117,13 +118,13 @@ describe("Agent Host ACP session capability identity", () => {
     const identity = { ...oldIdentity, leaseId: "fresh-session-capability-lease" };
     state.receive({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       sequence: exampleExecuteDelivery.sequence + 1,
       previousSequence: exampleExecuteDelivery.sequence,
       messageId: "resume-session-capabilities",
       command: {
         type: "resume_execution",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         ...identity,
         leaseExpiresAt: "2030-01-01T00:00:00.000Z",
         priorRecovery: { acpSessionId: original.acpSessionId, recoveryId: original.recoveryId }

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -163,7 +164,7 @@ it("aligns restarted artifacts with real committed credentials when the next ord
         socket.send(
           JSON.stringify({
             type: "host.welcome",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             exactPermissionOptionsVersion: 1,
             serverTime: new Date().toISOString(),
             heartbeatIntervalMs: 100,
@@ -201,7 +202,11 @@ it("aligns restarted artifacts with real committed credentials when the next ord
         welcomes[index]?.resolve();
       } else if (raw.messageId)
         socket.send(
-          JSON.stringify({ type: "host.event_ack", protocolVersion: 1, messageId: raw.messageId })
+          JSON.stringify({
+            type: "host.event_ack",
+            protocolVersion: agentHostProtocolVersion,
+            messageId: raw.messageId
+          })
         );
     });
   });

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -143,7 +144,7 @@ export async function createTimingFixture(
   const command = (operation: unknown, requestId: string, deadline = "2099-01-01T00:00:00.000Z") =>
     canvasRuntimeRequestCommandSchema.parse({
       type: "canvas_runtime.request",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       requestId,
       scope,
       deadline,
@@ -155,7 +156,7 @@ export async function createTimingFixture(
     sequence += 1;
     state.receive({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       sequence,
       previousSequence: sequence - 1,
       messageId: `mailbox-${sequence}`,
@@ -263,7 +264,7 @@ export async function createTimingFixture(
     else {
       const cancellation = canvasRuntimeCancelCommandSchema.parse({
         type: "canvas_runtime.cancel",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         requestId: `cancel-${requestId}`,
         targetRequestId: requestId,
         scope,

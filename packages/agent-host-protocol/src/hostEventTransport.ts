@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "./version.js";
 import { acpConversationEventSchema } from "./acpConversationProtocol.js";
 
 export const DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES = 256 * 1024;
@@ -27,7 +28,7 @@ export const ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES = new TextEncoder().e
   JSON.stringify(
     acpConversationEventSchema.parse({
       type: "acp_conversation.event",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: "\u0000".repeat(256),
       turnId: "\u0000".repeat(256),
       executionAttemptId: "\u0000".repeat(256),

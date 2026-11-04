@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { remoteAcpEngineFragment } from "../execution/remoteAcpEngineFragment.js";
 import { remoteRunnerWireChunks } from "../execution/remoteRunnerWireChunks.js";
 import {
@@ -76,7 +77,7 @@ export class AgentHostRemoteRecordRelay {
           const cursor = afterCursor + 1;
           return {
             type: "acp.events",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             eventProtocolVersion: 2,
             messageId: mailboxMessageIdSchema.parse(randomUUID()),
             ...dispatchLifecycleIdentitySchema.parse(record.identity),
@@ -204,7 +205,7 @@ export class AgentHostRemoteRecordRelay {
       this.executions.transition(execution.sequence, "interaction_wait", "interaction_requested");
     }
     const common = {
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       messageId: randomUUID(),
       ...record.identity,
       acpSessionId: sessionId,

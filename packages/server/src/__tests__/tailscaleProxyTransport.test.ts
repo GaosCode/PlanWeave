@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import WebSocket from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -106,7 +107,7 @@ describe("Tailscale HTTPS proxy transport", () => {
     host.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex"],
@@ -122,14 +123,14 @@ describe("Tailscale HTTPS proxy transport", () => {
     host.send(
       JSON.stringify({
         type: "host.heartbeat",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "proxy-heartbeat-1",
         activeLeases: []
       })
     );
     await expect(heartbeatAcknowledgement).resolves.toEqual({
       type: "host.event_ack",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "proxy-heartbeat-1"
     });
 

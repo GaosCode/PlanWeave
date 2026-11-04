@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
@@ -12,7 +13,7 @@ const secret = (prefix: "pw_enroll_" | "pw_host_") =>
 function request() {
   return {
     type: "host.enrollment.request",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     enrollmentCode: secret("pw_enroll_"),
     enrollmentAttemptId: "attempt-enrollment-001",
     installationId: "4b3ba96d-0f84-4cf4-aac5-87ef90f58ec2",
@@ -30,7 +31,7 @@ describe("Agent Host enrollment protocol", () => {
     expect(
       hostEnrollmentCompletedSchema.parse({
         type: "host.enrollment.completed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         enrollmentAttemptId: "attempt-enrollment-001",
         hostId: "host-enrolled-001",
         workspaceId: "workspace-enrolled-001",
@@ -41,7 +42,7 @@ describe("Agent Host enrollment protocol", () => {
     expect(
       hostEnrollmentCompletedSchema.parse({
         type: "host.enrollment.completed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         enrollmentAttemptId: "attempt-enrollment-001",
         hostId: "host-enrolled-001",
         credentialExpiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -51,7 +52,7 @@ describe("Agent Host enrollment protocol", () => {
     expect(
       hostEnrollmentErrorSchema.parse({
         type: "host.enrollment.error",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         code: "conflict",
         message: "Enrollment request conflicts with a prior attempt.",
         retryable: false

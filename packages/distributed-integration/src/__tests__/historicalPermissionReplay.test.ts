@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
@@ -185,7 +186,7 @@ describe("persisted permission history over the real Host transport", () => {
     expect(frames.filter((frame) => frame.type === "mailbox.permission_history")).toEqual([
       {
         type: "mailbox.permission_history",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         sequence: original.sequence,
         previousSequence: 0,
         messageId: "historical-mailbox",
@@ -193,7 +194,7 @@ describe("persisted permission history over the real Host transport", () => {
       },
       {
         type: "mailbox.permission_history",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         sequence: original.sequence,
         previousSequence: 0,
         messageId: "historical-mailbox",
@@ -408,7 +409,7 @@ describe("persisted permission history over the real Host transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.permission_history",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         eventJson: JSON.stringify(fixture.request)
       })
     );
@@ -437,7 +438,7 @@ describe("persisted permission history over the real Host transport", () => {
         ? fixture.request
         : {
             type: "host.permission_history",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             eventJson:
               kind === "malformed-history"
                 ? "not-json"
@@ -457,7 +458,7 @@ describe("persisted permission history over the real Host transport", () => {
     socket.send(
       JSON.stringify({
         type: "host.heartbeat",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "valid-after-rejection",
         activeLeases: []
       })
@@ -465,7 +466,7 @@ describe("persisted permission history over the real Host transport", () => {
     await vi.waitFor(() =>
       expect(frames).toContainEqual({
         type: "host.event_ack",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "valid-after-rejection"
       })
     );
@@ -481,7 +482,7 @@ describe("persisted permission history over the real Host transport", () => {
       socket.send(
         JSON.stringify({
           type: "host.permission_history",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           eventJson: JSON.stringify(event, null, 2)
         })
       );
@@ -489,7 +490,7 @@ describe("persisted permission history over the real Host transport", () => {
     await vi.waitFor(() =>
       expect(frames).toContainEqual({
         type: "host.event_ack",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: fixture.request.messageId
       })
     );

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -63,7 +64,7 @@ export function registerRemoteAcpContinuationPaginationCases() {
           events: [
             {
               type: "acp_conversation.event",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               operationId: "operation",
               executionAttemptId: "attempt",
               sessionId: "session",
@@ -131,7 +132,7 @@ export function registerRemoteAcpContinuationPaginationCases() {
           events: [
             {
               type: "acp_conversation.event",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               operationId: "operation",
               executionAttemptId: "attempt",
               sessionId: "session",

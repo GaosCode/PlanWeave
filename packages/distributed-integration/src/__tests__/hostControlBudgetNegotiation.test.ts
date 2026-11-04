@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -85,7 +86,7 @@ async function setup(localBudget: number, serverBudget: number, projects = 212) 
   const hello = () =>
     serializeAgentHostHello({
       type: "host.hello",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: Number.MAX_SAFE_INTEGER,
       capabilities,
@@ -206,7 +207,7 @@ it.each([
     f.host.id,
     executeBlockCommandSchema.parse({
       type: "execute_block",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       ...identity,
       leaseExpiresAt: expires,
       envelope,

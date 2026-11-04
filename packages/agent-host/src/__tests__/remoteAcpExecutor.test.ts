@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -88,7 +89,7 @@ function command(
   });
   return executeBlockCommandSchema.parse({
     type: "execute_block",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     dispatchId: envelope.execution.dispatchId,
     leaseId: "lease-remote-001",
     executionAttemptId: envelope.execution.attemptId,

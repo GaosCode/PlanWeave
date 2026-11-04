@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -43,13 +44,13 @@ function delivery(sequence: number) {
   });
   return mailboxDeliverySchema.parse({
     type: "mailbox.message",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `wire-mailbox-${sequence}`,
     command: {
       type: "execute_block",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: envelope.execution.dispatchId,
       executionAttemptId: envelope.execution.attemptId,
       leaseId: `wire-lease-${sequence}`,
@@ -118,7 +119,7 @@ describe("ordinary permission wire admission", () => {
               JSON.stringify(
                 serverEventSchema.parse({
                   type: "host.welcome",
-                  protocolVersion: 1,
+                  protocolVersion: agentHostProtocolVersion,
                   exactPermissionOptionsVersion: 1,
                   serverTime: new Date().toISOString(),
                   heartbeatIntervalMs: 60_000,
@@ -133,7 +134,7 @@ describe("ordinary permission wire admission", () => {
           socket.send(
             JSON.stringify({
               type: "host.event_ack",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               messageId: event.messageId
             })
           );
@@ -231,7 +232,7 @@ describe("ordinary permission wire admission", () => {
           if (record.kind !== "permission_request") throw new Error("expected_permission");
           const candidate = hostEventSchema.parse({
             type: "interaction.permission_requested",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             messageId: "00000000-0000-0000-0000-000000000000",
             ...record.identity,
             acpSessionId: "wire-session",

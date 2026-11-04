@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 /* @vitest-environment jsdom */
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -94,7 +95,7 @@ function turn(
 }
 function userEvent(prompt: Prompt): AcpConversationEvent {
   return {
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     type: "acp_conversation.event",
     operationId: scope.operationId,
     executionAttemptId: prompt.executionAttemptId,

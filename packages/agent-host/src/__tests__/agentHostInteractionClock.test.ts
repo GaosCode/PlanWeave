@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server as HttpServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -115,7 +116,7 @@ describe("execute interaction settlement clock domain", () => {
     vi.setSystemTime(serverStart + (offset + elapsed) * minute);
     const response = mailboxDeliverySchema.parse({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       sequence: exampleExecuteDelivery.sequence + 1,
       previousSequence: exampleExecuteDelivery.sequence,
       messageId: "clock-response",
@@ -203,7 +204,7 @@ describe("execute interaction settlement clock domain", () => {
           JSON.stringify({
             type: "host.welcome",
             exactPermissionOptionsVersion: 1,
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             serverTime: new Date(serverStart + 6 * minute).toISOString(),
             heartbeatIntervalMs: 60_000,
             leaseDurationMs: 60_000,
@@ -234,7 +235,7 @@ describe("execute interaction settlement clock domain", () => {
     await vi.waitFor(() => expect(client.status().state).toBe("connected"));
     const response = mailboxDeliverySchema.parse({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       sequence: exampleExecuteDelivery.sequence + 1,
       previousSequence: exampleExecuteDelivery.sequence,
       messageId: "clock-client-response",

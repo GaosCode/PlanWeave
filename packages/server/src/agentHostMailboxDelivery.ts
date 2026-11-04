@@ -33,6 +33,11 @@ function serializeMessage(
       })
     );
   }
+  if (
+    "protocolVersion" in message.command &&
+    message.command.protocolVersion !== agentHostProtocolVersion
+  )
+    throw new Error("stored_command_protocol_incompatible");
   return JSON.stringify(
     serverEventSchema.parse({
       ...envelope,

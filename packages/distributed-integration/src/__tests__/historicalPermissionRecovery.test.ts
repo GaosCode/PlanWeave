@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   EXACT_PERMISSION_OPTIONS_VERSION_HEADER,
@@ -46,7 +47,7 @@ describe("historical permission recovery over SQLite and WebSocket", () => {
     const { socket, frames } = await connectRaw(fixture, headers);
     const replay = JSON.stringify({
       type: "host.permission_history",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       eventJson: JSON.stringify(fixture.request, null, 2)
     });
     socket.send(replay);
@@ -488,7 +489,7 @@ describe("historical permission recovery over SQLite and WebSocket", () => {
     const { socket, frames } = await connectRaw(fixture, headers);
     const replay = JSON.stringify({
       type: "host.permission_history",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       eventJson: JSON.stringify(fixture.request, null, 2)
     });
     socket.send(replay);

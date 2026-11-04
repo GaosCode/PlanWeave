@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { describe, expect, it } from "vitest";
 import {
   CANVAS_RUNTIME_CAPABILITY,
@@ -43,7 +44,7 @@ const contentTarget = {
 function request(operation: Record<string, unknown>) {
   return {
     type: "canvas_runtime.request",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     requestId: "runtime-request-a",
     scope,
     deadline,
@@ -54,7 +55,7 @@ function request(operation: Record<string, unknown>) {
 function response(response: Record<string, unknown>, requestId = "runtime-request-a") {
   return {
     type: "canvas_runtime.response",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     messageId: "runtime-response-message-a",
     requestId,
     response
@@ -155,7 +156,7 @@ describe("Canvas Runtime control protocol", () => {
   it("keeps cancellation separate from ACP leases and correlates its durable response", () => {
     const command = {
       type: "canvas_runtime.cancel",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       requestId: "cancel-request-a",
       targetRequestId: "runtime-request-a",
       scope,
@@ -660,7 +661,7 @@ describe("Canvas Runtime control protocol", () => {
   it("adds optional path-free Runtime project readiness without changing old observations", () => {
     const oldHello = {
       type: "host.hello",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       lastAcknowledgedSequence: 0,
       capabilities: [],
       capacity: 1,

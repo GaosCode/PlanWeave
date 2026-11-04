@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +35,7 @@ async function setup(limits: Parameters<typeof openAgentHostState>[2] = {}) {
 function executeMessage(sequence = 1, command = exampleExecuteDelivery.command) {
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-evidence-${sequence}`,
@@ -76,7 +77,7 @@ describe("authoritative Agent Host execution state", () => {
     old.exec("ALTER TABLE agent_host_conversation_turns DROP COLUMN cleanup_safe");
     const oldTurn = acpConversationPromptCommandSchema.parse({
       type: "acp_conversation.prompt",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: "old-op",
       turnId: "old-turn",
       executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -115,7 +116,7 @@ describe("authoritative Agent Host execution state", () => {
 
     expect(state.executionEvidence(1)).toMatchObject({
       ...identity(),
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       envelopeDigest: exampleExecuteDelivery.command.envelopeDigest,
       envelopeVersion: exampleExecuteDelivery.command.envelope.protocolVersion,
       workspaceId: exampleExecuteDelivery.command.envelope.workspaceId,

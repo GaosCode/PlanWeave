@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -85,7 +86,7 @@ it("persists independently woken conversation events and deduplicates unacknowle
   });
   const sourceCommand = executeBlockCommandSchema.parse({
     type: "execute_block",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     dispatchId: f.operation.dispatchId,
     executionAttemptId: f.operation.executionAttemptId,
     leaseId: f.reservation.leaseId,
@@ -114,7 +115,7 @@ it("persists independently woken conversation events and deduplicates unacknowle
   const received = state.receive(
     {
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       sequence: source.sequence,
       previousSequence: source.previousSequence,
       messageId: source.messageId,

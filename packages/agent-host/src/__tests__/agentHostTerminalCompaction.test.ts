@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,7 +57,7 @@ function commandFor(index: number) {
 function delivery(sequence: number, index = sequence) {
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-compaction-${sequence}`,
@@ -68,13 +69,13 @@ function cancelDelivery(sequence: number, index = 1) {
   const command = commandFor(index);
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-cancel-compaction-${sequence}`,
     command: {
       type: "cancel_execution" as const,
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: command.dispatchId,
       leaseId: command.leaseId,
       executionAttemptId: command.executionAttemptId,
@@ -87,7 +88,7 @@ function permissionDelivery(sequence: number, index = 1) {
   const command = commandFor(index);
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-permission-compaction-${sequence}`,

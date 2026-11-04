@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,7 +34,7 @@ async function setup() {
 function executeDelivery(sequence = 1, command = exampleExecuteDelivery.command) {
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-recovery-${sequence}`,
@@ -44,13 +45,13 @@ function executeDelivery(sequence = 1, command = exampleExecuteDelivery.command)
 function resumeDelivery(sequence = 2, leaseExpiresAt = "2030-01-01T01:00:00.000Z") {
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-recovery-${sequence}`,
     command: {
       type: "resume_execution" as const,
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: exampleExecuteDelivery.command.dispatchId,
       leaseId: "lease-resumed-002",
       executionAttemptId: exampleExecuteDelivery.command.executionAttemptId,
@@ -63,13 +64,13 @@ function resumeDelivery(sequence = 2, leaseExpiresAt = "2030-01-01T01:00:00.000Z
 function cancelDelivery(sequence: number, leaseId: string) {
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-recovery-${sequence}`,
     command: {
       type: "cancel_execution" as const,
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: exampleExecuteDelivery.command.dispatchId,
       leaseId,
       executionAttemptId: exampleExecuteDelivery.command.executionAttemptId,

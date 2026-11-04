@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomUUID } from "node:crypto";
 import { parseAgentHostEvent, type HostEvent } from "../protocol.js";
 import type { AgentHostExecutionEvidence } from "./agentHostStateRecords.js";
@@ -18,7 +19,7 @@ export function createInterruptedEvent(
     advertisesSessionLoad(evidence);
   return parseAgentHostEvent({
     type: "dispatch.interrupted",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     messageId: randomUUID(),
     dispatchId: evidence.dispatchId,
     leaseId: evidence.leaseId,

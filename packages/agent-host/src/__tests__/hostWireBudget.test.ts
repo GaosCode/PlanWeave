@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -85,7 +86,7 @@ describe("Host complete wire frame admission", () => {
       const outbox = new AgentHostEventOutbox(database, 100);
       const event = hostEventSchema.parse({
         type: "dispatch.failed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "m".repeat(128),
         dispatchId: "d".repeat(128),
         leaseId: "l".repeat(128),
@@ -337,7 +338,7 @@ describe("Host complete wire frame admission", () => {
   it("budgets the historical replay wrapper and preserves the original event JSON", () => {
     const event = parseHistoricalAgentHostEvent({
       type: "interaction.permission_requested",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "legacy",
       dispatchId: "dispatch",
       leaseId: "lease",
@@ -374,7 +375,7 @@ describe("Host complete wire frame admission", () => {
     };
     const empty = hostEventSchema.parse({
       type: "host.heartbeat",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "00000000-0000-0000-0000-000000000000",
       activeLeases: [],
       readiness
@@ -420,7 +421,7 @@ describe("Host complete wire frame admission", () => {
     const f = await setup();
     const command = canvasRuntimeRequestCommandSchema.parse({
       type: "canvas_runtime.request",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       requestId: "rpc-large",
       scope: { workspaceId: "workspace", projectId: "project", canvasId: "default" },
       deadline: "2099-01-01T00:00:00.000Z",
@@ -449,7 +450,7 @@ describe("Host complete wire frame admission", () => {
       command.requestId,
       canvasRuntimeResponsePayloadSchema.parse({
         type: "canvas_runtime.response",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         requestId: command.requestId,
         response: { outcome: "success", operation, result: { text: "\u0000".repeat(16384) } }
       })
@@ -473,7 +474,7 @@ describe("Host complete wire frame admission", () => {
     const f = await setup();
     const command = acpConversationPromptCommandSchema.parse({
       type: "acp_conversation.prompt",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: "op",
       turnId: "turn",
       executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -485,7 +486,7 @@ describe("Host complete wire frame admission", () => {
     f.state.conversations.accept(command);
     const event = {
       type: "acp_conversation.event" as const,
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       operationId: command.operationId,
       turnId: command.turnId,
       executionAttemptId: command.executionAttemptId,

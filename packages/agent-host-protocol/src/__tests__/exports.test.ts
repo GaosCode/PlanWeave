@@ -137,7 +137,7 @@ describe("public package exports", () => {
       ].sort()
     );
 
-    expect(agentHostProtocolVersion).toBe(1);
+    expect(agentHostProtocolVersion).toBe(2);
     expect(OPAQUE_IDENTIFIER_MAX_LENGTH).toBe(128);
     expect(CAPABILITY_MAX_LENGTH).toBe(128);
     expect(CANVAS_RUNTIME_CAPABILITY).toBe("canvas-runtime.v1");
@@ -234,6 +234,6 @@ describe("public package exports", () => {
     expect(hostHelloCapabilities).toEqual(["acp.codex", "workspace.git"]);
     expect(lease.dispatchId).toBe("dispatch-host-1");
     expect(failure.retryable).toBe(false);
-    expect(agentHostProtocolVersionSchema.parse(agentHostProtocolVersion)).toBe(1);
+    expect(agentHostProtocolVersionSchema.parse(agentHostProtocolVersion)).toBe(2);
   });
 });

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -111,7 +112,7 @@ export function renewal(
   const { dispatchId, leaseId, executionAttemptId } = exampleExecuteDelivery.command;
   return serverEventSchema.parse({
     type: "lease.renewed",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     dispatchId,
     leaseId,
     executionAttemptId,
@@ -123,13 +124,13 @@ export function renewal(
 export function resumeDelivery(expiresAfterMs = 5_000): ServerEvent {
   return serverEventSchema.parse({
     type: "mailbox.message",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     sequence: 2,
     previousSequence: 1,
     messageId: "mailbox-lease-resume-2",
     command: {
       type: "resume_execution",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: exampleExecuteDelivery.command.dispatchId,
       leaseId: "lease-resumed-2",
       executionAttemptId: exampleExecuteDelivery.command.executionAttemptId,
@@ -174,7 +175,7 @@ export async function leaseHarness(
           send(
             serverEventSchema.parse({
               type: "host.welcome",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               exactPermissionOptionsVersion: 1,
               serverTime: new Date(clock.now().getTime() + serverOffsetMs).toISOString(),
               heartbeatIntervalMs: 60_000,

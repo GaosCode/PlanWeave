@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   hostEnrollmentCompletedSchema,
@@ -138,7 +139,7 @@ export class AgentHostEnrollmentService {
       await this.exchange.exchange(
         {
           type: "host.enrollment.request",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           enrollmentCode: pending.enrollmentCode,
           enrollmentAttemptId: pending.enrollmentAttemptId,
           installationId,

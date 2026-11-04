@@ -258,6 +258,8 @@ export {
   cancelExecutionCommandSchema,
   canvasRuntimeResponseEventSchema,
   executeBlockCommandSchema,
+  storedExecuteBlockCommandSchema,
+  storedMailboxCommandSchema,
   hostEventAcknowledgementSchema,
   hostEventSchema,
   historicalHostEventSchema,

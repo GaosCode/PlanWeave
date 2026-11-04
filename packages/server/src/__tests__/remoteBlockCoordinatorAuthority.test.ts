@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { describe, expect, it } from "vitest";
 import { HumanIdentityCredentialStore } from "../identity/humanIdentityCredentialStore.js";
 import { workspaceMembershipIdFor } from "../identity/workspaceMembershipProjection.js";
@@ -58,7 +59,7 @@ async function interruptOperation(
   );
   fixture.dispatches.interrupt(fixture.host.id, `${idempotencyKey}-interrupted`, {
     type: "dispatch.interrupted",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     messageId: `${idempotencyKey}-interrupted`,
     dispatchId: dispatch.id,
     leaseId: dispatch.leaseId,

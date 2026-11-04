@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -61,13 +62,13 @@ describe("Agent Host adversarial executor failure", () => {
     });
     const delivery = mailboxDeliverySchema.parse({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       sequence: 1,
       previousSequence: 0,
       messageId: "mailbox-adversarial",
       command: {
         type: "execute_block",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         dispatchId: envelope.execution.dispatchId,
         leaseId: "lease-adversarial",
         executionAttemptId: envelope.execution.attemptId,
@@ -93,7 +94,7 @@ describe("Agent Host adversarial executor failure", () => {
                 serverEventSchema.parse({
                   type: "host.welcome",
                   exactPermissionOptionsVersion: 1,
-                  protocolVersion: 1,
+                  protocolVersion: agentHostProtocolVersion,
                   serverTime: new Date().toISOString(),
                   heartbeatIntervalMs: 60_000,
                   leaseDurationMs: 60_000
@@ -157,7 +158,7 @@ async function outboxClientFixture(maxOutboundBatch = 128) {
   cleanups.push(() => state.close());
   const command = acpConversationPromptCommandSchema.parse({
     type: "acp_conversation.prompt",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     operationId: "outbox-op",
     turnId: "outbox-turn",
     executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -168,7 +169,7 @@ async function outboxClientFixture(maxOutboundBatch = 128) {
   });
   state.receive({
     type: "mailbox.message",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     sequence: 1,
     previousSequence: 0,
     messageId: "outbox-mailbox",
@@ -194,7 +195,7 @@ async function outboxClientFixture(maxOutboundBatch = 128) {
           JSON.stringify(
             serverEventSchema.parse({
               type: "host.welcome",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               exactPermissionOptionsVersion: 1,
               historicalPermissionReplayVersion: 1,
               serverTime: new Date().toISOString(),
@@ -210,7 +211,7 @@ async function outboxClientFixture(maxOutboundBatch = 128) {
           connection.send(
             JSON.stringify({
               type: "host.event_ack",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               messageId: parsed.messageId
             })
           );
@@ -280,7 +281,13 @@ async function outboxClientFixture(maxOutboundBatch = 128) {
       return socket;
     },
     acknowledge(messageId: string) {
-      socket?.send(JSON.stringify({ type: "host.event_ack", protocolVersion: 1, messageId }));
+      socket?.send(
+        JSON.stringify({
+          type: "host.event_ack",
+          protocolVersion: agentHostProtocolVersion,
+          messageId
+        })
+      );
     }
   };
 }
@@ -349,7 +356,7 @@ describe("Agent Host durable outbox wakeups", () => {
         JSON.stringify(
           mailboxDeliverySchema.parse({
             type: "mailbox.message",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             sequence: 2,
             previousSequence: 1,
             messageId: "expired-mailbox-replay",

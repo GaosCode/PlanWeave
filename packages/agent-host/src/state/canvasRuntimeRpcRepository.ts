@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash, randomUUID } from "node:crypto";
 import {
   canonicalizeJson,
@@ -314,7 +315,7 @@ export class CanvasRuntimeRpcRepository {
         status = reconcileRequired ? "reconcile_required" : "terminal";
         event = parseAgentHostEvent({
           type: "canvas_runtime.response",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           requestId,
           messageId: randomUUID(),
           response: {

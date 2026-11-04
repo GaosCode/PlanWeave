@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -67,7 +68,7 @@ async function setupInterruptedV3EndpointOperation(idempotencyKey: string) {
   );
   fixture.dispatches.interrupt(fixture.host.id, `${idempotencyKey}-interrupted`, {
     type: "dispatch.interrupted",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     messageId: `${idempotencyKey}-interrupted`,
     dispatchId: dispatch.id,
     leaseId: dispatch.leaseId,
@@ -626,7 +627,7 @@ describe("RemoteBlockCoordinator", () => {
     );
     fixture.dispatches.interrupt(hostA.id, "retry-authority-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "retry-authority-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,

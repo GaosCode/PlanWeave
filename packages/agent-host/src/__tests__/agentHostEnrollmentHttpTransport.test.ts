@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpAgentHostEnrollmentExchange } from "../enrollment/httpEnrollmentExchange.js";
@@ -23,7 +24,7 @@ function deferred<T>() {
 
 const completed = {
   type: "host.enrollment.completed",
-  protocolVersion: 1,
+  protocolVersion: agentHostProtocolVersion,
   enrollmentAttemptId: "enroll-transport",
   hostId: "host-transport",
   credentialExpiresAt: "2099-01-01T00:00:00.000Z",
@@ -61,7 +62,7 @@ const adapters = [
       }).exchange(
         {
           type: "host.enrollment.request",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           enrollmentCode,
           credentialToken,
           enrollmentAttemptId: completed.enrollmentAttemptId,
@@ -215,7 +216,7 @@ for (const adapter of adapters) {
         contentType: "application/json",
         body: JSON.stringify({
           type: "host.enrollment.error",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           code: "invalid",
           message: `private ${credentialToken}`,
           retryable: false

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -99,7 +100,7 @@ describe("historical permission persistence", () => {
     });
     const originalRequest = {
       type: "interaction.permission_requested",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "old-event-id",
       ...identity(),
       acpSessionId: "old-session",

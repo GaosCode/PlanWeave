@@ -27,7 +27,7 @@ describe("distributed compatibility bounds", () => {
 
   it("accepts the supported protocol version and rejects other majors", () => {
     expect(assertAgentHostProtocolCompatible(agentHostProtocolVersion)).toEqual({ ok: true });
-    expect(assertAgentHostProtocolCompatible(2)).toMatchObject({
+    expect(assertAgentHostProtocolCompatible(1)).toMatchObject({
       ok: false,
       code: "protocol_version_incompatible"
     });

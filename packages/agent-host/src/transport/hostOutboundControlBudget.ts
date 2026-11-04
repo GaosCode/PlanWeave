@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import type { HostReadinessObservation } from "@planweave-ai/agent-host-protocol";
 import { encodeAgentHostEvent, serializeAgentHostHello } from "../protocol.js";
 import { hostEventPayloadBytes } from "@planweave-ai/agent-host-protocol";
@@ -13,12 +14,15 @@ export function assertHostOutboundControlBudget(
     leaseId: "l".repeat(128),
     executionAttemptId: "e".repeat(128)
   };
-  const common = { protocolVersion: 1, messageId: "00000000-0000-0000-0000-000000000000" };
+  const common = {
+    protocolVersion: agentHostProtocolVersion,
+    messageId: "00000000-0000-0000-0000-000000000000"
+  };
   try {
     hostEventPayloadBytes(
       serializeAgentHostHello({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: Number.MAX_SAFE_INTEGER,
         capabilities,

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server as HttpServer } from "node:http";
 import { Socket } from "node:net";
@@ -83,7 +84,7 @@ function welcome(): ServerEvent {
   return serverEventSchema.parse({
     type: "host.welcome",
     exactPermissionOptionsVersion: 1,
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     serverTime: new Date().toISOString(),
     heartbeatIntervalMs: 60_000,
     leaseDurationMs: 60_000
@@ -116,13 +117,13 @@ function delivery(sequence: number): ServerEvent {
   });
   return mailboxDeliverySchema.parse({
     type: "mailbox.message",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-load-${suffix}`,
     command: {
       type: "execute_block",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: envelope.execution.dispatchId,
       leaseId: `lease-load-${suffix}`,
       executionAttemptId: envelope.execution.attemptId,
@@ -282,7 +283,7 @@ describe("Agent Host transport load and recovery boundaries", () => {
           JSON.stringify(
             serverEventSchema.parse({
               type: "host.event_ack",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               messageId: event.messageId
             })
           )
@@ -291,7 +292,7 @@ describe("Agent Host transport load and recovery boundaries", () => {
           JSON.stringify(
             serverEventSchema.parse({
               type: "lease.renewed",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               dispatchId: "dispatch-load-001",
               leaseId: "lease-load-001",
               executionAttemptId: "attempt-load-001",
