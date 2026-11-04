@@ -182,6 +182,7 @@ it("delivers the original execution report after two real credential rotations, 
             serverEventSchema.parse({
               type: "host.welcome",
               protocolVersion: agentHostProtocolVersion,
+              lastAcknowledgedSequence: raw.lastAcknowledgedSequence,
               exactPermissionOptionsVersion: 1,
               serverTime: new Date().toISOString(),
               heartbeatIntervalMs: 60000,

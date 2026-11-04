@@ -73,6 +73,7 @@ async function setup() {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence,
+        lastAcknowledgementRecoverySequence: lastAcknowledgedSequence,
         capabilities: ["acp.codex"],
         capacity: 1
       })

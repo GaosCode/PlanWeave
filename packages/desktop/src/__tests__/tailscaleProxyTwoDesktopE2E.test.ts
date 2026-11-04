@@ -151,6 +151,7 @@ describe("Tailscale proxy with two Desktop clients", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex"],
         capacity: 1,
         readiness: {

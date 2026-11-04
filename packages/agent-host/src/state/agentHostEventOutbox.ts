@@ -211,6 +211,27 @@ export class AgentHostEventOutbox {
     return this.queue(eventKey, heartbeat);
   }
 
+  archivedMailboxAcknowledgementSequence(): number | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT MAX(json_extract(event_json,'$.sequence')) AS sequence FROM agent_host_outbox
+         WHERE acknowledged_at IS NULL AND protocol_archive_reason='stored_event_protocol_incompatible'
+         AND json_extract(event_json,'$.type')='mailbox.ack'`
+      )
+      .get();
+    return row?.sequence === null || row?.sequence === undefined ? undefined : Number(row.sequence);
+  }
+
+  acknowledgeMailboxThrough(sequence: number, acknowledgedAt: string): void {
+    this.database
+      .prepare(
+        `UPDATE agent_host_outbox SET acknowledged_at=?
+         WHERE acknowledged_at IS NULL AND json_extract(event_json,'$.type')='mailbox.ack'
+         AND json_extract(event_json,'$.sequence')<=?`
+      )
+      .run(acknowledgedAt, sequence);
+  }
+
   acknowledge(messageId: string):
     | { found: false }
     | { found: true; alreadyAcknowledged: true }

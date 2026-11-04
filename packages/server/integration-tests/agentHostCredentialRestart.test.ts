@@ -165,6 +165,7 @@ it("aligns restarted artifacts with real committed credentials when the next ord
           JSON.stringify({
             type: "host.welcome",
             protocolVersion: agentHostProtocolVersion,
+            lastAcknowledgedSequence: raw.lastAcknowledgedSequence,
             exactPermissionOptionsVersion: 1,
             serverTime: new Date().toISOString(),
             heartbeatIntervalMs: 100,

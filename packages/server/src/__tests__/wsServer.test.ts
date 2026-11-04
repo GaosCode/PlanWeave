@@ -298,6 +298,7 @@ describe("agent host WebSocket transport", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex"],
         capacity: 1
       })
@@ -305,6 +306,7 @@ describe("agent host WebSocket transport", () => {
     await expect(events.next()).resolves.toEqual({
       type: "host.welcome",
       protocolVersion: agentHostProtocolVersion,
+      lastAcknowledgedSequence: 0,
       serverTime: expect.any(String),
       heartbeatIntervalMs: 30000,
       leaseDurationMs: 60000
@@ -354,6 +356,7 @@ describe("agent host WebSocket transport", () => {
           ? { supportedExecutionEnvelopeVersions: input.supportedVersions }
           : {}),
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex"],
         capacity: 1
       })
@@ -405,6 +408,7 @@ describe("agent host WebSocket transport", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex"],
         capacity: 1,
         readiness: readyObservation("workspace-recovery")
@@ -528,6 +532,7 @@ describe("agent host WebSocket transport", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
@@ -675,6 +680,7 @@ describe("agent host WebSocket transport", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: [
           "acp.codex",
           CANVAS_RUNTIME_CAPABILITY,
@@ -890,6 +896,7 @@ describe("agent host WebSocket transport", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
@@ -1028,6 +1035,7 @@ describe("agent host WebSocket transport", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
@@ -1103,6 +1111,7 @@ describe("agent host WebSocket transport", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
@@ -1160,6 +1169,7 @@ describe("agent host WebSocket transport", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
@@ -1202,6 +1212,7 @@ describe("agent host WebSocket transport", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)
@@ -1257,6 +1268,7 @@ describe("agent host WebSocket transport", () => {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
+        lastAcknowledgementRecoverySequence: 0,
         capabilities: ["acp.codex", WORKSPACE_CANVAS_EXECUTION_CAPABILITY],
         capacity: 1,
         readiness: readyObservation(workspaceId)

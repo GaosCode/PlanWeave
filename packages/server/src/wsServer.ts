@@ -431,6 +431,16 @@ export function attachAgentHostWebSocketServer(
             if (hello.lastAcknowledgedSequence > storedHost.lastAcknowledgedSequence) {
               throw new Error("mailbox_cursor_not_acknowledged");
             }
+            const lastAcknowledgedSequence = Math.min(
+              storedHost.lastAcknowledgedSequence,
+              hello.lastAcknowledgementRecoverySequence
+            );
+            if (
+              lastAcknowledgedSequence > 0 &&
+              !options.mailbox.hasAcknowledgedSequence(hostId, lastAcknowledgedSequence)
+            ) {
+              throw new Error("mailbox_cursor_not_acknowledged");
+            }
             options.hosts.reportOnline(hostId, hello.capabilities, hello.capacity, hello.readiness);
             initialized = true;
             session.initialized = true;
@@ -438,6 +448,7 @@ export function attachAgentHostWebSocketServer(
             sendEvent(socket, {
               type: "host.welcome",
               protocolVersion: agentHostProtocolVersion,
+              lastAcknowledgedSequence,
               serverTime: new Date().toISOString(),
               heartbeatIntervalMs: options.heartbeatIntervalMs,
               leaseDurationMs: options.leaseDurationMs,
@@ -450,7 +461,7 @@ export function attachAgentHostWebSocketServer(
               socket,
               hostId,
               mailbox: options.mailbox,
-              lastAcknowledgedSequence: hello.lastAcknowledgedSequence,
+              lastAcknowledgedSequence,
               historicalPermissionReplayVersion,
               isActive: () => !closing && sessions.get(hostId) === session,
               onError: (error) => {

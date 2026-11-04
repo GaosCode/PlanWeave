@@ -241,6 +241,7 @@ export async function connectRaw(fixture: Fixture, headers: Record<string, strin
       protocolVersion: agentHostProtocolVersion,
       supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: 0,
+      lastAcknowledgementRecoverySequence: 0,
       capabilities: [],
       capacity: 1
     })

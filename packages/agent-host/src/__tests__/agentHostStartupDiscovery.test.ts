@@ -59,6 +59,7 @@ async function setup(
           serverEventSchema.parse({
             type: "host.welcome",
             protocolVersion: agentHostProtocolVersion,
+            lastAcknowledgedSequence: 0,
             exactPermissionOptionsVersion: 1,
             serverTime: clock.now().toISOString(),
             heartbeatIntervalMs: 60_000,

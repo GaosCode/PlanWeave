@@ -60,18 +60,25 @@ export const supportedExecutionEnvelopeVersionsSchema = z
   .max(2)
   .refine((versions) => new Set(versions).size === versions.length, "Duplicate envelope version.");
 
-export const hostHelloSchema = versionedSchema.extend({
-  type: z.literal("host.hello"),
-  /** Optional only so a new Server can parse and explicitly reject a legacy Host at handshake. */
-  supportedExecutionEnvelopeVersions: supportedExecutionEnvelopeVersionsSchema.optional(),
-  lastAcknowledgedSequence: mailboxSequenceSchema,
-  capabilities: capabilitiesSchema,
-  capacity: hostCapacitySchema,
-  readiness: hostReadinessObservationSchema.optional()
-});
+export const hostHelloSchema = versionedSchema
+  .extend({
+    type: z.literal("host.hello"),
+    /** Optional only so a new Server can parse and explicitly reject a legacy Host at handshake. */
+    supportedExecutionEnvelopeVersions: supportedExecutionEnvelopeVersionsSchema.optional(),
+    lastAcknowledgedSequence: mailboxSequenceSchema,
+    lastAcknowledgementRecoverySequence: mailboxSequenceSchema,
+    capabilities: capabilitiesSchema,
+    capacity: hostCapacitySchema,
+    readiness: hostReadinessObservationSchema.optional()
+  })
+  .refine((hello) => hello.lastAcknowledgedSequence <= hello.lastAcknowledgementRecoverySequence, {
+    message: "Acknowledged mailbox sequence must not exceed the recovery sequence.",
+    path: ["lastAcknowledgedSequence"]
+  });
 
 export const hostWelcomeSchema = versionedSchema.extend({
   type: z.literal("host.welcome"),
+  lastAcknowledgedSequence: mailboxSequenceSchema,
   exactPermissionOptionsVersion: exactPermissionOptionsVersionSchema.optional(),
   historicalPermissionReplayVersion: historicalPermissionReplayVersionSchema.optional(),
   serverTime: z.string().datetime(),

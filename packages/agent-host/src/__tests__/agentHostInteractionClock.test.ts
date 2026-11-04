@@ -205,6 +205,7 @@ describe("execute interaction settlement clock domain", () => {
             type: "host.welcome",
             exactPermissionOptionsVersion: 1,
             protocolVersion: agentHostProtocolVersion,
+            lastAcknowledgedSequence: 0,
             serverTime: new Date(serverStart + 6 * minute).toISOString(),
             heartbeatIntervalMs: 60_000,
             leaseDurationMs: 60_000,

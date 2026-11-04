@@ -20,6 +20,7 @@ export const exampleHostHello = hostHelloSchema.parse({
   protocolVersion,
   supportedExecutionEnvelopeVersions: [1, 2],
   lastAcknowledgedSequence: 0,
+  lastAcknowledgementRecoverySequence: 0,
   capabilities: ["acp.codex", "workspace.git"],
   capacity: 2
 });
