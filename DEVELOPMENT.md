@@ -34,7 +34,9 @@ Module and security boundaries:
 | Assignment metadata | Server `work_assignments` CAS revision | Claim state; auto-start of remote runs |
 | Human comments / attachments | Server comments + attachment HTTP (separate blob root) | ACP streams; Host mailbox; Runtime submit |
 | Desktop collab UI | Renderer hooks → preload → main vault/client → contracts package | DOM as business state; renderer-held secrets |
-| Compatibility | Matching package majors + `agentHostProtocolVersion`; runner event bodies evolve additively | Cross-major silent downgrade; ACP→CLI fallback |
+| Compatibility | Matching package majors + `agentHostProtocolVersion`; incompatible wire changes require a new protocol version | Cross-major silent downgrade; ACP→CLI fallback |
+
+Server and Agent Host must use the same wire protocol version and be upgraded together. Stored protocol v1 records remain readable after upgrading to v2; queued v1 executions require reconciliation and are not replayed as v2 commands. Execution-envelope, runner-event, and ACP versions are independent of this transport version.
 
 All published packages require **Node.js >= 22.13**. This is the first Node.js 22 release where the built-in `node:sqlite` module used by Runtime, Server, and Agent Host is available without a runtime flag. Production transport is HTTPS/WSS; loopback plain HTTP/WS requires explicit `allowInsecureDevelopment`.
 
