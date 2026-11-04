@@ -18,8 +18,8 @@ export function storedProtocolRecord<T extends { protocolVersion: number }>(curr
             context.addIssue({ code: "custom", message: issue.message, path: issue.path });
           return z.NEVER;
         }
-        const { protocolVersion: _version, ...body } = parsed.data;
-        return { ...body, protocolVersion: 1 } as PreviousProtocolRecord<T>;
+        const fields: Omit<T, "protocolVersion"> = parsed.data;
+        return { ...fields, protocolVersion: 1 } as PreviousProtocolRecord<T>;
       })
   ]);
 }
