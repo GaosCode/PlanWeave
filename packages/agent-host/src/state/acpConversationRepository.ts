@@ -4,6 +4,8 @@ import {
   acpConversationCommandSchema,
   acpConversationEventSchema,
   acpConversationEventPageBytes,
+  storedAcpConversationCommandSchema,
+  storedAcpConversationRespondCommandSchema,
   type AcpConversationCommand,
   type AcpConversationEvent,
   type AcpConversationPromptCommand
@@ -25,6 +27,7 @@ export class AcpConversationRepository {
     const row = this.db
       .prepare("SELECT * FROM agent_host_conversation_turns WHERE turn_id=?")
       .get(command.turnId);
+    if (row?.protocol_archive_reason) throw new Error(String(row.protocol_archive_reason));
     if (command.type === "acp_conversation.prompt") {
       if (row) {
         if (row.command_digest !== digestJson(command))
@@ -78,10 +81,7 @@ export class AcpConversationRepository {
       )
       .get(turnId, requestId);
     if (!row) return undefined;
-    const command = acpConversationCommandSchema.parse(JSON.parse(String(row.command_json)));
-    if (command.type !== "acp_conversation.respond")
-      throw new Error("acp_conversation_response_required");
-    return command;
+    return storedAcpConversationRespondCommandSchema.parse(JSON.parse(String(row.command_json)));
   }
 
   cancelled(turnId: string): boolean {
@@ -122,11 +122,8 @@ export class AcpConversationRepository {
     return this.db
       .prepare("SELECT command_json FROM agent_host_conversation_turns WHERE cleanup_safe=0")
       .all()
-      .map((row) => acpConversationCommandSchema.parse(JSON.parse(String(row.command_json))))
-      .filter(
-        (command): command is AcpConversationPromptCommand =>
-          command.type === "acp_conversation.prompt"
-      )
+      .map((row) => storedAcpConversationCommandSchema.parse(JSON.parse(String(row.command_json))))
+      .filter((command) => command.type === "acp_conversation.prompt")
       .map((command) => command.sessionId);
   }
 

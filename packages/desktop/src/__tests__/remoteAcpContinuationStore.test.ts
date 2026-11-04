@@ -84,6 +84,23 @@ function replay(events: AcpConversationEvent[]) {
 }
 
 describe("remote ACP continuation store replay boundaries", () => {
+  it("renders retained v1 conversation messages through the Desktop page contract", () => {
+    const archived = desktopRemoteAcpConversationPageSchema.parse({
+      ...page(["archived"], []),
+      available: false,
+      reason: "protocol_version_incompatible_upgrade_required",
+      events: [{ ...message("archived", 1, "Archived reply"), protocolVersion: 1 }],
+      cursor: 1
+    });
+    const store = new RemoteAcpContinuationStore();
+    const snapshot = store.accept(archived);
+    expect(snapshot.projection.turns[0]?.timeline).toContainEqual(
+      expect.objectContaining({ content: "Archived reply" })
+    );
+    expect(snapshot.page.available).toBe(false);
+    expect(store.accept(structuredClone(archived))).toBe(snapshot);
+  });
+
   it("retains the authoritative order for equal-time reverse identifiers across priority and delayed metadata", () => {
     const first = {
       ...page(["z-first"], [message("z-first", 1, "First")]),

@@ -1,9 +1,10 @@
 import { acpConversationHostSchema } from "./acpConversationSchema.js";
+import { migrateAgentHostProtocolArchives } from "./agentHostProtocolArchives.js";
 import { createHash } from "node:crypto";
 import { parseHistoricalAgentHostMailboxCommand } from "../protocol.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
-const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 11;
+const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 12;
 const PRE_REMOTE_RUNNER_EVENT_PROTOCOL_SCHEMA_VERSION = 8;
 const PRE_RESET_RESULT_SCHEMA_VERSION = 7;
 const PRE_RESET_OPERATION_SCHEMA_VERSION = 6;
@@ -503,7 +504,7 @@ const versionEightRequiredTables: Readonly<Record<string, RequiredTableShape>> =
   }
 };
 
-const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+const versionElevenRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   ...versionNineRequiredTables,
   agent_host_conversation_turns: {
     columns: [
@@ -522,6 +523,21 @@ const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
     columns: ["turn_id", "request_id", "command_json"],
     uniqueKeys: [["turn_id", "request_id"]]
   }
+};
+
+const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+  ...versionElevenRequiredTables,
+  ...Object.fromEntries(
+    ["agent_host_outbox", "agent_host_conversation_turns", "canvas_runtime_rpc_receipts"].map(
+      (table) => [
+        table,
+        {
+          ...versionElevenRequiredTables[table]!,
+          columns: [...versionElevenRequiredTables[table]!.columns, "protocol_archive_reason"]
+        }
+      ]
+    )
+  )
 };
 
 const versionSevenRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
@@ -865,14 +881,16 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     const priorVersion = storedSchemaVersion(database);
     if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
       assertCurrentSchemaComplete(database);
+    } else if (priorVersion === 11) {
+      assertRequiredTablesAndVersion(database, versionElevenRequiredTables, 11);
     } else if (priorVersion === 10) {
       assertRequiredTablesAndVersion(
         database,
         {
-          ...currentRequiredTables,
+          ...versionElevenRequiredTables,
           agent_host_conversation_turns: {
-            ...currentRequiredTables.agent_host_conversation_turns!,
-            columns: currentRequiredTables.agent_host_conversation_turns!.columns.filter(
+            ...versionElevenRequiredTables.agent_host_conversation_turns!,
+            columns: versionElevenRequiredTables.agent_host_conversation_turns!.columns.filter(
               (column) => column !== "cleanup_safe"
             )
           }
@@ -932,6 +950,9 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     backfillCommandDigests(database);
     migratePrototypeExecutions(database);
     initializeMailboxCheckpoint(database);
+    if (priorVersion !== CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
+      migrateAgentHostProtocolArchives(database);
+    }
     database
       .prepare(
         `INSERT INTO agent_host_state_schema(singleton,version,migrated_at) VALUES(1,?,?)

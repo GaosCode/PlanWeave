@@ -178,7 +178,7 @@ describe("durable ACP relay", () => {
       acknowledged_at: null
     });
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 11
+      version: 12
     });
     inspected.close();
   });

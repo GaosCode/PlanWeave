@@ -1,4 +1,5 @@
 import { agentHostProtocolVersionSchema } from "./version.js";
+import { storedProtocolRecord } from "./storedProtocolRecord.js";
 import { z } from "zod";
 import { executionEnvelopeSchema } from "./executionEnvelope.js";
 import { remoteRunnerEventFragmentSchema } from "./runnerEvents.js";
@@ -95,6 +96,18 @@ export const acpConversationCommandSchema = z.discriminatedUnion("type", [
 export type AcpConversationCommand = z.infer<typeof acpConversationCommandSchema>;
 export type AcpConversationPromptCommand = z.infer<typeof acpConversationPromptCommandSchema>;
 
+export const storedAcpConversationPromptCommandSchema = storedProtocolRecord(
+  acpConversationPromptCommandSchema
+);
+export const storedAcpConversationRespondCommandSchema = storedProtocolRecord(
+  acpConversationRespondCommandSchema
+);
+export const storedAcpConversationCommandSchema = z.union([
+  storedAcpConversationPromptCommandSchema,
+  storedProtocolRecord(acpConversationCancelCommandSchema),
+  storedAcpConversationRespondCommandSchema
+]);
+
 export const acpConversationInteractionSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -153,6 +166,8 @@ export const acpConversationEventSchema = z
   })
   .strict();
 export type AcpConversationEvent = z.infer<typeof acpConversationEventSchema>;
+export const storedAcpConversationEventSchema = storedProtocolRecord(acpConversationEventSchema);
+export type StoredAcpConversationEvent = z.infer<typeof storedAcpConversationEventSchema>;
 export const acpConversationTurnSchema = z
   .object({
     ...identity,
@@ -170,7 +185,7 @@ export const acpConversationPageSchema = z
     executionAttemptId: identifier,
     sessionId: sessionId.nullable(),
     turns: z.array(acpConversationTurnSchema),
-    events: z.array(acpConversationEventSchema),
+    events: z.array(storedAcpConversationEventSchema),
     cursor: z.number().int().nonnegative().safe(),
     hasMore: z.boolean(),
     turnCursor: identifier.nullable().default(null),

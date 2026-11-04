@@ -875,6 +875,9 @@ export class CanvasRuntimeService {
     if (isTerminalResetResolution(status)) return status;
     const original = this.options.receipts.resetOperation(command.scope, operationId);
     if (!original || this.lifecycle.get(original.requestId) !== undefined) return status;
+    if (original.command.protocolVersion !== agentHostProtocolVersion) {
+      throw new CanvasRuntimeServiceError("stored_command_protocol_incompatible", false, true);
+    }
     return this.resolveInterruptedReset(original.command, resolved, () =>
       this.assertOpen(command, active)
     );

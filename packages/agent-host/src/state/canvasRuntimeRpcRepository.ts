@@ -6,16 +6,19 @@ import {
   canvasRuntimeRequestCommandSchema,
   canvasRuntimeResponsePayloadSchema,
   canvasRuntimeResetStatusResultSchema,
+  historicalHostEventSchema,
+  storedCanvasRuntimeRequestCommandSchema,
   type CanvasRuntimeCancelCommand,
   type CanvasRuntimeRequestCommand,
-  type CanvasRuntimeResponsePayload
+  type CanvasRuntimeResponsePayload,
+  type StoredCanvasRuntimeRequestCommand
 } from "@planweave-ai/agent-host-protocol";
 import { parseAgentHostEvent, isHostEventPayloadTooLarge, type HostEvent } from "../protocol.js";
 import { AgentHostEventOutbox } from "./agentHostEventOutbox.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
 type CanvasRuntimeCommand = CanvasRuntimeRequestCommand | CanvasRuntimeCancelCommand;
-type CanvasRuntimeResetCommand = CanvasRuntimeRequestCommand & {
+type CanvasRuntimeResetCommand = StoredCanvasRuntimeRequestCommand & {
   operation: Extract<CanvasRuntimeRequestCommand["operation"], { operation: "reset" }>;
 };
 
@@ -88,11 +91,13 @@ export class CanvasRuntimeRpcRepository {
     const commandDigest = digest(command);
     const existing = this.database
       .prepare(
-        `SELECT command_digest,status,response_json FROM canvas_runtime_rpc_receipts
+        `SELECT command_digest,status,response_json,protocol_archive_reason FROM canvas_runtime_rpc_receipts
          WHERE request_id=?`
       )
       .get(command.requestId);
     if (existing) {
+      if (existing.protocol_archive_reason)
+        throw new Error(String(existing.protocol_archive_reason));
       if (String(existing.command_digest) !== commandDigest) {
         throw new Error("canvas_runtime_request_identity_conflict");
       }
@@ -164,7 +169,7 @@ export class CanvasRuntimeRpcRepository {
   ) {
     const row = this.database
       .prepare(
-        `SELECT status,response_json,reset_resolution_json FROM canvas_runtime_rpc_receipts
+        `SELECT status,response_json,reset_resolution_json,protocol_archive_reason FROM canvas_runtime_rpc_receipts
          WHERE workspace_id=? AND project_id=? AND canvas_id=?
            AND operation='reset' AND operation_id=?`
       )
@@ -175,8 +180,21 @@ export class CanvasRuntimeRpcRepository {
         JSON.parse(String(row.reset_resolution_json))
       );
     }
-    if (!row.response_json) return canvasRuntimeResetStatusResultSchema.parse({ kind: "pending" });
-    const event = parseAgentHostEvent(JSON.parse(String(row.response_json)));
+    if (!row.response_json) {
+      return canvasRuntimeResetStatusResultSchema.parse(
+        row.protocol_archive_reason
+          ? {
+              kind: "failed",
+              error: {
+                code: String(row.protocol_archive_reason),
+                retryable: false,
+                reconcileRequired: true
+              }
+            }
+          : { kind: "pending" }
+      );
+    }
+    const event = historicalHostEventSchema.parse(JSON.parse(String(row.response_json)));
     if (event.type !== "canvas_runtime.response" || event.response.operation !== "reset") {
       throw new Error("canvas_runtime_reset_receipt_response_invalid");
     }
@@ -210,7 +228,9 @@ export class CanvasRuntimeRpcRepository {
       )
       .get(scope.workspaceId, scope.projectId, scope.canvasId, operationId);
     if (!row) return undefined;
-    const command = canvasRuntimeRequestCommandSchema.parse(JSON.parse(String(row.command_json)));
+    const command = storedCanvasRuntimeRequestCommandSchema.parse(
+      JSON.parse(String(row.command_json))
+    );
     if (command.operation.operation !== "reset") {
       throw new Error("canvas_runtime_reset_receipt_command_invalid");
     }
@@ -289,10 +309,12 @@ export class CanvasRuntimeRpcRepository {
     return inWriteTransaction(this.database, () => {
       const existing = this.database
         .prepare(
-          "SELECT inbox_sequence,response_json FROM canvas_runtime_rpc_receipts WHERE request_id=?"
+          "SELECT inbox_sequence,response_json,protocol_archive_reason FROM canvas_runtime_rpc_receipts WHERE request_id=?"
         )
         .get(requestId);
       if (!existing) throw new Error("canvas_runtime_receipt_not_found");
+      if (existing.protocol_archive_reason)
+        throw new Error(String(existing.protocol_archive_reason));
       if (existing.response_json) {
         const stored = parseAgentHostEvent(JSON.parse(String(existing.response_json)));
         if (stored.type !== "canvas_runtime.response") {
@@ -348,7 +370,7 @@ export class CanvasRuntimeRpcRepository {
     return this.database
       .prepare(
         `SELECT command_json,status FROM canvas_runtime_rpc_receipts
-         WHERE response_json IS NULL ORDER BY received_at ASC`
+         WHERE response_json IS NULL AND protocol_archive_reason IS NULL ORDER BY received_at ASC`
       )
       .all()
       .map((row) => ({

@@ -5,6 +5,7 @@ import {
   ACP_TASK_RESTORE_CAPABILITY,
   acpConversationActionSchema,
   acpConversationEventSchema,
+  storedAcpConversationEventSchema,
   acpConversationEventPageBytes,
   acpConversationCommandSchema,
   acpConversationOrderedPageSchema,
@@ -264,6 +265,13 @@ export class AcpConversationService {
     )
       throw new AcpConversationError("acp_conversation_turn_cursor_invalid");
     const source = this.source(operation);
+    if (source.command && source.command.protocolVersion !== agentHostProtocolVersion) {
+      this.database
+        .prepare(`UPDATE acp_conversation_turns
+        SET status='failed',error='stored_command_protocol_incompatible',terminal_at=COALESCE(terminal_at,?)
+        WHERE operation_id=? AND status IN ('queued','running')`)
+        .run(this.now(), operation.id);
+    }
     this.expire(operation.attempt.hostId, source.sessionId);
     const reason = this.availability(operation, source);
     const turns = this.database
@@ -330,7 +338,7 @@ export class AcpConversationService {
         ),
         rows.map((row) => ({
           cursor: Number(row.cursor),
-          event: acpConversationEventSchema.parse(JSON.parse(String(row.event_json)))
+          event: storedAcpConversationEventSchema.parse(JSON.parse(String(row.event_json)))
         })),
         afterTurnId,
         priorityTurnId,
@@ -513,7 +521,9 @@ export class AcpConversationService {
       | Extract<AcpConversationEvent["payload"], { kind: "interaction" }>["request"]
       | undefined;
     for (const row of rows) {
-      const payload = acpConversationEventSchema.parse(JSON.parse(String(row.event_json))).payload;
+      const payload = storedAcpConversationEventSchema.parse(
+        JSON.parse(String(row.event_json))
+      ).payload;
       if (payload.kind === "interaction" && payload.request.requestId === action.requestId)
         request = payload.request;
       if (payload.kind === "interaction_settled" && payload.requestId === action.requestId)

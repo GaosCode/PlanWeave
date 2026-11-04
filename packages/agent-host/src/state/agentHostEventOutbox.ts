@@ -71,7 +71,7 @@ export class AgentHostEventOutbox {
     return this.database
       .prepare(
         `SELECT event_json FROM agent_host_outbox
-         WHERE acknowledged_at IS NULL ORDER BY sequence ASC LIMIT ?`
+         WHERE acknowledged_at IS NULL AND protocol_archive_reason IS NULL ORDER BY sequence ASC LIMIT ?`
       )
       .all(limit)
       .map((raw) =>
@@ -94,7 +94,9 @@ export class AgentHostEventOutbox {
 
   pendingCount(): number {
     const row = this.database
-      .prepare("SELECT COUNT(*) AS count FROM agent_host_outbox WHERE acknowledged_at IS NULL")
+      .prepare(
+        "SELECT COUNT(*) AS count FROM agent_host_outbox WHERE acknowledged_at IS NULL AND protocol_archive_reason IS NULL"
+      )
       .get();
     return Number(row?.count ?? 0);
   }

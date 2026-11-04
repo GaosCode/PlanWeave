@@ -1,11 +1,11 @@
-import type { AcpConversationEvent } from "@planweave-ai/agent-host-protocol/browser";
 import { projectRemoteAcpReplay, projectRemoteAcpTelemetry } from "@planweave-ai/runtime/browser";
 import type { DesktopRemoteAcpConversationPage } from "../../shared/remoteAcpConversation";
 
 type Turn = DesktopRemoteAcpConversationPage["turns"][number];
+type Event = DesktopRemoteAcpConversationPage["events"][number];
 type Interaction = {
   turnId: string;
-  request: Extract<AcpConversationEvent["payload"], { kind: "interaction" }>["request"];
+  request: Extract<Event["payload"], { kind: "interaction" }>["request"];
 };
 type Replay = ReturnType<typeof projectRemoteAcpReplay>;
 type TurnView = Turn & {
@@ -21,8 +21,8 @@ type TurnProjection = {
   telemetry: ReturnType<typeof projectRemoteAcpTelemetry>;
 };
 type TurnRecord = {
-  events: Map<number, AcpConversationEvent>;
-  terminal: Extract<AcpConversationEvent["payload"], { kind: "status" }> | null;
+  events: Map<number, Event>;
+  terminal: Extract<Event["payload"], { kind: "status" }> | null;
   turn: Turn | null;
   projection: TurnProjection | null;
   view: TurnView | null;
