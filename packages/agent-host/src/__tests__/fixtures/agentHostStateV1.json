@@ -1,0 +1,960 @@
+{
+  "producerRevision": "afc8e97c68da86338abc7e4a819e3965b8b036a7",
+  "protocolVersion": 1,
+  "schemaVersion": 11,
+  "schema": [
+    "CREATE TABLE agent_host_compacted_mailbox_receipts (\n  sequence INTEGER PRIMARY KEY,\n  previous_sequence INTEGER NOT NULL,\n  message_id TEXT NOT NULL UNIQUE,\n  command_type TEXT NOT NULL,\n  command_digest TEXT NOT NULL,\n  dispatch_id TEXT NOT NULL,\n  execution_attempt_id TEXT NOT NULL,\n  compacted_at TEXT NOT NULL\n)",
+    "CREATE TABLE agent_host_conversation_responses (\n turn_id TEXT NOT NULL, request_id TEXT NOT NULL, command_json TEXT NOT NULL,\n PRIMARY KEY(turn_id,request_id)\n)",
+    "CREATE TABLE agent_host_conversation_turns (\n turn_id TEXT PRIMARY KEY, command_json TEXT NOT NULL, command_digest TEXT NOT NULL,\n status TEXT NOT NULL, last_sequence INTEGER NOT NULL DEFAULT 0,\n event_bytes INTEGER NOT NULL DEFAULT 0, cancelled INTEGER NOT NULL DEFAULT 0,\n cleanup_safe INTEGER NOT NULL DEFAULT 1 CHECK(cleanup_safe IN (0,1))\n)",
+    "CREATE TABLE agent_host_execution_actions (\n  sequence INTEGER PRIMARY KEY AUTOINCREMENT,\n  inbox_sequence INTEGER NOT NULL REFERENCES agent_host_executions(inbox_sequence),\n  lease_id TEXT NOT NULL,\n  session_id TEXT NOT NULL,\n  action_id TEXT NOT NULL,\n  action_kind TEXT NOT NULL CHECK(action_kind IN ('permission','elicitation','authentication')),\n  deadline TEXT NOT NULL,\n  request_digest TEXT NOT NULL,\n  response_digest TEXT,\n  response_json TEXT,\n  settled_at TEXT,\n  created_at TEXT NOT NULL,\n  UNIQUE(inbox_sequence,session_id,action_id)\n)",
+    "CREATE TABLE agent_host_execution_artifacts (\n  sequence INTEGER PRIMARY KEY AUTOINCREMENT,\n  inbox_sequence INTEGER NOT NULL REFERENCES agent_host_executions(inbox_sequence),\n  operation_id TEXT NOT NULL,\n  direction TEXT NOT NULL CHECK(direction IN ('input','report','output')),\n  artifact_ref TEXT NOT NULL,\n  sha256 TEXT NOT NULL,\n  size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),\n  media_type TEXT NOT NULL,\n  transferred_at TEXT NOT NULL,\n  UNIQUE(inbox_sequence,operation_id)\n)",
+    "CREATE TABLE agent_host_execution_transitions (\n  sequence INTEGER PRIMARY KEY AUTOINCREMENT,\n  inbox_sequence INTEGER NOT NULL REFERENCES agent_host_executions(inbox_sequence),\n  from_status TEXT,\n  to_status TEXT NOT NULL,\n  evidence_kind TEXT NOT NULL,\n  occurred_at TEXT NOT NULL\n)",
+    "CREATE TABLE agent_host_executions (\n  inbox_sequence INTEGER PRIMARY KEY REFERENCES agent_host_inbox(sequence),\n  dispatch_id TEXT NOT NULL,\n  lease_id TEXT NOT NULL,\n  execution_attempt_id TEXT NOT NULL,\n  protocol_version INTEGER NOT NULL,\n  envelope_digest TEXT NOT NULL,\n  envelope_version INTEGER NOT NULL,\n  workspace_id TEXT NOT NULL,\n  agent_profile_id TEXT NOT NULL,\n  source_revision TEXT NOT NULL,\n  status TEXT NOT NULL CHECK(status IN (\n    'accepted','preparing','running','interaction_wait','interrupted',\n    'completed','failed','cancelled'\n  )),\n  lease_expires_at TEXT NOT NULL,\n  acp_session_id TEXT,\n  acp_capabilities_json TEXT,\n  recovery_id TEXT,\n  event_protocol_version INTEGER CHECK(event_protocol_version IN (1,2)),\n  event_cursor INTEGER NOT NULL DEFAULT 0 CHECK(event_cursor >= 0),\n  action_cursor INTEGER NOT NULL DEFAULT 0 CHECK(action_cursor >= 0),\n  cancellation_intent_json TEXT,\n  recovery_intent_json TEXT,\n  terminal_kind TEXT CHECK(terminal_kind IN ('completed','failed','cancelled')),\n  terminal_payload_digest TEXT,\n  terminal_event_message_id TEXT,\n  terminal_acknowledged_at TEXT,\n  received_at TEXT NOT NULL,\n  started_at TEXT,\n  interrupted_at TEXT,\n  finished_at TEXT,\n  UNIQUE(dispatch_id,execution_attempt_id),\n  CHECK((acp_session_id IS NULL) = (acp_capabilities_json IS NULL)),\n  CHECK((terminal_kind IS NULL) = (terminal_payload_digest IS NULL))\n)",
+    "CREATE TABLE agent_host_inbox (\n  sequence INTEGER PRIMARY KEY,\n  previous_sequence INTEGER NOT NULL DEFAULT 0,\n  message_id TEXT NOT NULL UNIQUE,\n  command_json TEXT NOT NULL,\n  command_digest TEXT,\n  received_at TEXT NOT NULL,\n  acknowledged_at TEXT,\n  processed_at TEXT\n)",
+    "CREATE TABLE agent_host_mailbox_checkpoint (\n  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),\n  received_high_water_sequence INTEGER NOT NULL CHECK(received_high_water_sequence >= 0),\n  acknowledged_high_water_sequence INTEGER NOT NULL CHECK(acknowledged_high_water_sequence >= 0),\n  CHECK(acknowledged_high_water_sequence <= received_high_water_sequence)\n)",
+    "CREATE TABLE agent_host_outbox (\n  sequence INTEGER PRIMARY KEY AUTOINCREMENT,\n  message_id TEXT NOT NULL UNIQUE,\n  event_key TEXT NOT NULL UNIQUE,\n  event_json TEXT NOT NULL,\n  created_at TEXT NOT NULL,\n  acknowledged_at TEXT\n)",
+    "CREATE TABLE agent_host_remote_execution_outbox (\n  sequence INTEGER PRIMARY KEY AUTOINCREMENT,\n  dispatch_id TEXT NOT NULL,\n  lease_id TEXT NOT NULL,\n  execution_attempt_id TEXT NOT NULL,\n  record_kind TEXT NOT NULL,\n  record_id TEXT NOT NULL,\n  record_json TEXT NOT NULL,\n  created_at TEXT NOT NULL,\n  UNIQUE(dispatch_id,lease_id,execution_attempt_id,record_kind,record_id)\n)",
+    "CREATE TABLE agent_host_state_schema (\n  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),\n  version INTEGER NOT NULL,\n  migrated_at TEXT NOT NULL\n)",
+    "CREATE TABLE agent_host_terminal_execution_receipts (\n  dispatch_id TEXT NOT NULL,\n  execution_attempt_id TEXT NOT NULL,\n  inbox_sequence INTEGER NOT NULL UNIQUE,\n  previous_sequence INTEGER NOT NULL,\n  message_id TEXT NOT NULL UNIQUE,\n  command_digest TEXT NOT NULL,\n  lease_id TEXT NOT NULL,\n  protocol_version INTEGER NOT NULL,\n  envelope_digest TEXT NOT NULL,\n  envelope_version INTEGER NOT NULL,\n  workspace_id TEXT NOT NULL,\n  agent_profile_id TEXT NOT NULL,\n  source_revision TEXT NOT NULL,\n  terminal_kind TEXT NOT NULL CHECK(terminal_kind IN ('completed','failed','cancelled')),\n  terminal_payload_digest TEXT NOT NULL,\n  terminal_event_message_id TEXT NOT NULL,\n  terminal_acknowledged_at TEXT NOT NULL,\n  compacted_at TEXT NOT NULL,\n  PRIMARY KEY(dispatch_id,execution_attempt_id)\n)",
+    "CREATE TABLE canvas_runtime_leases (\n  lease_id TEXT PRIMARY KEY,\n  workspace_id TEXT NOT NULL,\n  project_id TEXT NOT NULL,\n  canvas_id TEXT NOT NULL,\n  source_revision TEXT NOT NULL,\n  graph_fingerprint TEXT NOT NULL,\n  status TEXT NOT NULL CHECK(status IN ('active','released')),\n  acquired_at TEXT NOT NULL,\n  expires_at TEXT NOT NULL,\n  released_at TEXT\n)",
+    "CREATE TABLE canvas_runtime_rpc_receipts (\n  request_id TEXT PRIMARY KEY,\n  inbox_sequence INTEGER NOT NULL UNIQUE,\n  lease_id TEXT,\n  command_digest TEXT NOT NULL,\n  command_json TEXT NOT NULL,\n  workspace_id TEXT NOT NULL,\n  project_id TEXT NOT NULL,\n  canvas_id TEXT NOT NULL,\n  operation TEXT NOT NULL,\n  operation_id TEXT,\n  operation_digest TEXT,\n  reset_resolution_json TEXT,\n  status TEXT NOT NULL CHECK(status IN ('pending','running','terminal','reconcile_required')),\n  response_json TEXT,\n  received_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL,\n  UNIQUE(lease_id,request_id)\n)",
+    "CREATE INDEX idx_agent_host_compacted_mailbox_receipts_age\n  ON agent_host_compacted_mailbox_receipts(compacted_at,sequence)",
+    "CREATE INDEX idx_agent_host_compacted_mailbox_receipts_identity\n  ON agent_host_compacted_mailbox_receipts(dispatch_id,execution_attempt_id,command_type)",
+    "CREATE INDEX idx_agent_host_execution_actions\n  ON agent_host_execution_actions(inbox_sequence,sequence)",
+    "CREATE INDEX idx_agent_host_execution_artifacts\n  ON agent_host_execution_artifacts(inbox_sequence,sequence)",
+    "CREATE INDEX idx_agent_host_execution_transitions\n  ON agent_host_execution_transitions(inbox_sequence,sequence)",
+    "CREATE INDEX idx_agent_host_executions_status\n  ON agent_host_executions(status,inbox_sequence)",
+    "CREATE INDEX idx_agent_host_outbox_pending\n  ON agent_host_outbox(acknowledged_at,sequence)",
+    "CREATE INDEX idx_agent_host_remote_execution_identity\n  ON agent_host_remote_execution_outbox(dispatch_id,lease_id,execution_attempt_id,sequence)",
+    "CREATE INDEX idx_agent_host_terminal_receipts_age\n  ON agent_host_terminal_execution_receipts(compacted_at,inbox_sequence)",
+    "CREATE INDEX idx_canvas_runtime_leases_scope\n  ON canvas_runtime_leases(workspace_id,project_id,canvas_id,status)",
+    "CREATE INDEX idx_canvas_runtime_rpc_receipts_status\n  ON canvas_runtime_rpc_receipts(status,received_at)",
+    "CREATE UNIQUE INDEX idx_canvas_runtime_rpc_reset_operation\n       ON canvas_runtime_rpc_receipts(workspace_id,project_id,canvas_id,operation_id)\n       WHERE operation='reset' AND operation_id IS NOT NULL"
+  ],
+  "cases": {
+    "queued": {
+      "tables": {
+        "agent_host_execution_transitions": [
+          {
+            "sequence": 1,
+            "inbox_sequence": 1,
+            "from_status": null,
+            "to_status": "accepted",
+            "evidence_kind": "mailbox_command_durable",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_executions": [
+          {
+            "inbox_sequence": 1,
+            "dispatch_id": "dispatch-demo-001",
+            "lease_id": "lease-demo-001",
+            "execution_attempt_id": "attempt-001",
+            "protocol_version": 1,
+            "envelope_digest": "envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971",
+            "envelope_version": 2,
+            "workspace_id": "workspace.planweave-core",
+            "agent_profile_id": "acp.codex",
+            "source_revision": "pgv-pkg-demo-revision-001",
+            "status": "accepted",
+            "lease_expires_at": "2099-01-02T00:00:00.000Z",
+            "acp_session_id": null,
+            "acp_capabilities_json": null,
+            "recovery_id": null,
+            "event_protocol_version": null,
+            "event_cursor": 0,
+            "action_cursor": 0,
+            "cancellation_intent_json": null,
+            "recovery_intent_json": null,
+            "terminal_kind": null,
+            "terminal_payload_digest": null,
+            "terminal_event_message_id": null,
+            "terminal_acknowledged_at": null,
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "started_at": null,
+            "interrupted_at": null,
+            "finished_at": null
+          }
+        ],
+        "agent_host_inbox": [
+          {
+            "sequence": 1,
+            "previous_sequence": 0,
+            "message_id": "mailbox-execute-001",
+            "command_json": "{\"protocolVersion\":1,\"type\":\"execute_block\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"leaseExpiresAt\":\"2099-01-02T00:00:00.000Z\",\"envelopeDigest\":\"envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971\",\"envelope\":{\"execution\":{\"dispatchId\":\"dispatch-demo-001\",\"attemptId\":\"attempt-001\"},\"projectId\":\"project-demo\",\"canvasId\":\"default\",\"taskId\":\"FND-001\",\"blockRef\":\"FND-001#B-002\",\"blockType\":\"implementation\",\"sourceRevision\":\"pgv-pkg-demo-revision-001\",\"graphFingerprint\":\"graph-fp-demo-001\",\"renderedPrompt\":\"# Define and hash the portable Execution Envelope\\n\\nImplement a strict envelope.\",\"acceptance\":[\"Envelope is bounded and content-addressed\",\"Forbidden Coordinator-local fields are rejected by schema shape\"],\"dependencySummaries\":[{\"blockRef\":\"FND-001#B-001\",\"outcome\":\"completed\",\"summary\":\"Created schema-only agent-host-protocol package.\",\"reportArtifactRef\":\"artifact:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}],\"inputArtifacts\":[{\"artifactRef\":\"artifact:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"logicalName\":\"upstream-report\",\"mediaType\":\"text/markdown\"}],\"workspaceId\":\"workspace.planweave-core\",\"agentId\":\"codex\",\"agentProfileId\":\"acp.codex\",\"session\":{\"modeId\":\"default\",\"configOptions\":[{\"optionId\":\"model\",\"valueId\":\"default\"}]},\"requiredCapabilities\":[\"linux\",\"acp.codex\",\"workspace.git\"],\"output\":{\"reportRequired\":true,\"maxArtifactBytes\":1048576,\"maxArtifactCount\":16},\"trace\":{\"correlationId\":\"corr-demo-001\",\"parentDispatchId\":\"dispatch-parent-000\"},\"protocolVersion\":2,\"runtimeAuthority\":\"workspace_canvas\"}}",
+            "command_digest": "sha256:07790497e6c011c21e746aed6688c75c16258ccc61aa4f75f64b372b6a4dbbeb",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z",
+            "processed_at": null
+          }
+        ],
+        "agent_host_mailbox_checkpoint": [
+          {
+            "singleton": 1,
+            "received_high_water_sequence": 1,
+            "acknowledged_high_water_sequence": 1
+          }
+        ],
+        "agent_host_outbox": [
+          {
+            "sequence": 1,
+            "message_id": "3b4e08c5-bc2b-4c7e-ab91-f0a0de927f82",
+            "event_key": "mailbox.ack:1",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"3b4e08c5-bc2b-4c7e-ab91-f0a0de927f82\",\"type\":\"mailbox.ack\",\"sequence\":1}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_state_schema": [
+          {
+            "singleton": 1,
+            "version": 11,
+            "migrated_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "sqlite_sequence": [
+          {
+            "name": "agent_host_execution_transitions",
+            "seq": 1
+          },
+          {
+            "name": "agent_host_outbox",
+            "seq": 1
+          }
+        ]
+      }
+    },
+    "running": {
+      "tables": {
+        "agent_host_execution_transitions": [
+          {
+            "sequence": 1,
+            "inbox_sequence": 1,
+            "from_status": null,
+            "to_status": "accepted",
+            "evidence_kind": "mailbox_command_durable",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 2,
+            "inbox_sequence": 1,
+            "from_status": "accepted",
+            "to_status": "preparing",
+            "evidence_kind": "worker_claimed",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 3,
+            "inbox_sequence": 1,
+            "from_status": "preparing",
+            "to_status": "running",
+            "evidence_kind": "executor_invoked",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_executions": [
+          {
+            "inbox_sequence": 1,
+            "dispatch_id": "dispatch-demo-001",
+            "lease_id": "lease-demo-001",
+            "execution_attempt_id": "attempt-001",
+            "protocol_version": 1,
+            "envelope_digest": "envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971",
+            "envelope_version": 2,
+            "workspace_id": "workspace.planweave-core",
+            "agent_profile_id": "acp.codex",
+            "source_revision": "pgv-pkg-demo-revision-001",
+            "status": "running",
+            "lease_expires_at": "2099-01-02T00:00:00.000Z",
+            "acp_session_id": null,
+            "acp_capabilities_json": null,
+            "recovery_id": null,
+            "event_protocol_version": null,
+            "event_cursor": 0,
+            "action_cursor": 0,
+            "cancellation_intent_json": null,
+            "recovery_intent_json": null,
+            "terminal_kind": null,
+            "terminal_payload_digest": null,
+            "terminal_event_message_id": null,
+            "terminal_acknowledged_at": null,
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "started_at": "2099-01-01T00:00:00.000Z",
+            "interrupted_at": null,
+            "finished_at": null
+          }
+        ],
+        "agent_host_inbox": [
+          {
+            "sequence": 1,
+            "previous_sequence": 0,
+            "message_id": "mailbox-execute-001",
+            "command_json": "{\"protocolVersion\":1,\"type\":\"execute_block\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"leaseExpiresAt\":\"2099-01-02T00:00:00.000Z\",\"envelopeDigest\":\"envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971\",\"envelope\":{\"execution\":{\"dispatchId\":\"dispatch-demo-001\",\"attemptId\":\"attempt-001\"},\"projectId\":\"project-demo\",\"canvasId\":\"default\",\"taskId\":\"FND-001\",\"blockRef\":\"FND-001#B-002\",\"blockType\":\"implementation\",\"sourceRevision\":\"pgv-pkg-demo-revision-001\",\"graphFingerprint\":\"graph-fp-demo-001\",\"renderedPrompt\":\"# Define and hash the portable Execution Envelope\\n\\nImplement a strict envelope.\",\"acceptance\":[\"Envelope is bounded and content-addressed\",\"Forbidden Coordinator-local fields are rejected by schema shape\"],\"dependencySummaries\":[{\"blockRef\":\"FND-001#B-001\",\"outcome\":\"completed\",\"summary\":\"Created schema-only agent-host-protocol package.\",\"reportArtifactRef\":\"artifact:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}],\"inputArtifacts\":[{\"artifactRef\":\"artifact:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"logicalName\":\"upstream-report\",\"mediaType\":\"text/markdown\"}],\"workspaceId\":\"workspace.planweave-core\",\"agentId\":\"codex\",\"agentProfileId\":\"acp.codex\",\"session\":{\"modeId\":\"default\",\"configOptions\":[{\"optionId\":\"model\",\"valueId\":\"default\"}]},\"requiredCapabilities\":[\"linux\",\"acp.codex\",\"workspace.git\"],\"output\":{\"reportRequired\":true,\"maxArtifactBytes\":1048576,\"maxArtifactCount\":16},\"trace\":{\"correlationId\":\"corr-demo-001\",\"parentDispatchId\":\"dispatch-parent-000\"},\"protocolVersion\":2,\"runtimeAuthority\":\"workspace_canvas\"}}",
+            "command_digest": "sha256:07790497e6c011c21e746aed6688c75c16258ccc61aa4f75f64b372b6a4dbbeb",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z",
+            "processed_at": null
+          }
+        ],
+        "agent_host_mailbox_checkpoint": [
+          {
+            "singleton": 1,
+            "received_high_water_sequence": 1,
+            "acknowledged_high_water_sequence": 1
+          }
+        ],
+        "agent_host_outbox": [
+          {
+            "sequence": 1,
+            "message_id": "dac968a2-86e5-4373-b17b-1de628c5d7e2",
+            "event_key": "mailbox.ack:1",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"dac968a2-86e5-4373-b17b-1de628c5d7e2\",\"type\":\"mailbox.ack\",\"sequence\":1}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 2,
+            "message_id": "ca0ee0bb-97db-4591-af62-9e81ead18f56",
+            "event_key": "dispatch.accepted:dispatch-demo-001:lease-demo-001:attempt-001",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"ca0ee0bb-97db-4591-af62-9e81ead18f56\",\"type\":\"dispatch.accepted\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\"}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_state_schema": [
+          {
+            "singleton": 1,
+            "version": 11,
+            "migrated_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "sqlite_sequence": [
+          {
+            "name": "agent_host_execution_transitions",
+            "seq": 3
+          },
+          {
+            "name": "agent_host_outbox",
+            "seq": 2
+          }
+        ]
+      }
+    },
+    "completedMailboxUnconfirmed": {
+      "tables": {
+        "agent_host_execution_transitions": [
+          {
+            "sequence": 1,
+            "inbox_sequence": 1,
+            "from_status": null,
+            "to_status": "accepted",
+            "evidence_kind": "mailbox_command_durable",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 2,
+            "inbox_sequence": 1,
+            "from_status": "accepted",
+            "to_status": "preparing",
+            "evidence_kind": "worker_claimed",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 3,
+            "inbox_sequence": 1,
+            "from_status": "preparing",
+            "to_status": "running",
+            "evidence_kind": "executor_invoked",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 4,
+            "inbox_sequence": 1,
+            "from_status": "running",
+            "to_status": "completed",
+            "evidence_kind": "terminal_completed",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_executions": [
+          {
+            "inbox_sequence": 1,
+            "dispatch_id": "dispatch-demo-001",
+            "lease_id": "lease-demo-001",
+            "execution_attempt_id": "attempt-001",
+            "protocol_version": 1,
+            "envelope_digest": "envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971",
+            "envelope_version": 2,
+            "workspace_id": "workspace.planweave-core",
+            "agent_profile_id": "acp.codex",
+            "source_revision": "pgv-pkg-demo-revision-001",
+            "status": "completed",
+            "lease_expires_at": "2099-01-02T00:00:00.000Z",
+            "acp_session_id": null,
+            "acp_capabilities_json": null,
+            "recovery_id": null,
+            "event_protocol_version": null,
+            "event_cursor": 0,
+            "action_cursor": 0,
+            "cancellation_intent_json": null,
+            "recovery_intent_json": null,
+            "terminal_kind": "completed",
+            "terminal_payload_digest": "sha256:6cbe21e735914062c7487dc116de6ce05743fe4a3555c5eed8d6662fddc3554a",
+            "terminal_event_message_id": "f4f7710a-6944-4ef6-80d1-c0f012fd38ae",
+            "terminal_acknowledged_at": "2099-01-01T00:00:00.000Z",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "started_at": "2099-01-01T00:00:00.000Z",
+            "interrupted_at": null,
+            "finished_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_inbox": [
+          {
+            "sequence": 1,
+            "previous_sequence": 0,
+            "message_id": "mailbox-execute-001",
+            "command_json": "{\"protocolVersion\":1,\"type\":\"execute_block\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"leaseExpiresAt\":\"2099-01-02T00:00:00.000Z\",\"envelopeDigest\":\"envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971\",\"envelope\":{\"execution\":{\"dispatchId\":\"dispatch-demo-001\",\"attemptId\":\"attempt-001\"},\"projectId\":\"project-demo\",\"canvasId\":\"default\",\"taskId\":\"FND-001\",\"blockRef\":\"FND-001#B-002\",\"blockType\":\"implementation\",\"sourceRevision\":\"pgv-pkg-demo-revision-001\",\"graphFingerprint\":\"graph-fp-demo-001\",\"renderedPrompt\":\"# Define and hash the portable Execution Envelope\\n\\nImplement a strict envelope.\",\"acceptance\":[\"Envelope is bounded and content-addressed\",\"Forbidden Coordinator-local fields are rejected by schema shape\"],\"dependencySummaries\":[{\"blockRef\":\"FND-001#B-001\",\"outcome\":\"completed\",\"summary\":\"Created schema-only agent-host-protocol package.\",\"reportArtifactRef\":\"artifact:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}],\"inputArtifacts\":[{\"artifactRef\":\"artifact:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"logicalName\":\"upstream-report\",\"mediaType\":\"text/markdown\"}],\"workspaceId\":\"workspace.planweave-core\",\"agentId\":\"codex\",\"agentProfileId\":\"acp.codex\",\"session\":{\"modeId\":\"default\",\"configOptions\":[{\"optionId\":\"model\",\"valueId\":\"default\"}]},\"requiredCapabilities\":[\"linux\",\"acp.codex\",\"workspace.git\"],\"output\":{\"reportRequired\":true,\"maxArtifactBytes\":1048576,\"maxArtifactCount\":16},\"trace\":{\"correlationId\":\"corr-demo-001\",\"parentDispatchId\":\"dispatch-parent-000\"},\"protocolVersion\":2,\"runtimeAuthority\":\"workspace_canvas\"}}",
+            "command_digest": "sha256:07790497e6c011c21e746aed6688c75c16258ccc61aa4f75f64b372b6a4dbbeb",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": null,
+            "processed_at": null
+          }
+        ],
+        "agent_host_mailbox_checkpoint": [
+          {
+            "singleton": 1,
+            "received_high_water_sequence": 1,
+            "acknowledged_high_water_sequence": 0
+          }
+        ],
+        "agent_host_outbox": [
+          {
+            "sequence": 1,
+            "message_id": "558f4b4a-afa9-41ca-a261-39db2f29f018",
+            "event_key": "mailbox.ack:1",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"558f4b4a-afa9-41ca-a261-39db2f29f018\",\"type\":\"mailbox.ack\",\"sequence\":1}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": null
+          },
+          {
+            "sequence": 2,
+            "message_id": "621738a8-1a7d-48b9-9942-a2fc848214c5",
+            "event_key": "dispatch.accepted:dispatch-demo-001:lease-demo-001:attempt-001",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"621738a8-1a7d-48b9-9942-a2fc848214c5\",\"type\":\"dispatch.accepted\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\"}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 3,
+            "message_id": "f4f7710a-6944-4ef6-80d1-c0f012fd38ae",
+            "event_key": "dispatch.completed:dispatch-demo-001:lease-demo-001:attempt-001",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"f4f7710a-6944-4ef6-80d1-c0f012fd38ae\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"type\":\"dispatch.completed\",\"result\":{\"summary\":\"Completed before upgrading\",\"reportArtifactRef\":\"artifact:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"artifactRefs\":[]}}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_state_schema": [
+          {
+            "singleton": 1,
+            "version": 11,
+            "migrated_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "sqlite_sequence": [
+          {
+            "name": "agent_host_execution_transitions",
+            "seq": 4
+          },
+          {
+            "name": "agent_host_outbox",
+            "seq": 3
+          }
+        ]
+      }
+    },
+    "terminalEventUnconfirmed": {
+      "tables": {
+        "agent_host_execution_transitions": [
+          {
+            "sequence": 1,
+            "inbox_sequence": 1,
+            "from_status": null,
+            "to_status": "accepted",
+            "evidence_kind": "mailbox_command_durable",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 2,
+            "inbox_sequence": 1,
+            "from_status": "accepted",
+            "to_status": "preparing",
+            "evidence_kind": "worker_claimed",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 3,
+            "inbox_sequence": 1,
+            "from_status": "preparing",
+            "to_status": "running",
+            "evidence_kind": "executor_invoked",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 4,
+            "inbox_sequence": 1,
+            "from_status": "running",
+            "to_status": "completed",
+            "evidence_kind": "terminal_completed",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_executions": [
+          {
+            "inbox_sequence": 1,
+            "dispatch_id": "dispatch-demo-001",
+            "lease_id": "lease-demo-001",
+            "execution_attempt_id": "attempt-001",
+            "protocol_version": 1,
+            "envelope_digest": "envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971",
+            "envelope_version": 2,
+            "workspace_id": "workspace.planweave-core",
+            "agent_profile_id": "acp.codex",
+            "source_revision": "pgv-pkg-demo-revision-001",
+            "status": "completed",
+            "lease_expires_at": "2099-01-02T00:00:00.000Z",
+            "acp_session_id": null,
+            "acp_capabilities_json": null,
+            "recovery_id": null,
+            "event_protocol_version": null,
+            "event_cursor": 0,
+            "action_cursor": 0,
+            "cancellation_intent_json": null,
+            "recovery_intent_json": null,
+            "terminal_kind": "completed",
+            "terminal_payload_digest": "sha256:6cbe21e735914062c7487dc116de6ce05743fe4a3555c5eed8d6662fddc3554a",
+            "terminal_event_message_id": "d27d63fc-64a2-409c-a106-80e62d25c47c",
+            "terminal_acknowledged_at": null,
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "started_at": "2099-01-01T00:00:00.000Z",
+            "interrupted_at": null,
+            "finished_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_inbox": [
+          {
+            "sequence": 1,
+            "previous_sequence": 0,
+            "message_id": "mailbox-execute-001",
+            "command_json": "{\"protocolVersion\":1,\"type\":\"execute_block\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"leaseExpiresAt\":\"2099-01-02T00:00:00.000Z\",\"envelopeDigest\":\"envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971\",\"envelope\":{\"execution\":{\"dispatchId\":\"dispatch-demo-001\",\"attemptId\":\"attempt-001\"},\"projectId\":\"project-demo\",\"canvasId\":\"default\",\"taskId\":\"FND-001\",\"blockRef\":\"FND-001#B-002\",\"blockType\":\"implementation\",\"sourceRevision\":\"pgv-pkg-demo-revision-001\",\"graphFingerprint\":\"graph-fp-demo-001\",\"renderedPrompt\":\"# Define and hash the portable Execution Envelope\\n\\nImplement a strict envelope.\",\"acceptance\":[\"Envelope is bounded and content-addressed\",\"Forbidden Coordinator-local fields are rejected by schema shape\"],\"dependencySummaries\":[{\"blockRef\":\"FND-001#B-001\",\"outcome\":\"completed\",\"summary\":\"Created schema-only agent-host-protocol package.\",\"reportArtifactRef\":\"artifact:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}],\"inputArtifacts\":[{\"artifactRef\":\"artifact:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"logicalName\":\"upstream-report\",\"mediaType\":\"text/markdown\"}],\"workspaceId\":\"workspace.planweave-core\",\"agentId\":\"codex\",\"agentProfileId\":\"acp.codex\",\"session\":{\"modeId\":\"default\",\"configOptions\":[{\"optionId\":\"model\",\"valueId\":\"default\"}]},\"requiredCapabilities\":[\"linux\",\"acp.codex\",\"workspace.git\"],\"output\":{\"reportRequired\":true,\"maxArtifactBytes\":1048576,\"maxArtifactCount\":16},\"trace\":{\"correlationId\":\"corr-demo-001\",\"parentDispatchId\":\"dispatch-parent-000\"},\"protocolVersion\":2,\"runtimeAuthority\":\"workspace_canvas\"}}",
+            "command_digest": "sha256:07790497e6c011c21e746aed6688c75c16258ccc61aa4f75f64b372b6a4dbbeb",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z",
+            "processed_at": null
+          }
+        ],
+        "agent_host_mailbox_checkpoint": [
+          {
+            "singleton": 1,
+            "received_high_water_sequence": 1,
+            "acknowledged_high_water_sequence": 1
+          }
+        ],
+        "agent_host_outbox": [
+          {
+            "sequence": 1,
+            "message_id": "79e7ef10-74eb-44ab-918c-a1160e43930b",
+            "event_key": "mailbox.ack:1",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"79e7ef10-74eb-44ab-918c-a1160e43930b\",\"type\":\"mailbox.ack\",\"sequence\":1}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 2,
+            "message_id": "992a0b0c-9420-4df3-8d52-04616731c1fd",
+            "event_key": "dispatch.accepted:dispatch-demo-001:lease-demo-001:attempt-001",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"992a0b0c-9420-4df3-8d52-04616731c1fd\",\"type\":\"dispatch.accepted\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\"}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 3,
+            "message_id": "d27d63fc-64a2-409c-a106-80e62d25c47c",
+            "event_key": "dispatch.completed:dispatch-demo-001:lease-demo-001:attempt-001",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"d27d63fc-64a2-409c-a106-80e62d25c47c\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"type\":\"dispatch.completed\",\"result\":{\"summary\":\"Completed before upgrading\",\"reportArtifactRef\":\"artifact:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"artifactRefs\":[]}}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": null
+          }
+        ],
+        "agent_host_state_schema": [
+          {
+            "singleton": 1,
+            "version": 11,
+            "migrated_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "sqlite_sequence": [
+          {
+            "name": "agent_host_execution_transitions",
+            "seq": 4
+          },
+          {
+            "name": "agent_host_outbox",
+            "seq": 3
+          }
+        ]
+      }
+    },
+    "terminalRetained": {
+      "tables": {
+        "agent_host_execution_transitions": [
+          {
+            "sequence": 1,
+            "inbox_sequence": 1,
+            "from_status": null,
+            "to_status": "accepted",
+            "evidence_kind": "mailbox_command_durable",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 2,
+            "inbox_sequence": 1,
+            "from_status": "accepted",
+            "to_status": "preparing",
+            "evidence_kind": "worker_claimed",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 3,
+            "inbox_sequence": 1,
+            "from_status": "preparing",
+            "to_status": "running",
+            "evidence_kind": "executor_invoked",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 4,
+            "inbox_sequence": 1,
+            "from_status": "running",
+            "to_status": "completed",
+            "evidence_kind": "terminal_completed",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_executions": [
+          {
+            "inbox_sequence": 1,
+            "dispatch_id": "dispatch-demo-001",
+            "lease_id": "lease-demo-001",
+            "execution_attempt_id": "attempt-001",
+            "protocol_version": 1,
+            "envelope_digest": "envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971",
+            "envelope_version": 2,
+            "workspace_id": "workspace.planweave-core",
+            "agent_profile_id": "acp.codex",
+            "source_revision": "pgv-pkg-demo-revision-001",
+            "status": "completed",
+            "lease_expires_at": "2099-01-02T00:00:00.000Z",
+            "acp_session_id": null,
+            "acp_capabilities_json": null,
+            "recovery_id": null,
+            "event_protocol_version": null,
+            "event_cursor": 0,
+            "action_cursor": 0,
+            "cancellation_intent_json": null,
+            "recovery_intent_json": null,
+            "terminal_kind": "completed",
+            "terminal_payload_digest": "sha256:6cbe21e735914062c7487dc116de6ce05743fe4a3555c5eed8d6662fddc3554a",
+            "terminal_event_message_id": "d3f73fce-24df-4c49-919c-f08b1e86e68b",
+            "terminal_acknowledged_at": "2099-01-01T00:00:00.000Z",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "started_at": "2099-01-01T00:00:00.000Z",
+            "interrupted_at": null,
+            "finished_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_inbox": [
+          {
+            "sequence": 1,
+            "previous_sequence": 0,
+            "message_id": "mailbox-execute-001",
+            "command_json": "{\"protocolVersion\":1,\"type\":\"execute_block\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"leaseExpiresAt\":\"2099-01-02T00:00:00.000Z\",\"envelopeDigest\":\"envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971\",\"envelope\":{\"execution\":{\"dispatchId\":\"dispatch-demo-001\",\"attemptId\":\"attempt-001\"},\"projectId\":\"project-demo\",\"canvasId\":\"default\",\"taskId\":\"FND-001\",\"blockRef\":\"FND-001#B-002\",\"blockType\":\"implementation\",\"sourceRevision\":\"pgv-pkg-demo-revision-001\",\"graphFingerprint\":\"graph-fp-demo-001\",\"renderedPrompt\":\"# Define and hash the portable Execution Envelope\\n\\nImplement a strict envelope.\",\"acceptance\":[\"Envelope is bounded and content-addressed\",\"Forbidden Coordinator-local fields are rejected by schema shape\"],\"dependencySummaries\":[{\"blockRef\":\"FND-001#B-001\",\"outcome\":\"completed\",\"summary\":\"Created schema-only agent-host-protocol package.\",\"reportArtifactRef\":\"artifact:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}],\"inputArtifacts\":[{\"artifactRef\":\"artifact:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"logicalName\":\"upstream-report\",\"mediaType\":\"text/markdown\"}],\"workspaceId\":\"workspace.planweave-core\",\"agentId\":\"codex\",\"agentProfileId\":\"acp.codex\",\"session\":{\"modeId\":\"default\",\"configOptions\":[{\"optionId\":\"model\",\"valueId\":\"default\"}]},\"requiredCapabilities\":[\"linux\",\"acp.codex\",\"workspace.git\"],\"output\":{\"reportRequired\":true,\"maxArtifactBytes\":1048576,\"maxArtifactCount\":16},\"trace\":{\"correlationId\":\"corr-demo-001\",\"parentDispatchId\":\"dispatch-parent-000\"},\"protocolVersion\":2,\"runtimeAuthority\":\"workspace_canvas\"}}",
+            "command_digest": "sha256:07790497e6c011c21e746aed6688c75c16258ccc61aa4f75f64b372b6a4dbbeb",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z",
+            "processed_at": null
+          }
+        ],
+        "agent_host_mailbox_checkpoint": [
+          {
+            "singleton": 1,
+            "received_high_water_sequence": 1,
+            "acknowledged_high_water_sequence": 1
+          }
+        ],
+        "agent_host_outbox": [
+          {
+            "sequence": 1,
+            "message_id": "7d980d84-c29f-4ae8-ade2-77e0f8e8bdcc",
+            "event_key": "mailbox.ack:1",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"7d980d84-c29f-4ae8-ade2-77e0f8e8bdcc\",\"type\":\"mailbox.ack\",\"sequence\":1}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 2,
+            "message_id": "418c4834-780e-40aa-a9d4-6a071285de0a",
+            "event_key": "dispatch.accepted:dispatch-demo-001:lease-demo-001:attempt-001",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"418c4834-780e-40aa-a9d4-6a071285de0a\",\"type\":\"dispatch.accepted\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\"}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": null
+          },
+          {
+            "sequence": 3,
+            "message_id": "d3f73fce-24df-4c49-919c-f08b1e86e68b",
+            "event_key": "dispatch.completed:dispatch-demo-001:lease-demo-001:attempt-001",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"d3f73fce-24df-4c49-919c-f08b1e86e68b\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"type\":\"dispatch.completed\",\"result\":{\"summary\":\"Completed before upgrading\",\"reportArtifactRef\":\"artifact:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"artifactRefs\":[]}}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_state_schema": [
+          {
+            "singleton": 1,
+            "version": 11,
+            "migrated_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "sqlite_sequence": [
+          {
+            "name": "agent_host_execution_transitions",
+            "seq": 4
+          },
+          {
+            "name": "agent_host_outbox",
+            "seq": 3
+          }
+        ]
+      }
+    },
+    "compacted": {
+      "tables": {
+        "agent_host_compacted_mailbox_receipts": [
+          {
+            "sequence": 1,
+            "previous_sequence": 0,
+            "message_id": "mailbox-execute-001",
+            "command_type": "execute_block",
+            "command_digest": "sha256:07790497e6c011c21e746aed6688c75c16258ccc61aa4f75f64b372b6a4dbbeb",
+            "dispatch_id": "dispatch-demo-001",
+            "execution_attempt_id": "attempt-001",
+            "compacted_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_mailbox_checkpoint": [
+          {
+            "singleton": 1,
+            "received_high_water_sequence": 1,
+            "acknowledged_high_water_sequence": 1
+          }
+        ],
+        "agent_host_state_schema": [
+          {
+            "singleton": 1,
+            "version": 11,
+            "migrated_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_terminal_execution_receipts": [
+          {
+            "dispatch_id": "dispatch-demo-001",
+            "execution_attempt_id": "attempt-001",
+            "inbox_sequence": 1,
+            "previous_sequence": 0,
+            "message_id": "mailbox-execute-001",
+            "command_digest": "sha256:07790497e6c011c21e746aed6688c75c16258ccc61aa4f75f64b372b6a4dbbeb",
+            "lease_id": "lease-demo-001",
+            "protocol_version": 1,
+            "envelope_digest": "envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971",
+            "envelope_version": 2,
+            "workspace_id": "workspace.planweave-core",
+            "agent_profile_id": "acp.codex",
+            "source_revision": "pgv-pkg-demo-revision-001",
+            "terminal_kind": "completed",
+            "terminal_payload_digest": "sha256:6cbe21e735914062c7487dc116de6ce05743fe4a3555c5eed8d6662fddc3554a",
+            "terminal_event_message_id": "30144080-3d5f-4498-ad7b-ab6fe1137503",
+            "terminal_acknowledged_at": "2099-01-01T00:00:00.000Z",
+            "compacted_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "sqlite_sequence": [
+          {
+            "name": "agent_host_execution_transitions",
+            "seq": 4
+          },
+          {
+            "name": "agent_host_outbox",
+            "seq": 3
+          }
+        ]
+      }
+    },
+    "failedMailboxUnconfirmed": {
+      "tables": {
+        "agent_host_execution_transitions": [
+          {
+            "sequence": 1,
+            "inbox_sequence": 1,
+            "from_status": null,
+            "to_status": "accepted",
+            "evidence_kind": "mailbox_command_durable",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 2,
+            "inbox_sequence": 1,
+            "from_status": "accepted",
+            "to_status": "preparing",
+            "evidence_kind": "worker_claimed",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 3,
+            "inbox_sequence": 1,
+            "from_status": "preparing",
+            "to_status": "running",
+            "evidence_kind": "executor_invoked",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 4,
+            "inbox_sequence": 1,
+            "from_status": "running",
+            "to_status": "failed",
+            "evidence_kind": "terminal_failed",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_executions": [
+          {
+            "inbox_sequence": 1,
+            "dispatch_id": "dispatch-demo-001",
+            "lease_id": "lease-demo-001",
+            "execution_attempt_id": "attempt-001",
+            "protocol_version": 1,
+            "envelope_digest": "envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971",
+            "envelope_version": 2,
+            "workspace_id": "workspace.planweave-core",
+            "agent_profile_id": "acp.codex",
+            "source_revision": "pgv-pkg-demo-revision-001",
+            "status": "failed",
+            "lease_expires_at": "2099-01-02T00:00:00.000Z",
+            "acp_session_id": null,
+            "acp_capabilities_json": null,
+            "recovery_id": null,
+            "event_protocol_version": null,
+            "event_cursor": 0,
+            "action_cursor": 0,
+            "cancellation_intent_json": null,
+            "recovery_intent_json": null,
+            "terminal_kind": "failed",
+            "terminal_payload_digest": "sha256:189013cb0b9ab0a305b36a4ed29e51ecd982de6f73d6b01da115cb15c917dcfa",
+            "terminal_event_message_id": "f53c2c02-12ba-493d-ba44-f882b08811f4",
+            "terminal_acknowledged_at": "2099-01-01T00:00:00.000Z",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "started_at": "2099-01-01T00:00:00.000Z",
+            "interrupted_at": null,
+            "finished_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_inbox": [
+          {
+            "sequence": 1,
+            "previous_sequence": 0,
+            "message_id": "mailbox-execute-001",
+            "command_json": "{\"protocolVersion\":1,\"type\":\"execute_block\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"leaseExpiresAt\":\"2099-01-02T00:00:00.000Z\",\"envelopeDigest\":\"envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971\",\"envelope\":{\"execution\":{\"dispatchId\":\"dispatch-demo-001\",\"attemptId\":\"attempt-001\"},\"projectId\":\"project-demo\",\"canvasId\":\"default\",\"taskId\":\"FND-001\",\"blockRef\":\"FND-001#B-002\",\"blockType\":\"implementation\",\"sourceRevision\":\"pgv-pkg-demo-revision-001\",\"graphFingerprint\":\"graph-fp-demo-001\",\"renderedPrompt\":\"# Define and hash the portable Execution Envelope\\n\\nImplement a strict envelope.\",\"acceptance\":[\"Envelope is bounded and content-addressed\",\"Forbidden Coordinator-local fields are rejected by schema shape\"],\"dependencySummaries\":[{\"blockRef\":\"FND-001#B-001\",\"outcome\":\"completed\",\"summary\":\"Created schema-only agent-host-protocol package.\",\"reportArtifactRef\":\"artifact:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}],\"inputArtifacts\":[{\"artifactRef\":\"artifact:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"logicalName\":\"upstream-report\",\"mediaType\":\"text/markdown\"}],\"workspaceId\":\"workspace.planweave-core\",\"agentId\":\"codex\",\"agentProfileId\":\"acp.codex\",\"session\":{\"modeId\":\"default\",\"configOptions\":[{\"optionId\":\"model\",\"valueId\":\"default\"}]},\"requiredCapabilities\":[\"linux\",\"acp.codex\",\"workspace.git\"],\"output\":{\"reportRequired\":true,\"maxArtifactBytes\":1048576,\"maxArtifactCount\":16},\"trace\":{\"correlationId\":\"corr-demo-001\",\"parentDispatchId\":\"dispatch-parent-000\"},\"protocolVersion\":2,\"runtimeAuthority\":\"workspace_canvas\"}}",
+            "command_digest": "sha256:07790497e6c011c21e746aed6688c75c16258ccc61aa4f75f64b372b6a4dbbeb",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": null,
+            "processed_at": null
+          }
+        ],
+        "agent_host_mailbox_checkpoint": [
+          {
+            "singleton": 1,
+            "received_high_water_sequence": 1,
+            "acknowledged_high_water_sequence": 0
+          }
+        ],
+        "agent_host_outbox": [
+          {
+            "sequence": 1,
+            "message_id": "3e032e75-7025-497e-9493-0e48c51ab839",
+            "event_key": "mailbox.ack:1",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"3e032e75-7025-497e-9493-0e48c51ab839\",\"type\":\"mailbox.ack\",\"sequence\":1}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": null
+          },
+          {
+            "sequence": 2,
+            "message_id": "86d1836f-f1ed-4234-9527-7265293cee64",
+            "event_key": "dispatch.accepted:dispatch-demo-001:lease-demo-001:attempt-001",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"86d1836f-f1ed-4234-9527-7265293cee64\",\"type\":\"dispatch.accepted\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\"}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 3,
+            "message_id": "f53c2c02-12ba-493d-ba44-f882b08811f4",
+            "event_key": "dispatch.failed:dispatch-demo-001:lease-demo-001:attempt-001",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"f53c2c02-12ba-493d-ba44-f882b08811f4\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"type\":\"dispatch.failed\",\"failure\":{\"code\":\"provider_failed\",\"message\":\"Provider failed before upgrading\",\"retryable\":false}}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_state_schema": [
+          {
+            "singleton": 1,
+            "version": 11,
+            "migrated_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "sqlite_sequence": [
+          {
+            "name": "agent_host_execution_transitions",
+            "seq": 4
+          },
+          {
+            "name": "agent_host_outbox",
+            "seq": 3
+          }
+        ]
+      }
+    },
+    "cancelledMailboxUnconfirmed": {
+      "tables": {
+        "agent_host_execution_transitions": [
+          {
+            "sequence": 1,
+            "inbox_sequence": 1,
+            "from_status": null,
+            "to_status": "accepted",
+            "evidence_kind": "mailbox_command_durable",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          },
+          {
+            "sequence": 2,
+            "inbox_sequence": 1,
+            "from_status": "accepted",
+            "to_status": "cancelled",
+            "evidence_kind": "terminal_cancelled",
+            "occurred_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_executions": [
+          {
+            "inbox_sequence": 1,
+            "dispatch_id": "dispatch-demo-001",
+            "lease_id": "lease-demo-001",
+            "execution_attempt_id": "attempt-001",
+            "protocol_version": 1,
+            "envelope_digest": "envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971",
+            "envelope_version": 2,
+            "workspace_id": "workspace.planweave-core",
+            "agent_profile_id": "acp.codex",
+            "source_revision": "pgv-pkg-demo-revision-001",
+            "status": "cancelled",
+            "lease_expires_at": "2099-01-02T00:00:00.000Z",
+            "acp_session_id": null,
+            "acp_capabilities_json": null,
+            "recovery_id": null,
+            "event_protocol_version": null,
+            "event_cursor": 0,
+            "action_cursor": 0,
+            "cancellation_intent_json": "{\"reason\":\"Stopped before upgrading\",\"commandSequence\":2}",
+            "recovery_intent_json": null,
+            "terminal_kind": "cancelled",
+            "terminal_payload_digest": "sha256:93623bad46759f811c2aa245c504b87a3a8babb4c1df65b2150588b30c8e33a4",
+            "terminal_event_message_id": "41eee152-e57e-4211-8dfe-d6f5e525a34e",
+            "terminal_acknowledged_at": "2099-01-01T00:00:00.000Z",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "started_at": null,
+            "interrupted_at": null,
+            "finished_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_inbox": [
+          {
+            "sequence": 1,
+            "previous_sequence": 0,
+            "message_id": "mailbox-execute-001",
+            "command_json": "{\"protocolVersion\":1,\"type\":\"execute_block\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"leaseExpiresAt\":\"2099-01-02T00:00:00.000Z\",\"envelopeDigest\":\"envelope:sha256:1b9a03f48542080bfdb243317fb1b16b976f892e1d3d8fe6464a499a1323d971\",\"envelope\":{\"execution\":{\"dispatchId\":\"dispatch-demo-001\",\"attemptId\":\"attempt-001\"},\"projectId\":\"project-demo\",\"canvasId\":\"default\",\"taskId\":\"FND-001\",\"blockRef\":\"FND-001#B-002\",\"blockType\":\"implementation\",\"sourceRevision\":\"pgv-pkg-demo-revision-001\",\"graphFingerprint\":\"graph-fp-demo-001\",\"renderedPrompt\":\"# Define and hash the portable Execution Envelope\\n\\nImplement a strict envelope.\",\"acceptance\":[\"Envelope is bounded and content-addressed\",\"Forbidden Coordinator-local fields are rejected by schema shape\"],\"dependencySummaries\":[{\"blockRef\":\"FND-001#B-001\",\"outcome\":\"completed\",\"summary\":\"Created schema-only agent-host-protocol package.\",\"reportArtifactRef\":\"artifact:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}],\"inputArtifacts\":[{\"artifactRef\":\"artifact:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"logicalName\":\"upstream-report\",\"mediaType\":\"text/markdown\"}],\"workspaceId\":\"workspace.planweave-core\",\"agentId\":\"codex\",\"agentProfileId\":\"acp.codex\",\"session\":{\"modeId\":\"default\",\"configOptions\":[{\"optionId\":\"model\",\"valueId\":\"default\"}]},\"requiredCapabilities\":[\"linux\",\"acp.codex\",\"workspace.git\"],\"output\":{\"reportRequired\":true,\"maxArtifactBytes\":1048576,\"maxArtifactCount\":16},\"trace\":{\"correlationId\":\"corr-demo-001\",\"parentDispatchId\":\"dispatch-parent-000\"},\"protocolVersion\":2,\"runtimeAuthority\":\"workspace_canvas\"}}",
+            "command_digest": "sha256:07790497e6c011c21e746aed6688c75c16258ccc61aa4f75f64b372b6a4dbbeb",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": null,
+            "processed_at": null
+          },
+          {
+            "sequence": 2,
+            "previous_sequence": 1,
+            "message_id": "mailbox-cancel-002",
+            "command_json": "{\"protocolVersion\":1,\"type\":\"cancel_execution\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"reason\":\"Stopped before upgrading\"}",
+            "command_digest": "sha256:7bd3019b9adb83b7fe7af0a66762844b232b13fdcbb72404e4d36a295b3f9a37",
+            "received_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": null,
+            "processed_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_mailbox_checkpoint": [
+          {
+            "singleton": 1,
+            "received_high_water_sequence": 2,
+            "acknowledged_high_water_sequence": 0
+          }
+        ],
+        "agent_host_outbox": [
+          {
+            "sequence": 1,
+            "message_id": "0e04c262-0906-434b-a4d2-7df281407f12",
+            "event_key": "mailbox.ack:1",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"0e04c262-0906-434b-a4d2-7df281407f12\",\"type\":\"mailbox.ack\",\"sequence\":1}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": null
+          },
+          {
+            "sequence": 2,
+            "message_id": "74c2f1ce-3c8e-4ac4-8a10-0028bbb1f185",
+            "event_key": "mailbox.ack:2",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"74c2f1ce-3c8e-4ac4-8a10-0028bbb1f185\",\"type\":\"mailbox.ack\",\"sequence\":2}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": null
+          },
+          {
+            "sequence": 3,
+            "message_id": "41eee152-e57e-4211-8dfe-d6f5e525a34e",
+            "event_key": "dispatch.failed:dispatch-demo-001:lease-demo-001:attempt-001",
+            "event_json": "{\"protocolVersion\":1,\"messageId\":\"41eee152-e57e-4211-8dfe-d6f5e525a34e\",\"dispatchId\":\"dispatch-demo-001\",\"leaseId\":\"lease-demo-001\",\"executionAttemptId\":\"attempt-001\",\"type\":\"dispatch.failed\",\"failure\":{\"code\":\"execution_cancelled\",\"message\":\"The execution was cancelled by the coordinator.\",\"retryable\":false}}",
+            "created_at": "2099-01-01T00:00:00.000Z",
+            "acknowledged_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "agent_host_state_schema": [
+          {
+            "singleton": 1,
+            "version": 11,
+            "migrated_at": "2099-01-01T00:00:00.000Z"
+          }
+        ],
+        "sqlite_sequence": [
+          {
+            "name": "agent_host_execution_transitions",
+            "seq": 2
+          },
+          {
+            "name": "agent_host_outbox",
+            "seq": 3
+          }
+        ]
+      }
+    }
+  }
+}

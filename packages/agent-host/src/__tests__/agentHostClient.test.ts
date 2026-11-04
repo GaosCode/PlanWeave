@@ -25,6 +25,7 @@ import { AgentHostClient } from "../transport/agentHostClient.js";
 import { CalibratedServerClock } from "../transport/calibratedServerClock.js";
 import { FakeHostTransportClock } from "./support/hostTransportTestClock.js";
 import { remoteRunnerEventV2Request } from "./support/remoteRunnerEventCapabilityTestValues.js";
+import { restoreLegacyAgentHostFixture } from "./support/legacyAgentHostFixture.js";
 
 const directories: string[] = [];
 const states: AgentHostState[] = [];
@@ -181,33 +182,25 @@ function acknowledge(socket: import("ws").WebSocket, event: HostEvent): void {
 }
 
 describe("Agent Host outbound transport", () => {
-  it("keeps an archived accepted command unexecuted and unchanged after reconnect", async () => {
+  it.each([
+    "queued",
+    "running"
+  ])("keeps an original v1 %s execution unexecuted after restart", async (name) => {
     const httpServer = createServer();
     httpServers.push(httpServer);
     const webSocketServer = new WebSocketServer({ server: httpServer });
     attachHostEventPayloadBudget(webSocketServer);
     webSocketServers.push(webSocketServer);
     webSocketServer.on("connection", (socket) => {
-      socket.once("message", () => socket.send(JSON.stringify(welcome())));
+      socket.once("message", () =>
+        socket.send(JSON.stringify({ ...welcome(), lastAcknowledgedSequence: 1 }))
+      );
     });
-    const state = await openState();
-    state.receive(executeDelivery());
-    const directory = directories.at(-1);
-    if (!directory) throw new Error("Expected state directory");
-    const db = await openAgentHostDatabase(join(directory, "host.sqlite"), 5_000);
-    const row = db.prepare("SELECT sequence,command_json FROM agent_host_inbox LIMIT 1").get();
+    const fixture = await restoreLegacyAgentHostFixture(name);
+    const state = await fixture.open();
+    const db = await openAgentHostDatabase(fixture.path, 5_000);
+    const row = fixture.tables.agent_host_inbox?.[0];
     if (!row) throw new Error("Expected stored command");
-    const archived = JSON.stringify({
-      ...JSON.parse(String(row.command_json)),
-      protocolVersion: 1
-    });
-    db.prepare("UPDATE agent_host_inbox SET command_json=? WHERE sequence=?").run(
-      archived,
-      row.sequence
-    );
-    db.prepare("UPDATE agent_host_executions SET protocol_version=1 WHERE inbox_sequence=?").run(
-      row.sequence
-    );
     const execute = vi.fn();
     const port = await listen(httpServer);
     const client = new AgentHostClient({
@@ -224,20 +217,40 @@ describe("Agent Host outbound transport", () => {
     });
     clients.push(client);
     try {
-      expect(state.pendingExecutions(1)[0]?.command.protocolVersion).toBe(1);
-      client.start();
-      await vi.waitFor(() =>
-        expect(client.status()).toEqual({
-          state: "reconciliation-required",
-          reason: "stored_execution_protocol_incompatible"
-        })
-      );
-      expect(execute).not.toHaveBeenCalled();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await client.start();
+        if (name === "queued") {
+          expect(client.status()).toEqual({
+            state: "reconciliation-required",
+            reason: "stored_execution_protocol_incompatible"
+          });
+          expect(state.pendingExecutions(1)[0]?.command.protocolVersion).toBe(1);
+        } else {
+          await vi.waitFor(() => expect(client.status().state).toBe("connected"));
+          expect(state.executionEvidence(1)).toMatchObject({
+            protocolVersion: 1,
+            status: "interrupted"
+          });
+          expect(
+            state.pendingEvents().filter((event) => event.type === "dispatch.interrupted")
+          ).toMatchObject([
+            {
+              type: "dispatch.interrupted",
+              protocolVersion: 2,
+              reason: "host_restart",
+              resumable: false
+            }
+          ]);
+        }
+        expect(execute).not.toHaveBeenCalled();
+        await client.stop();
+      }
       expect(
         db.prepare("SELECT command_json FROM agent_host_inbox WHERE sequence=?").get(row.sequence)
           ?.command_json
-      ).toBe(archived);
+      ).toBe(row.command_json);
     } finally {
+      await client.stop();
       db.close();
     }
   });
