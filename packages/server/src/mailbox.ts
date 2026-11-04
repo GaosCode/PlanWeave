@@ -171,6 +171,16 @@ export class DurableMailbox {
     return toMessage(row);
   }
 
+  hasAcknowledgedSequence(hostId: string, sequence: number): boolean {
+    return (
+      this.database
+        .prepare(
+          "SELECT 1 FROM mailbox_messages WHERE host_id=? AND sequence=? AND acknowledged_at IS NOT NULL"
+        )
+        .get(hostId, sequence) !== undefined
+    );
+  }
+
   private acknowledgeSequence(hostId: string, sequence: number): void {
     const target = this.database
       .prepare("SELECT previous_sequence FROM mailbox_messages WHERE host_id=? AND sequence=?")

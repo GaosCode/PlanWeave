@@ -472,6 +472,8 @@ export class AgentHostClient implements HostTransport {
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: this.options.state.lastAcknowledgedSequence(),
+        lastAcknowledgementRecoverySequence:
+          this.options.state.mailboxAcknowledgementRecoverySequence(),
         capabilities: this.capabilities,
         capacity: this.options.capacity,
         readiness: this.readiness
@@ -513,7 +515,8 @@ export class AgentHostClient implements HostTransport {
           const reason = error instanceof Error ? error.message : "";
           this.stopped = true;
           this.transition(
-            reason === "mailbox_message_retention_horizon_exceeded"
+            reason === "mailbox_message_retention_horizon_exceeded" ||
+              reason === "mailbox_cursor_reconciliation_required"
               ? { state: "reconciliation-required", reason }
               : {
                   state: "degraded",
@@ -603,6 +606,7 @@ export class AgentHostClient implements HostTransport {
           this.rejectPermissionCompatibility();
           return;
         }
+        this.options.state.synchronizeMailboxAcknowledgement(event.lastAcknowledgedSequence);
         if (
           !this.socket ||
           !this.outbox.welcome(this.socket, event.historicalPermissionReplayVersion === 1)

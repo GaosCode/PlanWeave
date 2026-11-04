@@ -1027,7 +1027,8 @@
         "exactPermissionRelay.test.ts",
         "canvasRuntimeAdapterContract.test.ts",
         "canvasRuntimeArtifactLoopback.test.ts",
-        "contentVersionTransferIntegration.test.ts"
+        "contentVersionTransferIntegration.test.ts",
+        "agentHostProtocolUpgradeConnection.test.ts"
       ],
       "platform": [],
       "performance": []

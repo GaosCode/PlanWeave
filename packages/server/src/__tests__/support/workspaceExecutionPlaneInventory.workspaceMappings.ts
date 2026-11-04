@@ -74,6 +74,14 @@ export const workspaceMappingsInventory = [
     "Agent Host client tests report empty mapping observations."
   ),
   inventoryEntry(
+    "wm-agentHostProtocolUpgradeConnection-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/distributed-integration/src/__tests__/agentHostProtocolUpgradeConnection.test.ts",
+    "readiness.workspaceMappings: []",
+    "Protocol upgrade transport tests report empty mapping observations."
+  ),
+  inventoryEntry(
     "wm-agentHostClientAdversarial-test",
     "workspaceMappings",
     "endpoint_readiness",

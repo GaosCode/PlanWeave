@@ -176,6 +176,7 @@ export async function leaseHarness(
             serverEventSchema.parse({
               type: "host.welcome",
               protocolVersion: agentHostProtocolVersion,
+              lastAcknowledgedSequence: 0,
               exactPermissionOptionsVersion: 1,
               serverTime: new Date(clock.now().getTime() + serverOffsetMs).toISOString(),
               heartbeatIntervalMs: 60_000,

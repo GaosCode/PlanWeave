@@ -334,6 +334,7 @@ async function connectEnrolledHost(input: {
       protocolVersion: agentHostProtocolVersion,
       supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: 0,
+      lastAcknowledgementRecoverySequence: 0,
       capabilities: enrollmentRequest.capabilities,
       capacity: 1,
       readiness: {

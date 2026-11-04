@@ -25,6 +25,120 @@ import {
 } from "./support/canvasRuntimeServiceFixture.js";
 
 describe("persisted Host protocol upgrades", () => {
+  it("reconciles a processed historical permission after restoring its archived ACK", async () => {
+    const f = await createProtocolUpgradeFixture();
+    const commandJson = JSON.stringify({
+      type: "interaction.permission_response",
+      dispatchId: "old-dispatch",
+      leaseId: "old-lease",
+      executionAttemptId: "old-attempt",
+      actionId: "old-action",
+      acpSessionId: "old-session",
+      decision: "allow_once"
+    });
+    f.initial.receive({
+      type: "mailbox.permission_history",
+      protocolVersion: agentHostProtocolVersion,
+      sequence: 1,
+      previousSequence: 0,
+      messageId: "old-permission-mailbox",
+      commandJson
+    });
+    f.initial.applyCancellation(1);
+    await f.archiveDatabase();
+    const state = await f.reopen();
+    expect(state.pendingCancellations()).toEqual([]);
+    expect(state.mailboxAcknowledgementRecoverySequence()).toBe(1);
+    state.synchronizeMailboxAcknowledgement(1);
+    expect(state.pendingCancellations()).toMatchObject([
+      {
+        sequence: 1,
+        command: {
+          type: "cancel_execution",
+          dispatchId: "old-dispatch",
+          leaseId: "old-lease",
+          executionAttemptId: "old-attempt"
+        }
+      }
+    ]);
+    expect(state.applyCancellation(1)).toEqual({ shouldAbort: false });
+    state.synchronizeMailboxAcknowledgement(1);
+    expect(state.pendingCancellations()).toEqual([]);
+    const db = await openAgentHostDatabase(f.path, 5_000);
+    try {
+      expect(
+        db.prepare("SELECT command_json FROM agent_host_inbox WHERE sequence=1").get()?.command_json
+      ).toBe(commandJson);
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each([
+    1, 2
+  ])("restores only confirmed mailbox receipts after upgrading wire v%i", async (wireVersion) => {
+    const f = await createProtocolUpgradeFixture();
+    const first = f.initial.receive(delivery(1, cancel("first", "none")));
+    const second = f.initial.receive({
+      ...delivery(3, cancel("second", "none")),
+      previousSequence: 1
+    });
+    const unrelated = f.initial.queueHeartbeat([]);
+    await f.archiveDatabase(11, wireVersion);
+    const state = await f.reopen();
+    const reader = await openAgentHostDatabase(f.path, 5_000);
+    try {
+      const original = reader
+        .prepare("SELECT message_id,event_json FROM agent_host_outbox ORDER BY sequence")
+        .all();
+      const heartbeat = state.queueHeartbeat([]);
+      expect(state.lastReceivedSequence()).toBe(3);
+      expect(state.mailboxAcknowledgementRecoverySequence()).toBe(wireVersion === 1 ? 3 : 0);
+      state.synchronizeMailboxAcknowledgement(1);
+      state.synchronizeMailboxAcknowledgement(1);
+      expect(state.lastAcknowledgedSequence()).toBe(1);
+      expect(
+        reader
+          .prepare("SELECT acknowledged_at FROM agent_host_outbox WHERE message_id=?")
+          .get(first.acknowledgement.messageId)?.acknowledged_at
+      ).toEqual(expect.any(String));
+      expect(
+        reader
+          .prepare("SELECT acknowledged_at FROM agent_host_outbox WHERE message_id=?")
+          .get(second.acknowledgement.messageId)?.acknowledged_at
+      ).toBeNull();
+      expect(
+        reader
+          .prepare("SELECT acknowledged_at FROM agent_host_outbox WHERE message_id=?")
+          .get(unrelated.messageId)?.acknowledged_at
+      ).toBeNull();
+      for (const invalid of [0, 2, 4]) {
+        expect(() => state.synchronizeMailboxAcknowledgement(invalid)).toThrow(
+          "mailbox_cursor_reconciliation_required"
+        );
+        expect(state.lastAcknowledgedSequence()).toBe(1);
+      }
+      state.synchronizeMailboxAcknowledgement(3);
+      expect(state.pendingEvents().filter((event) => event.type === "mailbox.ack")).toEqual([]);
+      expect(state.pendingEvents()).toContainEqual(heartbeat);
+      for (const row of original)
+        expect(
+          reader
+            .prepare("SELECT event_json FROM agent_host_outbox WHERE message_id=?")
+            .get(row.message_id)?.event_json
+        ).toBe(row.event_json);
+    } finally {
+      reader.close();
+    }
+    f.closeState(state);
+    const reopened = await f.reopen();
+    expect(reopened.lastAcknowledgedSequence()).toBe(3);
+    expect(reopened.lastReceivedSequence()).toBe(3);
+    expect(
+      reopened.receive({ ...delivery(5, cancel("new", "none")), previousSequence: 3 }).stored
+    ).toBe(true);
+  });
+
   it("recovers a current v2 turn from the previous database schema", async () => {
     const f = await createProtocolUpgradeFixture();
     const command = upgradePrompt("current-turn", "current-session");

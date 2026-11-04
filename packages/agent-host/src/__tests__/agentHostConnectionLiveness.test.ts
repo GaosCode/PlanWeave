@@ -44,6 +44,7 @@ async function setup(welcome = true) {
           JSON.stringify({
             type: "host.welcome",
             protocolVersion: agentHostProtocolVersion,
+            lastAcknowledgedSequence: 0,
             exactPermissionOptionsVersion: 1,
             serverTime: clock.now().toISOString(),
             heartbeatIntervalMs: 10_000,

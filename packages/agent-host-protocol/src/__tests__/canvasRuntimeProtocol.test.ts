@@ -663,6 +663,7 @@ describe("Canvas Runtime control protocol", () => {
       type: "host.hello",
       protocolVersion: agentHostProtocolVersion,
       lastAcknowledgedSequence: 0,
+      lastAcknowledgementRecoverySequence: 0,
       capabilities: [],
       capacity: 1,
       readiness: { workspaceMappings: [], acpProfiles: [] }

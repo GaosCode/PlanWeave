@@ -89,6 +89,7 @@ async function setup(localBudget: number, serverBudget: number, projects = 212) 
       protocolVersion: agentHostProtocolVersion,
       supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: Number.MAX_SAFE_INTEGER,
+      lastAcknowledgementRecoverySequence: Number.MAX_SAFE_INTEGER,
       capabilities,
       capacity: 1,
       readiness
@@ -178,7 +179,7 @@ it.each([
   [64, 64],
   [64, 256],
   [256, 64]
-])("negotiates local %iKiB and Server %iKiB for separate readiness and renewable lease frames", async (local, remote) => {
+])("negotiates local %iKiB and Server %iKiB for complete readiness and renewable lease frames", async (local, remote) => {
   const f = await setup(local * 1024, remote * 1024);
   expect(f.capabilities).toHaveLength(4);
   expect(Buffer.byteLength(f.hello())).toBeLessThanOrEqual(64 * 1024);
@@ -221,9 +222,13 @@ it.each([
   await vi.waitFor(() => expect(f.execute).toHaveBeenCalledOnce());
   await vi.waitFor(() => expect(f.state.pendingEventCount()).toBe(0));
   f.clock.advanceBy(0);
-  await vi.waitFor(() =>
-    expect(f.hostFrames().filter((event) => event.type === "host.heartbeat")).toHaveLength(2)
-  );
+  await vi.waitFor(() => {
+    const heartbeats = f.hostFrames().filter((event) => event.type === "host.heartbeat");
+    expect(heartbeats.flatMap((event) => event.activeLeases)).toEqual([identity]);
+    expect(heartbeats.filter((event) => event.readiness).map((event) => event.readiness)).toEqual([
+      f.readiness
+    ]);
+  });
   await vi.waitFor(() => expect(f.state.pendingEventCount()).toBe(0));
   const heartbeats = f.hostFrames().filter((event) => event.type === "host.heartbeat");
   expect(heartbeats.flatMap((event) => event.activeLeases)).toEqual([identity]);

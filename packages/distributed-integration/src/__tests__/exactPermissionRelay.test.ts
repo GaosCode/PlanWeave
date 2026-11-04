@@ -145,6 +145,7 @@ describe("exact permission durable Server and Host relay", () => {
           protocolVersion: agentHostProtocolVersion,
           supportedExecutionEnvelopeVersions: [1, 2],
           lastAcknowledgedSequence: 0,
+          lastAcknowledgementRecoverySequence: 0,
           capabilities: [],
           capacity: 1
         })

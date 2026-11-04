@@ -89,6 +89,7 @@ export async function connectPathlessCanvasRuntimeHost(input: {
       protocolVersion: agentHostProtocolVersion,
       supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: 0,
+      lastAcknowledgementRecoverySequence: 0,
       capabilities: [
         CANVAS_RUNTIME_CAPABILITY,
         WORKSPACE_CANVAS_EXECUTION_CAPABILITY,

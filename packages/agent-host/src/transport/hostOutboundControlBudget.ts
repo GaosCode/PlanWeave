@@ -25,6 +25,7 @@ export function assertHostOutboundControlBudget(
         protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: Number.MAX_SAFE_INTEGER,
+        lastAcknowledgementRecoverySequence: Number.MAX_SAFE_INTEGER,
         capabilities,
         capacity,
         readiness

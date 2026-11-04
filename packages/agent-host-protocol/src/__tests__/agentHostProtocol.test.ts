@@ -45,6 +45,35 @@ describe("versioned Agent Host protocol", () => {
     ).toEqual(agentHostProtocolGoldenFixtures.authenticationSettlement);
   });
 
+  it("requires recovery and confirmation cursors without allowing acknowledgement rollback", () => {
+    const { lastAcknowledgementRecoverySequence: _received, ...missing } =
+      agentHostProtocolGoldenFixtures.hello;
+    expect(hostHelloSchema.safeParse(missing).success).toBe(false);
+    expect(
+      hostHelloSchema.safeParse({
+        ...agentHostProtocolGoldenFixtures.hello,
+        lastAcknowledgedSequence: 3,
+        lastAcknowledgementRecoverySequence: 1
+      }).success
+    ).toBe(false);
+    expect(
+      hostHelloSchema.parse({
+        ...agentHostProtocolGoldenFixtures.hello,
+        lastAcknowledgedSequence: 1,
+        lastAcknowledgementRecoverySequence: 3
+      }).lastAcknowledgementRecoverySequence
+    ).toBe(3);
+    expect(
+      serverEventSchema.safeParse({
+        type: "host.welcome",
+        protocolVersion: 2,
+        serverTime: new Date().toISOString(),
+        heartbeatIntervalMs: 1_000,
+        leaseDurationMs: 60_000
+      }).success
+    ).toBe(false);
+  });
+
   it("rejects unsupported versions, unknown fields, and mismatched execution identity", () => {
     expect(() =>
       hostHelloSchema.parse({ ...agentHostProtocolGoldenFixtures.hello, protocolVersion: 1 })

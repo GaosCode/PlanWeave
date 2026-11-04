@@ -495,6 +495,7 @@ export async function connectFixtureCanvasRuntimeHost(input: {
       protocolVersion: agentHostProtocolVersion,
       supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: 0,
+      lastAcknowledgementRecoverySequence: 0,
       capabilities: [
         "acp.codex",
         "acp.session.load",

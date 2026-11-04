@@ -54,6 +54,9 @@ export interface AgentHostStateRepository {
   // deadlineNow uses the same clock domain as persisted interaction action deadlines.
   receive(input: ServerEvent, deadlineNow?: Date): { stored: boolean; acknowledgement: HostEvent };
   lastAcknowledgedSequence(): number;
+  lastReceivedSequence(): number;
+  mailboxAcknowledgementRecoverySequence(): number;
+  synchronizeMailboxAcknowledgement(sequence: number): void;
   pendingEvents(limit?: number): HistoricalHostEvent[];
   pendingEventCount(): number;
   historicalPermissionEventJson(messageId: string): string;

@@ -1,4 +1,4 @@
-import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
+import { agentHostProtocolVersion, mailboxSequenceSchema } from "@planweave-ai/agent-host-protocol";
 import { parseHistoricalPermissionCommandJson } from "@planweave-ai/agent-host-protocol";
 import { cancellationForMailboxCommand } from "./historicalPermissionCancellation.js";
 import type { HistoricalAgentHostRemoteExecutionRecord } from "../execution/remoteExecutionRecordSchema.js";
@@ -297,6 +297,50 @@ export class AgentHostState implements AgentHostStateRepository {
 
   lastAcknowledgedSequence(): number {
     return this.terminalCompaction.lastAcknowledgedSequence();
+  }
+
+  lastReceivedSequence(): number {
+    return this.terminalCompaction.receivedHighWater();
+  }
+
+  mailboxAcknowledgementRecoverySequence(): number {
+    return Math.max(
+      this.lastAcknowledgedSequence(),
+      this.events.archivedMailboxAcknowledgementSequence() ?? 0
+    );
+  }
+
+  synchronizeMailboxAcknowledgement(input: number): void {
+    const sequence = mailboxSequenceSchema.parse(input);
+    inWriteTransaction(this.database, () => {
+      const acknowledged = this.lastAcknowledgedSequence();
+      if (sequence === acknowledged) return;
+      if (
+        sequence < acknowledged ||
+        sequence > this.lastReceivedSequence() ||
+        !this.database.prepare("SELECT 1 FROM agent_host_inbox WHERE sequence=?").get(sequence)
+      ) {
+        throw new Error("mailbox_cursor_reconciliation_required");
+      }
+      const acknowledgedAt = new Date().toISOString();
+      this.database
+        .prepare(
+          `UPDATE agent_host_inbox SET processed_at=NULL
+           WHERE sequence>? AND sequence<=?
+           AND json_extract(command_json,'$.type')='interaction.permission_response'
+           AND json_extract(command_json,'$.decision')='allow_once'`
+        )
+        .run(acknowledged, sequence);
+      this.database
+        .prepare(
+          `UPDATE agent_host_inbox SET acknowledged_at=COALESCE(acknowledged_at,?)
+           WHERE sequence<=? AND acknowledged_at IS NULL`
+        )
+        .run(acknowledgedAt, sequence);
+      this.events.acknowledgeMailboxThrough(sequence, acknowledgedAt);
+      this.terminalCompaction.recordAcknowledged(sequence);
+      this.terminalCompaction.compactInCurrentTransaction();
+    });
   }
 
   pendingEvents(limit = this.limits.maxPendingEvents): HistoricalHostEvent[] {

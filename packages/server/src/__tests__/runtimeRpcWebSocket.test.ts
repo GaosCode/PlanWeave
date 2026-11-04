@@ -122,6 +122,7 @@ async function initialize(socket: WebSocket): Promise<void> {
       protocolVersion: agentHostProtocolVersion,
       supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: 0,
+      lastAcknowledgementRecoverySequence: 0,
       capabilities: [CANVAS_RUNTIME_CAPABILITY],
       capacity: 1,
       readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] }

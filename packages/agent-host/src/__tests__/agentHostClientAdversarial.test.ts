@@ -95,6 +95,7 @@ describe("Agent Host adversarial executor failure", () => {
                   type: "host.welcome",
                   exactPermissionOptionsVersion: 1,
                   protocolVersion: agentHostProtocolVersion,
+                  lastAcknowledgedSequence: 0,
                   serverTime: new Date().toISOString(),
                   heartbeatIntervalMs: 60_000,
                   leaseDurationMs: 60_000
@@ -196,6 +197,7 @@ async function outboxClientFixture(maxOutboundBatch = 128) {
             serverEventSchema.parse({
               type: "host.welcome",
               protocolVersion: agentHostProtocolVersion,
+              lastAcknowledgedSequence: event.lastAcknowledgedSequence,
               exactPermissionOptionsVersion: 1,
               historicalPermissionReplayVersion: 1,
               serverTime: new Date().toISOString(),

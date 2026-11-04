@@ -96,6 +96,7 @@ describe("real ACP permission failure through the Host wire", () => {
                 serverEventSchema.parse({
                   type: "host.welcome",
                   protocolVersion: agentHostProtocolVersion,
+                  lastAcknowledgedSequence: 0,
                   exactPermissionOptionsVersion: 1,
                   serverTime: new Date().toISOString(),
                   heartbeatIntervalMs: 60_000,
