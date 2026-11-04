@@ -350,6 +350,7 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
     let prompting = false;
     let configuration: ReturnType<typeof sessionConfigurationFromNewSession> | null = null;
     const result = await executeAcp({
+      agentId: profile.agentId,
       launch: { ...profile.launch, trusted: true },
       workspace,
       env: profile.env,
@@ -472,6 +473,7 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
       executionOutcome = {
         status: "succeeded",
         result: await executeAcp({
+          agentId: profile.agentId,
           launch: {
             command: profile.launch.command,
             args: profile.launch.args,

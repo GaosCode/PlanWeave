@@ -233,6 +233,7 @@ export type AcpEngineResult = {
 export type AcpEngineConnectionFactory = (options: CreateAcpConnectionOptions) => AcpConnection;
 
 export type ExecuteAcpOptions = {
+  readonly agentId: string;
   readonly launch: TrustedAcpLaunch;
   readonly workspace: AcpPreparedWorkspace;
   readonly env: Readonly<Record<string, string>>;

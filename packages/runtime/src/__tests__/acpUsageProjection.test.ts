@@ -94,8 +94,10 @@ describe("projectAcpContextUsage", () => {
     });
   });
 
-  it("keeps a credit amount that carries no currency", () => {
-    expect(projectAcpContextUsage([usage(1, 0, 0, { amount: 0.66, currency: "" })])).toMatchObject({
+  it("preserves an explicitly classified credit amount", () => {
+    expect(
+      projectAcpContextUsage([usage(1, 0, 0, { amount: 0.66, currency: null, unit: "credits" })])
+    ).toMatchObject({
       cost: { amount: 0.66, currency: null, unit: "credits" }
     });
   });

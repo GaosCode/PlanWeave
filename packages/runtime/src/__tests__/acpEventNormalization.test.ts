@@ -7,7 +7,7 @@ import { projectAcpContextUsage } from "../autoRun/acpUsageProjection.js";
 
 describe("ACP event normalization", () => {
   it("coalesces thought chunks without their contents and restarts activity after visible output", () => {
-    const normalize = createAcpSessionNotificationNormalizer();
+    const normalize = createAcpSessionNotificationNormalizer(null);
     const thought = {
       sessionId: "session-1",
       update: {
@@ -147,10 +147,13 @@ describe("ACP event normalization", () => {
       size: number,
       cost: { amount: number; currency: string } | null
     ) =>
-      normalizeAcpSessionNotification({
-        sessionId: "session-1",
-        update: { sessionUpdate: "usage_update", used, size, ...(cost ? { cost } : {}) }
-      });
+      normalizeAcpSessionNotification(
+        {
+          sessionId: "session-1",
+          update: { sessionUpdate: "usage_update", used, size, ...(cost ? { cost } : {}) }
+        },
+        "codebuddy"
+      );
 
     const zeroWindow = normalize(10, 0, null);
     expect(zeroWindow).toMatchObject({
@@ -248,5 +251,28 @@ describe("ACP event normalization", () => {
         }
       })
     ).toMatchObject({ kind: "diagnostic", code: "corrupt_line" });
+  });
+});
+
+describe("ACP cost identity boundary", () => {
+  it.each([
+    ["codebuddy", "credits"],
+    ["codex", "unknown"],
+    [null, "unknown"]
+  ] as const)("classifies an empty currency for %s as %s", (agentId, unit) => {
+    const normalize = createAcpSessionNotificationNormalizer(agentId);
+    const body = normalize({
+      sessionId: "cost-session",
+      update: {
+        sessionUpdate: "usage_update",
+        used: 10,
+        size: 100,
+        cost: { amount: 0.66, currency: "" }
+      }
+    });
+    expect(body).toMatchObject({ cost: { amount: 0.66, currency: null, unit } });
+    if (!body) throw new Error("Expected a usage event");
+    const events = [{ sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", body }];
+    expect(projectAcpContextUsage(events)?.cost).toEqual({ amount: 0.66, currency: null, unit });
   });
 });

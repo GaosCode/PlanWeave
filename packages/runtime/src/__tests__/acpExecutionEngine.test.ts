@@ -17,6 +17,7 @@ function engineOptions(
   overrides: Partial<ExecuteAcpOptions> = {}
 ): ExecuteAcpOptions {
   return {
+    agentId: "codex",
     launch: { trusted: true, command: process.execPath, args: [fixture, scenario] },
     workspace: { cwd: process.cwd() },
     env: environment,

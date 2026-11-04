@@ -8,6 +8,7 @@ const fixture = fileURLToPath(
 );
 function options(prompt: string, overrides: Partial<ExecuteAcpOptions> = {}): ExecuteAcpOptions {
   return {
+    agentId: "codex",
     launch: { trusted: true, command: process.execPath, args: [fixture] },
     workspace: { cwd: process.cwd() },
     env: {},

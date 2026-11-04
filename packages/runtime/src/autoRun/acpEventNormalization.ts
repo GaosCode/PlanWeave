@@ -131,7 +131,8 @@ function optionalSerialized(value: unknown, present: boolean) {
 }
 
 export function normalizeAcpSessionNotification(
-  notification: SessionNotification
+  notification: SessionNotification,
+  agentId: string | null = null
 ): AcpNormalizedEventBody | null {
   const update = notification.update;
   if (nonConversationSessionUpdateSchema.safeParse(update).success) return null;
@@ -200,11 +201,14 @@ export function normalizeAcpSessionNotification(
     case "usage_update":
       return {
         kind: "usage_update",
-        ...normalizeAcpUsageUpdate({
-          used: update.used,
-          size: update.size,
-          cost: update.cost ?? null
-        })
+        ...normalizeAcpUsageUpdate(
+          {
+            used: update.used,
+            size: update.size,
+            cost: update.cost ?? null
+          },
+          agentId
+        )
       };
     case "current_mode_update":
       return { kind: "session_mode_update", currentModeId: update.currentModeId };
@@ -227,10 +231,10 @@ export function normalizeAcpSessionNotification(
   }
 }
 
-export function createAcpSessionNotificationNormalizer() {
+export function createAcpSessionNotificationNormalizer(agentId: string | null) {
   let thinkingSession: string | null = null;
   return (notification: SessionNotification): AcpNormalizedEventBody | null => {
-    const body = normalizeAcpSessionNotification(notification);
+    const body = normalizeAcpSessionNotification(notification, agentId);
     if (body?.kind === "activity") {
       if (thinkingSession === notification.sessionId) return null;
       thinkingSession = notification.sessionId;
