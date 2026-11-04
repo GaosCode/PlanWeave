@@ -178,6 +178,7 @@ export async function executeLocalAcpAdapter(options: {
   };
   try {
     return await executeAcpOrThrow({
+      agentId: options.agentId,
       launch: { trusted: true, ...options.launch },
       workspace: { cwd: options.cwd },
       env: options.env,

@@ -265,6 +265,7 @@ async function runCancellation(
   const controller = new AbortController();
   const events: AcpEngineEvent[] = [];
   const run = executeAcp({
+    agentId: profile.supported.agentId,
     launch: {
       trusted: true,
       command: profile.hostProfile.launch.command,

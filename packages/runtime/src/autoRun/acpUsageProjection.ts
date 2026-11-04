@@ -34,7 +34,8 @@ function normalizeCost(
   cost:
     | { amount: number; currency: string | null; unit?: "currency" | "credits" | "unknown" }
     | null
-    | undefined
+    | undefined,
+  agentId: string | null
 ): AcpUsageCost | null {
   if (!cost || !Number.isFinite(cost.amount)) return null;
   const amount = Math.max(0, cost.amount);
@@ -49,7 +50,8 @@ function normalizeCost(
   if (cost.unit === "credits" || cost.unit === "unknown") {
     return { amount, currency: null, unit: cost.unit };
   }
-  if (currency === "") return { amount, currency: null, unit: "credits" };
+  if (currency === "" && agentId === "codebuddy")
+    return { amount, currency: null, unit: "credits" };
   return { amount, currency: null, unit: "unknown" };
 }
 
@@ -58,15 +60,18 @@ function normalizeCost(
  * cost object whose currency is missing or malformed. Normalise instead of
  * throwing, so a cosmetic telemetry gap cannot fail an otherwise healthy run.
  */
-function normalizeUsage(body: {
-  usedTokens: number;
-  contextWindowTokens: number;
-  cost: {
-    amount: number;
-    currency: string | null;
-    unit?: "currency" | "credits" | "unknown";
-  } | null;
-}): {
+function normalizeUsage(
+  body: {
+    usedTokens: number;
+    contextWindowTokens: number;
+    cost: {
+      amount: number;
+      currency: string | null;
+      unit?: "currency" | "credits" | "unknown";
+    } | null;
+  },
+  agentId: string | null = null
+): {
   usedTokens: number;
   contextWindowTokens: number;
   cost: AcpUsageCost | null;
@@ -77,7 +82,7 @@ function normalizeUsage(body: {
   const contextWindowTokens = Number.isFinite(body.contextWindowTokens)
     ? Math.max(0, Math.trunc(body.contextWindowTokens))
     : 0;
-  return { usedTokens, contextWindowTokens, cost: normalizeCost(body.cost) };
+  return { usedTokens, contextWindowTokens, cost: normalizeCost(body.cost, agentId) };
 }
 
 /**
@@ -86,20 +91,26 @@ function normalizeUsage(body: {
  * The same sanitiser feeds the persisted event stream, which validates against
  * the agent-host wire contract.
  */
-export function normalizeAcpUsageUpdate(update: {
-  used: number;
-  size: number;
-  cost: { amount: number; currency: string } | null;
-}): {
+export function normalizeAcpUsageUpdate(
+  update: {
+    used: number;
+    size: number;
+    cost: { amount: number; currency: string } | null;
+  },
+  agentId: string | null = null
+): {
   usedTokens: number;
   contextWindowTokens: number;
   cost: AcpUsageCost | null;
 } {
-  return normalizeUsage({
-    usedTokens: update.used,
-    contextWindowTokens: update.size,
-    cost: update.cost
-  });
+  return normalizeUsage(
+    {
+      usedTokens: update.used,
+      contextWindowTokens: update.size,
+      cost: update.cost
+    },
+    agentId
+  );
 }
 
 /**

@@ -408,7 +408,9 @@ export class AcpConversationTurnCoordinator {
       signal
     );
     signal.throwIfAborted();
-    const normalizeSessionNotification = createAcpSessionNotificationNormalizer();
+    const normalizeSessionNotification = createAcpSessionNotificationNormalizer(
+      input.profile.agentId
+    );
     const sessionHandlers: AcpSessionHandlerPort = {
       onSessionUpdate: async (notification: SessionNotification) => {
         if (!persistNotifications || notification.sessionId !== input.identity.sessionId) return;

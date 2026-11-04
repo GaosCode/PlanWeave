@@ -231,7 +231,7 @@ async function executeAcpOutcome(
     }
   };
 
-  const normalizeSessionNotification = createAcpSessionNotificationNormalizer();
+  const normalizeSessionNotification = createAcpSessionNotificationNormalizer(options.agentId);
   const relaySessionUpdate = async (notification: SessionNotification): Promise<void> => {
     if (sessionUpdateFailure === undefined) {
       const normalized = normalizeSessionNotification(notification);

@@ -314,7 +314,7 @@ export class AcpSessionController {
       if (abortController.signal.aborted) {
         throw new ExecutorCancelledError(diagnostic(abortController.signal.reason));
       }
-      const normalizeSessionNotification = createAcpSessionNotificationNormalizer();
+      const normalizeSessionNotification = createAcpSessionNotificationNormalizer(run.agentId);
       const eventSink = async (notification: SessionNotification): Promise<void> => {
         const normalized = normalizeSessionNotification(notification);
         if (eventStore && normalized) {
