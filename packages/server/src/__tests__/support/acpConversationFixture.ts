@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { vi } from "vitest";
 import {
   ACP_CONVERSATION_CAPABILITY,
@@ -33,7 +34,7 @@ export async function createAcpConversationFixture(
     f.host.id,
     executeBlockCommandSchema.parse({
       type: "execute_block",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: f.operation.dispatchId,
       executionAttemptId: f.operation.executionAttemptId,
       leaseId: f.reservation.leaseId,
@@ -73,7 +74,7 @@ export async function createAcpConversationFixture(
   };
   const event = (sequence: number, payload: unknown, turnId = prompt.turnId) =>
     acpConversationEventSchema.parse({
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       type: "acp_conversation.event",
       messageId: `message-${turnId}-${sequence}`,
       operationId: operation.id,

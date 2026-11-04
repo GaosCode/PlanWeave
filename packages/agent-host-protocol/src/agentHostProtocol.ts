@@ -1,3 +1,4 @@
+import { storedProtocolRecord } from "./storedProtocolRecord.js";
 import { z } from "zod";
 import {
   historicalPermissionMailboxReplaySchema,
@@ -140,8 +141,19 @@ export const mailboxCommandSchema = z.discriminatedUnion("type", [
   interactionSettlementSchema.options[2]
 ]);
 
+export const storedExecuteBlockCommandSchema = storedProtocolRecord(executeBlockCommandSchema);
+export const storedMailboxCommandSchema = z.union([
+  storedExecuteBlockCommandSchema,
+  storedProtocolRecord(cancelExecutionCommandSchema),
+  storedProtocolRecord(resumeExecutionCommandSchema),
+  storedProtocolRecord(canvasRuntimeRequestCommandSchema),
+  storedProtocolRecord(canvasRuntimeCancelCommandSchema),
+  storedProtocolRecord<z.infer<typeof acpConversationCommandSchema>>(acpConversationCommandSchema),
+  interactionSettlementSchema
+]);
+
 export const historicalMailboxCommandSchema = z.union([
-  mailboxCommandSchema,
+  storedMailboxCommandSchema,
   legacyPermissionSettlementSchema
 ]);
 export type HistoricalMailboxCommand = z.infer<typeof historicalMailboxCommandSchema>;
@@ -224,8 +236,10 @@ export const hostEventSchema = z.union([
 
 /** Only for persisted outboxes and connections without exact permission support. */
 export const historicalHostEventSchema = z.union([
-  hostEventSchema,
-  durableHostEventSchema.merge(legacyPermissionRequestSchema)
+  storedProtocolRecord<z.infer<typeof hostEventSchema>>(hostEventSchema),
+  durableHostEventSchema
+    .merge(legacyPermissionRequestSchema)
+    .extend({ protocolVersion: z.union([z.literal(1), agentHostProtocolVersionSchema]) })
 ]);
 export type HistoricalHostEvent = z.infer<typeof historicalHostEventSchema>;
 

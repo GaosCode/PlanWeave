@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import {
   ACP_CONVERSATION_CAPABILITY,
@@ -10,7 +11,7 @@ import {
   acpConversationOrderedTurnSchema,
   acpConversationPromptCommandSchema,
   canonicalizeJson,
-  executeBlockCommandSchema,
+  storedExecuteBlockCommandSchema,
   type AcpConversationAction,
   type AcpConversationEvent,
   type AcpConversationOrderedPage,
@@ -204,7 +205,7 @@ export class AcpConversationService {
     return {
       sessionId: stream?.acp_session_id ? String(stream.acp_session_id) : null,
       command: source
-        ? executeBlockCommandSchema.parse(JSON.parse(String(source.command_json)))
+        ? storedExecuteBlockCommandSchema.parse(JSON.parse(String(source.command_json)))
         : null
     };
   }
@@ -215,6 +216,8 @@ export class AcpConversationService {
   ) {
     if (operation.state !== "completed" && operation.state !== "cancelled")
       return "acp_conversation_execution_not_completed";
+    if (source.command && source.command.protocolVersion !== agentHostProtocolVersion)
+      return "protocol_version_incompatible_upgrade_required";
     if (!source.sessionId || !source.command) return "acp_conversation_session_unavailable";
     const host = operation.attempt.hostId
       ? this.options.hosts.get(operation.attempt.hostId)
@@ -431,7 +434,7 @@ export class AcpConversationService {
             operation.attempt.hostId,
             acpConversationPromptCommandSchema.parse({
               type: "acp_conversation.prompt",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               operationId: operation.id,
               ...prompt,
               expiresAt,
@@ -473,13 +476,13 @@ export class AcpConversationService {
       const command =
         kind === "cancel"
           ? {
-              protocolVersion: 1 as const,
+              protocolVersion: agentHostProtocolVersion,
               type: "acp_conversation.cancel" as const,
               operationId: operation.id,
               ...body
             }
           : {
-              protocolVersion: 1 as const,
+              protocolVersion: agentHostProtocolVersion,
               type: "acp_conversation.respond" as const,
               operationId: operation.id,
               ...body

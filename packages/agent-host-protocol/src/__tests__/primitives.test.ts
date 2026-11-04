@@ -205,9 +205,9 @@ describe("normalized failure", () => {
 
 describe("protocol version", () => {
   it("pins the current agent-host protocol version", () => {
-    expect(agentHostProtocolVersion).toBe(1);
-    expect(agentHostProtocolVersionSchema.parse(1)).toBe(1);
-    expectZodRejects(() => agentHostProtocolVersionSchema.parse(2));
+    expect(agentHostProtocolVersion).toBe(2);
+    expect(agentHostProtocolVersionSchema.parse(2)).toBe(2);
+    expectZodRejects(() => agentHostProtocolVersionSchema.parse(1));
     expectZodRejects(() => agentHostProtocolVersionSchema.parse("1"));
   });
 });

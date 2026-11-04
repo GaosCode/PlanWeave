@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentHostRepository } from "../hosts.js";
@@ -53,7 +54,7 @@ describe("stock host fleet migration v46", () => {
     const credentialToken = token();
     const completed = enrollment.exchange({
       type: "host.enrollment.request",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       enrollmentCode: grant.enrollmentCode,
       enrollmentAttemptId: "stock-host-fleet-migration",
       installationId: "2c15f707-d76c-4d85-8af5-8635792d65b1",

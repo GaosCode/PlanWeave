@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -180,7 +181,7 @@ it("delivers the original execution report after two real credential rotations, 
           JSON.stringify(
             serverEventSchema.parse({
               type: "host.welcome",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               exactPermissionOptionsVersion: 1,
               serverTime: new Date().toISOString(),
               heartbeatIntervalMs: 60000,
@@ -195,7 +196,11 @@ it("delivers the original execution report after two real credential rotations, 
       const event = hostEventSchema.parse(raw);
       if ("messageId" in event)
         socket.send(
-          JSON.stringify({ type: "host.event_ack", protocolVersion: 1, messageId: event.messageId })
+          JSON.stringify({
+            type: "host.event_ack",
+            protocolVersion: agentHostProtocolVersion,
+            messageId: event.messageId
+          })
         );
       if (event.type === "dispatch.completed" || event.type === "dispatch.failed")
         completed.resolve(event);

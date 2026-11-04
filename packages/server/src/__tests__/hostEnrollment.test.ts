@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   directHttpsTransportAdmission,
@@ -52,7 +53,7 @@ function request(
 ) {
   return {
     type: "host.enrollment.request",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     enrollmentCode,
     enrollmentAttemptId,
     installationId: randomUUID(),

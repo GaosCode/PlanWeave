@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomBytes } from "node:crypto";
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -67,7 +68,7 @@ describe("Agent Host enrollment and protected credentials", () => {
     const exchange: AgentHostEnrollmentExchange = {
       exchange: vi.fn(async (request) => ({
         type: "host.enrollment.completed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         enrollmentAttemptId: request.enrollmentAttemptId,
         hostId: "host-001",
         workspaceId: "workspace-001",
@@ -93,7 +94,7 @@ describe("Agent Host enrollment and protected credentials", () => {
         requests.push(request);
         return {
           type: "host.enrollment.completed",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           enrollmentAttemptId: request.enrollmentAttemptId,
           hostId: requests.length === 1 ? "host-generation-one" : "host-generation-two",
           credentialExpiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -130,7 +131,7 @@ describe("Agent Host enrollment and protected credentials", () => {
     const resumed: AgentHostEnrollmentExchange = {
       exchange: vi.fn(async (request) => ({
         type: "host.enrollment.completed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         enrollmentAttemptId: request.enrollmentAttemptId,
         hostId: "host-resumed",
         workspaceId: "workspace-001",
@@ -155,7 +156,7 @@ describe("Agent Host enrollment and protected credentials", () => {
       response.end(
         JSON.stringify({
           type: "host.enrollment.completed",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           enrollmentAttemptId: "another-attempt",
           hostId: "host-mismatch",
           workspaceId: "workspace-001",
@@ -201,7 +202,7 @@ describe("Agent Host enrollment and protected credentials", () => {
     await expect(
       exchange.exchange({
         type: "host.enrollment.request",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         enrollmentCode: secret("pw_enroll_"),
         enrollmentAttemptId: "attempt-no-redirect",
         credentialToken: secret("pw_host_"),
@@ -218,7 +219,7 @@ describe("Agent Host enrollment and protected credentials", () => {
     const successful: AgentHostEnrollmentExchange = {
       exchange: async (request) => ({
         type: "host.enrollment.completed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         enrollmentAttemptId: request.enrollmentAttemptId,
         hostId: "host-original",
         workspaceId: "workspace-001",
@@ -397,7 +398,7 @@ describe("Agent Host enrollment and protected credentials", () => {
     const credentialToken = secret("pw_host_");
     const input = {
       type: "host.enrollment.request" as const,
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       enrollmentCode: secret("pw_enroll_"),
       enrollmentAttemptId: "attempt-http-bounds",
       credentialToken,

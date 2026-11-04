@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import {
   ACP_CONVERSATION_MIN_HOST_EVENT_PAYLOAD_BYTES,
   acpConversationPromptCommandSchema,
@@ -39,7 +40,7 @@ describe("Agent Host durable outbox failures", () => {
     f.peer().send(
       JSON.stringify({
         type: "host.event_ack",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: acknowledged.messageId
       })
     );
@@ -104,7 +105,7 @@ describe("Agent Host durable outbox failures", () => {
     } else {
       const event = {
         type: "interaction.permission_requested",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "legacy-large",
         dispatchId: "dispatch",
         leaseId: "lease",

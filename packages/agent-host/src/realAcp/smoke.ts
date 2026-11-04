@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -162,7 +163,7 @@ async function runHostExecutor(
   });
   const command = executeBlockCommandSchema.parse({
     type: "execute_block",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     dispatchId,
     leaseId,
     executionAttemptId,

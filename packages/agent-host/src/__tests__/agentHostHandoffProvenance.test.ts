@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -127,7 +128,7 @@ function successfulExchange(
   return {
     exchange: async (request) => ({
       type: "host.enrollment.completed",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       enrollmentAttemptId: request.enrollmentAttemptId,
       hostId,
       workspaceId,
@@ -141,7 +142,7 @@ function successfulFleetExchange(hostId = "host-fleet"): AgentHostEnrollmentExch
   return {
     exchange: async (request) => ({
       type: "host.enrollment.completed",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       enrollmentAttemptId: request.enrollmentAttemptId,
       hostId,
       credentialExpiresAt: "2030-06-30T00:00:00.000Z",

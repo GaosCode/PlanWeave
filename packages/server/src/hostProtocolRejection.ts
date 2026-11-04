@@ -76,6 +76,12 @@ export function publicHostProtocolRejection(error: unknown): PublicHostProtocolR
   }
   if (error instanceof Error) {
     const message = error.message.trim();
+    if (message === "protocol_version_incompatible") {
+      return {
+        code: message,
+        message: "Agent Host protocol mismatch. Upgrade Server and Agent Host together."
+      };
+    }
     if (message === "invalid_json" || message === "binary_messages_not_supported") {
       return { code: message, message };
     }

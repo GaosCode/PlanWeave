@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -69,7 +70,7 @@ async function setup() {
     socket.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence,
         capabilities: ["acp.codex"],
@@ -84,7 +85,12 @@ async function setup() {
       ack(sequence: number) {
         const messageId = `ack-${sequence}`;
         socket.send(
-          JSON.stringify({ type: "mailbox.ack", protocolVersion: 1, messageId, sequence })
+          JSON.stringify({
+            type: "mailbox.ack",
+            protocolVersion: agentHostProtocolVersion,
+            messageId,
+            sequence
+          })
         );
         return expect
           .poll(() =>
@@ -96,7 +102,7 @@ async function setup() {
         socket.send(
           JSON.stringify({
             type: "host.heartbeat",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             messageId,
             activeLeases: []
           })

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -44,7 +45,7 @@ it.each([
         socket.send(
           JSON.stringify({
             type: "host.welcome",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             exactPermissionOptionsVersion: 1,
             serverTime: new Date().toISOString(),
             heartbeatIntervalMs: 60000,
@@ -54,7 +55,11 @@ it.each([
         welcomes[index]?.resolve();
       } else if (raw.messageId) {
         socket.send(
-          JSON.stringify({ type: "host.event_ack", protocolVersion: 1, messageId: raw.messageId })
+          JSON.stringify({
+            type: "host.event_ack",
+            protocolVersion: agentHostProtocolVersion,
+            messageId: raw.messageId
+          })
         );
       }
     });

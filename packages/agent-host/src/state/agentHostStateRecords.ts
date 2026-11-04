@@ -1,9 +1,13 @@
+import { storedExecuteBlockCommandSchema } from "@planweave-ai/agent-host-protocol";
 import { z } from "zod";
 import { acpCapabilitySnapshotSchema, type AcpCapabilitySnapshot } from "@planweave-ai/runtime";
-import { parseAgentHostMailboxCommand, type MailboxCommand } from "../protocol.js";
+import { type MailboxCommand, type HistoricalMailboxCommand } from "../protocol.js";
 
 export type ExecuteBlockCommand = Extract<MailboxCommand, { type: "execute_block" }>;
-export type CancelExecutionCommand = Extract<MailboxCommand, { type: "cancel_execution" }>;
+export type CancelExecutionCommand = Extract<
+  HistoricalMailboxCommand,
+  { type: "cancel_execution" }
+>;
 export type ResumeExecutionCommand = Extract<MailboxCommand, { type: "resume_execution" }>;
 
 export const agentHostExecutionStatusSchema = z.enum([
@@ -23,7 +27,7 @@ type JsonValue = z.infer<typeof jsonValueSchema>;
 export type AgentHostExecution = {
   sequence: number;
   messageId: string;
-  command: ExecuteBlockCommand;
+  command: z.infer<typeof storedExecuteBlockCommandSchema>;
   status: AgentHostExecutionStatus;
   receivedAt: string;
   startedAt?: string;
@@ -105,9 +109,9 @@ function parseJson(value: string | null): JsonValue | undefined {
 
 export function toExecution(raw: Record<string, unknown>): AgentHostExecution {
   const row = executionRowSchema.parse(raw);
-  const command = parseAgentHostMailboxCommand(JSON.parse(row.command_json));
+  const command = storedExecuteBlockCommandSchema.parse(JSON.parse(row.command_json));
   if (command.type !== "execute_block") throw new Error("execute_block_record_required");
-  const effectiveCommand = parseAgentHostMailboxCommand({
+  const effectiveCommand = storedExecuteBlockCommandSchema.parse({
     ...command,
     leaseId: row.lease_id,
     leaseExpiresAt: row.lease_expires_at

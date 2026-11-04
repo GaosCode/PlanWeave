@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash, randomBytes } from "node:crypto";
 import {
   canonicalizeJson,
@@ -218,7 +219,7 @@ export class HostEnrollmentService {
       return {
         completed: hostEnrollmentCompletedSchema.parse({
           type: "host.enrollment.completed",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           enrollmentAttemptId: request.enrollmentAttemptId,
           hostId: row.host_id,
           ...(workspaceId === undefined ? {} : { workspaceId }),
@@ -273,7 +274,7 @@ export class HostEnrollmentService {
     return {
       completed: hostEnrollmentCompletedSchema.parse({
         type: "host.enrollment.completed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         enrollmentAttemptId: request.enrollmentAttemptId,
         hostId: registration.host.id,
         ...(workspaceId === undefined ? {} : { workspaceId }),

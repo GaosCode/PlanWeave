@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createServer, type Server as HttpServer } from "node:http";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -295,7 +296,7 @@ async function connectEnrolledHost(input: {
   const credentialToken = `pw_host_${"D".repeat(43)}`;
   const enrollmentRequest = {
     type: "host.enrollment.request",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     enrollmentCode: grant.enrollmentCode,
     enrollmentAttemptId: input.enrollmentAttemptId ?? "desktop-e2e-host-enrollment",
     installationId: "21fb9ea9-4e0d-49fb-a06c-a0fc71e7341e",
@@ -330,7 +331,7 @@ async function connectEnrolledHost(input: {
   socket.send(
     JSON.stringify({
       type: "host.hello",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: 0,
       capabilities: enrollmentRequest.capabilities,
@@ -673,7 +674,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
     host.socket.send(
       JSON.stringify({
         type: "dispatch.accepted",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "desktop-e2e-dispatch-accepted",
         dispatchId: command.dispatchId,
         leaseId: command.leaseId,
@@ -684,7 +685,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
     host.socket.send(
       JSON.stringify({
         type: "acp.events",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         eventProtocolVersion: 2,
         messageId: "desktop-e2e-acp-events",
         dispatchId: command.dispatchId,
@@ -957,7 +958,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
     host.socket.send(
       JSON.stringify({
         type: "dispatch.accepted",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "desktop-e2e-workspace-b-dispatch-accepted",
         dispatchId: command.dispatchId,
         leaseId: command.leaseId,
@@ -968,7 +969,7 @@ describe("Desktop CollaborationClient against the Server composition", () => {
     host.socket.send(
       JSON.stringify({
         type: "acp.events",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         eventProtocolVersion: 2,
         messageId: "desktop-e2e-workspace-b-acp-events",
         dispatchId: command.dispatchId,

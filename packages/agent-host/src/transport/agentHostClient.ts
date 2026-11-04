@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { AgentHostOutboxDataError, AgentHostOutboxDrain } from "./agentHostOutboxDrain.js";
 import { HostConnectionWatchdog } from "./hostConnectionWatchdog.js";
 import { assertHostOutboundControlBudget } from "./hostOutboundControlBudget.js";
@@ -198,6 +199,9 @@ export class AgentHostClient implements HostTransport {
     this.startupAttempt = 0;
     this.reconnectAttempt = 0;
     try {
+      for (const execution of this.options.state.pendingExecutions(Number.MAX_SAFE_INTEGER)) {
+        if (this.rejectPreviousExecution(execution)) return;
+      }
       this.options.canvasRuntime?.start();
       this.options.state.recoverInterruptedExecutions();
     } catch (error) {
@@ -465,7 +469,7 @@ export class AgentHostClient implements HostTransport {
       }
       const hello = serializeAgentHostHello({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: this.options.state.lastAcknowledgedSequence(),
         capabilities: this.capabilities,
@@ -511,7 +515,13 @@ export class AgentHostClient implements HostTransport {
           this.transition(
             reason === "mailbox_message_retention_horizon_exceeded"
               ? { state: "reconciliation-required", reason }
-              : { state: "degraded", reason: "invalid_server_event" }
+              : {
+                  state: "degraded",
+                  reason:
+                    reason === "protocol_version_incompatible"
+                      ? "protocol_version_incompatible_upgrade_required"
+                      : "invalid_server_event"
+                }
           );
           socket.close(4003, "server event rejected");
         })
@@ -779,6 +789,7 @@ export class AgentHostClient implements HostTransport {
     // applying the static Host value again would serialize Owner Fleet operations
     // that the canvas runtime intentionally admitted concurrently.
     for (const pending of this.options.state.pendingResumptions(Number.MAX_SAFE_INTEGER)) {
+      if (this.rejectPreviousExecution(pending)) return;
       const sessionId = this.options.state.executionEvidence(pending.sequence)?.acpSessionId;
       if (this.sessionBusy(pending.sequence, sessionId)) continue;
       const resumption = this.options.state.startResumption(pending.sequence, this.serverNow());
@@ -787,6 +798,7 @@ export class AgentHostClient implements HostTransport {
       if (this.leaseProtectionFailed) return;
     }
     for (const pending of this.options.state.pendingExecutions(Number.MAX_SAFE_INTEGER)) {
+      if (this.rejectPreviousExecution(pending)) return;
       if (this.sessionBusy(pending.sequence, pending.command.envelope.restoration?.sessionId))
         continue;
       const execution = this.options.state.startExecution(pending.sequence, this.serverNow());
@@ -799,6 +811,17 @@ export class AgentHostClient implements HostTransport {
       if (this.leaseProtectionFailed) return;
     }
     this.checkExecutionLeases();
+  }
+
+  private rejectPreviousExecution(execution: AgentHostExecution): boolean {
+    if (execution.command.protocolVersion === agentHostProtocolVersion) return false;
+    this.stopped = true;
+    this.transition({
+      state: "reconciliation-required",
+      reason: "stored_execution_protocol_incompatible"
+    });
+    this.socket?.close(4003, "Stored execution requires reconciliation after protocol upgrade");
+    return true;
   }
 
   private sessionBusy(sequence: number, sessionId: string | undefined): boolean {
@@ -817,6 +840,11 @@ export class AgentHostClient implements HostTransport {
     execution: AgentHostExecution,
     sessionStart: AgentHostExecutionContext["sessionStart"]
   ): void {
+    const command = execution.command;
+    if (command.protocolVersion !== agentHostProtocolVersion) {
+      this.rejectPreviousExecution(execution);
+      return;
+    }
     const controller = new AbortController();
     const active: ActiveExecution = { execution, controller, sessionStart, cleanupFailed: false };
     this.active.set(execution.sequence, active);
@@ -894,6 +922,11 @@ export class AgentHostClient implements HostTransport {
 
   private async run(active: ActiveExecution): Promise<void> {
     const { execution, controller, sessionStart } = active;
+    const command = execution.command;
+    if (command.protocolVersion !== agentHostProtocolVersion) {
+      this.rejectPreviousExecution(execution);
+      return;
+    }
     try {
       let outcome:
         | { kind: "completed"; result: ReturnType<typeof parseAgentHostDispatchResult> }
@@ -915,11 +948,11 @@ export class AgentHostClient implements HostTransport {
         outcome = {
           kind: "completed",
           result: parseAgentHostDispatchResult(
-            await this.options.executor.execute(execution.command, {
+            await this.options.executor.execute(command, {
               signal: controller.signal,
               executionKey: `${execution.command.dispatchId}:${execution.command.leaseId}:${execution.command.executionAttemptId}`,
               artifacts: this.artifacts.forExecution(
-                execution.command,
+                command,
                 (evidence) =>
                   this.options.state.recordArtifactTransfer(
                     execution.sequence,

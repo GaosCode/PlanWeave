@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,7 +66,7 @@ export function request(
       : operation;
   return {
     type: "canvas_runtime.request" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     requestId,
     scope,
     deadline,
@@ -76,7 +77,7 @@ export function request(
 export function cancel(requestId: string, targetRequestId: string) {
   return {
     type: "canvas_runtime.cancel" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     requestId,
     targetRequestId,
     scope,
@@ -90,7 +91,7 @@ export function delivery(
 ) {
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-${sequence}`,

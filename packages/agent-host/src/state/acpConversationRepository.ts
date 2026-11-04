@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomUUID } from "node:crypto";
 import {
   acpConversationCommandSchema,
@@ -160,7 +161,7 @@ export class AcpConversationRepository {
       const chunks = remoteRunnerWireChunks(payload.fragment, (fragment, index) => {
         const parsed = acpConversationEventSchema.safeParse({
           type: "acp_conversation.event",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           operationId: command.operationId,
           turnId,
           executionAttemptId: command.executionAttemptId,
@@ -195,7 +196,7 @@ export class AcpConversationRepository {
     const prompt = this.command(turnId);
     const event = acpConversationEventSchema.parse({
       type: "acp_conversation.event",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: prompt.operationId,
       turnId,
       executionAttemptId: prompt.executionAttemptId,

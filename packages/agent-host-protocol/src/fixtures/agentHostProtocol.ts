@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion as protocolVersion } from "../version.js";
 import { hostEventSchema, hostHelloSchema, serverEventSchema } from "../agentHostProtocol.js";
 import { normalizedAcpEventBatchSchema } from "../acpEvents.js";
 import { executionEnvelopeSchema } from "../executionEnvelope.js";
@@ -9,7 +10,6 @@ import {
   exampleExecutionEnvelopeV1Input
 } from "./executionEnvelope.js";
 
-const protocolVersion = 1 as const;
 const envelope = executionEnvelopeSchema.parse(exampleExecutionEnvelopeInput);
 const dispatchId = envelope.execution.dispatchId;
 const executionAttemptId = envelope.execution.attemptId;

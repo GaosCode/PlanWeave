@@ -1,3 +1,5 @@
+import { openAgentHostDatabase } from "../state/sqliteDatabase.js";
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server as HttpServer } from "node:http";
@@ -82,7 +84,7 @@ function welcome(): ServerEvent {
   return serverEventSchema.parse({
     type: "host.welcome",
     exactPermissionOptionsVersion: 1,
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     serverTime: new Date().toISOString(),
     heartbeatIntervalMs: 60_000,
     leaseDurationMs: 60_000
@@ -125,13 +127,13 @@ function executeDelivery(
   });
   return mailboxDeliverySchema.parse({
     type: "mailbox.message",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-client-${sequence}`,
     command: {
       type: "execute_block",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: envelope.execution.dispatchId,
       leaseId: `lease-client-${suffix}`,
       executionAttemptId: envelope.execution.attemptId,
@@ -146,13 +148,13 @@ function cancelDelivery(execute: Extract<ServerEvent, { type: "mailbox.message" 
   if (execute.command.type !== "execute_block") throw new Error("execute_command_required");
   return serverEventSchema.parse({
     type: "mailbox.message",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     sequence: execute.sequence + 1,
     previousSequence: execute.sequence,
     messageId: `mailbox-client-${execute.sequence + 1}`,
     command: {
       type: "cancel_execution",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: execute.command.dispatchId,
       leaseId: execute.command.leaseId,
       executionAttemptId: execute.command.executionAttemptId,
@@ -171,13 +173,119 @@ function acknowledge(socket: import("ws").WebSocket, event: HostEvent): void {
     socket,
     serverEventSchema.parse({
       type: "host.event_ack",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: event.messageId
     })
   );
 }
 
 describe("Agent Host outbound transport", () => {
+  it("keeps an archived accepted command unexecuted and unchanged after reconnect", async () => {
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
+    webSocketServers.push(webSocketServer);
+    webSocketServer.on("connection", (socket) => {
+      socket.once("message", () => socket.send(JSON.stringify(welcome())));
+    });
+    const state = await openState();
+    state.receive(executeDelivery());
+    const directory = directories.at(-1);
+    if (!directory) throw new Error("Expected state directory");
+    const db = await openAgentHostDatabase(join(directory, "host.sqlite"), 5_000);
+    const row = db.prepare("SELECT sequence,command_json FROM agent_host_inbox LIMIT 1").get();
+    if (!row) throw new Error("Expected stored command");
+    const archived = JSON.stringify({
+      ...JSON.parse(String(row.command_json)),
+      protocolVersion: 1
+    });
+    db.prepare("UPDATE agent_host_inbox SET command_json=? WHERE sequence=?").run(
+      archived,
+      row.sequence
+    );
+    db.prepare("UPDATE agent_host_executions SET protocol_version=1 WHERE inbox_sequence=?").run(
+      row.sequence
+    );
+    const execute = vi.fn();
+    const port = await listen(httpServer);
+    const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
+      serverUrl: `http://127.0.0.1:${port}`,
+      hostId: "host-client-001",
+      token: "host-token",
+      capabilities: ["test"],
+      capacity: 1,
+      state,
+      executor: { execute },
+      request: remoteRunnerEventV2Request,
+      allowInsecureTransport: true
+    });
+    clients.push(client);
+    try {
+      expect(state.pendingExecutions(1)[0]?.command.protocolVersion).toBe(1);
+      client.start();
+      await vi.waitFor(() =>
+        expect(client.status()).toEqual({
+          state: "reconciliation-required",
+          reason: "stored_execution_protocol_incompatible"
+        })
+      );
+      expect(execute).not.toHaveBeenCalled();
+      expect(
+        db.prepare("SELECT command_json FROM agent_host_inbox WHERE sequence=?").get(row.sequence)
+          ?.command_json
+      ).toBe(archived);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rejects an old Server welcome before recovering or executing work", async () => {
+    const httpServer = createServer();
+    httpServers.push(httpServer);
+    const webSocketServer = new WebSocketServer({ server: httpServer });
+    attachHostEventPayloadBudget(webSocketServer);
+    webSocketServers.push(webSocketServer);
+    webSocketServer.on("connection", (socket) => {
+      socket.once("message", () =>
+        socket.send(JSON.stringify({ ...welcome(), protocolVersion: 1 }))
+      );
+    });
+    const port = await listen(httpServer);
+    const state = await openState();
+    const execute = vi.fn();
+    const recover = vi.fn();
+    const client = new AgentHostClient({
+      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
+      serverUrl: `http://127.0.0.1:${port}`,
+      hostId: "host-client-001",
+      token: "host-token",
+      capabilities: ["test"],
+      capacity: 1,
+      state,
+      executor: { execute },
+      conversations: {
+        handle: vi.fn(),
+        recover,
+        stop: vi.fn(async () => undefined),
+        isSessionActive: vi.fn(() => false)
+      },
+      request: remoteRunnerEventV2Request,
+      allowInsecureTransport: true
+    });
+    clients.push(client);
+    client.start();
+    await vi.waitFor(() =>
+      expect(client.status()).toEqual({
+        state: "degraded",
+        reason: "protocol_version_incompatible_upgrade_required"
+      })
+    );
+    expect(execute).not.toHaveBeenCalled();
+    expect(recover).not.toHaveBeenCalled();
+  });
+
   it("calibrates the shared Server clock before recovering conversations", async () => {
     const httpServer = createServer();
     httpServers.push(httpServer);

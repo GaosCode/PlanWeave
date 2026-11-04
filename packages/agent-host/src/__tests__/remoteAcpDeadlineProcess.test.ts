@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,7 +38,7 @@ async function setup(
   await writeFile(join(directory, "pause-at"), `${pauseAt}\n`);
   const command = acpConversationPromptCommandSchema.parse({
     type: "acp_conversation.prompt",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     operationId: "deadline-op",
     turnId: "deadline-turn",
     executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -48,7 +49,7 @@ async function setup(
   });
   state.receive({
     type: "mailbox.message",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     messageId: "deadline-message",
     previousSequence: 0,
     sequence: 1,

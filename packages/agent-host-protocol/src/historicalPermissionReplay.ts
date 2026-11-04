@@ -21,7 +21,7 @@ export function negotiateHistoricalPermissionReplayVersion(value: unknown): 1 | 
 }
 
 export const historicalPermissionHostEventSchema = legacyPermissionRequestSchema.extend({
-  protocolVersion: agentHostProtocolVersionSchema,
+  protocolVersion: z.union([z.literal(1), agentHostProtocolVersionSchema]),
   messageId: mailboxMessageIdSchema
 });
 export const historicalPermissionMailboxCommandSchema = legacyPermissionSettlementSchema.extend({

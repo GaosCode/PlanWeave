@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -78,7 +79,7 @@ async function setup(historical = false) {
     const sequence = (sequences.get(turnId) ?? 0) + 1;
     sequences.set(turnId, sequence);
     const event = acpConversationEventSchema.parse({
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       type: "acp_conversation.event",
       messageId,
       operationId: owner.id,

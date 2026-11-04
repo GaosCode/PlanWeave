@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,7 +58,7 @@ async function setup(
         JSON.stringify(
           serverEventSchema.parse({
             type: "host.welcome",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             exactPermissionOptionsVersion: 1,
             serverTime: clock.now().toISOString(),
             heartbeatIntervalMs: 60_000,

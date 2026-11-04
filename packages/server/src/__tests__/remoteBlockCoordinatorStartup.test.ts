@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -457,7 +458,7 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     );
     coordination.dispatches.interrupt(hostId, "startup-action-runtime-unavailable-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "startup-action-runtime-unavailable-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,
@@ -629,7 +630,7 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     );
     coordination.dispatches.interrupt(hostId, "retry-rejected-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "retry-rejected-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,
@@ -966,7 +967,7 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     );
     coordination.dispatches.interrupt(hostId, "runtime-reset-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "runtime-reset-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,
@@ -1020,7 +1021,7 @@ describe("RemoteBlockCoordinator startup reconciliation", () => {
     );
     coordination.dispatches.interrupt(hostId, "active-lease-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "active-lease-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,

@@ -1,5 +1,7 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import {
   hostEventPayloadBytes,
+  assertAgentHostProtocolCompatible,
   historicalPermissionHostReplaySchema,
   artifactRefSchema,
   capabilitiesSchema,
@@ -63,6 +65,14 @@ export function parseAgentHostMailboxCommand(input: unknown): MailboxCommand {
 }
 
 export function parseAgentHostServerEvent(input: unknown): ServerEvent {
+  if (
+    typeof input === "object" &&
+    input !== null &&
+    "protocolVersion" in input &&
+    !assertAgentHostProtocolCompatible(input.protocolVersion).ok
+  ) {
+    throw new Error("protocol_version_incompatible");
+  }
   return serverEventSchema.parse(input);
 }
 
@@ -102,7 +112,7 @@ export function encodeHistoricalAgentHostEvent(
   const payload = JSON.stringify(
     historicalPermissionHostReplaySchema.parse({
       type: "host.permission_history",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       eventJson: eventJson ?? serializeHistoricalAgentHostEvent(input)
     })
   );

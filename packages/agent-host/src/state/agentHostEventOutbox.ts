@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomUUID } from "node:crypto";
 import {
   DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
@@ -167,7 +168,7 @@ export class AgentHostEventOutbox {
     const create = (leases: typeof activeLeases, includeReadiness: boolean) =>
       parseAgentHostEvent({
         type: "host.heartbeat",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: randomUUID(),
         activeLeases: leases,
         ...(includeReadiness && readiness ? { readiness } : {})

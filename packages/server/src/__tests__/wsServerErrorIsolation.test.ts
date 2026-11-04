@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { CANVAS_RUNTIME_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -137,7 +138,7 @@ async function setup(heartbeatIntervalMs = 30_000) {
       socket.send(
         JSON.stringify({
           type: "host.hello",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           supportedExecutionEnvelopeVersions: [1, 2],
           lastAcknowledgedSequence: 0,
           capabilities: [CANVAS_RUNTIME_CAPABILITY],
@@ -211,7 +212,7 @@ async function respond(client: {
   client.socket.send(
     JSON.stringify({
       type: "canvas_runtime.response",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: `response-${event.command.requestId}`,
       requestId: event.command.requestId,
       response: {
@@ -259,7 +260,7 @@ describe("Agent Host WebSocket transport error isolation", () => {
       healthy.socket.send(
         JSON.stringify({
           type: "host.heartbeat",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           messageId: "healthy-heartbeat",
           activeLeases: []
         })
@@ -309,7 +310,7 @@ describe("Agent Host WebSocket transport error isolation", () => {
       replacement.socket.send(
         JSON.stringify({
           type: "canvas_runtime.response",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           messageId: "late-old-response",
           requestId: replay.command.requestId,
           response: {
@@ -347,7 +348,7 @@ describe("Agent Host WebSocket transport error isolation", () => {
       replacement.socket.send(
         JSON.stringify({
           type: "canvas_runtime.response",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           messageId: "replacement-response",
           requestId: request.command.requestId,
           response: {

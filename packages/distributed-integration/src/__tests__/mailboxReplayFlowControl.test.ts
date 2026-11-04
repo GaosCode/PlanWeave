@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { Socket } from "node:net";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -64,7 +65,7 @@ describe("durable mailbox flow control through the default Agent Host", () => {
     for (let index = 0; index < 160; index++) {
       const command = cancelExecutionCommandSchema.parse({
         type: "cancel_execution",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         dispatchId: index === 0 ? fixture.request.dispatchId : `idle-dispatch-${index}`,
         leaseId: fixture.request.leaseId,
         executionAttemptId:

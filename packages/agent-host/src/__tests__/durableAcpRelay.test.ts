@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -577,7 +578,7 @@ describe("durable ACP relay", () => {
     });
     const settlement = mailboxDeliverySchema.parse({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       sequence: delivery.sequence + 1,
       previousSequence: delivery.sequence,
       messageId: "mailbox-permission-response-001",
@@ -641,7 +642,7 @@ describe("durable ACP relay", () => {
     });
     const settlement = {
       type: "mailbox.message" as const,
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       sequence: delivery.sequence + 1,
       previousSequence: delivery.sequence,
       messageId: "mailbox-expired-response",
@@ -688,7 +689,7 @@ describe("durable ACP relay", () => {
     });
     const settlement = mailboxDeliverySchema.parse({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       sequence: delivery.sequence + 1,
       previousSequence: delivery.sequence,
       messageId: "mailbox-recovered-response",
@@ -753,7 +754,7 @@ describe("durable ACP relay", () => {
     });
     const acceptedDelivery = mailboxDeliverySchema.parse({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       sequence: acceptedSetup.delivery.sequence + 1,
       previousSequence: acceptedSetup.delivery.sequence,
       messageId: "mailbox-elicitation-accepted",
@@ -785,7 +786,7 @@ describe("durable ACP relay", () => {
     });
     const cancelledDelivery = mailboxDeliverySchema.parse({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       sequence: cancelledSetup.delivery.sequence + 1,
       previousSequence: cancelledSetup.delivery.sequence,
       messageId: "mailbox-elicitation-cancelled",
@@ -816,7 +817,7 @@ describe("durable ACP relay", () => {
     });
     const base = {
       type: "mailbox.message" as const,
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       sequence: delivery.sequence + 1,
       previousSequence: delivery.sequence,
       messageId: "mailbox-auth-action",

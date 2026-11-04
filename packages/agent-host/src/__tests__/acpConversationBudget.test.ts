@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,7 +28,7 @@ async function setup() {
   fixtures.push({ directory, state });
   const command = acpConversationPromptCommandSchema.parse({
     type: "acp_conversation.prompt",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     operationId: "operation-budget",
     turnId: "turn-budget",
     executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -44,7 +45,7 @@ describe("Host conversation single-event wire admission", () => {
   it("derives the minimum budget from the largest generated identities and bounded failure frame", () => {
     const terminal = acpConversationEventSchema.parse({
       type: "acp_conversation.event",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: "\u0000".repeat(256),
       turnId: "\u0000".repeat(256),
       executionAttemptId: "\u0000".repeat(256),
@@ -77,7 +78,7 @@ describe("Host conversation single-event wire admission", () => {
     const prefix = '中"\\\n\u0000';
     const event: AcpConversationEvent = {
       type: "acp_conversation.event",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: f.command.operationId,
       turnId: f.command.turnId,
       executionAttemptId: f.command.executionAttemptId,

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -189,7 +190,7 @@ async function setup() {
   const interrupt = () =>
     coordination.dispatches.interrupt(host.id, "scope-interrupt", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "scope-interrupt",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,

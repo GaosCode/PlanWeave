@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import {
   hostEnrollmentErrorSchema,
@@ -19,7 +20,7 @@ function send(response: ServerResponse, status: number, body: unknown): void {
 function errorBody(code: HostEnrollmentErrorCode) {
   return hostEnrollmentErrorSchema.parse({
     type: "host.enrollment.error",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     code,
     message: "Agent Host enrollment was rejected.",
     retryable: false

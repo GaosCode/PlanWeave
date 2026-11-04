@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { expect, it } from "vitest";
 import { setupOperatorCas } from "./workspaceExecutionOperatorCasTestFixture.js";
 
@@ -138,7 +139,7 @@ it.each([
   h.afterConflict(async () => {
     h.f.dispatches.interrupt(h.f.host.id, "host-interrupted", {
       type: "dispatch.interrupted",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "host-interrupted",
       dispatchId: dispatch.id,
       leaseId: dispatch.leaseId,

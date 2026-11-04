@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { describe, expect, it } from "vitest";
 import * as browser from "../browser.js";
 import {
@@ -18,7 +19,7 @@ const identity = {
 const request = {
   ...identity,
   type: "interaction.permission_requested",
-  protocolVersion: 1,
+  protocolVersion: agentHostProtocolVersion,
   messageId: "old-message",
   title: "Permission",
   description: "Persisted without options",
@@ -27,7 +28,7 @@ const request = {
 const response = { ...identity, type: "interaction.permission_response", decision: "allow_once" };
 const mailbox = {
   type: "mailbox.permission_history",
-  protocolVersion: 1,
+  protocolVersion: agentHostProtocolVersion,
   sequence: 2,
   previousSequence: 1,
   messageId: "old-mailbox",
@@ -52,7 +53,7 @@ describe("historical permission replay wire boundary", () => {
     const eventJson = JSON.stringify(request, null, 2);
     const replay = historicalPermissionHostReplaySchema.parse({
       type: "host.permission_history",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       eventJson
     });
     expect(replay.eventJson).toBe(eventJson);

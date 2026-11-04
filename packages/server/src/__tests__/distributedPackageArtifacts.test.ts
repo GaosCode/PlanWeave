@@ -121,7 +121,7 @@ describe("distributed package artifact contracts", () => {
       import: "./dist/fixtures/collaboration.js"
     });
     expect(server.dependencies?.["@planweave-ai/collaboration-protocol"]).toBe("workspace:*");
-    expect(agentHostProtocolVersion).toBe(1);
+    expect(agentHostProtocolVersion).toBe(2);
 
     // Desktop is Electron-distributed, never an npm library publish target.
     expect(desktop.private).toBe(true);
@@ -202,9 +202,9 @@ describe("distributed package artifact contracts", () => {
   });
 
   it("exports explicit protocol and package-major rejection helpers", () => {
-    expect(PLANWEAVE_COMPATIBILITY_BOUNDS.agentHostProtocolVersion).toBe(1);
-    expect(assertAgentHostProtocolCompatible(1)).toEqual({ ok: true });
-    expect(assertAgentHostProtocolCompatible(2)).toMatchObject({
+    expect(PLANWEAVE_COMPATIBILITY_BOUNDS.agentHostProtocolVersion).toBe(2);
+    expect(assertAgentHostProtocolCompatible(agentHostProtocolVersion)).toEqual({ ok: true });
+    expect(assertAgentHostProtocolCompatible(1)).toMatchObject({
       ok: false,
       code: "protocol_version_incompatible"
     });

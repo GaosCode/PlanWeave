@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import type { CanvasCommandIntent } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
@@ -147,7 +148,7 @@ describe("Tailscale proxy with two Desktop clients", () => {
     host.send(
       JSON.stringify({
         type: "host.hello",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         supportedExecutionEnvelopeVersions: [1, 2],
         lastAcknowledgedSequence: 0,
         capabilities: ["acp.codex"],
@@ -262,14 +263,14 @@ describe("Tailscale proxy with two Desktop clients", () => {
     host.send(
       JSON.stringify({
         type: "host.heartbeat",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "two-desktop-proxy-heartbeat",
         activeLeases: []
       })
     );
     await expect(heartbeatAcknowledgement).resolves.toEqual({
       type: "host.event_ack",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "two-desktop-proxy-heartbeat"
     });
     expect(host.readyState).toBe(WebSocket.OPEN);

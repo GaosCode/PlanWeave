@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -44,7 +45,7 @@ export async function outboxFailureHarness(
   cleanups.push(() => database.close());
   const command = acpConversationPromptCommandSchema.parse({
     type: "acp_conversation.prompt",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     operationId: "failure-op",
     turnId: "failure-turn",
     executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -99,7 +100,7 @@ export async function outboxFailureHarness(
           JSON.stringify(
             serverEventSchema.parse({
               type: "host.welcome",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               exactPermissionOptionsVersion: 1,
               serverTime: new Date().toISOString(),
               heartbeatIntervalMs: 60_000,
@@ -115,7 +116,7 @@ export async function outboxFailureHarness(
         socket.send(
           JSON.stringify({
             type: "host.event_ack",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             messageId: event.messageId
           })
         );

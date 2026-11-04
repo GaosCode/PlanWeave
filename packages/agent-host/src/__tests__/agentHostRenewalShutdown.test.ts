@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
@@ -110,7 +111,7 @@ async function fixture(heldMethod: "GET" | "POST", clock?: FakeHostTransportCloc
         socket.send(
           JSON.stringify({
             type: "host.welcome",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             exactPermissionOptionsVersion: 1,
             serverTime: new Date().toISOString(),
             heartbeatIntervalMs: 60000,
@@ -119,7 +120,11 @@ async function fixture(heldMethod: "GET" | "POST", clock?: FakeHostTransportCloc
         );
       else if (event.messageId)
         socket.send(
-          JSON.stringify({ type: "host.event_ack", protocolVersion: 1, messageId: event.messageId })
+          JSON.stringify({
+            type: "host.event_ack",
+            protocolVersion: agentHostProtocolVersion,
+            messageId: event.messageId
+          })
         );
     });
   });

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -39,13 +40,13 @@ function delivery(sequence: number) {
   });
   return mailboxDeliverySchema.parse({
     type: "mailbox.message",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `wire-mailbox-${sequence}`,
     command: {
       type: "execute_block",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: envelope.execution.dispatchId,
       executionAttemptId: envelope.execution.attemptId,
       leaseId: `wire-lease-${sequence}`,
@@ -94,7 +95,7 @@ describe("real ACP permission failure through the Host wire", () => {
               JSON.stringify(
                 serverEventSchema.parse({
                   type: "host.welcome",
-                  protocolVersion: 1,
+                  protocolVersion: agentHostProtocolVersion,
                   exactPermissionOptionsVersion: 1,
                   serverTime: new Date().toISOString(),
                   heartbeatIntervalMs: 60_000,
@@ -109,7 +110,7 @@ describe("real ACP permission failure through the Host wire", () => {
           socket.send(
             JSON.stringify({
               type: "host.event_ack",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               messageId: event.messageId
             })
           );

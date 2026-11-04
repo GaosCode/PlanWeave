@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,7 +68,7 @@ function authorizeResume(state: AgentHostState) {
   state.abandonExpiredExecutions(deadline);
   const resumed = {
     type: "resume_execution" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     dispatchId: command.dispatchId,
     leaseId: "lease-settlement-resumed",
     executionAttemptId: command.executionAttemptId,
@@ -79,7 +80,7 @@ function authorizeResume(state: AgentHostState) {
   };
   state.receive({
     type: "mailbox.message",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     messageId: "mailbox-settlement-resume",
     sequence: 2,
     previousSequence: 1,

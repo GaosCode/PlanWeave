@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -42,7 +43,7 @@ async function setup(welcome = true) {
         socket.send(
           JSON.stringify({
             type: "host.welcome",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             exactPermissionOptionsVersion: 1,
             serverTime: clock.now().toISOString(),
             heartbeatIntervalMs: 10_000,
@@ -99,7 +100,11 @@ it("keeps a responsive idle connection alive across many deadlines", async () =>
       const event = JSON.parse(data.toString());
       if (event.messageId)
         socket.send(
-          JSON.stringify({ type: "host.event_ack", protocolVersion: 1, messageId: event.messageId })
+          JSON.stringify({
+            type: "host.event_ack",
+            protocolVersion: agentHostProtocolVersion,
+            messageId: event.messageId
+          })
         );
     });
   }

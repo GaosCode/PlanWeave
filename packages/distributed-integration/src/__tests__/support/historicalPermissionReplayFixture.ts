@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import {
   historicalPermissionMailboxReplaySchema,
   exampleExecuteDelivery,
@@ -79,7 +80,7 @@ export async function setup() {
   initialized.close();
   const request = {
     type: "interaction.permission_requested",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     messageId: "historical-event",
     dispatchId: fixture.operation.dispatchId,
     leaseId: fixture.reservation.leaseId,
@@ -204,7 +205,7 @@ export function nextCancellation(fixture: Fixture) {
     fixture.host.id,
     cancelExecutionCommandSchema.parse({
       type: "cancel_execution",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: fixture.request.dispatchId,
       leaseId: fixture.request.leaseId,
       executionAttemptId: fixture.request.executionAttemptId,
@@ -237,7 +238,7 @@ export async function connectRaw(fixture: Fixture, headers: Record<string, strin
   socket.send(
     JSON.stringify({
       type: "host.hello",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       supportedExecutionEnvelopeVersions: [1, 2],
       lastAcknowledgedSequence: 0,
       capabilities: [],
@@ -294,7 +295,7 @@ export async function seedHistoricalInbox(fixture: Fixture, processed: boolean) 
     state.receive(
       mailboxDeliverySchema.parse({
         type: "mailbox.message",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         sequence: execution.sequence,
         previousSequence: 0,
         messageId: execution.messageId,
@@ -304,7 +305,7 @@ export async function seedHistoricalInbox(fixture: Fixture, processed: boolean) 
     state.receive(
       historicalPermissionMailboxReplaySchema.parse({
         type: "mailbox.permission_history",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         sequence: historical.sequence,
         previousSequence: execution.sequence,
         messageId: "historical-mailbox",

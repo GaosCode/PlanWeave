@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,13 +60,13 @@ function executeMessage(sequence = 1) {
 function cancelMessage(sequence = 2) {
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-${sequence}`,
     command: {
       type: "cancel_execution" as const,
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: exampleExecuteDelivery.command.dispatchId,
       leaseId: "lease-1",
       executionAttemptId: exampleExecuteDelivery.command.executionAttemptId,
@@ -77,7 +78,7 @@ function cancelMessage(sequence = 2) {
 function unsupportedMessage(sequence: number, command: Record<string, unknown>) {
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `mailbox-${sequence}`,
@@ -88,13 +89,13 @@ function unsupportedMessage(sequence: number, command: Record<string, unknown>) 
 function canvasRuntimeMessage(sequence = 1) {
   return {
     type: "mailbox.message" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     sequence,
     previousSequence: sequence - 1,
     messageId: `canvas-mailbox-${sequence}`,
     command: {
       type: "canvas_runtime.request" as const,
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       requestId: "runtime-request-1",
       scope: { workspaceId: "workspace-1", projectId: "project-1", canvasId: "default" },
       deadline: "2030-01-01T00:00:00.000Z",
@@ -108,7 +109,7 @@ describe("durable Agent Host state", () => {
     const { directory, state } = await setup();
     const command = acpConversationPromptCommandSchema.parse({
       type: "acp_conversation.prompt",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: "notify-op",
       turnId: "notify-turn",
       executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -178,7 +179,7 @@ describe("durable Agent Host state", () => {
     try {
       const event = outbox.queue("standalone-heartbeat", {
         type: "host.heartbeat",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "standalone-message",
         activeLeases: []
       });
@@ -229,7 +230,7 @@ describe("durable Agent Host state", () => {
     expect(state.canvasRuntime.begin("runtime-request-1")).toBe(true);
     const response = {
       type: "canvas_runtime.response" as const,
-      protocolVersion: 1 as const,
+      protocolVersion: agentHostProtocolVersion,
       requestId: "runtime-request-1",
       response: {
         outcome: "success" as const,

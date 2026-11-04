@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash, randomUUID } from "node:crypto";
 import { access, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -331,7 +332,7 @@ export class CanvasRuntimeService {
         this.assertOpen(command, active);
         payload = canvasRuntimeResponsePayloadSchema.parse({
           type: "canvas_runtime.response",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           requestId: command.requestId,
           response: { outcome: "success", operation: responseOperation(command), result }
         });
@@ -369,7 +370,7 @@ export class CanvasRuntimeService {
   ): CanvasRuntimeResponsePayload {
     return canvasRuntimeResponsePayloadSchema.parse({
       type: "canvas_runtime.response",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       requestId: command.requestId,
       response: {
         outcome: "error",
@@ -928,7 +929,7 @@ export class CanvasRuntimeService {
           resetCommand.requestId,
           canvasRuntimeResponsePayloadSchema.parse({
             type: "canvas_runtime.response",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             requestId: resetCommand.requestId,
             response: { outcome: "success", operation: "reset", result: resolution.result }
           })

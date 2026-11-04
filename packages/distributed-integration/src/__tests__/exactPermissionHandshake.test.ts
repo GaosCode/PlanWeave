@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { startPlanweaveServer } from "../../../server/src/lifecycle.js";
 import { AgentHostRepository } from "../../../server/src/hosts.js";
 import { HostEventInbox } from "../../../server/src/hostEvents.js";
@@ -58,7 +59,7 @@ describe("exact permission connection compatibility", () => {
     cleanups.push(() => state.close());
     const command = acpConversationPromptCommandSchema.parse({
       type: "acp_conversation.prompt",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: "queued-operation",
       turnId: "queued-turn",
       executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -70,7 +71,7 @@ describe("exact permission connection compatibility", () => {
     state.receive(
       mailboxDeliverySchema.parse({
         type: "mailbox.message",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: "queued-message",
         previousSequence: 0,
         sequence: 1,
@@ -125,7 +126,7 @@ describe("exact permission connection compatibility", () => {
           socket.send(
             JSON.stringify({
               type: "host.welcome",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               serverTime: new Date().toISOString(),
               heartbeatIntervalMs: 60_000,
               leaseDurationMs: 60_000,
@@ -261,7 +262,7 @@ describe("exact permission connection compatibility", () => {
           socket.send(
             JSON.stringify({
               type: "host.welcome",
-              protocolVersion: 1,
+              protocolVersion: agentHostProtocolVersion,
               serverTime: new Date().toISOString(),
               heartbeatIntervalMs: 60_000,
               leaseDurationMs: 60_000,
@@ -281,7 +282,7 @@ describe("exact permission connection compatibility", () => {
             socket.send(
               JSON.stringify({
                 type: "protocol.error",
-                protocolVersion: 1,
+                protocolVersion: agentHostProtocolVersion,
                 code: "old_error",
                 message: "Old error"
               })
@@ -320,7 +321,11 @@ describe("exact permission connection compatibility", () => {
           }
         }
         socket.send(
-          JSON.stringify({ type: "host.event_ack", protocolVersion: 1, messageId: event.messageId })
+          JSON.stringify({
+            type: "host.event_ack",
+            protocolVersion: agentHostProtocolVersion,
+            messageId: event.messageId
+          })
         );
       });
     });
@@ -464,7 +469,7 @@ describe("exact permission connection compatibility", () => {
         socket.send(
           JSON.stringify({
             type: "host.welcome",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             serverTime: new Date().toISOString(),
             heartbeatIntervalMs: 60_000,
             leaseDurationMs: 60_000,

@@ -1,7 +1,12 @@
+import {
+  storedExecuteBlockCommandSchema,
+  storedMailboxCommandSchema
+} from "../agentHostProtocol.js";
 import { describe, expect, it } from "vitest";
 import {
   agentHostProtocolGoldenFixtures,
   hostEventSchema,
+  historicalHostEventSchema,
   hostHelloSchema,
   interactionSettlementSchema,
   normalizedAcpEventBatchSchema,
@@ -42,7 +47,7 @@ describe("versioned Agent Host protocol", () => {
 
   it("rejects unsupported versions, unknown fields, and mismatched execution identity", () => {
     expect(() =>
-      hostHelloSchema.parse({ ...agentHostProtocolGoldenFixtures.hello, protocolVersion: 2 })
+      hostHelloSchema.parse({ ...agentHostProtocolGoldenFixtures.hello, protocolVersion: 1 })
     ).toThrow("Unsupported Agent Host protocol version");
     expect(() =>
       serverEventSchema.parse({ ...agentHostProtocolGoldenFixtures.executeDelivery, secret: "no" })
@@ -162,4 +167,31 @@ describe("versioned Agent Host protocol", () => {
       })
     ).toThrow("interaction_identity_mismatch");
   });
+});
+
+it("reads version 1 commands without upgrading their executable wire identity", () => {
+  const archived = {
+    ...agentHostProtocolGoldenFixtures.executeDelivery.command,
+    protocolVersion: 1
+  };
+  expect(storedExecuteBlockCommandSchema.parse(archived)).toEqual(archived);
+  expect(storedMailboxCommandSchema.parse(archived)).toEqual(archived);
+  expect(
+    serverEventSchema.safeParse({
+      ...agentHostProtocolGoldenFixtures.executeDelivery,
+      command: archived
+    }).success
+  ).toBe(false);
+  expect(storedExecuteBlockCommandSchema.safeParse({ ...archived, secret: "extra" }).success).toBe(
+    false
+  );
+  expect(
+    storedExecuteBlockCommandSchema.safeParse({ ...archived, protocolVersion: 0 }).success
+  ).toBe(false);
+});
+
+it("reads old Host outbox records while rejecting them as live events", () => {
+  const archived = { ...agentHostProtocolGoldenFixtures.interrupted, protocolVersion: 1 };
+  expect(historicalHostEventSchema.parse(archived)).toEqual(archived);
+  expect(hostEventSchema.safeParse(archived).success).toBe(false);
 });

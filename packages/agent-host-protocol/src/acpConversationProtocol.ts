@@ -1,3 +1,4 @@
+import { agentHostProtocolVersionSchema } from "./version.js";
 import { z } from "zod";
 import { executionEnvelopeSchema } from "./executionEnvelope.js";
 import { remoteRunnerEventFragmentSchema } from "./runnerEvents.js";
@@ -46,7 +47,11 @@ export const acpConversationActionSchema = z.discriminatedUnion("kind", [
 ]);
 export type AcpConversationAction = z.infer<typeof acpConversationActionSchema>;
 
-const commandIdentity = { protocolVersion: z.literal(1), operationId: identifier, ...identity };
+const commandIdentity = {
+  protocolVersion: agentHostProtocolVersionSchema,
+  operationId: identifier,
+  ...identity
+};
 export const acpConversationPromptCommandSchema = z
   .object({
     ...commandIdentity,

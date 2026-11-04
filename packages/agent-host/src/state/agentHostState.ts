@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { parseHistoricalPermissionCommandJson } from "@planweave-ai/agent-host-protocol";
 import { cancellationForMailboxCommand } from "./historicalPermissionCancellation.js";
 import type { HistoricalAgentHostRemoteExecutionRecord } from "../execution/remoteExecutionRecordSchema.js";
@@ -29,8 +30,7 @@ import { digestJson, initializeAgentHostStateSchema } from "./agentHostStateMigr
 import {
   type AgentHostExecution,
   type AgentHostExecutionEvidence,
-  type AgentHostExecutionStatus,
-  type ExecuteBlockCommand
+  type AgentHostExecutionStatus
 } from "./agentHostStateRecords.js";
 import {
   type AgentHostCancellation,
@@ -286,7 +286,7 @@ export class AgentHostState implements AgentHostStateRepository {
         `mailbox.ack:${event.sequence}`,
         parseAgentHostEvent({
           type: "mailbox.ack",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           messageId: randomUUID(),
           sequence: event.sequence
         })
@@ -530,7 +530,7 @@ export class AgentHostState implements AgentHostStateRepository {
         `dispatch.accepted:${running.command.dispatchId}:${running.command.leaseId}:${running.command.executionAttemptId}`,
         parseAgentHostEvent({
           type: "dispatch.accepted",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           messageId: randomUUID(),
           dispatchId: running.command.dispatchId,
           leaseId: running.command.leaseId,
@@ -580,7 +580,7 @@ export class AgentHostState implements AgentHostStateRepository {
         `dispatch.accepted:${running.command.dispatchId}:${running.command.leaseId}:${running.command.executionAttemptId}`,
         parseAgentHostEvent({
           type: "dispatch.accepted",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           messageId: randomUUID(),
           dispatchId: running.command.dispatchId,
           leaseId: running.command.leaseId,
@@ -611,7 +611,7 @@ export class AgentHostState implements AgentHostStateRepository {
         (command) =>
           parseAgentHostEvent({
             type: "dispatch.completed",
-            protocolVersion: 1,
+            protocolVersion: agentHostProtocolVersion,
             messageId: randomUUID(),
             dispatchId: command.dispatchId,
             leaseId: command.leaseId,
@@ -794,7 +794,7 @@ export class AgentHostState implements AgentHostStateRepository {
   private finishExecutionInCurrentTransaction(
     sequence: number,
     status: "completed" | "failed" | "cancelled",
-    createEvent: (command: ExecuteBlockCommand) => HostEvent,
+    createEvent: (command: AgentHostExecution["command"]) => HostEvent,
     payload: ProtocolDispatchResult | ProtocolDispatchFailure
   ): void {
     const current = this.executions.get(sequence);
@@ -821,10 +821,13 @@ export class AgentHostState implements AgentHostStateRepository {
     this.executions.finish(sequence, status, payload, event.messageId);
   }
 
-  private failedEvent(command: ExecuteBlockCommand, failure: ProtocolDispatchFailure): HostEvent {
+  private failedEvent(
+    command: AgentHostExecution["command"],
+    failure: ProtocolDispatchFailure
+  ): HostEvent {
     return parseAgentHostEvent({
       type: "dispatch.failed",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: randomUUID(),
       dispatchId: command.dispatchId,
       leaseId: command.leaseId,

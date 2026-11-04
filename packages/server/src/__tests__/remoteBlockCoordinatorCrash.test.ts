@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { createHash } from "node:crypto";
 import { appendFile, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -459,7 +460,7 @@ async function prepareInterruptedAction(harness: CoordinatorHarness, resumable: 
   );
   coordination.dispatches.interrupt(hostId, `action-interrupted-${resumable}`, {
     type: "dispatch.interrupted",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     messageId: `action-interrupted-${resumable}`,
     dispatchId: dispatch.id,
     leaseId: dispatch.leaseId,
@@ -515,7 +516,7 @@ async function prepareInterruptedV3Action(harness: CoordinatorHarness) {
   );
   coordination.dispatches.interrupt(hostId, "v3-action-crash-interrupted", {
     type: "dispatch.interrupted",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     messageId: "v3-action-crash-interrupted",
     dispatchId: dispatch.id,
     leaseId: dispatch.leaseId,

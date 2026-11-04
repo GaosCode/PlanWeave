@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomUUID } from "node:crypto";
 import {
   historicalInteractionSettlementSchema,
@@ -67,7 +68,7 @@ export class AgentHostInteractionSettlements {
       `dispatch.failed:${command.dispatchId}:${command.leaseId}:${command.executionAttemptId}`,
       parseAgentHostEvent({
         type: "dispatch.failed",
-        protocolVersion: 1,
+        protocolVersion: agentHostProtocolVersion,
         messageId: randomUUID(),
         dispatchId: command.dispatchId,
         leaseId: command.leaseId,

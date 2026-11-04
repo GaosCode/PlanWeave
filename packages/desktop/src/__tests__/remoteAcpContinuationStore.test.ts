@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { describe, expect, it } from "vitest";
 import type { AcpConversationEvent } from "@planweave-ai/agent-host-protocol/browser";
 import { projectRemoteAcpReplay, projectRemoteAcpTelemetry } from "@planweave-ai/runtime/browser";
@@ -11,7 +12,7 @@ const timestamp = "2030-01-01T00:00:00.000Z";
 type Payload = AcpConversationEvent["payload"];
 function event(turnId: string, sequence: number, payload: Payload): AcpConversationEvent {
   return {
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     type: "acp_conversation.event",
     operationId: "operation-one",
     executionAttemptId: "attempt-one",

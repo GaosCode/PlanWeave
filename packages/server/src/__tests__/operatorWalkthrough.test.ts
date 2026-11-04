@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -266,7 +267,7 @@ describe("remote operator walkthrough", () => {
       schemaVersion: latestCentralSchemaVersion
     });
     await expect((await fetch(`${origin}/version`)).json()).resolves.toMatchObject({
-      protocolVersion: 1
+      protocolVersion: agentHostProtocolVersion
     });
 
     const bootstrap = await fetch(

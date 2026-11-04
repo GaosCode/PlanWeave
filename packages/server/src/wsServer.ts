@@ -1,5 +1,6 @@
 import {
   DEFAULT_HOST_EVENT_MAX_PAYLOAD_BYTES,
+  assertAgentHostProtocolCompatible,
   HOST_EVENT_PAYLOAD_BUDGET_VERSION_HEADER,
   HOST_EVENT_MAX_PAYLOAD_BYTES_HEADER,
   opaqueIdentifierSchema,
@@ -8,9 +9,9 @@ import {
   negotiateHistoricalPermissionReplayVersion,
   historicalPermissionHostReplaySchema,
   parseHistoricalPermissionEventJson,
-  historicalHostEventSchema,
+  historicalPermissionHostEventSchema,
   negotiateExactPermissionOptionsVersion,
-  type HistoricalHostEvent
+  type HostEvent
 } from "@planweave-ai/agent-host-protocol";
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
@@ -240,7 +241,7 @@ export function attachAgentHostWebSocketServer(
     });
 
     const handleHostEvent = async (
-      event: HistoricalHostEvent,
+      event: HostEvent | ReturnType<typeof parseHistoricalPermissionEventJson>,
       historicalReplay = false
     ): Promise<void> => {
       let deferredWriteback: { dispatchId: string } | undefined;
@@ -406,6 +407,15 @@ export function attachAgentHostWebSocketServer(
           } catch {
             throw new Error("invalid_json");
           }
+          if (
+            typeof input === "object" &&
+            input !== null &&
+            "protocolVersion" in input &&
+            !assertAgentHostProtocolCompatible(input.protocolVersion).ok
+          ) {
+            options.hosts.reportProtocolIncompatible(hostId);
+            throw new Error("protocol_version_incompatible");
+          }
           if (!initialized) {
             const hello = hostHelloSchema.parse(input);
             if (
@@ -473,7 +483,7 @@ export function attachAgentHostWebSocketServer(
           await handleHostEvent(
             (exactPermissionOptionsVersion === 1
               ? hostEventSchema
-              : historicalHostEventSchema
+              : hostEventSchema.or(historicalPermissionHostEventSchema)
             ).parse(input)
           );
         })
@@ -487,6 +497,11 @@ export function attachAgentHostWebSocketServer(
             code: publicRejection.code,
             message: publicRejection.message
           });
+          if (phase === "hello" && publicRejection.code === "protocol_version_incompatible") {
+            closing = true;
+            stopSessionWork();
+            socket.close(4003, "Protocol mismatch; upgrade Server and Agent Host together");
+          }
         });
     });
 

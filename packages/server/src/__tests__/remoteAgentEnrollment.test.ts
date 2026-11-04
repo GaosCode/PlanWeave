@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { endpointIdFor } from "../agentEndpointCatalog.js";
@@ -48,7 +49,7 @@ function enrollmentRequest(
 ) {
   return {
     type: "host.enrollment.request" as const,
-    protocolVersion: 1 as const,
+    protocolVersion: agentHostProtocolVersion,
     enrollmentCode,
     enrollmentAttemptId,
     installationId: randomUUID(),

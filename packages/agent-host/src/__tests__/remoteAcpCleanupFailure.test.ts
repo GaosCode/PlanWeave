@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { describe, expect, it, vi } from "vitest";
 import {
   exampleExecutionEnvelopeInput,
@@ -47,7 +48,7 @@ describe("remote ACP cleanup evidence", () => {
     });
     const command = executeBlockCommandSchema.parse({
       type: "execute_block",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: envelope.execution.dispatchId,
       leaseId: "lease-cleanup-test",
       executionAttemptId: envelope.execution.attemptId,
@@ -98,7 +99,7 @@ describe("remote ACP cleanup evidence", () => {
     });
     const command = acpConversationPromptCommandSchema.parse({
       type: "acp_conversation.prompt",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: "op-cleanup",
       turnId: "turn-cleanup",
       executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -139,7 +140,7 @@ describe("remote ACP cleanup evidence", () => {
     });
     const command = acpConversationPromptCommandSchema.parse({
       type: "acp_conversation.prompt",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: "op-resolve",
       turnId: "turn-resolve",
       executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,

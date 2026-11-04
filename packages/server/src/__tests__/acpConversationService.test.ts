@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -23,6 +24,29 @@ async function setup(
   return f;
 }
 describe("durable remote ACP continuation", () => {
+  it("shows archived execution history while refusing a new turn on its old command", async () => {
+    const f = await setup();
+    const source = f.mailbox.listAfter(f.host.id, 0)[0];
+    if (!source) throw new Error("Expected source command");
+    const archived = JSON.stringify({ ...source.command, protocolVersion: 1 });
+    f.db
+      .prepare("UPDATE mailbox_messages SET command_json=? WHERE message_id=?")
+      .run(archived, source.messageId);
+    expect(f.mailbox.get(source.messageId)?.command.protocolVersion).toBe(1);
+    expect(f.service.page(f.operation, "actor")).toMatchObject({
+      available: false,
+      reason: "protocol_version_incompatible_upgrade_required"
+    });
+    expect(() => f.service.act(f.operation, "actor", f.prompt)).toThrow(
+      "protocol_version_incompatible_upgrade_required"
+    );
+    expect(
+      f.db
+        .prepare("SELECT command_json FROM mailbox_messages WHERE message_id=?")
+        .get(source.messageId)?.command_json
+    ).toBe(archived);
+  });
+
   it.each([
     1_000, 10_000
   ])("locates the source after %i Host messages with an indexed attempt lookup", async (history) => {
@@ -80,7 +104,7 @@ describe("durable remote ACP continuation", () => {
     f.mailbox.enqueue(otherHost.id, other);
     f.mailbox.enqueue(f.host.id, {
       type: "cancel_execution",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       dispatchId: original.dispatchId,
       executionAttemptId: original.executionAttemptId,
       leaseId: original.leaseId,

@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,7 +33,7 @@ async function setup() {
   fixtures.push({ directory, state });
   const command = acpConversationPromptCommandSchema.parse({
     type: "acp_conversation.prompt",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     operationId: "op-one",
     turnId: "turn-one",
     executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -45,7 +46,7 @@ async function setup() {
   const receive = (command: AcpConversationCommand) => {
     state.receive({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: `message-${sequence + 1}`,
       previousSequence: sequence,
       sequence: ++sequence,
@@ -175,7 +176,7 @@ describe("Host remote ACP continuation", () => {
     old.exec("ALTER TABLE agent_host_conversation_turns DROP COLUMN cleanup_safe");
     const legacy = acpConversationPromptCommandSchema.parse({
       type: "acp_conversation.prompt",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       operationId: "legacy-operation",
       turnId: "legacy-turn",
       executionAttemptId: exampleExecutionEnvelopeInput.execution.attemptId,
@@ -237,7 +238,7 @@ describe("Host remote ACP continuation", () => {
     const blocked = { ...legacy, turnId: "legacy-next" };
     state.receive({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "legacy-message",
       previousSequence: 0,
       sequence: 1,
@@ -257,7 +258,7 @@ describe("Host remote ACP continuation", () => {
     const blockedInterrupted = { ...interrupted, turnId: "legacy-running-next" };
     state.receive({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "legacy-running-message",
       previousSequence: 1,
       sequence: 2,
@@ -291,7 +292,7 @@ describe("Host remote ACP continuation", () => {
     const next = { ...legacy, turnId: "fresh-followup", sessionId: fresh.sessionId! };
     state.receive({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "fresh-message",
       previousSequence: 2,
       sequence: 3,
@@ -707,7 +708,7 @@ describe("Host remote ACP continuation", () => {
     const next = { ...f.command, turnId: "turn-after-unsafe" };
     reopened.receive({
       type: "mailbox.message",
-      protocolVersion: 1,
+      protocolVersion: agentHostProtocolVersion,
       messageId: "message-2",
       previousSequence: 1,
       sequence: 2,

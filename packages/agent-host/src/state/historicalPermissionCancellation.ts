@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import {
   cancelExecutionCommandSchema,
   type HistoricalMailboxCommand
@@ -10,7 +11,7 @@ export function cancellationForMailboxCommand(command: HistoricalMailboxCommand)
     return undefined;
   return cancelExecutionCommandSchema.parse({
     type: "cancel_execution",
-    protocolVersion: 1,
+    protocolVersion: agentHostProtocolVersion,
     dispatchId: command.dispatchId,
     leaseId: command.leaseId,
     executionAttemptId: command.executionAttemptId,

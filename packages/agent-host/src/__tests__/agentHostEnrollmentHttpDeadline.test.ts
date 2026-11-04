@@ -1,3 +1,4 @@
+import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpAgentHostEnrollmentExchange } from "../enrollment/httpEnrollmentExchange.js";
 import { HttpAgentHostSetupCodeRedeem } from "../enrollment/httpSetupCodeRedeem.js";
@@ -5,7 +6,7 @@ import { HttpAgentHostSetupCodeRedeem } from "../enrollment/httpSetupCodeRedeem.
 const origin = "https://coordinator.example.com";
 const completed = {
   type: "host.enrollment.completed",
-  protocolVersion: 1,
+  protocolVersion: agentHostProtocolVersion,
   enrollmentAttemptId: "enroll-http-deadline",
   hostId: "host-deadline",
   credentialExpiresAt: "2099-01-01T00:00:00.000Z",
@@ -37,7 +38,7 @@ const adapters = [
       new HttpAgentHostEnrollmentExchange(origin, { request }).exchange(
         {
           type: "host.enrollment.request",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           installationId: "6e73ea82-1ef0-46a9-a56a-6b765caab6ef",
           enrollmentCode: `pw_enroll_${"a".repeat(43)}`,
           enrollmentAttemptId: completed.enrollmentAttemptId,
@@ -189,7 +190,7 @@ for (const adapter of adapters) {
       const refused = json(
         {
           type: "host.enrollment.error",
-          protocolVersion: 1,
+          protocolVersion: agentHostProtocolVersion,
           code: "invalid",
           message: "Rejected",
           retryable: false
