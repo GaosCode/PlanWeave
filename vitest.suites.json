@@ -246,6 +246,7 @@
         "serverManagementSnapshotRecovery.test.tsx",
         "executorServerSelector.test.tsx",
         "remoteAcpContinuation.test.tsx",
+        "remoteAcpPromptValidation.test.tsx",
         "remoteAcpComposerActions.test.tsx",
         "remoteAcpContinuationStore.test.ts",
         "remoteAcpReconciliation.test.tsx",

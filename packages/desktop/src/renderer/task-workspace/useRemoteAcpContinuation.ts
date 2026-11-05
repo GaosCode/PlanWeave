@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AcpConversationAction } from "@planweave-ai/agent-host-protocol/browser";
+import {
+  acpConversationActionSchema,
+  type AcpConversationAction
+} from "@planweave-ai/agent-host-protocol/browser";
 import type {
   DesktopRemoteAcpConversationInput,
   DesktopRemoteAcpConversationPage
@@ -56,6 +59,10 @@ export function useRemoteAcpContinuation(
     projection: RemoteAcpContinuationProjection;
   } | null>(null);
   const [restoreFailed, setRestoreFailed] = useState(false);
+  const [draftError, setDraftError] = useState<{
+    key: string;
+    message: "acpPromptTooLong" | "acpPromptInvalid";
+  } | null>(null);
   const [actionError, setActionError] = useState<{
     action: NonNullable<DesktopRemoteAcpConversationInput["action"]>;
     message: string;
@@ -104,6 +111,7 @@ export function useRemoteAcpContinuation(
     sendingRef.current = false;
     pageRef.current = null;
     setRestoreFailed(false);
+    setDraftError(null);
     setActionError(null);
     setState(null);
     setError(null);
@@ -161,6 +169,7 @@ export function useRemoteAcpContinuation(
     const generation = epoch.current;
     sendingRef.current = true;
     ++actionRevision.current;
+    setDraftError(null);
     setRestoreFailed(false);
     setActionError(null);
     setSending(true);
@@ -226,6 +235,7 @@ export function useRemoteAcpContinuation(
         : Promise.resolve(false),
     reason: page?.reason ?? null,
     error: actionError?.message ?? error,
+    draftError: draftError?.key === key ? draftError.message : null,
     restoreFailed,
     sending,
     pendingMessages: localMessages.filter(isAwaitingReplay).map((message) => ({
@@ -248,20 +258,37 @@ export function useRemoteAcpContinuation(
     ) => act({ kind: "execution_respond", response }),
     send: async (text: string) => {
       if (!page?.available || !page.sessionId || !key || active || sendingRef.current) return false;
-      if (pendingPrompt.current && pendingPrompt.current.text !== text) {
+      if (pendingPrompt.current && pendingPrompt.current.text !== text.trim()) {
         setActionError({
           action: pendingPrompt.current,
           message: "acp_conversation_retry_original_message"
         });
         return false;
       }
-      const action = pendingPrompt.current ?? {
-        kind: "prompt",
-        turnId: crypto.randomUUID(),
-        executionAttemptId: page.executionAttemptId,
-        sessionId: page.sessionId,
-        text
-      };
+      let action = pendingPrompt.current;
+      if (!action) {
+        const parsed = acpConversationActionSchema.safeParse({
+          kind: "prompt",
+          turnId: crypto.randomUUID(),
+          executionAttemptId: page.executionAttemptId,
+          sessionId: page.sessionId,
+          text
+        });
+        if (!parsed.success || parsed.data.kind !== "prompt") {
+          setDraftError({
+            key,
+            message:
+              !parsed.success &&
+              parsed.error.issues.some(
+                (issue) => issue.code === "too_big" && issue.path[0] === "text"
+              )
+                ? "acpPromptTooLong"
+                : "acpPromptInvalid"
+          });
+          return false;
+        }
+        action = parsed.data;
+      }
       pendingPrompt.current = action;
       setLocalMessages((messages) =>
         messages.some(
@@ -278,7 +305,7 @@ export function useRemoteAcpContinuation(
                 turnId: action.turnId,
                 executionAttemptId: action.executionAttemptId,
                 sessionId: action.sessionId,
-                text,
+                text: action.text,
                 timestamp: new Date().toISOString()
               }
             ]

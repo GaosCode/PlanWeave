@@ -61,6 +61,8 @@ export const runnerEnCatalog = {
   acpSendPrompt: "Send message",
   acpPromptSending: "Agent is working…",
   acpPromptFailed: "Message could not be sent",
+  acpPromptTooLong: "This message is too long. Shorten it and try again.",
+  acpPromptInvalid: "This message is invalid. Check it and try again.",
   acpTaskStopped: "Task stopped",
   acpRestoreTaskHint: "Continue the current task requirements and update its result.",
   acpRestorePending: "Task restoration is awaiting confirmation. You can retry.",

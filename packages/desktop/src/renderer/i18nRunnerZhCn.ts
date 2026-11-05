@@ -61,6 +61,8 @@ export const runnerZhCnCatalog = {
   acpSendPrompt: "发送消息",
   acpPromptSending: "Agent 正在处理…",
   acpPromptFailed: "消息发送失败",
+  acpPromptTooLong: "消息过长，请缩短后重试。",
+  acpPromptInvalid: "消息内容无效，请检查后重试。",
   acpTaskStopped: "任务已停止",
   acpRestoreTaskHint: "按当前任务要求继续执行，并更新任务结果。",
   acpRestorePending: "任务恢复尚未确认，可以重试。",

@@ -51,7 +51,13 @@ export function RemoteAcpComposer({
       onCancel={action.onCancel}
       actionLabel={action.label}
       cancelling={continuation.sending}
-      error={continuation.restoreFailed ? t("acpRestoreFailed") : continuation.error}
+      error={
+        continuation.draftError
+          ? t(continuation.draftError)
+          : continuation.restoreFailed
+            ? t("acpRestoreFailed")
+            : continuation.error
+      }
       t={t}
     >
       {continuation.canRestoreTask && (
