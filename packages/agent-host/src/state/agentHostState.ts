@@ -1,6 +1,10 @@
 import { agentHostProtocolVersion, mailboxSequenceSchema } from "@planweave-ai/agent-host-protocol";
 import { parseHistoricalPermissionCommandJson } from "@planweave-ai/agent-host-protocol";
 import { cancellationForMailboxCommand } from "./historicalPermissionCancellation.js";
+import {
+  isStoredCanvasRuntimeCommand,
+  storedCanvasRuntimeCommandIdentitySchema
+} from "./storedCanvasRuntimeCommandIdentity.js";
 import type { HistoricalAgentHostRemoteExecutionRecord } from "../execution/remoteExecutionRecordSchema.js";
 import { AcpConversationRepository } from "./acpConversationRepository.js";
 import { randomUUID } from "node:crypto";
@@ -472,8 +476,13 @@ export class AgentHostState implements AgentHostStateRepository {
       )
       .all()
       .flatMap((raw) => {
+        const input: unknown = JSON.parse(String(raw.command_json));
+        if (isStoredCanvasRuntimeCommand(input)) {
+          storedCanvasRuntimeCommandIdentitySchema.parse(input);
+          return [];
+        }
         const command = cancellationForMailboxCommand(
-          parseHistoricalAgentHostMailboxCommand(JSON.parse(String(raw.command_json)))
+          parseHistoricalAgentHostMailboxCommand(input)
         );
         return command
           ? [{ sequence: Number(raw.sequence), messageId: String(raw.message_id), command }]

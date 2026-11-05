@@ -2,6 +2,8 @@ import { acpConversationHostSchema } from "./acpConversationSchema.js";
 import { migrateAgentHostProtocolArchives } from "./agentHostProtocolArchives.js";
 import { createHash } from "node:crypto";
 import { parseHistoricalAgentHostMailboxCommand } from "../protocol.js";
+import { historicalMailboxCommandSchema } from "@planweave-ai/agent-host-protocol";
+import { storedCanvasRuntimeCommandIdentitySchema } from "./storedCanvasRuntimeCommandIdentity.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
 const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 12;
@@ -785,10 +787,12 @@ function backfillCommandDigests(database: SqliteDatabase): void {
     .prepare("SELECT sequence,command_json FROM agent_host_inbox WHERE command_digest IS NULL")
     .all();
   for (const row of rows) {
-    const command = parseHistoricalAgentHostMailboxCommand(JSON.parse(String(row.command_json)));
+    const input: unknown = JSON.parse(String(row.command_json));
+    const parsed = historicalMailboxCommandSchema.safeParse(input);
+    if (!parsed.success) storedCanvasRuntimeCommandIdentitySchema.parse(input);
     database
       .prepare("UPDATE agent_host_inbox SET command_digest=? WHERE sequence=?")
-      .run(digestJson(command), Number(row.sequence));
+      .run(digestJson(parsed.success ? parsed.data : input), Number(row.sequence));
   }
 }
 

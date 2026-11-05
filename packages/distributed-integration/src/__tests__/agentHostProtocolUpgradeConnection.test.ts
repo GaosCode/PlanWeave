@@ -1,13 +1,24 @@
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
+import { WebSocket } from "ws";
 import {
   agentHostProtocolVersion,
   CANVAS_RUNTIME_CAPABILITY,
+  canonicalizeJson,
+  canvasRuntimeRequestCommandSchema,
+  mailboxDeliverySchema,
   executeBlockCommandSchema
 } from "@planweave-ai/agent-host-protocol";
+import { canvasScopeRefSchema } from "../../../collaboration-protocol/src/primitives.js";
+import { readAuthorizedCanvasRuntimeStatus } from "@planweave-ai/runtime";
+import {
+  basicManifest,
+  createTestWorkspace
+} from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { startPlanweaveServer } from "../../../server/src/lifecycle.js";
 import { createRemoteBlockCoordination } from "../../../server/src/distributedCoordination.js";
 import { attachAgentHostWebSocketServer } from "../../../server/src/wsServer.js";
@@ -28,10 +39,16 @@ import {
   artifactTransfer,
   cancel,
   contentTransfer,
+  contentTarget,
+  delivery,
+  directories,
+  request,
   resolverWith,
   scope,
-  unusedWorkspace
+  unusedWorkspace,
+  writeContentTargetReceipt
 } from "../../../agent-host/src/__tests__/support/canvasRuntimeServiceFixture.js";
+import { frameFrom } from "./support/historicalPermissionReplayFixture.js";
 
 it.each([
   {
@@ -335,6 +352,241 @@ it("reconnects and accepts current work after confirming and compacting an origi
     expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   } finally {
     await connection.client.stop();
+    database.close();
+    await transport.close();
+    await new Promise<void>((resolve, reject) =>
+      http.close((error) => (error ? reject(error) : resolve()))
+    );
+    server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it.each(
+  ["availability", "acquire", "resolve_work_items"].flatMap((operation) =>
+    [1, 2].map((invalidWireVersion) => ({ operation, invalidWireVersion }))
+  )
+)("isolates original v1 $operation, executes its current equivalent and rejects incomplete wire v$invalidWireVersion", async ({
+  operation,
+  invalidWireVersion
+}) => {
+  const directory = await mkdtemp(join(tmpdir(), "planweave-original-canvas-connection-"));
+  const server = await startPlanweaveServer({
+    dataDirectory: directory,
+    databasePath: join(directory, "server.sqlite"),
+    busyTimeoutMs: 5_000
+  });
+  const coordination = createRemoteBlockCoordination(
+    server.database,
+    {
+      leaseDurationMs: 60_000,
+      hostOfflineAfterMs: 60_000,
+      runtimeLeases: exactHostRuntimeRouteFixture(new RemoteRuntimePortRegistry()),
+      inputArtifacts: { materialize: async () => {} },
+      artifactContent: { readReport: async () => new Uint8Array() }
+    },
+    { serverInstanceOwnerToken: server.serverInstanceOwnerToken }
+  );
+  const host = coordination.hosts.register("Original Canvas Host");
+  const workspace = await createTestWorkspace(basicManifest());
+  directories.push(workspace.root, workspace.home);
+  const status = await readAuthorizedCanvasRuntimeStatus({
+    projectRoot: workspace.init.workspace,
+    canvasId: scope.canvasId,
+    expectedPackageDir: workspace.init.workspace.packageDir,
+    scope: canvasScopeRefSchema.parse(scope)
+  });
+  const target = contentTarget(status.packageFingerprint);
+  await writeContentTargetReceipt(workspace.init.workspace, target);
+  const historicalOperation =
+    operation === "resolve_work_items"
+      ? {
+          operation,
+          input: { workItems: [{ kind: "task", canvasId: scope.canvasId, taskId: "T-001" }] }
+        }
+      : { operation };
+  const legacy = {
+    type: "canvas_runtime.request",
+    protocolVersion: 1,
+    requestId: "original-canvas-request",
+    scope,
+    deadline: "2099-01-01T00:00:00.000Z",
+    operation: historicalOperation
+  };
+  const historicalJson = JSON.stringify(legacy, null, 2);
+  const hash = (encoded: string) => `sha256:${createHash("sha256").update(encoded).digest("hex")}`;
+  const currentEquivalent = canvasRuntimeRequestCommandSchema.parse(
+    request("current-canvas-request", {
+      ...historicalOperation,
+      contentTarget: target
+    })
+  );
+  const originalCurrent = canvasRuntimeRequestCommandSchema.parse({
+    ...currentEquivalent,
+    requestId: legacy.requestId
+  });
+  const f = await createProtocolUpgradeFixture();
+  const queued = coordination.mailbox.enqueue(host.host.id, originalCurrent);
+  const accepted = f.initial.receive(
+    mailboxDeliverySchema.parse(delivery(queued.sequence, originalCurrent))
+  );
+  coordination.mailbox.acknowledge(
+    host.host.id,
+    accepted.acknowledgement.messageId,
+    queued.sequence
+  );
+  server.database
+    .prepare("UPDATE mailbox_messages SET command_json=? WHERE sequence=?")
+    .run(historicalJson, queued.sequence);
+  await f.archiveDatabase();
+  const database = await openAgentHostDatabase(f.path, 5_000);
+  database
+    .prepare("UPDATE agent_host_inbox SET command_json=?,command_digest=?")
+    .run(historicalJson, hash(JSON.stringify(legacy)));
+  database
+    .prepare("UPDATE canvas_runtime_rpc_receipts SET command_json=?,command_digest=?")
+    .run(historicalJson, hash(canonicalizeJson(legacy)));
+  const state = await f.reopen();
+  const resolve = vi.fn(async () => ({
+    scope,
+    project: workspace.init.workspace,
+    canvas: workspace.init.workspace
+  }));
+  const canvasRuntime = new CanvasRuntimeService({
+    resolver: resolverWith(resolve),
+    receipts: state.canvasRuntime,
+    capabilities: [CANVAS_RUNTIME_CAPABILITY],
+    artifactTransfer,
+    contentTransfer
+  });
+  const handle = vi.spyOn(canvasRuntime, "handle");
+  const execute = vi.fn(async () => {
+    throw new Error("unexpected_block_execution");
+  });
+  const http = createServer();
+  const transport = attachAgentHostWebSocketServer({
+    server: http,
+    ...coordination,
+    heartbeatIntervalMs: 30_000,
+    leaseDurationMs: 60_000,
+    transportAdmission: loopbackHttpTransportAdmission
+  });
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  const address = http.address();
+  if (!address || typeof address === "string") throw new Error("expected_server_address");
+  const errors: string[] = [];
+  const client = new AgentHostClient({
+    serverUrl: `http://127.0.0.1:${address.port}`,
+    hostId: host.host.id,
+    token: host.token,
+    capabilities: [CANVAS_RUNTIME_CAPABILITY],
+    capacity: 1,
+    readiness: { workspaceMappings: [], acpProfiles: [] },
+    request: remoteRunnerEventV2Request,
+    state,
+    executor: { execute },
+    canvasRuntime,
+    allowInsecureTransport: true,
+    onProtocolError: (event) => errors.push(event.code)
+  });
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await client.start();
+      await vi.waitFor(() => expect(client.status().state).toBe("connected"));
+      expect(state.lastAcknowledgedSequence()).toBe(queued.sequence);
+      expect(handle).not.toHaveBeenCalled();
+      expect(resolve).not.toHaveBeenCalled();
+      expect(state.canvasRuntime.incomplete()).toEqual([]);
+      if (attempt === 0) await client.stop();
+    }
+    const current = coordination.mailbox.enqueue(host.host.id, currentEquivalent);
+    coordination.mailbox.publish(current);
+    await vi.waitFor(() => {
+      const row = database
+        .prepare("SELECT response_json FROM canvas_runtime_rpc_receipts WHERE request_id=?")
+        .get(currentEquivalent.requestId);
+      expect(JSON.parse(String(row?.response_json))).toMatchObject({
+        protocolVersion: agentHostProtocolVersion,
+        requestId: currentEquivalent.requestId,
+        response: { outcome: "success", operation }
+      });
+    });
+    expect(handle).toHaveBeenCalledExactlyOnceWith(currentEquivalent);
+    expect(resolve).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(state.lastAcknowledgedSequence()).toBe(current.sequence));
+    expect(coordination.hosts.getRequired(host.host.id).lastAcknowledgedSequence).toBe(
+      current.sequence
+    );
+    expect(
+      database
+        .prepare(
+          "SELECT command_json,command_digest,status,protocol_archive_reason FROM canvas_runtime_rpc_receipts WHERE request_id=?"
+        )
+        .get(legacy.requestId)
+    ).toEqual({
+      command_json: historicalJson,
+      command_digest: hash(canonicalizeJson(legacy)),
+      status: "reconcile_required",
+      protocol_archive_reason: "stored_command_protocol_incompatible"
+    });
+    expect(errors).toEqual([]);
+    const invalid = coordination.mailbox.enqueue(
+      host.host.id,
+      canvasRuntimeRequestCommandSchema.parse({
+        ...currentEquivalent,
+        requestId: "invalid-live-request"
+      })
+    );
+    const send = WebSocket.prototype.send;
+    let injected = false;
+    const wire = vi.spyOn(WebSocket.prototype, "send").mockImplementation(function (
+      this: WebSocket,
+      ...args
+    ) {
+      const frame = frameFrom(String(args[0]));
+      if (frame.type === "mailbox.message" && frame.sequence === invalid.sequence) {
+        args[0] = JSON.stringify({
+          ...frame,
+          protocolVersion: invalidWireVersion,
+          command: {
+            ...legacy,
+            protocolVersion: invalidWireVersion,
+            requestId: "invalid-live-request"
+          }
+        });
+        injected = true;
+      }
+      send.apply(this, args);
+    });
+    try {
+      coordination.mailbox.publish(invalid);
+      await vi.waitFor(() =>
+        expect(client.status()).toEqual({
+          state: "degraded",
+          reason:
+            invalidWireVersion === 1
+              ? "protocol_version_incompatible_upgrade_required"
+              : "invalid_server_event"
+        })
+      );
+      expect(injected).toBe(true);
+      expect(handle).toHaveBeenCalledOnce();
+      expect(resolve).toHaveBeenCalledOnce();
+      expect(state.lastReceivedSequence()).toBe(current.sequence);
+      expect(state.lastAcknowledgedSequence()).toBe(current.sequence);
+      expect(
+        database
+          .prepare(
+            "SELECT request_id FROM canvas_runtime_rpc_receipts WHERE request_id='invalid-live-request'"
+          )
+          .get()
+      ).toBeUndefined();
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      wire.mockRestore();
+    }
+  } finally {
+    await client.stop();
     database.close();
     await transport.close();
     await new Promise<void>((resolve, reject) =>

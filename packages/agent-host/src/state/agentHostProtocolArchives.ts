@@ -1,8 +1,8 @@
 import {
   historicalHostEventSchema,
-  storedAcpConversationPromptCommandSchema,
-  storedCanvasRuntimeCommandSchema
+  storedAcpConversationPromptCommandSchema
 } from "@planweave-ai/agent-host-protocol";
+import { storedCanvasRuntimeCommandIdentitySchema } from "./storedCanvasRuntimeCommandIdentity.js";
 import type { SqliteDatabase } from "./sqliteDatabase.js";
 
 export function migrateAgentHostProtocolArchives(database: SqliteDatabase): void {
@@ -52,11 +52,14 @@ export function migrateAgentHostProtocolArchives(database: SqliteDatabase): void
 
   for (const row of database
     .prepare(`SELECT request_id,command_json FROM canvas_runtime_rpc_receipts
-    WHERE protocol_archive_reason IS NULL AND json_extract(command_json,'$.protocolVersion')=1`)
+    WHERE protocol_archive_reason IS NULL`)
     .all()) {
-    const command = storedCanvasRuntimeCommandSchema.parse(JSON.parse(String(row.command_json)));
+    const command = storedCanvasRuntimeCommandIdentitySchema.parse(
+      JSON.parse(String(row.command_json))
+    );
     if (command.requestId !== row.request_id)
       throw new Error("canvas_runtime_request_identity_conflict");
+    if (command.protocolVersion !== 1) continue;
     database
       .prepare(`UPDATE canvas_runtime_rpc_receipts SET protocol_archive_reason=?,
       status=CASE WHEN response_json IS NULL THEN 'reconcile_required' ELSE status END
