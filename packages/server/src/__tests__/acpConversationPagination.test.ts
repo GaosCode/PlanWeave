@@ -3,9 +3,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { acpConversationEventSchema } from "@planweave-ai/agent-host-protocol";
+import {
+  acpConversationEventSchema,
+  acpConversationOrderedPageSchema,
+  type AcpConversationOrderedPage
+} from "@planweave-ai/agent-host-protocol";
 import { workspaceIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import { AcpConversationService } from "../acpConversationService.js";
+import { acpConversationWirePage, paginateAcpConversation } from "../acpConversationPagination.js";
 import { AgentHostRepository } from "../hosts.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { DurableMailbox } from "../mailbox.js";
@@ -141,6 +146,50 @@ function expectCursorRange(details: string[]) {
 }
 
 describe("ACP conversation cursor storage and pagination", () => {
+  it.each([
+    1, 2, 3
+  ] as const)("bounds v%i serialization work while including a priority turn once", (version) => {
+    const turns: AcpConversationOrderedPage["turns"] = Array.from({ length: 128 }, (_, index) => ({
+      turnId: `turn-${index}`,
+      turnOrder: index + 1,
+      executionAttemptId: "attempt",
+      sessionId: "session",
+      status: "failed",
+      createdAt: timestamp,
+      error: "x".repeat(16 * 1024)
+    }));
+    const metadata = acpConversationOrderedPageSchema.parse({
+      available: true,
+      reason: null,
+      executionAttemptId: "attempt",
+      sessionId: "session",
+      turns: [],
+      events: [],
+      cursor: 0,
+      hasMore: false
+    });
+    const stringify = JSON.stringify;
+    let encodedBytes = 0;
+    const encoding = vi.spyOn(JSON, "stringify").mockImplementation((value) => {
+      const encoded = stringify(value);
+      if (encoded !== undefined) encodedBytes += Buffer.byteLength(encoded);
+      return encoded;
+    });
+    let page: AcpConversationOrderedPage;
+    try {
+      page = paginateAcpConversation(metadata, turns, [], null, "turn-127", version);
+    } finally {
+      encoding.mockRestore();
+    }
+    expect(page.turns.map((turn) => turn.turnId)).toEqual([
+      "turn-127",
+      ...turns.slice(0, -1).map((turn) => turn.turnId)
+    ]);
+    expect(page).toMatchObject({ turnCursor: "turn-127", hasMoreTurns: false, hasMore: false });
+    const wireBytes = Buffer.byteLength(JSON.stringify(acpConversationWirePage(page, version)));
+    expect(encodedBytes).toBeLessThan(wireBytes * 4);
+  });
+
   it("upgrades a populated v75 file and retains rows, cursor, and constraints after reopening", async () => {
     const f = await setup(true);
     f.seed(129);
