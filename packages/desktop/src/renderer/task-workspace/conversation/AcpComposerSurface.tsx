@@ -14,7 +14,7 @@ export function AcpComposerSurface({
   unavailableReason,
   onSubmit,
   onCancel,
-  cancelLabel,
+  actionLabel,
   cancelling,
   error,
   t
@@ -28,11 +28,12 @@ export function AcpComposerSurface({
   unavailableReason: string;
   onSubmit: () => void;
   onCancel?: () => void;
-  cancelLabel?: string;
+  actionLabel?: string;
   cancelling: boolean;
   error: string | null;
   t: ReturnType<typeof createTranslator>;
 }) {
+  const buttonLabel = actionLabel ?? (onCancel ? t("acpCancelPromptTurn") : t("acpSendPrompt"));
   return (
     <section
       className="pointer-events-auto w-full px-5 pt-2 pb-4"
@@ -62,10 +63,11 @@ export function AcpComposerSurface({
           <div className="flex min-w-0 items-center gap-2">
             {accessory}
             <Button
-              aria-label={onCancel ? (cancelLabel ?? t("acpCancelPromptTurn")) : t("acpSendPrompt")}
+              aria-label={buttonLabel}
               disabled={onCancel ? cancelling : disabled || !draft.trim()}
               onClick={onCancel ?? onSubmit}
               size="icon-sm"
+              title={buttonLabel}
               type="button"
             >
               {onCancel ? <SquareIcon fill="currentColor" /> : <SendIcon />}

@@ -24,6 +24,17 @@ export function RemoteAcpComposer({
       if (sent) setDraft("");
     });
   };
+  const action = continuation.execution?.cancel
+    ? {
+        onCancel: () => void continuation.cancelExecution(),
+        label: t("acpCancelRun")
+      }
+    : continuation.active
+      ? {
+          onCancel: () => void continuation.cancel(),
+          label: t("acpCancelPromptTurn")
+        }
+      : { onCancel: undefined, label: t("acpSendPrompt") };
   return (
     <AcpComposerSurface
       accessory={accessory}
@@ -37,14 +48,8 @@ export function RemoteAcpComposer({
           : (continuation.reason ?? t("acpPromptUnavailable"))
       }
       onSubmit={submit}
-      onCancel={
-        continuation.execution?.cancel
-          ? () => void continuation.cancelExecution()
-          : continuation.active
-            ? () => void continuation.cancel()
-            : undefined
-      }
-      cancelLabel={t("acpCancelPromptTurn")}
+      onCancel={action.onCancel}
+      actionLabel={action.label}
       cancelling={continuation.sending}
       error={continuation.restoreFailed ? t("acpRestoreFailed") : continuation.error}
       t={t}

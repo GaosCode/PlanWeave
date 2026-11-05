@@ -439,13 +439,14 @@ describe("remote ACP composer continuation", () => {
       )
     );
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Stop response" }).hasAttribute("disabled")).toBe(
+      expect(screen.getByRole("button", { name: "Cancel run" }).hasAttribute("disabled")).toBe(
         false
       )
     );
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
-    expect(screen.queryByText("Cancel run")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Stop response" }));
+    const cancelButton = screen.getByRole("button", { name: "Cancel run" });
+    expect(cancelButton.getAttribute("title")).toBe("Cancel run");
+    fireEvent.click(cancelButton);
     await waitFor(() =>
       expect(f.api.remoteAcpConversation).toHaveBeenCalledWith(
         expect.objectContaining({
