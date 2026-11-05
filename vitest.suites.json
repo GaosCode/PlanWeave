@@ -949,6 +949,7 @@
         "agentHostLeaseSettlement.test.ts",
         "remoteAcpConversation.test.ts",
         "agentHostProtocolUpgrade.test.ts",
+        "agentHostArchivedInbox.test.ts",
         "agentHostCanvasProtocolUpgrade.test.ts",
         "agentHostV1UpgradeMatrix.test.ts",
         "acpConversationBudget.test.ts",

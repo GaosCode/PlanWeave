@@ -83,6 +83,12 @@ const leasedStatuses: readonly AgentHostExecutionStatus[] = [
   "interaction_wait"
 ];
 
+const nonArchivedInboxCommandPredicate = `NOT EXISTS(
+  SELECT 1 FROM canvas_runtime_rpc_receipts r
+  WHERE r.inbox_sequence=i.sequence
+    AND r.protocol_archive_reason IS NOT NULL AND r.protocol_archive_reason<>''
+)`;
+
 type MailboxMessageEvent =
   | Extract<ServerEvent, { type: "mailbox.message" }>
   | (Extract<ServerEvent, { type: "mailbox.permission_history" }> & {
@@ -471,8 +477,9 @@ export class AgentHostState implements AgentHostStateRepository {
   pendingCancellations(): AgentHostCancellation[] {
     return this.database
       .prepare(
-        `SELECT sequence,message_id,command_json FROM agent_host_inbox
-         WHERE processed_at IS NULL ORDER BY sequence ASC`
+        `SELECT i.sequence,i.message_id,i.command_json FROM agent_host_inbox i
+         WHERE i.processed_at IS NULL AND ${nonArchivedInboxCommandPredicate}
+         ORDER BY i.sequence ASC`
       )
       .all()
       .flatMap((raw) => {
@@ -900,6 +907,7 @@ export class AgentHostState implements AgentHostStateRepository {
       .prepare(
         `SELECT COUNT(*) AS count FROM agent_host_inbox i
          WHERE i.processed_at IS NULL
+           AND ${nonArchivedInboxCommandPredicate}
            AND NOT EXISTS(SELECT 1 FROM agent_host_executions e WHERE e.inbox_sequence=i.sequence)`
       )
       .get();
