@@ -500,6 +500,29 @@ describe("ACP conversation turn", () => {
     expect(harness.cleanupOptions()?.signal).not.toBe(operationSignal);
   });
 
+  it("keeps an acknowledged user cancellation cancelled when the prompt reply precedes abort", async () => {
+    const harness = createHarness();
+    let reply = (): void => undefined;
+    vi.mocked(harness.connection.prompt).mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        reply = resolve;
+      });
+      return { stopReason: "cancelled" };
+    });
+    vi.mocked(harness.connection.cancel).mockImplementation(async () => {
+      reply();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    });
+    const sending = harness.coordinator.send(harness.input);
+    await vi.waitFor(() => expect(harness.connection.prompt).toHaveBeenCalledOnce());
+    await harness.coordinator.cancel(harness.input.key, harness.input.identity);
+    await expect(sending).resolves.toMatchObject({
+      terminal: "cancelled",
+      cancellationRequested: true
+    });
+    expect(harness.connection.dispose).toHaveBeenCalledOnce();
+  });
+
   it("records failed rather than cancelled when turn cleanup could not finish", async () => {
     const harness = createHarness({ holdAt: "prompt" });
     vi.mocked(harness.connection.dispose).mockRejectedValueOnce(

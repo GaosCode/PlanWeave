@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAcpEventSubscriptionCloseResult } from "../autoRun/acpEventPublisher.js";
 import { acpConversationTurns } from "../autoRun/acpConversationTurn.js";
 import { gateAcpCapabilities } from "../autoRun/acpCapabilityGate.js";
 import { acpEventReadModels } from "../autoRun/acpEventReadModel.js";
@@ -15,6 +16,7 @@ import {
   sendAgentPrompt as sendAgentPromptRequest
 } from "../desktop/agentPromptTurnApi.js";
 import type { DesktopAgentPromptIdentity } from "../desktop/types/acpBridgeTypes.js";
+import type { TurnStateSubscriber } from "../autoRun/acpConversationTurn.js";
 import { consumeAcpPromptRunRecord, resolveAcpPromptContext } from "../desktop/acpPromptApi.js";
 import { writeJsonFile } from "../json.js";
 import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
@@ -665,7 +667,11 @@ describe("Desktop ACP prompt continuation", () => {
     expect(wrapperClosed).toBe(true);
   });
 
-  it("does not deliver a refresh that finishes after closure starts", async () => {
+  it.each([
+    "closure",
+    "expired turn",
+    "failed notification"
+  ])("does not deliver a refresh that finishes after %s", async (ending) => {
     const prepared = await completedRecord();
     const snapshot = (await getRunRecord(prepared.workspace, "T-001#B-001::RUN-001"))
       .runnerReadModel;
@@ -686,7 +692,7 @@ describe("Desktop ACP prompt continuation", () => {
     const refreshStarted = new Promise<void>((resolve) => {
       markRefreshStarted = resolve;
     });
-    let turnSubscriber: (() => void | Promise<void>) | null = null;
+    let turnSubscriber: TurnStateSubscriber | null = null;
     let turnListenerCount = 0;
     let consumeCount = 0;
     const consume = vi.fn(async () => {
@@ -718,19 +724,40 @@ describe("Desktop ACP prompt continuation", () => {
       }
     );
     if (!turnSubscriber) throw new Error("Expected a turn subscriber.");
-    const refresh = turnSubscriber();
+    const notification = new AbortController();
+    const refresh = turnSubscriber({
+      signal: notification.signal,
+      identity: {
+        ...identityFor(prepared),
+        version: "planweave.agent-prompt-turn/v1",
+        turnId: "11111111-1111-4111-8111-111111111111"
+      }
+    });
     await refreshStarted;
     let wrapperClosed = false;
     void consumer.subscription?.closed.then(() => {
       wrapperClosed = true;
     });
 
-    consumer.subscription?.unsubscribe();
-    expect(turnListenerCount).toBe(0);
+    if (ending === "closure") {
+      consumer.subscription?.unsubscribe();
+      expect(turnListenerCount).toBe(0);
+    } else if (ending === "failed notification") {
+      notification.abort(
+        createAcpEventSubscriptionCloseResult(
+          "subscriber_callback_failed",
+          0,
+          "read-model notification timed out"
+        )
+      );
+    } else {
+      notification.abort();
+    }
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(wrapperClosed).toBe(false);
+    expect(wrapperClosed).toBe(ending === "failed notification");
     releaseRefresh();
     await refresh;
+    if (ending === "expired turn") consumer.subscription?.unsubscribe();
     await consumer.subscription?.closed;
 
     expect(wrapperClosed).toBe(true);
@@ -756,6 +783,118 @@ describe("Desktop ACP prompt continuation", () => {
     expect(events).not.toContain("historical replay");
   });
 
+  it.each([
+    ["succeeded", false],
+    ["succeeded", true],
+    ["cancelled", false],
+    ["cancelled", true],
+    ["failed", false],
+    ["failed", true]
+  ] as const)("keeps %s independent of a terminal snapshot delivery failure: %s", async (terminal, rejectDelivery) => {
+    const controlDir =
+      terminal === "cancelled"
+        ? await mkdtemp(join(tmpdir(), "acp-notification-cancel-"))
+        : undefined;
+    const prepared = await completedRecord(
+      "codex",
+      terminal === "cancelled"
+        ? "load-capable-stubborn-child"
+        : terminal === "failed"
+          ? "load-capable-error"
+          : "load-capable",
+      { controlDir }
+    );
+    const identity = {
+      ...identityFor(prepared),
+      version: "planweave.agent-prompt-turn/v1" as const,
+      turnId: "88888888-8888-4888-8888-888888888888"
+    };
+    const beforeMetadata = await readFile(join(prepared.runDir, "metadata.json"));
+    const beforeReport = await readFile(join(prepared.runDir, "report.md"));
+    const deliveryFailure = new Error("terminal snapshot delivery rejected");
+    const delivered: string[] = [];
+    const consumer = await subscribeRunRecord(
+      prepared.workspace,
+      "T-001#B-001::RUN-001",
+      undefined,
+      (snapshot) => {
+        const current = acpConversationTurns.query(prepared.runDir, identity);
+        if (!current.found || current.state.phase !== "terminal") return;
+        expect(snapshot.intervention.prompt.inFlight).toBe(false);
+        delivered.push(current.state.terminal!);
+        if (rejectDelivery) throw deliveryFailure;
+      }
+    );
+    const sending = sendAgentPromptRequest({
+      version: "planweave.send-agent-prompt/v1",
+      identity,
+      text: "observe the actual terminal"
+    }).then(
+      (state) => ({ state, error: undefined }),
+      (error: unknown) => ({ state: undefined, error })
+    );
+    try {
+      if (controlDir) {
+        await vi.waitFor(
+          async () => {
+            expect(await readFile(join(controlDir, "ready"), "utf8")).toMatch(/^\d+\n$/);
+            expect(await readFile(join(controlDir, "descendant-pid"), "utf8")).toMatch(/^\d+\n$/);
+          },
+          { timeout: 5000 }
+        );
+        await cancelAgentPromptTurn(identity);
+      }
+      const outcome = await sending;
+      if (terminal === "failed") {
+        expect(outcome.error).toBeInstanceOf(Error);
+        expect(String(outcome.error)).toContain("Invalid params");
+        expect(notificationErrorTree(outcome.error)).not.toContain(deliveryFailure);
+      } else {
+        expect(outcome.error).toBeUndefined();
+        expect(outcome.state).toMatchObject({ terminal, identity });
+      }
+      expect(acpConversationTurns.query(prepared.runDir, identity)).toMatchObject({
+        found: true,
+        state: { terminal }
+      });
+      expect(delivered).toContain(terminal);
+      if (rejectDelivery) {
+        await expect(consumer.subscription?.closed).resolves.toMatchObject({
+          reason: "subscriber_callback_failed",
+          recoverable: true,
+          message: expect.stringContaining(deliveryFailure.message)
+        });
+        expect(acpConversationTurns.subscriberCount(prepared.runDir)).toBe(0);
+      }
+      if (controlDir) {
+        for (const name of ["ready", "descendant-pid"]) {
+          const pid = Number.parseInt(await readFile(join(controlDir, name), "utf8"), 10);
+          expect(() => process.kill(pid, 0)).toThrowError(
+            expect.objectContaining({ code: "ESRCH" })
+          );
+        }
+      }
+      expect(await readFile(join(prepared.runDir, "metadata.json"))).toEqual(beforeMetadata);
+      expect(await readFile(join(prepared.runDir, "report.md"))).toEqual(beforeReport);
+      const events = (await readFile(join(prepared.runDir, "events.ndjson"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => normalizedRunnerEventSchema.parse(JSON.parse(line)));
+      expect(events.filter((event) => event.body.kind === "terminal")).toEqual([
+        expect.objectContaining({
+          body: expect.objectContaining({
+            outcome: expect.objectContaining({ state: "succeeded" })
+          })
+        })
+      ]);
+    } finally {
+      await cancelAgentPromptTurn(identity);
+      await sending;
+      consumer.subscription?.unsubscribe();
+      await consumer.subscription?.closed;
+    }
+  });
+
   it("records a continuation error without changing the completed task result", async () => {
     const prepared = await completedRecord("codex", "load-capable-error");
     const recordId = "T-001#B-001::RUN-001";
@@ -776,3 +915,12 @@ describe("Desktop ACP prompt continuation", () => {
     expect(events).toContain("Invalid params");
   });
 });
+
+function notificationErrorTree(error: unknown): unknown[] {
+  if (!(error instanceof Error)) return [error];
+  return [
+    error,
+    ...(error instanceof AggregateError ? error.errors.flatMap(notificationErrorTree) : []),
+    ...(error.cause === undefined ? [] : notificationErrorTree(error.cause))
+  ];
+}

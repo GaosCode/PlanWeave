@@ -39,6 +39,7 @@ import {
   createAcpCleanupDeadline,
   type AcpCleanupDeadline
 } from "./acpExecutionCleanup.js";
+import { createAcpEventSubscriptionCloseResult } from "./acpEventPublisher.js";
 import type { AcpCompletedConversationWriter } from "./acpEventStore.js";
 import {
   normalizedRedactedContent,
@@ -96,7 +97,18 @@ export type AcpConversationTurnInput = {
     | ((signal: AbortSignal) => Promise<AcpCompletedConversationWriter>);
 };
 
-type TurnStateSubscriber = () => void | Promise<void>;
+export type AcpConversationTurnNotification = {
+  readonly identity: AcpConversationTurnIdentity;
+  readonly signal: AbortSignal;
+};
+export type TurnStateSubscriber = (
+  notification: AcpConversationTurnNotification
+) => void | Promise<void>;
+type PendingTurnNotification = {
+  dirty: boolean;
+  promise: Promise<void>;
+  fail(error: unknown): void;
+};
 type ConnectionFactory = (options: CreateAcpConnectionOptions) => AcpConnection;
 type ActiveConversationTurn = {
   input: AcpConversationTurnInput;
@@ -109,7 +121,12 @@ type ActiveConversationTurn = {
   cancelPromise: Promise<void> | null;
   cancellationDiagnostic: string | null;
   cleanupDeadline?: AcpCleanupDeadline;
+  finalizationDeadline?: AcpCleanupDeadline;
   cleanupFailed: boolean;
+  notifications: AbortController;
+  persistenceErrors: unknown[];
+  pendingPersistence: Set<Promise<void>>;
+  pendingNotifications: Map<TurnStateSubscriber, PendingTurnNotification>;
 };
 type StableConversationTurnIdentity = Omit<AcpConversationTurnIdentity, "version" | "turnId">;
 type TerminalConversationTurn = { state: AcpConversationTurnState; expiresAt: number };
@@ -190,8 +207,18 @@ async function waitWithSignal<T>(operation: Promise<T>, signal: AbortSignal): Pr
   }
 }
 
+function combineTurnErrors(primary: unknown, secondary: readonly unknown[]): unknown {
+  const errors = [...new Set([...(primary === undefined ? [] : [primary]), ...secondary])];
+  if (errors.length === 1) return errors[0];
+  const cause = primary ?? errors[0];
+  return new AggregateError(errors, diagnostic(cause), { cause });
+}
+
 export class AcpConversationTurnCoordinator {
   private readonly active = new Map<string, ActiveConversationTurn>();
+  private readonly finalizing = new Set<string>();
+  private readonly pendingCleanup = new Map<string, Promise<void>>();
+  private readonly pendingWrites = new Map<string, Set<Promise<void>>>();
   private readonly terminal = new Map<string, TerminalConversationTurn>();
   private readonly subscribers = new Map<string, Set<TurnStateSubscriber>>();
   private readonly terminalLimit: number;
@@ -317,10 +344,8 @@ export class AcpConversationTurnCoordinator {
     const cleanupDeadline = createAcpCleanupDeadline(turn.input.profile.shutdown.cleanupDeadlineMs);
     turn.cleanupDeadline = cleanupDeadline;
     turn.phase = "cancelling";
-    turn.cancelPromise = Promise.resolve().then(() =>
-      this.dispatchCancellation(turn, cleanupDeadline)
-    );
-    await this.notify(key);
+    turn.cancelPromise = this.dispatchCancellation(turn, cleanupDeadline);
+    this.notify(turn);
     await turn.cancelPromise;
     return acpConversationTurnCancelResultSchema.parse({
       outcome: "cancel_requested",
@@ -339,7 +364,12 @@ export class AcpConversationTurnCoordinator {
   }
 
   async send(input: AcpConversationTurnInput): Promise<AcpConversationTurnState> {
-    if (this.active.has(input.key)) {
+    if (
+      this.active.has(input.key) ||
+      this.pendingWrites.has(input.key) ||
+      this.pendingCleanup.has(input.key) ||
+      this.finalizing.has(input.key)
+    ) {
       throw new Error("An ACP conversation turn is already in progress for this run record.");
     }
     const turn: ActiveConversationTurn = {
@@ -352,36 +382,52 @@ export class AcpConversationTurnCoordinator {
       cancellationRequested: false,
       cancelPromise: null,
       cancellationDiagnostic: null,
-      cleanupFailed: false
+      cleanupFailed: false,
+      notifications: new AbortController(),
+      persistenceErrors: [],
+      pendingPersistence: new Set(),
+      pendingNotifications: new Map()
     };
     this.active.set(input.key, turn);
     this.terminal.delete(input.key);
-    await this.notify(input.key);
     let terminal: AcpConversationTurnState["terminal"] = "failed";
     let executionError: unknown;
     try {
+      this.notify(turn);
       await this.execute(turn);
       terminal = "succeeded";
     } catch (error) {
       if (turn.cleanupFailed || error instanceof AcpSharedConnectionCleanupError) {
         executionError = error;
-      } else if (turn.cancellationRequested || error instanceof AcpConversationTurnCancelledError) {
+      } else if (error instanceof AcpConversationTurnCancelledError) {
         terminal = "cancelled";
       } else {
         executionError = error;
       }
-    } finally {
-      const terminalState = stateOf(turn, terminal);
-      this.terminal.set(input.key, {
-        state: terminalState,
-        expiresAt: Date.now() + this.terminalTtlMs
-      });
+    }
+    const cleanup = new AcpCleanupSequencer(
+      turn.finalizationDeadline ??
+        turn.cleanupDeadline ??
+        createAcpCleanupDeadline(input.profile.shutdown.cleanupDeadlineMs)
+    );
+    const saveTerminal = () => {
+      const state = stateOf(turn, terminal);
+      this.terminal.set(input.key, { state, expiresAt: Date.now() + this.terminalTtlMs });
       this.pruneTerminalTurns();
-      this.active.delete(input.key);
-      await this.notify(input.key);
+      return state;
+    };
+    const terminalState = saveTerminal();
+    this.finalizing.add(input.key);
+    this.active.delete(input.key);
+    try {
+      this.notify(turn);
+      await this.finishNotifications(turn, cleanup);
+    } finally {
+      turn.notifications.abort();
+      this.finalizing.delete(input.key);
     }
     if (executionError !== undefined) throw executionError;
-    return this.terminal.get(input.key)!.state;
+    return terminalState;
   }
 
   private async dispatchCancellation(
@@ -415,8 +461,12 @@ export class AcpConversationTurnCoordinator {
     let protocolObserverError: unknown;
     const correlation = acpCorrelationSchema.parse({ sessionId: input.identity.sessionId });
     const append = async (body: NormalizedRunnerEvent["body"]): Promise<void> => {
-      await eventStore.append(body, correlation);
-      await this.notify(input.key);
+      await waitWithSignal(
+        this.trackPersistence(turn, () => eventStore.append(body, correlation)),
+        signal
+      );
+      signal.throwIfAborted();
+      this.notify(turn);
     };
     signal.throwIfAborted();
     const preparedLaunch = await waitWithSignal(
@@ -462,11 +512,11 @@ export class AcpConversationTurnCoordinator {
         redact: redactAcpProtocolPayload,
         observe: (observation) => {
           if (!persistNotifications) return;
-          void eventStore
-            .appendProtocol(observation.direction, observation.payload)
-            .catch((error) => {
-              protocolObserverError ??= error;
-            });
+          void this.trackPersistence(turn, () =>
+            eventStore.appendProtocol(observation.direction, observation.payload)
+          ).catch((error) => {
+            protocolObserverError ??= error;
+          });
         }
       },
       defaultTimeoutMs: input.timeoutMs,
@@ -487,14 +537,16 @@ export class AcpConversationTurnCoordinator {
     };
     try {
       turn.phase = "initializing";
-      await this.notify(input.key);
+      signal.throwIfAborted();
+      this.notify(turn);
       const initialized = await lease.initialize(operationOptions);
       gateAcpCapabilities(input.profile.capabilities, initialized, {
         sessionStart: "load",
         connectionMode: input.profile.connection.mode
       });
       turn.phase = "authenticating";
-      await this.notify(input.key);
+      signal.throwIfAborted();
+      this.notify(turn);
       const authenticationOutcome = await coordinateAcpAuthentication({
         connection: lease,
         initialized,
@@ -509,7 +561,8 @@ export class AcpConversationTurnCoordinator {
         throw new AcpAuthenticationRequiredError(authenticationOutcome);
       }
       turn.phase = "loading";
-      await this.notify(input.key);
+      signal.throwIfAborted();
+      this.notify(turn);
       try {
         turn.session = await lease.openSession(
           { kind: "load", sessionId: input.identity.sessionId },
@@ -545,104 +598,210 @@ export class AcpConversationTurnCoordinator {
         ...userContent
       });
       turn.phase = "prompting";
-      await this.notify(input.key);
+      signal.throwIfAborted();
+      this.notify(turn);
       const response = await session.prompt([{ type: "text", text: input.text }], operationOptions);
       if (response.stopReason === "cancelled") {
+        if (turn.cancellationRequested) throw new AcpConversationTurnCancelledError();
         throw new Error("ACP agent cancelled the conversation turn.");
       }
-      await eventStore.drain();
+      await waitWithSignal(
+        this.trackPersistence(turn, () => eventStore.drain()),
+        signal
+      );
       if (protocolObserverError !== undefined) throw protocolObserverError;
     } catch (error) {
-      const cancelled =
-        turn.cancellationRequested || error instanceof AcpConversationTurnCancelledError;
-      executionError = cancelled
-        ? new AcpConversationTurnCancelledError()
-        : new Error(`ACP conversation turn failed: ${diagnostic(error)}`, { cause: error });
-      try {
-        await append({
-          kind: "diagnostic",
-          code: "protocol_error",
-          message: cancelled
-            ? [
-                "ACP conversation continuation was cancelled by the user.",
-                turn.cancellationDiagnostic
-              ]
-                .filter((value): value is string => value !== null)
-                .join(" ")
-            : diagnostic(executionError)
-        });
-        await eventStore.drain();
-      } catch (diagnosticError) {
-        secondaryErrors.push(diagnosticError);
-      }
+      executionError =
+        error instanceof AcpConversationTurnCancelledError
+          ? error
+          : new Error(`ACP conversation turn failed: ${diagnostic(error)}`, { cause: error });
     } finally {
+      persistNotifications = false;
       turn.phase = "cleaning";
-      await this.notify(input.key);
-      const cleanup = new AcpCleanupSequencer(
-        turn.cleanupDeadline ?? createAcpCleanupDeadline(input.profile.shutdown.cleanupDeadlineMs)
-      );
-      try {
-        const released = await lease.release({
-          terminal:
-            executionError === undefined
-              ? "succeeded"
-              : turn.cancellationRequested ||
-                  executionError instanceof AcpConversationTurnCancelledError
-                ? "cancelled"
-                : "failed",
-          cleanupDeadline: cleanup.deadline
-        });
-        if (released.failures.length > 0) {
-          turn.cleanupFailed = true;
-          const cleanupError =
-            released.failures.length === 1
-              ? released.failures[0]
-              : new AggregateError(released.failures, "ACP conversation turn cleanup failed.");
-          secondaryErrors.push(cleanupError);
-          try {
-            await append({
-              kind: "diagnostic",
-              code: "protocol_error",
-              message: `ACP conversation turn cleanup failed: ${diagnostic(cleanupError)}`
-            });
-            await eventStore.drain();
-          } catch (diagnosticError) {
-            secondaryErrors.push(diagnosticError);
-          }
+      turn.finalizationDeadline =
+        turn.cleanupDeadline ?? createAcpCleanupDeadline(input.profile.shutdown.cleanupDeadlineMs);
+      const cleanup = new AcpCleanupSequencer(turn.finalizationDeadline);
+      const release = lease.release({
+        terminal:
+          executionError === undefined
+            ? "succeeded"
+            : executionError instanceof AcpConversationTurnCancelledError
+              ? "cancelled"
+              : "failed",
+        cleanupDeadline: cleanup.deadline
+      });
+      const released = release.then((result) => {
+        if (result.failures.length > 0) {
+          throw combineTurnErrors(undefined, result.failures);
         }
-      } catch (cleanupError) {
-        turn.cleanupFailed = true;
-        secondaryErrors.push(cleanupError);
+        this.pendingCleanup.delete(input.key);
+      });
+      this.pendingCleanup.set(input.key, released);
+      void released.catch((error) => {
+        if (!secondaryErrors.includes(error)) secondaryErrors.push(error);
+      });
+      const disposal = (async () => {
         try {
-          await append({
-            kind: "diagnostic",
-            code: "protocol_error",
-            message: `ACP conversation turn cleanup failed: ${diagnostic(cleanupError)}`
+          await cleanup.run("continuation lease release", () => released);
+        } catch (error) {
+          turn.cleanupFailed = true;
+          secondaryErrors.push(error);
+        }
+      })();
+      const observations = (async () => {
+        this.notify(turn);
+        const tasks: Promise<void>[] = [];
+        if (executionError !== undefined) {
+          tasks.push(
+            cleanup.run("continuation diagnostic persistence", async () => {
+              await this.trackPersistence(turn, () =>
+                eventStore.append(
+                  {
+                    kind: "diagnostic",
+                    code: "protocol_error",
+                    message:
+                      executionError instanceof AcpConversationTurnCancelledError
+                        ? [diagnostic(executionError), turn.cancellationDiagnostic]
+                            .filter(Boolean)
+                            .join(" ")
+                        : diagnostic(executionError)
+                  },
+                  correlation
+                )
+              );
+              if (cleanup.deadline.remainingMs() <= 0) return;
+              await this.trackPersistence(turn, () => eventStore.drain());
+            })
+          );
+        }
+        tasks.push(
+          cleanup.run("continuation persistence", async () => {
+            while (turn.pendingPersistence.size > 0) {
+              await Promise.allSettled([...turn.pendingPersistence]);
+            }
+          })
+        );
+        const results = await Promise.allSettled(tasks);
+        for (const result of results) {
+          if (result.status === "rejected") secondaryErrors.push(result.reason);
+        }
+      })();
+      await Promise.all([disposal, observations]);
+      if (turn.cleanupFailed && cleanup.deadline.remainingMs() > 0) {
+        try {
+          await cleanup.run("continuation cleanup diagnostic", async () => {
+            await this.trackPersistence(turn, () =>
+              eventStore.append(
+                {
+                  kind: "diagnostic",
+                  code: "protocol_error",
+                  message: `ACP conversation turn cleanup failed: ${diagnostic(secondaryErrors[0])}`
+                },
+                correlation
+              )
+            );
+            if (cleanup.deadline.remainingMs() > 0) {
+              await this.trackPersistence(turn, () => eventStore.drain());
+            }
           });
-          await eventStore.drain();
-        } catch (diagnosticError) {
-          secondaryErrors.push(diagnosticError);
+        } catch (error) {
+          secondaryErrors.push(error);
         }
       }
+      if (protocolObserverError !== undefined) secondaryErrors.push(protocolObserverError);
     }
-    if (executionError !== undefined) {
-      if (secondaryErrors.length > 0) {
-        throw new AggregateError([executionError, ...secondaryErrors], diagnostic(executionError), {
-          cause: executionError
-        });
+    const errors = [...new Set([...secondaryErrors, ...turn.persistenceErrors])];
+    turn.persistenceErrors.length = 0;
+    if (errors.length > 0) throw combineTurnErrors(executionError, errors);
+    if (executionError !== undefined) throw executionError;
+  }
+
+  private trackPersistence(
+    turn: ActiveConversationTurn,
+    operation: () => Promise<void>
+  ): Promise<void> {
+    const pending = Promise.resolve().then(operation);
+    turn.pendingPersistence.add(pending);
+    const writes = this.pendingWrites.get(turn.input.key) ?? new Set<Promise<void>>();
+    writes.add(pending);
+    this.pendingWrites.set(turn.input.key, writes);
+    const settled = () => {
+      turn.pendingPersistence.delete(pending);
+      writes.delete(pending);
+      if (writes.size === 0) this.pendingWrites.delete(turn.input.key);
+    };
+    void pending.then(settled, (error) => {
+      turn.persistenceErrors.push(error);
+      settled();
+    });
+    return pending;
+  }
+
+  private notify(turn: ActiveConversationTurn): void {
+    for (const subscriber of [...(this.subscribers.get(turn.input.key) ?? [])]) {
+      const existing = turn.pendingNotifications.get(subscriber);
+      if (existing) {
+        existing.dirty = true;
+        continue;
       }
-      throw executionError;
-    }
-    if (secondaryErrors.length > 0) {
-      throw secondaryErrors.length === 1
-        ? secondaryErrors[0]
-        : new AggregateError(secondaryErrors, "ACP conversation turn cleanup failed.");
+      const controller = new AbortController();
+      const signal = AbortSignal.any([turn.notifications.signal, controller.signal]);
+      let finish = (): void => undefined;
+      const promise = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const job: PendingTurnNotification = {
+        dirty: true,
+        promise,
+        fail: (error) => {
+          const subscribers = this.subscribers.get(turn.input.key);
+          subscribers?.delete(subscriber);
+          if (subscribers?.size === 0) this.subscribers.delete(turn.input.key);
+          controller.abort(
+            createAcpEventSubscriptionCloseResult(
+              "subscriber_callback_failed",
+              0,
+              `ACP conversation subscriber failed: ${diagnostic(error)}`
+            )
+          );
+        }
+      };
+      turn.pendingNotifications.set(subscriber, job);
+      void (async () => {
+        try {
+          while (job.dirty && !signal.aborted) {
+            job.dirty = false;
+            await waitWithSignal(
+              Promise.resolve(subscriber({ identity: turn.input.identity, signal })),
+              signal
+            );
+          }
+        } catch (error) {
+          if (!signal.aborted) job.fail(error);
+        } finally {
+          controller.abort();
+          turn.pendingNotifications.delete(subscriber);
+          finish();
+        }
+      })();
     }
   }
 
-  private async notify(key: string): Promise<void> {
-    const subscribers = [...(this.subscribers.get(key) ?? [])];
-    await Promise.allSettled(subscribers.map(async (subscriber) => subscriber()));
+  private async finishNotifications(
+    turn: ActiveConversationTurn,
+    cleanup: AcpCleanupSequencer
+  ): Promise<void> {
+    try {
+      await cleanup.run("continuation notification", async () => {
+        while (turn.pendingNotifications.size > 0) {
+          await Promise.all([...turn.pendingNotifications.values()].map((job) => job.promise));
+        }
+      });
+    } catch (error) {
+      const pending = [...turn.pendingNotifications.values()];
+      for (const job of pending) job.fail(error);
+      await Promise.all(pending.map((job) => job.promise));
+    }
   }
 
   private pruneTerminalTurns(): void {

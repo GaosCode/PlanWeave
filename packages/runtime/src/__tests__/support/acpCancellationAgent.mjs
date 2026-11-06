@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 const [log, mode, authReleasePath] = process.argv.slice(2);
 const record = (event) => appendFileSync(log, `${event}\n`);
 const keepAlive = setInterval(() => undefined, 1000);
-if (mode === "force-tree") {
+if (mode === "force-tree" || mode === "load-force-tree") {
   spawn(
     process.execPath,
     [
@@ -25,7 +25,7 @@ const reply = (id, result) =>
   process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
 process.on("SIGTERM", () => {
   record("term");
-  if (mode !== "force" && mode !== "force-tree") process.exit(0);
+  if (mode !== "force" && mode !== "force-tree" && mode !== "load-force-tree") process.exit(0);
 });
 process.stdin.on("end", () => {
   record("eof");
@@ -42,7 +42,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     else
       reply(message.id, {
         protocolVersion: 1,
-        agentCapabilities: mode === "loading" ? { loadSession: true } : {},
+        agentCapabilities:
+          mode === "loading" || mode === "load-force-tree" ? { loadSession: true } : {},
         ...(mode === "authenticating"
           ? { authMethods: [{ id: "env", name: "Env", type: "env_var", vars: [] }] }
           : {})
@@ -59,12 +60,19 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       }, 5);
     }
   }
-  if (message.method === "session/load") record("load");
+  if (message.method === "session/load") {
+    record("load");
+    if (mode === "load-force-tree") reply(message.id, {});
+  }
   if (message.method === "session/new") reply(message.id, { sessionId: "cancel-session" });
   if (message.method === "session/prompt") {
     promptId = message.id;
     record("prompt");
-    if (mode === "authenticating") reply(promptId, { stopReason: "end_turn" });
+    if (
+      mode === "authenticating" ||
+      (mode === "load-force-tree" && message.params.prompt[0]?.text === "survivor")
+    )
+      reply(promptId, { stopReason: "end_turn" });
   }
   if (message.method === "session/cancel") {
     record("cancel");

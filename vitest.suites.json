@@ -655,6 +655,7 @@
         "acpEvents.test.ts",
         "acpExecutionEngine.test.ts",
         "acpCancellationLifecycle.test.ts",
+        "acpConversationCleanup.test.ts",
         "acpInteractionTerminal.test.ts",
         "acpGrokLiveSmoke.test.ts",
         "acpLocalExecutionAdapter.test.ts",
