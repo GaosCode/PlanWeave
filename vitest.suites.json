@@ -1226,6 +1226,7 @@
         "remoteControlService.test.ts",
         "remoteCoordinationMaintenance.test.ts",
         "remoteExecutionActions.test.ts",
+        "remoteExecutionActionsHttpReplay.test.ts",
         "remoteExecutionLifecycle.test.ts",
         "remoteHostRuntimeAdapter.test.ts",
         "remoteHostRuntimeAvailability.test.ts",

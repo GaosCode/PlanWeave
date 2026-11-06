@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   RemoteExecutionActionRepository,
   RemoteExecutionActionRejectedError,
@@ -16,6 +16,12 @@ import {
 import { migrations } from "../migrations/registry.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { dispatchHostSelectionSnapshotSchema } from "../work/dispatchIntegration.js";
+import { SqliteRemoteDispatchPersistence } from "../remoteCoordinatorPersistence.js";
+import {
+  remoteManifest,
+  setup as setupCoordinator
+} from "./support/remoteBlockCoordinatorFixture.js";
+import { endpointDispatchRequest } from "./support/endpointCoordinatorFixture.js";
 
 const directories: string[] = [];
 const databases: SqliteDatabase[] = [];
@@ -52,6 +58,7 @@ function prepareHistoricalSchema(database: SqliteDatabase, throughVersion: numbe
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const database of databases.splice(0)) database.close();
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))
@@ -153,6 +160,35 @@ function retrySnapshot() {
     leaseFenced: true,
     interruption: { resumable: false },
     hostCapabilities: ["acp.codex"]
+  };
+}
+
+async function setupCoordinatedCancel(includeSecondTask = false) {
+  const fixture = await setupCoordinator(true, remoteManifest(includeSecondTask), 2);
+  if (!fixture.host) throw new Error("expected_test_host");
+  const { operation } = await fixture.coordinator.dispatch(
+    endpointDispatchRequest({
+      agentEndpoints: fixture.agentEndpoints,
+      locator: fixture.dispatchLocator,
+      blockRef: "T-001#B-001",
+      idempotencyKey: "cancel-action-replay"
+    })
+  );
+  const dispatch = fixture.dispatches.getRequired(operation.dispatchId);
+  const action = {
+    ...cancelAction,
+    operationId: operation.id,
+    dispatchId: dispatch.id,
+    executionAttemptId: dispatch.executionAttemptId,
+    expectedAttemptVersion: operation.attempt.stateVersion,
+    leaseId: dispatch.leaseId
+  };
+  return {
+    fixture,
+    host: fixture.host,
+    dispatch,
+    action,
+    repository: new RemoteExecutionActionRepository(fixture.server.database)
   };
 }
 
@@ -306,6 +342,145 @@ describe("RemoteExecutionActionRepository", () => {
     await expect(service.execute(cancelAction)).resolves.toMatchObject({ state: "delivered" });
     await expect(service.execute(cancelAction)).resolves.toMatchObject({ state: "delivered" });
     expect(applied).toEqual([cancelAction.actionId]);
+  });
+
+  it("replays every cancel delivery phase without reclaiming or enqueueing after ACK", async () => {
+    const { fixture, host, dispatch, action, repository } = await setupCoordinatedCancel();
+    const claim = vi.spyOn(RemoteExecutionActionRepository.prototype, "claimApplication");
+    const enqueueCancel = vi.spyOn(SqliteRemoteDispatchPersistence.prototype, "enqueueCancel");
+    const publish = vi.fn();
+    fixture.mailbox.subscribe(host.id, publish);
+    const recorded = repository.record(action);
+    expect(recorded.state).toBe("recorded");
+    expect(fixture.mailbox.listAfter(host.id, 0)).toHaveLength(1);
+
+    const assertConflicts = async () => {
+      for (const changed of [
+        { reason: "changed cancellation intent" },
+        { dispatchId: "dispatch-foreign" },
+        { executionAttemptId: "attempt-foreign" },
+        { expectedAttemptVersion: action.expectedAttemptVersion + 1 },
+        { leaseId: "lease-foreign" }
+      ]) {
+        await expect(fixture.coordinator.executeAction({ ...action, ...changed })).rejects.toThrow(
+          "remote_action_idempotency_conflict"
+        );
+      }
+    };
+    await assertConflicts();
+    const delivered = await fixture.coordinator.executeAction(action);
+    expect(delivered).toMatchObject({ state: "delivered", request: action });
+    expect(delivered.deliveredAt).toBeDefined();
+    const mailbox = fixture.mailbox.listAfter(host.id, 0);
+    expect(mailbox).toHaveLength(2);
+    expect(mailbox[1]).toMatchObject({
+      messageId: action.actionId,
+      command: {
+        type: "cancel_execution",
+        dispatchId: action.dispatchId,
+        executionAttemptId: action.executionAttemptId,
+        leaseId: action.leaseId
+      }
+    });
+
+    for (const state of ["delivered", "acknowledged", "settled"] as const) {
+      const before = repository.getRequired(action.actionId);
+      expect(before.state).toBe(state);
+      const mailboxBefore = fixture.mailbox.listAfter(host.id, 0);
+      const operationBefore = fixture.operations.getRequired(action.operationId);
+      await expect(fixture.coordinator.executeAction(action)).resolves.toEqual(before);
+      expect(repository.getRequired(action.actionId)).toEqual(before);
+      await assertConflicts();
+      expect(fixture.mailbox.listAfter(host.id, 0)).toEqual(mailboxBefore);
+      expect(fixture.operations.getRequired(action.operationId)).toEqual(operationBefore);
+      expect(claim).toHaveBeenCalledTimes(1);
+      expect(enqueueCancel).toHaveBeenCalledTimes(1);
+      expect(publish).toHaveBeenCalledTimes(1);
+
+      if (state === "delivered") {
+        for (const message of mailbox) {
+          const acknowledged = fixture.mailbox.acknowledge(
+            host.id,
+            `ack-${message.sequence}`,
+            message.sequence
+          );
+          repository.acknowledgeMailbox(acknowledged.messageId);
+        }
+        expect(repository.getRequired(action.actionId)).toMatchObject({
+          state: "acknowledged",
+          acknowledgedAt: expect.any(String),
+          settledAt: undefined
+        });
+        expect(fixture.dispatches.getRequired(dispatch.id).status).toBe("cancelling");
+      } else if (state === "acknowledged") {
+        await fixture.dispatches.fail(
+          host.id,
+          "cancel-terminal",
+          dispatch.id,
+          dispatch.leaseId,
+          dispatch.executionAttemptId,
+          { code: "execution_cancelled", message: action.reason, retryable: true }
+        );
+        repository.settleAttemptCommands({
+          dispatchId: dispatch.id,
+          executionAttemptId: dispatch.executionAttemptId,
+          kinds: ["cancel"]
+        });
+        expect(fixture.operations.getRequired(action.operationId).state).toBe("cancelled");
+      }
+    }
+    expect(repository.getRequired(action.actionId).settledAt).toBeDefined();
+    expect(repository.listUnsettled()).toEqual([]);
+  });
+
+  it("rejects invalid fresh cancel identities and an expired reservation before mailbox delivery", async () => {
+    const { fixture, host, dispatch, action } = await setupCoordinatedCancel(true);
+    const foreign = await fixture.coordinator.dispatch(
+      endpointDispatchRequest({
+        agentEndpoints: fixture.agentEndpoints,
+        locator: fixture.dispatchLocator,
+        blockRef: "T-002#B-001",
+        idempotencyKey: "foreign-cancel-identity"
+      })
+    );
+    const enqueueCancel = vi.spyOn(SqliteRemoteDispatchPersistence.prototype, "enqueueCancel");
+    const mailboxBefore = fixture.mailbox.listAfter(host.id, 0);
+    const operationBefore = fixture.operations.getRequired(action.operationId);
+    const invalidIdentities = [
+      [{ dispatchId: foreign.operation.dispatchId }, "remote_action_identity_mismatch"],
+      [
+        { executionAttemptId: foreign.operation.executionAttemptId },
+        "remote_action_identity_mismatch"
+      ],
+      [
+        { expectedAttemptVersion: action.expectedAttemptVersion + 1 },
+        "remote_action_attempt_version_conflict"
+      ],
+      [{ leaseId: "lease-foreign" }, "remote_action_lease_mismatch"]
+    ] as const;
+    for (const [index, [changed, error]] of invalidIdentities.entries()) {
+      await expect(
+        fixture.coordinator.executeAction({ ...action, actionId: `invalid-${index}`, ...changed })
+      ).rejects.toThrow(error);
+    }
+    expect(fixture.operations.getRequired(action.operationId)).toEqual(operationBefore);
+    const lease = fixture.reservations.getRequired(dispatch.leaseId);
+    fixture.reservations.release({
+      leaseId: lease.leaseId,
+      fencingToken: lease.fencingToken,
+      expectedVersion: lease.version,
+      reason: "expired"
+    });
+    await expect(
+      fixture.coordinator.executeAction({
+        ...action,
+        expectedAttemptVersion: fixture.operations.getRequired(action.operationId).attempt
+          .stateVersion
+      })
+    ).rejects.toThrow("remote_cancel_attempt_not_active");
+    expect(fixture.mailbox.listAfter(host.id, 0)).toEqual(mailboxBefore);
+    expect(fixture.dispatches.getRequired(dispatch.id)).toEqual(dispatch);
+    expect(enqueueCancel).not.toHaveBeenCalled();
   });
 
   it("joins identical concurrent execution within one service", async () => {

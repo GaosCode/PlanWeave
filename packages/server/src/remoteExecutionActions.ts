@@ -466,7 +466,11 @@ export class RemoteExecutionActionService {
       if (!action.rejectionCode) throw new Error("remote_action_row_rejection_mismatch");
       return Promise.reject(new RemoteExecutionActionRejectedError(action.rejectionCode));
     }
-    if (action.state === "settled" || action.state === "delivered") {
+    if (
+      action.state === "settled" ||
+      action.state === "delivered" ||
+      action.state === "acknowledged"
+    ) {
       return Promise.resolve(action);
     }
     return this.runSingleFlight(action, false);
