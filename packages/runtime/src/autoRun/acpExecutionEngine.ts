@@ -575,16 +575,20 @@ async function executeAcpOutcome(
         cleanupFailures.push(error);
       }
     }
-    try {
-      await emit({ kind: "lifecycle", state: "cleanup" });
-    } catch (error) {
-      cleanupEventFailure = error;
-    }
-    try {
-      await observeLifecycle({ kind: "cleanup_starting", terminal });
-    } catch (error) {
-      cleanupFailures.push(error);
-    }
+    const cleanupEvents = Promise.all([
+      cleanup
+        .run("cleanup event", () => emit({ kind: "lifecycle", state: "cleanup" }))
+        .catch((error) => {
+          cleanupEventFailure = error;
+        }),
+      cleanup
+        .run("cleanup observer", () =>
+          observeLifecycle({ kind: "cleanup_starting", terminal: executionTerminal })
+        )
+        .catch((error) => {
+          cleanupFailures.push(error);
+        })
+    ]);
     if (lease) {
       const cleanupLease = lease;
       try {
@@ -597,6 +601,7 @@ async function executeAcpOutcome(
         cleanupFailures.push(error);
       }
     }
+    await cleanupEvents;
     cleanupCompleted = cleanupFailures.length === 0;
     if (cleanupCompleted) options.cleanupObserver?.(null);
     if (cleanupFailures.length > 0) {
@@ -638,30 +643,47 @@ async function executeAcpOutcome(
       executionCause = cleanupEventFailure;
       terminal = executionTerminal;
     }
-    try {
-      await observeLifecycle({
-        kind: "cleanup_completed",
-        cleanup: { attempted: true, completed: cleanupCompleted }
-      });
-    } catch (error) {
-      executionCause = error;
-      if (terminal?.state !== "cancelled") {
-        terminal = {
-          state: "failed",
-          reason: "unknown_error",
-          message: diagnostic(error)
-        };
+    if (cleanup.deadline.remainingMs() > 0) {
+      try {
+        await cleanup.run("cleanup completion observer", () =>
+          observeLifecycle({
+            kind: "cleanup_completed",
+            cleanup: { attempted: true, completed: cleanupCompleted }
+          })
+        );
+      } catch (error) {
+        executionCause =
+          executionCause === undefined
+            ? error
+            : new AggregateError([executionCause, error], "ACP cleanup notification failed.");
+        if (terminal.state === "succeeded") {
+          terminal = {
+            state: "failed",
+            reason: "unknown_error",
+            message: diagnostic(error)
+          };
+        }
       }
     }
-    try {
-      await emit({ kind: "terminal", terminal });
-    } catch (error) {
-      executionCause = error;
-      terminal = {
-        state: "failed",
-        reason: sinkFailure !== undefined ? "event_sink_failed" : failureReason(error),
-        message: diagnostic(error)
-      };
+    if (cleanup.deadline.remainingMs() > 0) {
+      try {
+        const finalTerminal = terminal;
+        await cleanup.run("terminal event", () =>
+          emit({ kind: "terminal", terminal: finalTerminal })
+        );
+      } catch (error) {
+        executionCause =
+          executionCause === undefined
+            ? error
+            : new AggregateError([executionCause, error], "ACP cleanup notification failed.");
+        if (terminal.state === "succeeded") {
+          terminal = {
+            state: "failed",
+            reason: sinkFailure !== undefined ? "event_sink_failed" : failureReason(error),
+            message: diagnostic(error)
+          };
+        }
+      }
     }
     options.signal?.removeEventListener("abort", relayAbort);
   }

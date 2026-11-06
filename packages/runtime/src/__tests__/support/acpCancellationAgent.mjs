@@ -1,14 +1,31 @@
 import { appendFileSync, existsSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 const [log, mode, authReleasePath] = process.argv.slice(2);
 const record = (event) => appendFileSync(log, `${event}\n`);
 const keepAlive = setInterval(() => undefined, 1000);
+if (mode === "force-tree") {
+  spawn(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import { appendFileSync } from "node:fs";
+const record = (event) => appendFileSync(process.argv[1], event + "\\n");
+process.on("SIGTERM", () => record("child-term"));
+record("child:" + process.pid);
+setInterval(() => undefined, 1000);`,
+      log
+    ],
+    { stdio: "ignore" }
+  );
+}
 let promptId;
 const reply = (id, result) =>
   process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
 process.on("SIGTERM", () => {
   record("term");
-  if (mode !== "force") process.exit(0);
+  if (mode !== "force" && mode !== "force-tree") process.exit(0);
 });
 process.stdin.on("end", () => {
   record("eof");

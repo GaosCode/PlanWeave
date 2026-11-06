@@ -410,7 +410,6 @@ function createManagedProcessTree(options: {
             );
           }
         };
-        assertDeadline();
         logProcessTree("terminate-begin", {
           pid,
           adapter: adapter.name,
@@ -487,6 +486,7 @@ function createManagedProcessTree(options: {
             }
             throw forceError;
           }
+          assertDeadline();
           await waitForForcedExit(
             reason,
             adapter.name === "windows"
@@ -502,7 +502,6 @@ function createManagedProcessTree(options: {
           };
         }
 
-        assertDeadline();
         logProcessTree("await-tree-exit-start", {
           pid,
           adapter: adapter.name,
@@ -510,7 +509,6 @@ function createManagedProcessTree(options: {
           timeoutMs: effectiveGraceMs
         });
         const exitedAfterGraceful = await awaitTreeExit(remainingBudget(effectiveGraceMs)());
-        assertDeadline();
         logProcessTree("await-tree-exit-done", {
           pid,
           adapter: adapter.name,
@@ -556,6 +554,7 @@ function createManagedProcessTree(options: {
           }
         }
 
+        assertDeadline();
         const remainingConfirmation =
           adapter.name === "windows"
             ? remainingBudget(effectiveConfirmMs)

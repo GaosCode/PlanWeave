@@ -121,9 +121,13 @@ describe("local ACP execution adapter", () => {
     await vi.waitFor(() => expect(queuedFailure).toHaveBeenCalled());
   });
 
-  it("keeps registry cleanup transport-neutral and closes the engine connection once", async () => {
+  it("keeps registry cleanup transport-neutral without blocking connection release", async () => {
+    let finishCleanupObservation!: () => void;
+    const cleanupObservation = new Promise<void>((resolve) => {
+      finishCleanupObservation = resolve;
+    });
     const closeSession = vi.fn(async () => ({}));
-    const dispose = vi.fn(async () => undefined);
+    const dispose = vi.fn(async () => finishCleanupObservation());
     const connection = {
       processId: 123,
       pendingOperationCount: 0,
@@ -193,8 +197,7 @@ describe("local ACP execution adapter", () => {
         }
         if (event.kind === "cleanup_starting") {
           await registry.remove(handle, "engine cleanup", "succeeded", true);
-          expect(closeSession).not.toHaveBeenCalled();
-          expect(dispose).not.toHaveBeenCalled();
+          await cleanupObservation;
         }
       }
     });

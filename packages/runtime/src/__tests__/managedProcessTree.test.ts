@@ -559,15 +559,16 @@ describe("managed process termination confirmation budgets", () => {
     const child = new ChildProcess() as ChildProcessWithoutNullStreams;
     child.exitCode = 0;
     let alive = true;
-    let signals = 0;
+    const signals: string[] = [];
     const adapter = createFakeProcessTreeAdapter({
       isAlive: () => false,
       isTreeAlive: () => alive,
       onGraceful: async () => {
-        signals += 1;
+        signals.push("term");
         await sleep(signalMs);
         alive = false;
-      }
+      },
+      onForce: () => signals.push("force")
     });
     const tree = attachManagedProcessTree({ child, pid: 88_004, adapter });
     await vi.advanceTimersByTimeAsync(elapsedBeforeTerminateMs);
@@ -581,7 +582,7 @@ describe("managed process termination confirmation budgets", () => {
     await vi.runAllTimersAsync();
     await result;
 
-    expect(signals).toBe(elapsedBeforeTerminateMs > 0 ? 0 : 1);
+    expect(signals).toEqual(["term", "force"]);
     expect(performance.now() - startedAt).toBe(elapsedBeforeTerminateMs + signalMs);
   });
 });

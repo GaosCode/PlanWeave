@@ -32,6 +32,7 @@ describe("ACP ordered cancellation", () => {
       const controller = new AbortController();
       let processId: number | null = null;
       let cleanupDeadline: AcpCleanupDeadline | null = null;
+      let cancellationStartedAt = 0;
       const cleanupObservations: Array<number | null> = [];
       const run = executeAcp({
         agentId: "test",
@@ -68,7 +69,9 @@ describe("ACP ordered cancellation", () => {
                   expiresAt: cleanupDeadline?.expiresAt
                 });
                 expect(termination?.deadline?.remainingMs).toBe(cleanupDeadline?.remainingMs);
-                expect(termination?.deadline?.remainingMs()).toBeLessThanOrEqual(930);
+                expect(termination?.deadline?.expiresAt).toBeGreaterThanOrEqual(
+                  cancellationStartedAt + 1000
+                );
                 return tree.terminate(reason, termination);
               }
             })
@@ -83,8 +86,12 @@ describe("ACP ordered cancellation", () => {
             mode === "initializing" ? "initialize" : "prompt"
           )
         );
+        cancellationStartedAt = performance.now();
         controller.abort(new Error("ordered cancellation"));
+        const cancellationRelayedAt = performance.now();
+        expect(cleanupDeadline?.expiresAt).toBeLessThanOrEqual(cancellationRelayedAt + 1000);
         const result = await run;
+        expect(performance.now() - cancellationStartedAt).toBeLessThan(1000);
         const events = (await readFile(log, "utf8")).trim().split("\n");
         expect(events.slice(0, mode === "initializing" ? 2 : 3)).toEqual(
           mode === "initializing" ? ["initialize", "eof"] : ["prompt", "cancel", "eof"]
@@ -140,19 +147,36 @@ describe("ACP ordered cancellation", () => {
     }
   });
   it.each([
+    "observer-slow",
+    "observer-stalled",
+    "observer-rejected",
+    "sink-slow",
+    "sink-stalled",
+    "sink-rejected",
+    "cancel-write-slow",
     "cancel-write-stalled",
+    "cancel-write-rejected",
     "deadline-exhausted"
-  ])("does not report completed cleanup for %s", async (failure) => {
+  ])("reclaims the owned tree before fallback cleanup under %s", async (failure) => {
     const directory = await mkdtemp(join(tmpdir(), "acp-cancel-failure-"));
     const log = join(directory, "events");
     const controller = new AbortController();
     let connection: AcpConnection | undefined;
     let cancelAttempts = 0;
     let guard: ReturnType<typeof setTimeout> | undefined;
+    let cleanupDeadline: AcpCleanupDeadline | undefined;
+    let confirmedWithRemainingMs: number | undefined;
+    const actions: string[] = [];
     const observations: Array<number | null> = [];
+    const delay = () => new Promise<void>((resolve) => setTimeout(resolve, 350));
+    const observe = async (kind: string) => {
+      if (failure === `${kind}-slow`) await delay();
+      if (failure === `${kind}-stalled`) await new Promise<void>(() => undefined);
+      if (failure === `${kind}-rejected`) throw new Error(`${kind} rejected`);
+    };
     const run = executeAcp({
       agentId: "test",
-      launch: { trusted: true, command: process.execPath, args: [fixture, log, "ignored"] },
+      launch: { trusted: true, command: process.execPath, args: [fixture, log, "force-tree"] },
       workspace: { cwd: directory },
       env: {},
       clientInfo: { name: "cancel-failure", version: "1" },
@@ -161,24 +185,56 @@ describe("ACP ordered cancellation", () => {
       prompt: "wait",
       sessionStart: { kind: "new" },
       signal: controller.signal,
-      cleanupObserver: (deadline) => observations.push(deadline?.expiresAt ?? null),
+      ...(failure === "deadline-exhausted"
+        ? { cancellationStartedAt: performance.now() - 350 }
+        : {}),
+      cleanupObserver: (deadline) => {
+        if (deadline) cleanupDeadline = deadline;
+        observations.push(deadline?.expiresAt ?? null);
+      },
       lifecycleObserver: async (event) => {
-        if (failure === "deadline-exhausted" && event.kind === "cleanup_starting")
-          await new Promise((resolve) => setTimeout(resolve, 350));
+        if (event.kind === "cleanup_starting") await observe("observer");
+      },
+      eventSink: async (event) => {
+        if (event.kind === "lifecycle" && event.state === "cleanup") await observe("sink");
       },
       connect: (options) => {
-        connection = createAcpConnection(options);
+        connection = createAcpConnection({
+          ...options,
+          decorateProcessTree: (tree) => ({
+            ...tree,
+            terminate: (reason, termination) => {
+              actions.push("terminate");
+              expect(termination?.deadline).toMatchObject({
+                expiresAt: cleanupDeadline?.expiresAt
+              });
+              expect(termination?.deadline?.remainingMs).toBe(cleanupDeadline?.remainingMs);
+              return tree.terminate(reason, termination).then((result) => {
+                confirmedWithRemainingMs = termination?.deadline?.remainingMs();
+                return result;
+              });
+            }
+          })
+        });
         return new Proxy(connection, {
           get: (target, key) => {
             if (key === "cancel")
-              return (
+              return async (
                 notification: Parameters<AcpConnection["cancel"]>[0],
                 operation: Parameters<AcpConnection["cancel"]>[1]
               ) => {
                 cancelAttempts += 1;
-                return failure === "cancel-write-stalled"
-                  ? new Promise<void>(() => undefined)
-                  : target.cancel(notification, operation);
+                actions.push("cancel");
+                if (failure === "cancel-write-rejected") throw new Error("cancel write rejected");
+                if (failure === "cancel-write-stalled") await new Promise<void>(() => undefined);
+                if (failure === "cancel-write-slow")
+                  await new Promise((resolve) => setTimeout(resolve, 70));
+                await target.cancel(notification, operation);
+              };
+            if (key === "dispose")
+              return (operation: Parameters<AcpConnection["dispose"]>[0]) => {
+                actions.push("dispose");
+                return target.dispose(operation);
               };
             const value = Reflect.get(target, key, target);
             return typeof value === "function" ? value.bind(target) : value;
@@ -187,25 +243,61 @@ describe("ACP ordered cancellation", () => {
       }
     });
     try {
-      await vi.waitFor(async () => expect(await readFile(log, "utf8")).toContain("prompt"));
+      await vi.waitFor(async () => {
+        const events = await readFile(log, "utf8");
+        expect(events).toContain("prompt");
+        expect(events).toMatch(/child:\d+/);
+      });
+      const cancelledAt = performance.now();
       controller.abort(new Error("cancel under cleanup failure"));
       const result = await Promise.race([
         run,
         new Promise<never>((_resolve, reject) => {
           guard = setTimeout(
             () => reject(new Error("cleanup did not settle within its budget")),
-            2000
+            1000
           );
         })
       ]);
+      expect(performance.now() - cancelledAt).toBeLessThan(600);
       expect(result.terminal.state).toBe("cancelled");
-      expect(result.cleanup).toEqual({ attempted: true, completed: false });
-      expect(cancelAttempts).toBe(1);
-      expect(observations).toEqual([expect.any(Number)]);
+      const completed = failure.startsWith("sink-") || failure === "cancel-write-slow";
+      expect(result.cleanup).toEqual({ attempted: true, completed });
+      expect(cancelAttempts).toBe(failure === "deadline-exhausted" ? 0 : 1);
+      expect(observations).toEqual(completed ? [expect.any(Number), null] : [expect.any(Number)]);
+      expect(actions).toEqual(
+        failure === "deadline-exhausted"
+          ? ["dispose", "terminate"]
+          : ["cancel", "dispose", "terminate"]
+      );
+      if (!connection?.processId) throw new Error("missing process id");
+      const rootId = connection.processId;
+      const events = await readFile(log, "utf8");
+      const descendantId = Number(events.match(/child:(\d+)/)?.[1]);
+      expect(Number.isSafeInteger(descendantId)).toBe(true);
+      if (failure !== "deadline-exhausted") expect(confirmedWithRemainingMs).toBeGreaterThan(0);
+      await vi.waitFor(() => {
+        for (const pid of [rootId, descendantId]) {
+          expect(() => process.kill(pid, 0)).toThrowError(
+            expect.objectContaining({ code: "ESRCH" })
+          );
+        }
+      });
+      if (failure !== "deadline-exhausted") {
+        const ordered = (await readFile(log, "utf8")).split("\n");
+        expect(ordered.indexOf("eof")).toBeGreaterThan(ordered.indexOf("prompt"));
+        expect(ordered.indexOf("term")).toBeGreaterThan(ordered.indexOf("eof"));
+        expect(ordered).toContain("child-term");
+        expect(ordered.filter((event) => event === "cancel")).toHaveLength(
+          failure === "cancel-write-rejected" || failure === "cancel-write-stalled" ? 0 : 1
+        );
+        if (failure !== "cancel-write-rejected" && failure !== "cancel-write-stalled")
+          expect(ordered.indexOf("cancel")).toBeLessThan(ordered.indexOf("eof"));
+      }
     } finally {
       clearTimeout(guard);
       controller.abort();
-      await connection?.dispose();
+      await connection?.dispose().catch(() => undefined);
       await rm(directory, { recursive: true, force: true });
     }
   });

@@ -1,8 +1,14 @@
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 import { createAcpConnection, type AcpConnection } from "../autoRun/acpConnection.js";
-import { executeAcp } from "../autoRun/acpExecutionEngine.js";
+import {
+  AcpEngineExecutionError,
+  executeAcp,
+  executeAcpOrThrow
+} from "../autoRun/acpExecutionEngine.js";
+import type { AcpCleanupDeadline } from "../autoRun/acpExecutionCleanup.js";
 import { AcpSharedConnectionCleanupError } from "../autoRun/acpSharedConnectionErrors.js";
 import type { AcpEngineEvent, ExecuteAcpOptions } from "../autoRun/acpExecutionEngineContracts.js";
 import { ACP_MOCK_OPERATION_TIMEOUT_MS } from "./support/acpMockHarness.js";
@@ -592,18 +598,37 @@ describe("storage-neutral ACP execution engine", () => {
     expect(Buffer.byteLength(result.stderr.join(""), "utf8")).toBeLessThanOrEqual(31);
   });
 
-  it("applies one total deadline to hanging connection cleanup", async () => {
+  it.each([
+    { disposal: "never-settle", cancelled: false, notificationsReject: false },
+    { disposal: "deadline-rejection", cancelled: false, notificationsReject: false },
+    { disposal: "deadline-rejection", cancelled: true, notificationsReject: false },
+    { disposal: "immediate-rejection", cancelled: false, notificationsReject: true }
+  ] as const)("preserves $disposal cleanup failure (cancelled=$cancelled, notificationsReject=$notificationsReject)", async ({
+    disposal,
+    cancelled,
+    notificationsReject
+  }) => {
     vi.useFakeTimers();
-    let notifyDisposeStarted: (() => void) | undefined;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+    let notifyDisposeStarted!: () => void;
     const disposeStarted = new Promise<void>((resolve) => {
       notifyDisposeStarted = resolve;
     });
+    const controller = new AbortController();
+    const disposalFailure = new Error("specific physical disposal failure");
+    const observerFailure = new Error("cleanup completion observer rejected");
+    const sinkFailure = new Error("terminal event sink rejected");
+    const protections: Array<AcpCleanupDeadline | null> = [];
+    let completionObserved = false;
+    let terminalEmitted = false;
+    let disposedDeadline: AcpCleanupDeadline | undefined;
+    let settled = false;
     const connection = {
-      processId: 1,
+      processId: null,
       pendingOperationCount: 0,
       pendingOperations: new Map(),
       stderr: [],
-      closed: Promise.resolve(),
+      closed: new Promise<void>(() => undefined),
       initialize: vi.fn(async () => ({
         protocolVersion: 1,
         agentCapabilities: { sessionCapabilities: { close: {} } },
@@ -618,31 +643,91 @@ describe("storage-neutral ACP execution engine", () => {
       setSessionMode: vi.fn(async () => ({})),
       setSessionConfigOption: vi.fn(async () => ({ configOptions: [] })),
       dispose: vi.fn((options) => {
-        notifyDisposeStarted?.();
+        const deadline = options?.cleanupDeadline;
+        disposedDeadline = deadline;
+        notifyDisposeStarted();
+        if (!deadline) throw new Error("missing physical cleanup deadline");
+        if (disposal === "immediate-rejection") return Promise.reject(disposalFailure);
         return new Promise<void>((_resolve, reject) => {
-          setTimeout(
-            () => reject(new Error("controlled disposal reached its supplied deadline")),
-            options?.timeoutMs
-          );
+          if (disposal === "deadline-rejection")
+            setTimeout(() => reject(disposalFailure), deadline.remainingMs());
         });
       })
     } satisfies AcpConnection;
 
     try {
-      const execution = executeAcp(
+      const startedAt = performance.now();
+      const execution = executeAcpOrThrow(
         engineOptions("success", {
           connect: () => connection,
-          shutdown: { eofDrainMs: 10, terminateGraceMs: 10, cleanupDeadlineMs: 270 }
+          signal: controller.signal,
+          shutdown: { eofDrainMs: 10, terminateGraceMs: 10, cleanupDeadlineMs: 270 },
+          cleanupObserver: (deadline) => protections.push(deadline),
+          lifecycleObserver: (event) => {
+            if (cancelled && event.kind === "prompt_completed") controller.abort();
+            if (event.kind === "cleanup_completed") {
+              completionObserved = true;
+              if (notificationsReject) throw observerFailure;
+            }
+          },
+          eventSink: (event) => {
+            if (event.kind === "terminal") {
+              terminalEmitted = true;
+              if (notificationsReject) throw sinkFailure;
+            }
+          }
         })
+      ).then(
+        () => {
+          throw new Error("cleanup failure unexpectedly resolved");
+        },
+        (error: unknown) => {
+          settled = true;
+          if (!(error instanceof AcpEngineExecutionError)) throw error;
+          return error;
+        }
       );
       await disposeStarted;
-      await vi.advanceTimersByTimeAsync(271);
-
-      await expect(execution).resolves.toMatchObject({
-        terminal: { state: "failed", reason: "cleanup_failed" },
+      expect(protections).toHaveLength(1);
+      expect(disposedDeadline?.expiresAt).toBe(startedAt + 270);
+      expect(disposedDeadline?.remainingMs).toBe(protections[0]?.remainingMs);
+      if (disposal !== "immediate-rejection") {
+        await vi.advanceTimersByTimeAsync(269);
+        expect(settled).toBe(false);
+        expect(disposedDeadline?.remainingMs()).toBe(1);
+        await vi.advanceTimersByTimeAsync(1);
+      }
+      const error = await execution;
+      expect(error.result).toMatchObject({
+        terminal: cancelled
+          ? { state: "cancelled" }
+          : { state: "failed", reason: "cleanup_failed" },
         cleanup: { attempted: true, completed: false }
       });
+      if (disposal === "never-settle") {
+        expect(error.executionCause).toMatchObject({
+          name: "AcpCleanupTimeoutError",
+          message: "ACP connection disposal exceeded the cleanup deadline."
+        });
+      } else if (!notificationsReject) {
+        expect(error.executionCause).toBe(disposalFailure);
+      } else {
+        const causes = (cause: unknown): unknown[] =>
+          cause instanceof AggregateError ? cause.errors.flatMap(causes) : [cause];
+        const retained = causes(error.executionCause);
+        expect(retained).toContain(disposalFailure);
+        expect(retained).toContain(observerFailure);
+        expect(retained).toContain(sinkFailure);
+      }
+      expect(performance.now() - startedAt).toBe(disposal === "immediate-rejection" ? 0 : 270);
+      expect(protections).toHaveLength(1);
+      expect(protections).not.toContain(null);
+      expect(completionObserved).toBe(notificationsReject);
+      expect(terminalEmitted).toBe(notificationsReject);
+      expect(connection.dispose).toHaveBeenCalledTimes(1);
+      expect(connection.cancel).toHaveBeenCalledTimes(cancelled ? 1 : 0);
     } finally {
+      clock.mockRestore();
       vi.useRealTimers();
     }
   });

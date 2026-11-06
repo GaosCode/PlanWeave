@@ -251,9 +251,8 @@ class DedicatedAcpConnectionLease implements AcpConnectionLease {
     }
     let disposed = false;
     try {
-      await cleanup.run("connection disposal", (timeoutMs) =>
-        this.connection.dispose({ timeoutMs, cleanupDeadline: parsed.cleanupDeadline })
-      );
+      const disposal = this.connection.dispose({ cleanupDeadline: parsed.cleanupDeadline });
+      await Promise.all([disposal, cleanup.run("connection disposal", () => disposal)]);
       disposed = true;
     } catch (error) {
       failures.push(error);
