@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import {
   CANVAS_RUNTIME_CAPABILITY,
@@ -112,8 +112,14 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
         ]
       });
     }
+    let rpcTime = 0;
     const broker = new CanvasRuntimeRpcBroker(database, fixture.hosts, fixture.mailbox, {
-      requestTimeoutMs: 100
+      requestTimeoutMs: 1_000,
+      clock: () => {
+        const now = new Date();
+        rpcTime = now.getTime();
+        return now;
+      }
     });
     broker.attachSessionLookup({ isActive: (hostId) => active.has(hostId) });
     const contentVersions = new ContentVersionRepository(database);
@@ -181,20 +187,49 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
     });
     const first = operations[0]!;
     const second = operations[1]!;
-    const calls: { hostId: string; operation: string; input?: unknown }[] = [];
+    let phase = "initial";
+    const calls: {
+      requestId: string;
+      hostId: string;
+      operation: string;
+      phase: string;
+      timeoutMs: number;
+      dropped?: boolean;
+      input?: unknown;
+    }[] = [];
     const hostErrors: unknown[] = [];
-    let drop = true;
-    let dropActionAcquire = false;
+    const callbacks: Promise<void>[] = [];
+    const failures: unknown[] = [];
+    const faultPhases = new Set<string>();
+    const request = broker.request.bind(broker);
+    vi.spyOn(broker, "request").mockImplementation(
+      (hostId, scope, operation, attachmentVersion, options) => {
+        const fault =
+          hostId === hostA.id &&
+          !faultPhases.has(phase) &&
+          ((phase === "initial" && operation.operation === lostOperation) ||
+            (phase === "action" && operation.operation === "acquire"));
+        if (fault) faultPhases.add(phase);
+        return request(hostId, scope, operation, attachmentVersion, {
+          ...options,
+          ...(fault ? { requestTimeoutMs: 100 } : {})
+        });
+      }
+    );
     const subscriptions = [...active].map((hostId) =>
       fixture.mailbox.subscribe(hostId, (message) => {
         if (message.command.type !== "canvas_runtime.request") return;
         const command = message.command;
-        calls.push({
+        const call: (typeof calls)[number] = {
+          requestId: command.requestId,
           hostId,
           operation: command.operation.operation,
+          phase,
+          timeoutMs: Date.parse(command.deadline) - rpcTime,
           ...("input" in command.operation ? { input: command.operation.input } : {})
-        });
-        void (async () => {
+        };
+        calls.push(call);
+        const callback = (async () => {
           const operation = command.operation;
           if (
             hostId === hostA.id &&
@@ -220,10 +255,6 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
                 }
               })
             );
-            return;
-          }
-          if (hostId === hostA.id && operation.operation === "acquire" && dropActionAcquire) {
-            dropActionAcquire = false;
             return;
           }
           let result: unknown;
@@ -265,8 +296,8 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
             default:
               throw new Error(`rpc_recovery_unexpected_operation:${operation.operation}`);
           }
-          if (hostId === hostA.id && operation.operation === lostOperation && drop) {
-            drop = false;
+          if (call.timeoutMs === 100) {
+            call.dropped = true;
             return;
           }
           broker.handleResponse(
@@ -279,7 +310,10 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
               response: { outcome: "success", operation: operation.operation, result }
             })
           );
-        })().catch((error) => hostErrors.push(error));
+        })().catch((error) => {
+          hostErrors.push(error);
+        });
+        callbacks.push(callback);
       })
     );
     try {
@@ -288,132 +322,167 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
           code: "protocol_error"
         });
         expect(coordination.operations.getRequired(second.id).state).toBe("preparing");
-        return;
-      }
-      const outcomes = await coordination.coordinator.reenterPending();
-      expect(hostErrors).toEqual([]);
-      expect(outcomes.map((outcome) => [outcome.operation.id, outcome.status])).toEqual([
-        [first.id, "awaiting_host"],
-        [second.id, "activated"]
-      ]);
-      expect(coordination.operations.getRequired(first.id).state).not.toBe("failed");
-      const code =
-        lostOperation === "acquire"
-          ? "canvas_runtime_rpc_deadline_exceeded"
-          : "canvas_runtime_reconcile_required";
-      expect(coordination.operations.latestDiagnostic(first.id)?.error).toEqual({
-        code,
-        retryable: true
-      });
-      expect(
-        database
-          .prepare(
-            `SELECT ${remoteOperationDiagnosticRetryabilitySql("diagnostic_code")} AS retryable FROM remote_operations WHERE id=?`
-          )
-          .get(first.id)
-      ).toEqual({ retryable: 1 });
-      broker.detachHost(hostA.id, "superseded");
-      const recovered = await coordination.coordinator.reenterPending();
-      expect(recovered.find((outcome) => outcome.operation.id === first.id)?.status).toBe(
-        "activated"
-      );
-      const after = coordination.operations.getRequired(first.id);
-      expect(after.executionAttemptId).toBe(first.executionAttemptId);
-      expect(after.dispatchId).toBe(first.dispatchId);
-      expect(after.state).toBe("activated");
-      const binding = await runtime.query({ ref: first.blockRef, operationId: first.id });
-      expect(binding.ownership).toMatchObject({
-        phase: "active",
-        operationId: first.id,
-        dispatchId: first.dispatchId,
-        executionAttemptId: first.executionAttemptId
-      });
-      expect(
-        calls.filter((call) => call.hostId === hostA.id && call.operation === "activate")
-      ).toHaveLength(1);
-      await coordination.coordinator.reenterPending();
-      expect(
-        calls.filter((call) => call.hostId === hostA.id && call.operation === "activate")
-      ).toHaveLength(1);
-      expect(
-        fixture.mailbox
-          .listAfter(hostA.id, 0)
-          .filter((message) => message.command.type === "execute_block")
-      ).toHaveLength(1);
-      expect(coordination.operations.latestDiagnostic(first.id)?.error).toBeUndefined();
-      if (lostOperation === "activate") {
-        for (const [index, initial] of operations.entries()) {
-          const hostId = index === 0 ? hostA.id : hostB.id;
-          const dispatch = coordination.dispatches.getRequired(initial.dispatchId);
-          coordination.dispatches.accept(
-            hostId,
-            `accept-action-${index}`,
-            dispatch.id,
-            dispatch.leaseId,
-            dispatch.executionAttemptId
-          );
-          coordination.dispatches.interrupt(hostId, `interrupt-action-${index}`, {
-            type: "dispatch.interrupted",
-            protocolVersion: agentHostProtocolVersion,
-            messageId: `interrupt-action-${index}`,
-            dispatchId: dispatch.id,
-            leaseId: dispatch.leaseId,
-            executionAttemptId: dispatch.executionAttemptId,
-            reason: "acp_session_lost",
-            resumable: false
-          });
-          await coordination.coordinator.reenter(initial.id);
-          const reservation = coordination.reservations.getRequired(dispatch.leaseId);
-          coordination.reservations.release({
-            leaseId: reservation.leaseId,
-            fencingToken: reservation.fencingToken,
-            expectedVersion: reservation.version,
-            reason: "expired"
-          });
-          const interrupted = coordination.operations.getRequired(initial.id);
-          coordination.actions.record({
-            actionId: `fail-action-${index}`,
-            operationId: interrupted.id,
-            dispatchId: interrupted.dispatchId,
-            executionAttemptId: interrupted.executionAttemptId,
-            expectedAttemptVersion: interrupted.attempt.stateVersion,
-            kind: "fail",
-            reason: "Stop interrupted attempt.",
-            leaseId: dispatch.leaseId,
-            failure: {
-              code: "operator_stopped",
-              message: "Stop interrupted attempt.",
-              retryable: false
-            }
-          });
-        }
-        dropActionAcquire = true;
-        const actionOutcomes = await coordination.coordinator.reconcileActions();
-        expect(actionOutcomes.map((action) => action.request.actionId)).toEqual(["fail-action-1"]);
-        expect(coordination.actions.getRequired("fail-action-0").state).toBe("recorded");
-        expect(coordination.operations.getRequired(first.id).state).toBe("interrupted");
+      } else {
+        const outcomes = await coordination.coordinator.reenterPending();
+        expect(hostErrors).toEqual([]);
+        expect(outcomes.map((outcome) => [outcome.operation.id, outcome.status])).toEqual([
+          [first.id, "awaiting_host"],
+          [second.id, "activated"]
+        ]);
+        expect(coordination.operations.getRequired(first.id).state).not.toBe("failed");
+        const code =
+          lostOperation === "acquire"
+            ? "canvas_runtime_rpc_deadline_exceeded"
+            : "canvas_runtime_reconcile_required";
         expect(coordination.operations.latestDiagnostic(first.id)?.error).toEqual({
-          code: "canvas_runtime_rpc_deadline_exceeded",
+          code,
           retryable: true
         });
-        expect(coordination.operations.getRequired(second.id).state).toBe("failed");
-        const reconciledActions = await coordination.coordinator.reconcileActions();
         expect(
-          reconciledActions.find((action) => action.request.actionId === "fail-action-0")?.state
-        ).toBe("settled");
-        expect(coordination.operations.getRequired(first.id).state).toBe("failed");
-        expect(coordination.operations.getRequired(first.id).executionAttemptId).toBe(
-          first.executionAttemptId
+          database
+            .prepare(
+              `SELECT ${remoteOperationDiagnosticRetryabilitySql("diagnostic_code")} AS retryable FROM remote_operations WHERE id=?`
+            )
+            .get(first.id)
+        ).toEqual({ retryable: 1 });
+        broker.detachHost(hostA.id, "superseded");
+        phase = "recovery";
+        const recovered = await coordination.coordinator.reenterPending();
+        expect(recovered.find((outcome) => outcome.operation.id === first.id)?.status).toBe(
+          "activated"
         );
-        await coordination.coordinator.reconcileActions();
+        const after = coordination.operations.getRequired(first.id);
+        expect(after.executionAttemptId).toBe(first.executionAttemptId);
+        expect(after.dispatchId).toBe(first.dispatchId);
+        expect(after.state).toBe("activated");
+        const binding = await runtime.query({ ref: first.blockRef, operationId: first.id });
+        expect(binding.ownership).toMatchObject({
+          phase: "active",
+          operationId: first.id,
+          dispatchId: first.dispatchId,
+          executionAttemptId: first.executionAttemptId
+        });
         expect(
-          calls.filter((call) => call.hostId === hostA.id && call.operation === "fail")
+          calls.filter((call) => call.hostId === hostA.id && call.operation === "activate")
         ).toHaveLength(1);
+        await coordination.coordinator.reenterPending();
+        expect(
+          calls.filter((call) => call.hostId === hostA.id && call.operation === "activate")
+        ).toHaveLength(1);
+        expect(
+          fixture.mailbox
+            .listAfter(hostA.id, 0)
+            .filter((message) => message.command.type === "execute_block")
+        ).toHaveLength(1);
+        expect(coordination.operations.latestDiagnostic(first.id)?.error).toBeUndefined();
+        if (lostOperation === "activate") {
+          phase = "interruption";
+          for (const [index, initial] of operations.entries()) {
+            const hostId = index === 0 ? hostA.id : hostB.id;
+            const dispatch = coordination.dispatches.getRequired(initial.dispatchId);
+            coordination.dispatches.accept(
+              hostId,
+              `accept-action-${index}`,
+              dispatch.id,
+              dispatch.leaseId,
+              dispatch.executionAttemptId
+            );
+            coordination.dispatches.interrupt(hostId, `interrupt-action-${index}`, {
+              type: "dispatch.interrupted",
+              protocolVersion: agentHostProtocolVersion,
+              messageId: `interrupt-action-${index}`,
+              dispatchId: dispatch.id,
+              leaseId: dispatch.leaseId,
+              executionAttemptId: dispatch.executionAttemptId,
+              reason: "acp_session_lost",
+              resumable: false
+            });
+            await coordination.coordinator.reenter(initial.id);
+            const reservation = coordination.reservations.getRequired(dispatch.leaseId);
+            coordination.reservations.release({
+              leaseId: reservation.leaseId,
+              fencingToken: reservation.fencingToken,
+              expectedVersion: reservation.version,
+              reason: "expired"
+            });
+            const interrupted = coordination.operations.getRequired(initial.id);
+            coordination.actions.record({
+              actionId: `fail-action-${index}`,
+              operationId: interrupted.id,
+              dispatchId: interrupted.dispatchId,
+              executionAttemptId: interrupted.executionAttemptId,
+              expectedAttemptVersion: interrupted.attempt.stateVersion,
+              kind: "fail",
+              reason: "Stop interrupted attempt.",
+              leaseId: dispatch.leaseId,
+              failure: {
+                code: "operator_stopped",
+                message: "Stop interrupted attempt.",
+                retryable: false
+              }
+            });
+          }
+          phase = "action";
+          const actionOutcomes = await coordination.coordinator.reconcileActions();
+          expect(actionOutcomes.map((action) => action.request.actionId)).toEqual([
+            "fail-action-1"
+          ]);
+          expect(coordination.actions.getRequired("fail-action-0").state).toBe("recorded");
+          expect(coordination.operations.getRequired(first.id).state).toBe("interrupted");
+          expect(coordination.operations.latestDiagnostic(first.id)?.error).toEqual({
+            code: "canvas_runtime_rpc_deadline_exceeded",
+            retryable: true
+          });
+          expect(coordination.operations.getRequired(second.id).state).toBe("failed");
+          phase = "action_recovery";
+          const reconciledActions = await coordination.coordinator.reconcileActions();
+          expect(
+            reconciledActions.find((action) => action.request.actionId === "fail-action-0")?.state
+          ).toBe("settled");
+          expect(coordination.operations.getRequired(first.id).state).toBe("failed");
+          expect(coordination.operations.getRequired(first.id).executionAttemptId).toBe(
+            first.executionAttemptId
+          );
+          await coordination.coordinator.reconcileActions();
+          expect(
+            calls.filter((call) => call.hostId === hostA.id && call.operation === "fail")
+          ).toHaveLength(1);
+        }
+        expect(hostErrors).toEqual([]);
       }
-      expect(hostErrors).toEqual([]);
+    } catch (error) {
+      failures.push(error);
     } finally {
       for (const unsubscribe of subscriptions) unsubscribe();
+      await Promise.all(callbacks);
       broker.close();
     }
+    failures.push(...hostErrors);
+    try {
+      expect(
+        calls
+          .filter((call) => call.timeoutMs === 100)
+          .map(({ hostId, operation, phase }) => ({ hostId, operation, phase }))
+      ).toEqual(
+        lostOperation === "protocol_error"
+          ? []
+          : [
+              { hostId: hostA.id, operation: lostOperation, phase: "initial" },
+              ...(lostOperation === "activate"
+                ? [{ hostId: hostA.id, operation: "acquire", phase: "action" }]
+                : [])
+            ]
+      );
+      for (const call of calls.filter((call) => call.timeoutMs !== 100)) {
+        expect(call.timeoutMs).toBe(1_000);
+        expect(call.dropped).toBeUndefined();
+      }
+      expect(calls.filter((call) => call.dropped).map((call) => call.requestId)).toEqual(
+        calls.filter((call) => call.timeoutMs === 100).map((call) => call.requestId)
+      );
+    } catch (error) {
+      failures.push(error);
+    }
+    if (failures.length) throw new AggregateError(failures, "runtime_availability_fixture_failed");
   });
 });
