@@ -7,6 +7,8 @@ import {
   type HistoricalMailboxCommand
 } from "../protocol.js";
 import { digestJson } from "./agentHostStateMigrations.js";
+import { AgentHostCancellationRepository } from "./agentHostCancellationRepository.js";
+import { toExecutionEvidence } from "./agentHostStateRecords.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
 type MailboxMessage = Pick<
@@ -397,6 +399,12 @@ export class AgentHostTerminalCompactionRepository {
     if (!terminalEventFound)
       throw new Error("agent_host_terminal_compaction_terminal_event_missing");
 
+    const execution = this.database
+      .prepare("SELECT * FROM agent_host_executions WHERE inbox_sequence=?")
+      .get(candidate.inbox_sequence);
+    if (!execution) throw new Error("execution_evidence_not_found");
+    new AgentHostCancellationRepository(this.database).archive(toExecutionEvidence(execution));
+
     this.database
       .prepare(
         `INSERT INTO agent_host_terminal_execution_receipts(
@@ -496,6 +504,12 @@ export class AgentHostTerminalCompactionRepository {
       )
       .all(cutoff, this.policy.maxReceipts, this.policy.receiptPruneBatchSize);
     for (const row of rows) {
+      this.database
+        .prepare(
+          `DELETE FROM agent_host_execution_cancellation_history
+           WHERE dispatch_id=? AND execution_attempt_id=?`
+        )
+        .run(String(row.dispatch_id), String(row.execution_attempt_id));
       this.database
         .prepare(
           `DELETE FROM agent_host_compacted_mailbox_receipts

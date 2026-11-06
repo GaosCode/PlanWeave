@@ -325,7 +325,7 @@ describe("incremental durable ACP relay", () => {
     appendSession(state, identity);
     appendLifecycle(state, identity, 900);
     const pending = state.pendingEvents();
-    expect(database.prepare("SELECT version FROM agent_host_state_schema").get()?.version).toBe(12);
+    expect(database.prepare("SELECT version FROM agent_host_state_schema").get()?.version).toBe(13);
     closeState(state);
     const reopened = await openAgentHostState(path);
     states.push(reopened);

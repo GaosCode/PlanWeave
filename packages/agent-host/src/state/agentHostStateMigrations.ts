@@ -6,7 +6,7 @@ import { historicalMailboxCommandSchema } from "@planweave-ai/agent-host-protoco
 import { storedCanvasRuntimeCommandIdentitySchema } from "./storedCanvasRuntimeCommandIdentity.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
-const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 12;
+const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 13;
 const PRE_REMOTE_RUNNER_EVENT_PROTOCOL_SCHEMA_VERSION = 8;
 const PRE_RESET_RESULT_SCHEMA_VERSION = 7;
 const PRE_RESET_OPERATION_SCHEMA_VERSION = 6;
@@ -79,6 +79,15 @@ CREATE TABLE IF NOT EXISTS agent_host_execution_transitions (
   to_status TEXT NOT NULL,
   evidence_kind TEXT NOT NULL,
   occurred_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_host_execution_cancellation_history (
+  inbox_sequence INTEGER NOT NULL,
+  dispatch_id TEXT NOT NULL,
+  lease_id TEXT NOT NULL,
+  execution_attempt_id TEXT NOT NULL,
+  intent_json TEXT NOT NULL,
+  PRIMARY KEY(dispatch_id,lease_id,execution_attempt_id)
 );
 
 CREATE TABLE IF NOT EXISTS agent_host_execution_actions (
@@ -527,7 +536,7 @@ const versionElevenRequiredTables: Readonly<Record<string, RequiredTableShape>> 
   }
 };
 
-const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+const versionTwelveRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   ...versionElevenRequiredTables,
   ...Object.fromEntries(
     ["agent_host_outbox", "agent_host_conversation_turns", "canvas_runtime_rpc_receipts"].map(
@@ -540,6 +549,14 @@ const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
       ]
     )
   )
+};
+
+const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+  ...versionTwelveRequiredTables,
+  agent_host_execution_cancellation_history: {
+    columns: ["inbox_sequence", "dispatch_id", "lease_id", "execution_attempt_id", "intent_json"],
+    uniqueKeys: [["dispatch_id", "lease_id", "execution_attempt_id"]]
+  }
 };
 
 const versionSevenRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
@@ -885,6 +902,8 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     const priorVersion = storedSchemaVersion(database);
     if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
       assertCurrentSchemaComplete(database);
+    } else if (priorVersion === 12) {
+      assertRequiredTablesAndVersion(database, versionTwelveRequiredTables, 12);
     } else if (priorVersion === 11) {
       assertRequiredTablesAndVersion(database, versionElevenRequiredTables, 11);
     } else if (priorVersion === 10) {

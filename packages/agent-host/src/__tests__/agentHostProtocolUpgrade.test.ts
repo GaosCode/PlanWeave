@@ -460,7 +460,7 @@ describe("persisted Host protocol upgrades", () => {
     expect(state.conversations.queued()).toEqual([]);
     f.closeState(state);
     const current = await openAgentHostDatabase(f.path, 5_000);
-    expect(current.prepare("SELECT version FROM agent_host_state_schema").get()?.version).toBe(12);
+    expect(current.prepare("SELECT version FROM agent_host_state_schema").get()?.version).toBe(13);
     current.exec("ALTER TABLE canvas_runtime_rpc_receipts DROP COLUMN protocol_archive_reason");
     current.close();
     await expect(openAgentHostState(f.path)).rejects.toThrow(/schema/);

@@ -97,7 +97,7 @@ describe("authoritative Agent Host execution state", () => {
     states.push(upgraded);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 12
+      version: 13
     });
     expect(
       inspected.prepare("PRAGMA table_info(agent_host_conversation_turns)").all()
@@ -457,11 +457,45 @@ describe("authoritative Agent Host execution state", () => {
       });
       expect(state.startResumption(1)?.execution.command.leaseId).toBe(resumed.leaseId);
       expect(state.executionCancellationMatches(1, resumed)).toBe(false);
+      state.receive({
+        type: "mailbox.message",
+        protocolVersion: agentHostProtocolVersion,
+        sequence: 3,
+        previousSequence: 2,
+        messageId: "prototype-resumed-cancel",
+        command: {
+          type: "cancel_execution",
+          protocolVersion: agentHostProtocolVersion,
+          ...resumed,
+          reason: "Cancel resumed prototype"
+        }
+      });
+      expect(state.applyCancellation(3)).toEqual({ shouldAbort: true });
+      expect(state.executionCancellationMatches(1, resumed)).toBe(true);
+      expect(
+        state.failExecution(1, resumed, {
+          code: "execution_cancelled",
+          message: "cancelled",
+          retryable: false
+        })
+      ).toBe("applied");
+      expect(state.executionEvidence(1)?.status).toBe("cancelled");
     }
     state.close();
     states.pop();
 
     const inspected = await openAgentHostDatabase(path, 5_000);
+    if (status === "cancelling")
+      expect(
+        inspected
+          .prepare("SELECT lease_id,intent_json FROM agent_host_execution_cancellation_history")
+          .all()
+      ).toEqual([
+        expect.objectContaining({
+          lease_id: identity().leaseId,
+          intent_json: JSON.stringify({ kind: "coordinator_cancel", migrated: true })
+        })
+      ]);
     expect(inspected.prepare("SELECT execution_status FROM agent_host_inbox").get()).toMatchObject({
       execution_status: null
     });

@@ -950,6 +950,7 @@
         "agentHostLeaseExpiry.test.ts",
         "agentHostStartupDiscovery.test.ts",
         "agentHostLeaseSettlement.test.ts",
+        "agentHostCancellationIdentity.test.ts",
         "remoteAcpConversation.test.ts",
         "agentHostProtocolUpgrade.test.ts",
         "agentHostArchivedInbox.test.ts",

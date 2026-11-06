@@ -3,6 +3,8 @@ import { acpCapabilitySnapshotSchema } from "@planweave-ai/runtime";
 import type { DispatchResult, NormalizedFailure } from "../protocol.js";
 import type { SqliteDatabase } from "./sqliteDatabase.js";
 import { digestJson } from "./agentHostStateMigrations.js";
+import { AgentHostCancellationRepository } from "./agentHostCancellationRepository.js";
+import type { AgentHostRemoteExecutionIdentity } from "../execution/remoteAcpPorts.js";
 import {
   agentHostExecutionStatusSchema,
   toExecution,
@@ -138,10 +140,14 @@ function byteLength(value: string): number {
 }
 
 export class AgentHostExecutionRepository {
+  private readonly cancellations: AgentHostCancellationRepository;
+
   constructor(
     private readonly database: SqliteDatabase,
     private readonly limits: RepositoryLimits
-  ) {}
+  ) {
+    this.cancellations = new AgentHostCancellationRepository(database);
+  }
 
   insert(sequence: number, command: ExecuteBlockCommand, receivedAt: string): boolean {
     const existing = this.database
@@ -436,11 +442,12 @@ export class AgentHostExecutionRepository {
     if (current.acpSessionId !== input.sessionId) throw new Error("execution_action_stale_session");
     const row = this.database
       .prepare(
-        `SELECT action_kind,deadline,response_digest,response_json FROM agent_host_execution_actions
+        `SELECT lease_id,action_kind,deadline,response_digest,response_json FROM agent_host_execution_actions
          WHERE inbox_sequence=? AND session_id=? AND action_id=?`
       )
       .get(sequence, input.sessionId, input.actionId);
     if (!row) throw new Error("execution_action_not_found");
+    if (row.lease_id !== input.leaseId) throw new Error("execution_action_stale_lease");
     if (String(row.action_kind) !== expectedActionKind(response)) {
       throw new Error("execution_action_response_type_mismatch");
     }
@@ -529,10 +536,14 @@ export class AgentHostExecutionRepository {
     kind: "cancellation" | "recovery",
     intent: unknown
   ): AgentHostExecutionEvidence {
+    if (kind === "cancellation") {
+      this.cancellations.set(this.requireEvidence(sequence), intent);
+      return this.requireEvidence(sequence);
+    }
     const serialized = JSON.stringify(z.json().parse(intent));
-    const column = kind === "cancellation" ? "cancellation_intent_json" : "recovery_intent_json";
+    const column = "recovery_intent_json";
     const current = this.requireEvidence(sequence);
-    const existing = kind === "cancellation" ? current.cancellationIntent : current.recoveryIntent;
+    const existing = current.recoveryIntent;
     if (existing !== undefined) {
       if (JSON.stringify(existing) !== serialized)
         throw new Error(`execution_${kind}_intent_conflict`);
@@ -542,6 +553,11 @@ export class AgentHostExecutionRepository {
       .prepare(`UPDATE agent_host_executions SET ${column}=? WHERE inbox_sequence=?`)
       .run(serialized, sequence);
     return this.requireEvidence(sequence);
+  }
+
+  cancellationMatches(sequence: number, expected: AgentHostRemoteExecutionIdentity): boolean {
+    const evidence = this.evidence(sequence);
+    return evidence !== undefined && this.cancellations.matches(evidence, expected);
   }
 
   replaceRecoveryIntent(sequence: number, intent: unknown): AgentHostExecutionEvidence {

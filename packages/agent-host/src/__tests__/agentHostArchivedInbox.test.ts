@@ -47,7 +47,7 @@ describe("archived Canvas inbox eligibility", () => {
       )
       .get();
     expect(db.prepare("SELECT version FROM agent_host_state_schema").get()?.version).toBe(
-      origin === "schema11" ? 11 : 12
+      origin === "schema11" ? 11 : 13
     );
     let state = await openAgentHostState(fixture.path, 5_000, { maxPendingCommands: 1 });
     try {
