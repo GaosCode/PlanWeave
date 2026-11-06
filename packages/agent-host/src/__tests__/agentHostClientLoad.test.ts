@@ -359,7 +359,10 @@ describe("Agent Host transport load and recovery boundaries", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("aborts and preserves eight durable executions during shutdown load", async () => {
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("aborts and preserves eight durable executions during shutdown load after %s", async (outcome) => {
     const allStarted = deferred<void>();
     const httpServer = createServer();
     httpServers.push(httpServer);
@@ -377,7 +380,11 @@ describe("Agent Host transport load and recovery boundaries", () => {
       });
     });
     const port = await listen(httpServer);
-    const state = await openState();
+    const directory = await mkdtemp(join(tmpdir(), "planweave-agent-host-shutdown-"));
+    directories.push(directory);
+    const path = join(directory, "host.sqlite");
+    const state = await openAgentHostState(path);
+    states.push(state);
     let started = 0;
     const client = createClient(
       port,
@@ -389,6 +396,7 @@ describe("Agent Host transport load and recovery boundaries", () => {
           await new Promise<void>((resolve) =>
             context.signal.addEventListener("abort", () => resolve(), { once: true })
           );
+          if (outcome === "reject") throw new Error("Execution rejected after shutdown abort.");
           return {
             summary: "Execution stopped at the shutdown boundary.",
             reportArtifactRef: `artifact:sha256:${"a".repeat(64)}`,
@@ -401,8 +409,60 @@ describe("Agent Host transport load and recovery boundaries", () => {
     client.start();
 
     await allStarted.promise;
+    const identities = Array.from({ length: 8 }, (_, index) => {
+      const message = delivery(index + 1);
+      if (message.type !== "mailbox.message" || message.command.type !== "execute_block")
+        throw new Error("expected_execute_delivery");
+      const { dispatchId, leaseId, executionAttemptId } = message.command;
+      return { dispatchId, leaseId, executionAttemptId };
+    });
+    const evidence = identities.map((identity, index) => {
+      const current = state.executionEvidence(index + 1);
+      expect(current).toMatchObject({ ...identity, status: "running" });
+      expect(current?.cancellationIntent).toBeUndefined();
+      expect(current?.terminalKind).toBeUndefined();
+      return current;
+    });
     await expect(client.stop()).resolves.toBeUndefined();
     expect(started).toBe(8);
     expect(state.recoverableExecutionCount()).toBe(8);
+    expect(identities.map((_, index) => state.executionEvidence(index + 1))).toEqual(evidence);
+    const pending = state.pendingEvents();
+    expect(
+      pending.filter(
+        (event) => event.type === "dispatch.completed" || event.type === "dispatch.failed"
+      )
+    ).toEqual([]);
+    states.splice(states.indexOf(state), 1);
+    state.close();
+    const reopened = await openAgentHostState(path);
+    states.push(reopened);
+    expect(reopened.recoverableExecutionCount()).toBe(8);
+    expect(identities.map((_, index) => reopened.executionEvidence(index + 1))).toEqual(evidence);
+    expect(reopened.pendingEvents()).toEqual(pending);
+    expect(reopened.recoverInterruptedExecutions()).toBe(8);
+    expect(reopened.recoverInterruptedExecutions()).toBe(0);
+    expect(reopened.recoverableExecutionCount()).toBe(8);
+    for (const [index, identity] of identities.entries()) {
+      const recovered = reopened.executionEvidence(index + 1);
+      expect(recovered).toMatchObject({ ...identity, status: "interrupted" });
+      expect(recovered?.cancellationIntent).toBeUndefined();
+      expect(recovered?.terminalKind).toBeUndefined();
+    }
+    expect(
+      reopened
+        .pendingEvents()
+        .filter((event) => event.type === "dispatch.interrupted")
+        .map(({ dispatchId, leaseId, executionAttemptId }) => ({
+          dispatchId,
+          leaseId,
+          executionAttemptId
+        }))
+    ).toEqual(identities);
+    expect(
+      reopened
+        .pendingEvents()
+        .filter((event) => event.type === "dispatch.completed" || event.type === "dispatch.failed")
+    ).toEqual([]);
   });
 });

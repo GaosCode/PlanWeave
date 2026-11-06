@@ -428,6 +428,63 @@ export class AgentHostState implements AgentHostStateRepository {
     return this.executions.evidence(sequence);
   }
 
+  executionCancellationMatches(
+    sequence: number,
+    expected: AgentHostRemoteExecutionIdentity
+  ): boolean {
+    const evidence = this.executions.evidence(sequence);
+    if (
+      evidence?.cancellationIntent === undefined ||
+      evidence.dispatchId !== expected.dispatchId ||
+      evidence.leaseId !== expected.leaseId ||
+      evidence.executionAttemptId !== expected.executionAttemptId
+    )
+      return false;
+    const intent = z
+      .union([
+        z.object({ reason: z.string(), commandSequence: mailboxSequenceSchema }).strict(),
+        z
+          .object({ kind: z.literal("authentication_cancelled"), actionId: z.string().min(1) })
+          .strict(),
+        z.object({ kind: z.literal("coordinator_cancel"), migrated: z.literal(true) }).strict()
+      ])
+      .parse(evidence.cancellationIntent);
+    if ("kind" in intent && intent.kind === "authentication_cancelled") {
+      if (!evidence.acpSessionId) return false;
+      const response = this.interactions.get({
+        ...expected,
+        acpSessionId: evidence.acpSessionId,
+        actionId: intent.actionId
+      });
+      return (
+        response?.type === "interaction.authentication_action" &&
+        response.action === "cancel" &&
+        response.dispatchId === expected.dispatchId &&
+        response.leaseId === expected.leaseId &&
+        response.executionAttemptId === expected.executionAttemptId &&
+        response.acpSessionId === evidence.acpSessionId &&
+        response.actionId === intent.actionId
+      );
+    }
+    const row = this.database
+      .prepare("SELECT command_json FROM agent_host_inbox WHERE sequence=?")
+      .get("commandSequence" in intent ? intent.commandSequence : sequence);
+    if (!row) throw new Error("execution_cancellation_command_not_found");
+    const command = parseHistoricalAgentHostMailboxCommand(JSON.parse(String(row.command_json)));
+    const cancellation =
+      "commandSequence" in intent
+        ? cancellationForMailboxCommand(command)
+        : command.type === "execute_block"
+          ? command
+          : undefined;
+    if (!cancellation) throw new Error("execution_cancellation_command_invalid");
+    return (
+      cancellation.dispatchId === expected.dispatchId &&
+      cancellation.leaseId === expected.leaseId &&
+      cancellation.executionAttemptId === expected.executionAttemptId
+    );
+  }
+
   activeLeases(): AgentHostRemoteExecutionIdentity[] {
     return this.executions.list(leasedStatuses).map(({ command }) => ({
       dispatchId: command.dispatchId,

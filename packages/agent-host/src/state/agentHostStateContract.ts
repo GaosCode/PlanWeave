@@ -73,6 +73,10 @@ export interface AgentHostStateRepository {
   recoverableExecutionCount(): number;
   pendingExecutions(limit: number): AgentHostExecution[];
   executionEvidence(sequence: number): AgentHostExecutionEvidence | undefined;
+  executionCancellationMatches(
+    sequence: number,
+    expected: AgentHostRemoteExecutionIdentity
+  ): boolean;
   recordArtifactTransfer(sequence: number, leaseId: string, input: unknown): boolean;
   activeLeases(): Array<{
     dispatchId: string;

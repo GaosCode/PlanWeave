@@ -95,7 +95,10 @@ export async function runHostExecution(input: {
       input.failProtection("execution_cleanup_failed");
       return;
     }
-    if ((!input.stopped() && !input.checkLeases()) || input.persistenceFailed()) return;
+    if (input.persistenceFailed()) return;
+    if (input.stopped()) {
+      if (!input.options.state.executionCancellationMatches(execution.sequence, command)) return;
+    } else if (!input.checkLeases()) return;
     let settlement: AgentHostExecutionSettlement;
     if (outcome.kind === "completed") {
       settlement = input.options.state.completeExecution(

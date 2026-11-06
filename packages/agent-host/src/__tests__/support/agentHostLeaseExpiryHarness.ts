@@ -22,6 +22,7 @@ import { attachHostEventPayloadBudget } from "./hostTransportSocketHarness.js";
 import { openAgentHostState } from "../../state/agentHostState.js";
 import { openAgentHostDatabase } from "../../state/sqliteDatabase.js";
 import { AgentHostClient } from "../../transport/agentHostClient.js";
+import { DurableAcpInteractionRelay } from "../../execution/durableAcpRelay.js";
 import type { HostTransportClock } from "../../transport/hostTransport.js";
 import { remoteRunnerEventV2Request } from "./remoteRunnerEventCapabilityTestValues.js";
 
@@ -217,6 +218,7 @@ export async function leaseHarness(
     readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
     state,
     executor: { execute },
+    interactionRelay: new DurableAcpInteractionRelay(state),
     request: remoteRunnerEventV2Request,
     allowInsecureTransport: true,
     clock,

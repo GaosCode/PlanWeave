@@ -378,7 +378,10 @@ describe("authoritative Agent Host execution state", () => {
     );
   });
 
-  it("migrates prototype lifecycle state forward without retaining a second state authority", async () => {
+  it.each([
+    "running",
+    "cancelling"
+  ] as const)("migrates prototype %s state without retaining a second state authority", async (status) => {
     const directory = await mkdtemp(join(tmpdir(), "planweave-agent-host-prototype-state-"));
     directories.push(directory);
     const path = join(directory, "state.sqlite");
@@ -419,7 +422,7 @@ describe("authoritative Agent Host execution state", () => {
         0,
         message.messageId,
         JSON.stringify(message.command),
-        "running",
+        status,
         message.command.leaseExpiresAt,
         "2026-07-23T00:00:00.000Z",
         "2026-07-23T00:00:01.000Z"
@@ -429,6 +432,32 @@ describe("authoritative Agent Host execution state", () => {
     const state = await openAgentHostState(path);
     states.push(state);
     expect(state.executionEvidence(1)).toMatchObject({ status: "running", ...identity() });
+    expect(state.executionCancellationMatches(1, identity())).toBe(status === "cancelling");
+    if (status === "cancelling") {
+      state.recordSessionEvidence(1, {
+        sessionId: "prototype-session",
+        recoveryId: "prototype-recovery",
+        capabilitySnapshot: acpCapabilitySnapshotTestValue()
+      });
+      expect(state.recoverInterruptedExecutions()).toBe(1);
+      const resumed = { ...identity(), leaseId: "prototype-resumed-lease" };
+      state.receive({
+        type: "mailbox.message",
+        protocolVersion: agentHostProtocolVersion,
+        sequence: 2,
+        previousSequence: 1,
+        messageId: "prototype-resume",
+        command: {
+          type: "resume_execution",
+          protocolVersion: agentHostProtocolVersion,
+          ...resumed,
+          leaseExpiresAt: "2030-01-01T00:00:00.000Z",
+          priorRecovery: { acpSessionId: "prototype-session", recoveryId: "prototype-recovery" }
+        }
+      });
+      expect(state.startResumption(1)?.execution.command.leaseId).toBe(resumed.leaseId);
+      expect(state.executionCancellationMatches(1, resumed)).toBe(false);
+    }
     state.close();
     states.pop();
 

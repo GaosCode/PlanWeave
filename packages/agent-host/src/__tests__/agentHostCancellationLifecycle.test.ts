@@ -4,7 +4,13 @@ import {
   serverEventSchema
 } from "@planweave-ai/agent-host-protocol";
 import { describe, expect, it, vi } from "vitest";
-import { leaseHarness } from "./support/agentHostLeaseExpiryHarness.js";
+import {
+  completedResult,
+  leaseHarness,
+  resumeDelivery,
+  type LeaseHarness
+} from "./support/agentHostLeaseExpiryHarness.js";
+import { acpCapabilitySnapshotTestValue } from "./support/acpCapabilitySnapshotTestValues.js";
 
 function cancelDelivery(
   sequence = 2,
@@ -26,6 +32,50 @@ function cancelDelivery(
       ...identity
     }
   });
+}
+
+function sendCancellation(harness: LeaseHarness, kind: "mailbox" | "authentication") {
+  if (kind === "mailbox") {
+    harness.send(cancelDelivery());
+    return { reason: "cancel test", commandSequence: 2 };
+  }
+  const sessionId = "lease-session-1";
+  const actionId = "authentication:cancel";
+  const identity = exampleExecuteDelivery.command;
+  harness.state.recordSessionEvidence(1, {
+    sessionId,
+    capabilitySnapshot: acpCapabilitySnapshotTestValue(),
+    recoveryId: "lease-recovery-1"
+  });
+  harness.state.recordInteractionAction(1, {
+    leaseId: identity.leaseId,
+    sessionId,
+    actionId,
+    kind: "authentication",
+    deadline: new Date(harness.clock.now().getTime() + 60_000).toISOString(),
+    requestDigest: `sha256:${"b".repeat(64)}`,
+    afterCursor: 0,
+    cursor: 1
+  });
+  harness.send(
+    serverEventSchema.parse({
+      type: "mailbox.message",
+      protocolVersion: agentHostProtocolVersion,
+      sequence: 2,
+      previousSequence: 1,
+      messageId: "authentication-cancel-lifecycle",
+      command: {
+        type: "interaction.authentication_action",
+        dispatchId: identity.dispatchId,
+        leaseId: identity.leaseId,
+        executionAttemptId: identity.executionAttemptId,
+        acpSessionId: sessionId,
+        actionId,
+        action: "cancel"
+      }
+    })
+  );
+  return { kind: "authentication_cancelled", actionId };
 }
 
 describe("Host executor cleanup lifecycle", () => {
@@ -59,28 +109,136 @@ describe("Host executor cleanup lifecycle", () => {
       await harness.close();
     }
   });
-  it("persists a late terminal after bounded protection stopped the transport", async () => {
+  it.each([
+    { kind: "mailbox", outcome: "resolve" },
+    { kind: "mailbox", outcome: "reject" },
+    { kind: "authentication", outcome: "resolve" },
+    { kind: "authentication", outcome: "reject" }
+  ] as const)("persists a late $kind $outcome terminal after bounded protection stopped the transport", async ({
+    kind,
+    outcome
+  }) => {
     const harness = await leaseHarness({ abortSettles: false });
     try {
       const run = await harness.startExecution(60_000);
-      harness.send(cancelDelivery());
+      const cancellationIntent = sendCancellation(harness, kind);
       await vi.waitFor(() => expect(run.abortCount).toBe(1));
       expect(run.context.cancellationStartedAt).toEqual(expect.any(Number));
+      expect(harness.state.executionEvidence(1)?.cancellationIntent).toEqual(cancellationIntent);
       harness.clock.advanceBy(101);
       expect(harness.client.status()).toMatchObject({
         state: "reconciliation-required",
         reason: "execution_cleanup_timeout"
       });
       run.context.cleanupObserver?.(null);
-      run.result.reject(new Error("eventual cancellation cleanup"));
-      await vi.waitFor(() => expect(harness.state.executionEvidence(1)?.status).toBe("cancelled"));
+      if (outcome === "resolve") run.result.resolve(completedResult);
+      else run.result.reject(new Error("eventual cancellation cleanup"));
+      await vi.waitFor(() =>
+        expect(harness.state.executionEvidence(1)?.status).toBe(
+          outcome === "resolve" ? "completed" : "cancelled"
+        )
+      );
       expect(harness.state.pendingEvents()).toContainEqual(
         expect.objectContaining({
-          type: "dispatch.failed",
-          failure: expect.objectContaining({ code: "execution_cancelled" })
+          dispatchId: exampleExecuteDelivery.command.dispatchId,
+          leaseId: exampleExecuteDelivery.command.leaseId,
+          executionAttemptId: exampleExecuteDelivery.command.executionAttemptId,
+          ...(outcome === "resolve"
+            ? { type: "dispatch.completed", result: completedResult }
+            : {
+                type: "dispatch.failed",
+                failure: expect.objectContaining({ code: "execution_cancelled" })
+              })
         })
       );
+      const terminal = harness.state
+        .pendingEvents()
+        .find((event) => event.type === "dispatch.completed" || event.type === "dispatch.failed");
+      if (!terminal) throw new Error("missing durable terminal");
+      await harness.client.stop();
+      harness.client.start();
+      await vi.waitFor(() => expect(harness.client.status().state).toBe("connected"));
+      harness.clock.advanceBy(0);
+      await vi.waitFor(() => expect(harness.events).toContainEqual(terminal));
+      harness.send(
+        serverEventSchema.parse({
+          type: "host.event_ack",
+          protocolVersion: agentHostProtocolVersion,
+          messageId: terminal.messageId
+        })
+      );
+      await vi.waitFor(() =>
+        expect(
+          harness.state.pendingEvents().some((event) => event.messageId === terminal.messageId)
+        ).toBe(false)
+      );
       expect(harness.execute).toHaveBeenCalledTimes(1);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it.each([
+    "mailbox",
+    "authentication"
+  ] as const)("preserves a resumed execution on shutdown when its persisted %s cancellation belongs to the old lease", async (kind) => {
+    const harness = await leaseHarness({ abortSettles: false });
+    try {
+      const oldRun = await harness.startExecution(1_000);
+      harness.state.recordSessionEvidence(1, {
+        sessionId: "lease-session-1",
+        capabilitySnapshot: acpCapabilitySnapshotTestValue(),
+        recoveryId: "lease-recovery-1"
+      });
+      const expiresAt = harness.clock.now().getTime() + 11_000;
+      oldRun.context.cleanupObserver?.({
+        expiresAt,
+        remainingMs: () => Math.max(0, expiresAt - harness.clock.now().getTime())
+      });
+      const cancellationIntent = sendCancellation(harness, kind);
+      await vi.waitFor(() => expect(oldRun.abortCount).toBe(1));
+      expect(harness.state.executionEvidence(1)?.cancellationIntent).toEqual(cancellationIntent);
+      harness.clock.advanceBy(1_000);
+      expect(harness.state.executionEvidence(1)?.status).toBe("interrupted");
+      harness.send(
+        serverEventSchema.parse({
+          ...resumeDelivery(),
+          sequence: 3,
+          previousSequence: 2,
+          messageId: "resume-after-old-cancel"
+        })
+      );
+      await vi.waitFor(() =>
+        expect(harness.state.executionEvidence(1)?.leaseId).toBe("lease-resumed-2")
+      );
+      oldRun.result.resolve(completedResult);
+      await vi.waitFor(() => expect(harness.execute).toHaveBeenCalledTimes(2));
+      const resumed = harness.runs[1]!;
+      expect(harness.state.executionEvidence(1)).toMatchObject({
+        status: "running",
+        leaseId: "lease-resumed-2",
+        cancellationIntent
+      });
+      resumed.context.signal.addEventListener(
+        "abort",
+        () => resumed.result.resolve(completedResult),
+        { once: true }
+      );
+      await harness.client.stop();
+      expect(harness.client.status()).toEqual({ state: "stopped" });
+      expect(harness.state.executionEvidence(1)).toMatchObject({
+        status: "running",
+        leaseId: "lease-resumed-2",
+        cancellationIntent
+      });
+      expect(harness.state.executionEvidence(1)?.terminalKind).toBeUndefined();
+      expect(
+        harness.state
+          .pendingEvents()
+          .filter(
+            (event) => event.type === "dispatch.failed" || event.type === "dispatch.completed"
+          )
+      ).toEqual([]);
     } finally {
       await harness.close();
     }

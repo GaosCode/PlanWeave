@@ -213,9 +213,35 @@ describe("Agent Host connection-independent lease expiry", () => {
     expect(harness.execute).toHaveBeenCalledOnce();
   });
 
-  it("aborts despite expiry persistence failure and exposes reconciliation before any further launch", async () => {
+  it("aborts despite expiry persistence failure and never settles the persisted cancellation after the failed write", async () => {
     const harness = await setup({ abortSettles: false });
     const run = await harness.startExecution();
+    const expiresAt = harness.clock.now().getTime() + 11_000;
+    run.context.cleanupObserver?.({
+      expiresAt,
+      remainingMs: () => Math.max(0, expiresAt - harness.clock.now().getTime())
+    });
+    const command = leaseDelivery().command;
+    harness.send({
+      type: "mailbox.message",
+      protocolVersion: command.protocolVersion,
+      sequence: 2,
+      previousSequence: 1,
+      messageId: "cancel-before-expiry-storage-failure",
+      command: {
+        type: "cancel_execution",
+        protocolVersion: command.protocolVersion,
+        dispatchId: command.dispatchId,
+        leaseId: command.leaseId,
+        executionAttemptId: command.executionAttemptId,
+        reason: "cancel before storage failure"
+      }
+    });
+    await vi.waitFor(() =>
+      expect(harness.state.executionEvidence(1)?.cancellationIntent).toMatchObject({
+        commandSequence: 2
+      })
+    );
     harness.database.exec(`
       CREATE TRIGGER fail_lease_expiry BEFORE UPDATE ON agent_host_executions
       WHEN NEW.status = 'interrupted'
@@ -234,7 +260,12 @@ describe("Agent Host connection-independent lease expiry", () => {
     expect(harness.execute).toHaveBeenCalledOnce();
     expect(harness.client.status().state).toBe("reconciliation-required");
     harness.database.exec("DROP TRIGGER fail_lease_expiry");
+    const evidence = harness.state.executionEvidence(1);
+    const pending = harness.state.pendingEvents();
     run.result.resolve(completedResult);
+    await harness.client.stop();
+    expect(harness.state.executionEvidence(1)).toEqual(evidence);
+    expect(harness.state.pendingEvents()).toEqual(pending);
   });
 
   it("exposes bounded cleanup failure when the expired executor ignores abort", async () => {
@@ -252,6 +283,7 @@ describe("Agent Host connection-independent lease expiry", () => {
     run.result.resolve(completedResult);
     await harness.client.stop();
     expect(harness.client.status().state).toBe("reconciliation-required");
+    expectLeaseLost(harness);
   });
 
   it("preserves lease loss and refuses stop when the aborted executor reports cleanup failure", async () => {
