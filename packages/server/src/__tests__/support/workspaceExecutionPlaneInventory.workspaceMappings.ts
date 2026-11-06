@@ -370,6 +370,14 @@ export const workspaceMappingsInventory = [
     "Human remote HTTP fixture reports mapping ready."
   ),
   inventoryEntry(
+    "wm-remoteExecutionActionsHttpReplay-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/server/src/__tests__/remoteExecutionActionsHttpReplay.test.ts",
+    "host.hello readiness.workspaceMappings current workspace ready",
+    "HTTP action replay fixture reports a ready mapping for the current workspace in Host hello."
+  ),
+  inventoryEntry(
     "wm-remoteAgentAccessPolicy-ready",
     "workspaceMappings",
     "endpoint_readiness",
