@@ -572,6 +572,7 @@
       "root": "packages/runtime/src/__tests__",
       "unit": [
         "acpExactPermissionOptions.test.ts",
+        "acpExecutionCleanup.test.ts",
         "remoteAcpTelemetry.test.ts",
         "acpAuthentication.test.ts",
         "acpConversationProjection.test.ts",

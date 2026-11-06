@@ -103,7 +103,7 @@ function lifecyclePid(lifecycle: string): number {
 
 function expectProcessStopped(lifecycle: string): void {
   const pid = lifecyclePid(lifecycle);
-  expect(() => process.kill(pid, 0)).toThrow();
+  expect(() => process.kill(pid, 0)).toThrowError(expect.objectContaining({ code: "ESRCH" }));
 }
 
 describe("ACP authenticated preflight lifecycle", () => {
@@ -257,7 +257,7 @@ describe("ACP authenticated preflight lifecycle", () => {
         message: expect.stringContaining("session/close timed out after 100ms")
       })
     ]);
-    expect(lifecycle).toContain(" session/close\n");
+    expect(lifecycle.match(/ session\/close\n/g)).toHaveLength(1);
     expectProcessStopped(lifecycle);
   });
 

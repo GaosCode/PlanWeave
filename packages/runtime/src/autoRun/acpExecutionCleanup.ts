@@ -1,8 +1,12 @@
 import { performance } from "node:perf_hooks";
 
 export class AcpCleanupTimeoutError extends Error {
-  constructor(step: string) {
-    super(`ACP ${step} exceeded the cleanup deadline.`);
+  constructor(step: string, stepLimitMs?: number) {
+    super(
+      stepLimitMs === undefined
+        ? `ACP ${step} exceeded the cleanup deadline.`
+        : `ACP ${step} timed out after ${stepLimitMs}ms.`
+    );
     this.name = "AcpCleanupTimeoutError";
   }
 }
@@ -44,12 +48,22 @@ export class AcpCleanupSequencer {
     stepLimitMs?: number
   ): Promise<T> {
     const timeoutMs = this.remaining(step, stepLimitMs);
+    const operationPromise = operation(timeoutMs);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const boundary = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new AcpCleanupTimeoutError(step)), timeoutMs);
+      timer = setTimeout(
+        () =>
+          reject(
+            new AcpCleanupTimeoutError(
+              step,
+              this.deadline.remainingMs() > 0 ? stepLimitMs : undefined
+            )
+          ),
+        Math.min(timeoutMs, this.deadline.remainingMs())
+      );
     });
     try {
-      return await Promise.race([operation(timeoutMs), boundary]);
+      return await Promise.race([operationPromise, boundary]);
     } finally {
       clearTimeout(timer);
     }

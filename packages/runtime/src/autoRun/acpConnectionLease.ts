@@ -30,7 +30,6 @@ import {
 
 class DedicatedAcpOwnedSession implements AcpOwnedSession {
   private readonly cancellations = new Map<string, Promise<void>>();
-  private closePromise: Promise<void> | undefined;
 
   constructor(
     private readonly host: DedicatedAcpConnectionLease,
@@ -60,8 +59,7 @@ class DedicatedAcpOwnedSession implements AcpOwnedSession {
   close(options?: AcpOperationOptions): Promise<void> {
     const released = this.host.rejectIfReleased("session/close");
     if (released) return released;
-    this.closePromise ??= this.host.closeBoundSession(options);
-    return this.closePromise;
+    return this.host.closeBoundSession(options);
   }
 
   setMode(modeId: string, options?: AcpOperationOptions): Promise<SetSessionModeResponse> {
@@ -100,6 +98,7 @@ class DedicatedAcpConnectionLease implements AcpConnectionLease {
   };
   private boundSession: DedicatedAcpOwnedSession | null = null;
   private sessionClosed = false;
+  private closePromise: Promise<void> | undefined;
   private releasePromise: Promise<AcpLeaseReleaseResult> | undefined;
 
   constructor(
@@ -220,9 +219,12 @@ class DedicatedAcpConnectionLease implements AcpConnectionLease {
       return Promise.reject(new Error("ACP agent does not advertise session/close capability."));
     }
     if (this.sessionClosed) return Promise.resolve();
-    return this.connection.closeSession(this.boundSession.sessionId, options).then(() => {
-      this.sessionClosed = true;
-    });
+    this.closePromise ??= this.connection
+      .closeSession(this.boundSession.sessionId, options)
+      .then(() => {
+        this.sessionClosed = true;
+      });
+    return this.closePromise;
   }
 
   private async performRelease(input: AcpLeaseReleaseInput): Promise<AcpLeaseReleaseResult> {

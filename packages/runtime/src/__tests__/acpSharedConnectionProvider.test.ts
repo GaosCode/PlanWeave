@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAcpConnection, type AcpConnection } from "../autoRun/acpConnection.js";
+import { createDedicatedAcpConnectionProvider } from "../autoRun/acpDedicatedConnectionProvider.js";
 import { createAcpCleanupDeadline } from "../autoRun/acpExecutionCleanup.js";
 import { executeAcp } from "../autoRun/acpExecutionEngine.js";
 import {
@@ -652,5 +653,75 @@ describe("ACP engine shared-project gate", () => {
     expect(result.capabilitySnapshot?.required).not.toContain("session-close");
     expect(result.capabilitySnapshot?.missing).toEqual([]);
     expect(result.terminal.state).toBe("succeeded");
+  });
+});
+
+describe.each([
+  { name: "dedicated", createProvider: createDedicatedAcpConnectionProvider },
+  { name: "shared", createProvider: createSharedAcpConnectionProvider }
+])("$name pending session close ownership", ({ name, createProvider }) => {
+  it.each([
+    "close-capable",
+    "close-capable-error"
+  ])("joins an in-flight %s close during release without retrying it", async (scenario) => {
+    let resume!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const closeSession = vi.fn<ReturnType<typeof createAcpConnection>["closeSession"]>();
+    const provider = createProvider({
+      connect(options) {
+        const connection = createAcpConnection(options);
+        const close = connection.closeSession.bind(connection);
+        closeSession.mockImplementation(async (...args) => {
+          await gate;
+          return close(...args);
+        });
+        connection.closeSession = closeSession;
+        connection.cancel = async () => undefined;
+        return connection;
+      }
+    });
+    const lease = await provider.acquire(acquireRequest(scenario));
+    try {
+      await lease.initialize();
+      const session = await lease.openSession({ kind: "new" });
+      const closing = session.close();
+      const closeOutcome = closing.then(
+        () => null,
+        (error: unknown) => error
+      );
+      const releasing = lease.release({
+        terminal: "cancelled",
+        cleanupDeadline: createAcpCleanupDeadline(300)
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(closeSession).toHaveBeenCalledTimes(1);
+      resume();
+      const result = await releasing;
+      const failure = await closeOutcome;
+      expect(result).toMatchObject({
+        closedSession: scenario === "close-capable",
+        disposed: true
+      });
+      if (scenario === "close-capable") {
+        expect(failure).toBeNull();
+        expect(result.failures).toEqual([]);
+      } else {
+        expect(failure).toBeInstanceOf(Error);
+        if (name === "shared") expect(result.failures).toContain(failure);
+      }
+      expect(closeSession).toHaveBeenCalledTimes(1);
+      if (lease.processId === null) throw new Error("pending close fixture process id missing");
+      expectProcessExited(lease.processId);
+    } finally {
+      resume();
+      await lease.release({
+        terminal: "failed",
+        cleanupDeadline: createAcpCleanupDeadline(300)
+      });
+      await provider.shutdown();
+    }
   });
 });

@@ -44,7 +44,6 @@ export type SharedAcpConnectionProviderOptions = SharedAcpConnectionPoolOptions;
 
 class SharedAcpOwnedSession implements AcpOwnedSession {
   private readonly cancellations = new Map<string, Promise<void>>();
-  private closePromise: Promise<void> | undefined;
 
   constructor(
     private readonly host: SharedAcpConnectionLease,
@@ -76,8 +75,7 @@ class SharedAcpOwnedSession implements AcpOwnedSession {
   close(options?: AcpOperationOptions): Promise<void> {
     const unusable = this.host.rejectIfUnusable("session/close");
     if (unusable) return unusable;
-    this.closePromise ??= this.host.closeBoundSession(options);
-    return this.closePromise;
+    return this.host.closeBoundSession(options);
   }
 
   setMode(modeId: string, options?: AcpOperationOptions): Promise<SetSessionModeResponse> {
@@ -115,6 +113,7 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
   private released = false;
   private boundSession: SharedAcpOwnedSession | null = null;
   private sessionClosed = false;
+  private closePromise: Promise<void> | undefined;
   private releasePromise: Promise<AcpLeaseReleaseResult> | undefined;
   private lostError: AcpSharedConnectionLostError | null = null;
   private promptReject: ((error: Error) => void) | null = null;
@@ -244,12 +243,13 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
       return Promise.reject(new Error("ACP agent does not advertise session/close capability."));
     }
     if (this.sessionClosed) return Promise.resolve();
-    return this.entry
+    this.closePromise ??= this.entry
       .connection()
       .closeSession(this.boundSession.sessionId, options)
       .then(() => {
         this.sessionClosed = true;
       });
+    return this.closePromise;
   }
 
   private async performRelease(input: AcpLeaseReleaseInput): Promise<AcpLeaseReleaseResult> {
