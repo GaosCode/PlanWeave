@@ -431,7 +431,10 @@ describe("ACP conversation turn", () => {
       expect(harness.connection.cancel).toHaveBeenCalledTimes(phase === "prompt" ? 1 : 0);
       expect(harness.connection.dispose).toHaveBeenCalledOnce();
       expect(harness.cleanupOptions()?.cleanupDeadline).toBeDefined();
-      expect(harness.cleanupOptions()?.timeoutMs).toBeGreaterThan(0);
+      expect(harness.cleanupOptions()?.cleanupDeadline?.remainingMs()).toBeGreaterThan(0);
+      expect(harness.cleanupOptions()?.cleanupDeadline?.remainingMs()).toBeLessThanOrEqual(1000);
+      expect(harness.cleanupOptions()?.signal?.aborted ?? false).toBe(false);
+      expect(harness.cleanupOptions()?.signal).not.toBe(harness.operationSignals[0]);
       expect(new Set(harness.operationSignals).size).toBe(1);
     });
   }
@@ -463,9 +466,11 @@ describe("ACP conversation turn", () => {
     const operationSignal = harness.operationSignals.at(-1);
     if (!operationSignal) throw new Error("Expected prompt operation signal.");
     let abortedWhenCancelDispatched: boolean | null = null;
+    let cancellationDeadline: AcpOperationOptions["cleanupDeadline"];
     let now = 100;
     const monotonicClock = vi.spyOn(performance, "now").mockImplementation(() => now);
-    vi.mocked(harness.connection.cancel).mockImplementationOnce(async () => {
+    vi.mocked(harness.connection.cancel).mockImplementationOnce(async (_request, operation) => {
+      cancellationDeadline = operation?.cleanupDeadline;
       abortedWhenCancelDispatched = operationSignal.aborted;
       harness.operationOrder.push("cancel-dispatched");
       now += 350;
@@ -475,7 +480,12 @@ describe("ACP conversation turn", () => {
       await harness.coordinator.cancel(harness.input.key, harness.input.identity);
       await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
       expect(harness.cleanupOptions()?.cleanupDeadline?.expiresAt).toBe(1100);
-      expect(harness.cleanupOptions()?.timeoutMs).toBeLessThanOrEqual(650);
+      expect(cancellationDeadline?.expiresAt).toBe(1100);
+      expect(harness.cleanupOptions()?.cleanupDeadline?.remainingMs).toBe(
+        cancellationDeadline?.remainingMs
+      );
+      expect(harness.cleanupOptions()?.cleanupDeadline?.remainingMs()).toBe(650);
+      expect(harness.cleanupOptions()?.cleanupDeadline?.remainingMs()).toBeGreaterThan(0);
     } finally {
       monotonicClock.mockRestore();
     }
@@ -486,7 +496,8 @@ describe("ACP conversation turn", () => {
       harness.operationOrder.indexOf("dispose")
     );
     expect(harness.cleanupOptions()?.cleanupDeadline).toBeDefined();
-    expect(harness.cleanupOptions()?.timeoutMs).toBeGreaterThan(0);
+    expect(harness.cleanupOptions()?.signal?.aborted ?? false).toBe(false);
+    expect(harness.cleanupOptions()?.signal).not.toBe(operationSignal);
   });
 
   it("records failed rather than cancelled when turn cleanup could not finish", async () => {

@@ -4,6 +4,10 @@ import type { ActiveAgentRunHandle, ActiveAgentRunIdentity } from "./activeAgent
 import type { AgentRunControlLeaseId } from "./agentRunControlContract.js";
 import { createLiveOwnership, type LivePendingRequestHandle } from "./liveControl.js";
 
+export type LocalAcpActiveRunHandle = ActiveAgentRunHandle & {
+  releaseTransportControl(): void;
+};
+
 export function createLocalAcpActiveRunHandle(options: {
   readonly identity: Omit<ActiveAgentRunIdentity, "sessionId">;
   readonly connection: AcpLiveRunTransport;
@@ -12,12 +16,16 @@ export function createLocalAcpActiveRunHandle(options: {
   readonly agentRunControlLeaseId: AgentRunControlLeaseId;
   readonly pendingRequests: ReadonlyMap<string, LivePendingRequestHandle>;
   readonly supportsSessionClose: () => boolean;
-}): ActiveAgentRunHandle {
+}): LocalAcpActiveRunHandle {
+  let controlsTransport = true;
   const ownership = createLiveOwnership(
     `${options.identity.scope}:${options.identity.executorRunId}`,
     1
   );
   return {
+    releaseTransportControl: () => {
+      controlsTransport = false;
+    },
     identity: {
       ...options.identity,
       desktopRunId: options.identity.desktopRunId ?? null
@@ -40,6 +48,7 @@ export function createLocalAcpActiveRunHandle(options: {
         },
         close: async () => undefined,
         cancelSession: async (sessionId) => {
+          if (!controlsTransport) return;
           options.abortController.abort(new Error("ACP session cancellation was requested."));
           await options.connection.cancel({ sessionId });
         },

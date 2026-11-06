@@ -32,7 +32,6 @@ import {
 import {
   activeAgentRunRegistry,
   throwAgentRunCleanupFailures,
-  type ActiveAgentRunHandle,
   type ActiveAgentRunRegistry
 } from "./activeAgentRunRegistry.js";
 import { redactAcpProtocolPayload, redactRunnerEventText } from "./runnerEventRedaction.js";
@@ -69,7 +68,10 @@ import { applyDesktopAcpSessionDefaultsWithConfigurator } from "./acpSessionDefa
 import { createLocalAcpPromptSource, executeLocalAcpAdapter } from "./acpLocalExecutionAdapter.js";
 import type { AcpEngineLifecycleEvent } from "./acpExecutionEngineContracts.js";
 import { createLocalAcpInteractionBroker } from "./acpLocalInteractionBroker.js";
-import { createLocalAcpActiveRunHandle } from "./acpLocalActiveRunHandle.js";
+import {
+  createLocalAcpActiveRunHandle,
+  type LocalAcpActiveRunHandle
+} from "./acpLocalActiveRunHandle.js";
 import { prepareExecutionHostInvocation } from "../process/wslExecutionHost.js";
 import type { AcpCapabilitySnapshot } from "./acpCapabilityGate.js";
 import type { AcpSessionRun } from "./acpSessionRunContract.js";
@@ -135,7 +137,7 @@ export class AcpSessionController {
       capability: AcpCapabilitySnapshot["negotiated"][number]
     ): boolean => capabilitySnapshot?.negotiated.includes(capability) === true;
     let initializedSessionId: string | null = null;
-    let handle: ActiveAgentRunHandle | null = null;
+    let handle: LocalAcpActiveRunHandle | null = null;
     let handleRegistered = false;
     let cleanupAttempted = false;
     let cleanupCompleted = false;
@@ -266,12 +268,13 @@ export class AcpSessionController {
       return attempt;
     };
     const removeControlHandle = async (
-      ownedHandle: ActiveAgentRunHandle,
+      ownedHandle: LocalAcpActiveRunHandle,
       reason: string,
       terminalState: "succeeded" | "failed" | "cancelled",
       artifactValidated = false
     ): Promise<void> => {
       const failures: unknown[] = [];
+      ownedHandle.releaseTransportControl();
       try {
         await this.registry.remove(ownedHandle, reason, terminalState, artifactValidated);
       } catch (error) {
@@ -284,7 +287,7 @@ export class AcpSessionController {
       }
       throwAgentRunCleanupFailures(failures, "Runner terminal cleanup did not complete cleanly.");
     };
-    const currentHandle = (): ActiveAgentRunHandle | null => handle;
+    const currentHandle = (): LocalAcpActiveRunHandle | null => handle;
     try {
       await writeState("running", {
         sessionId: null,
@@ -668,7 +671,7 @@ export class AcpSessionController {
               );
             }
             cleanupCompleted = true;
-            if (eventStore) await eventStore.drain();
+            if (eventStore && event.terminal.state === "succeeded") await eventStore.drain();
             if (protocolObserverError !== undefined) throw protocolObserverError;
             return;
           case "cleanup_completed":

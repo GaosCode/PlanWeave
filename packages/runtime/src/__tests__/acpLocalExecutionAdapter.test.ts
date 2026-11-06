@@ -121,11 +121,20 @@ describe("local ACP execution adapter", () => {
     await vi.waitFor(() => expect(queuedFailure).toHaveBeenCalled());
   });
 
-  it("keeps registry cleanup transport-neutral without blocking connection release", async () => {
+  it.each([
+    { terminalState: "succeeded", userCancelled: false },
+    { terminalState: "failed", userCancelled: false },
+    { terminalState: "cancelled", userCancelled: false },
+    { terminalState: "cancelled", userCancelled: true }
+  ] as const)("keeps $terminalState cleanup transport-neutral after handoff (userCancelled=$userCancelled)", async ({
+    terminalState,
+    userCancelled
+  }) => {
     let finishCleanupObservation!: () => void;
     const cleanupObservation = new Promise<void>((resolve) => {
       finishCleanupObservation = resolve;
     });
+    const executionFailure = new Error("local prompt failed");
     const closeSession = vi.fn(async () => ({}));
     const dispose = vi.fn(async () => finishCleanupObservation());
     const connection = {
@@ -142,7 +151,19 @@ describe("local ACP execution adapter", () => {
       authenticate: vi.fn(async () => ({})),
       newSession: vi.fn(async () => ({ sessionId: "local-session" })),
       loadSession: vi.fn(async () => ({})),
-      prompt: vi.fn(async () => ({ stopReason: "end_turn" as const })),
+      prompt: vi.fn(async () => {
+        if (terminalState === "failed") throw executionFailure;
+        if (terminalState === "cancelled") {
+          if (userCancelled) {
+            await registry.cancel(sessionIdentity);
+            expect(connection.cancel).toHaveBeenCalledTimes(1);
+          } else {
+            abortController.abort(executionFailure);
+          }
+          throw executionFailure;
+        }
+        return { stopReason: "end_turn" as const };
+      }),
       cancel: vi.fn(async () => undefined),
       closeSession,
       setSessionMode: vi.fn(async () => ({})),
@@ -151,9 +172,17 @@ describe("local ACP execution adapter", () => {
     } satisfies AcpConnection;
     const registry = new ActiveAgentRunRegistry();
     const abortController = new AbortController();
+    const sessionIdentity = {
+      scope: process.cwd(),
+      executorRunId: "RUN-LOCAL",
+      runSessionId: "SESSION-LOCAL",
+      desktopRunId: null,
+      claimRef: "T-001#B-001",
+      sessionId: "local-session"
+    };
     let handle: ReturnType<typeof createLocalAcpActiveRunHandle> | null = null;
 
-    const result = await executeLocalAcpAdapter({
+    const execution = executeLocalAcpAdapter({
       launch: { command: process.execPath, args: [] },
       cwd: process.cwd(),
       agentId: "codex",
@@ -169,6 +198,7 @@ describe("local ACP execution adapter", () => {
           identity: {
             scope: process.cwd(),
             executorRunId: "RUN-LOCAL",
+            runSessionId: "SESSION-LOCAL",
             claimRef: "T-001#B-001"
           },
           connection: owned,
@@ -178,6 +208,7 @@ describe("local ACP execution adapter", () => {
           pendingRequests: new Map(),
           supportsSessionClose: () => true
         });
+        handle.beforeRemove = () => (userCancelled ? Promise.resolve() : cleanupObservation);
         registry.register(handle);
       },
       interactionBroker: {
@@ -194,18 +225,31 @@ describe("local ACP execution adapter", () => {
           registry.bindSession(handle, event.session.sessionId);
           registry.transition(handle, "ready");
           registry.transition(handle, "running");
+          handle.control.interventionCapabilities.cancel = true;
         }
         if (event.kind === "cleanup_starting") {
-          await registry.remove(handle, "engine cleanup", "succeeded", true);
-          await cleanupObservation;
+          handle.releaseTransportControl();
+          handle.releaseTransportControl();
+          await registry.remove(
+            handle,
+            "engine cleanup",
+            terminalState,
+            terminalState === "succeeded"
+          );
         }
       }
     });
 
-    expect(result.terminal.state).toBe("succeeded");
+    if (terminalState === "succeeded") {
+      await expect(execution).resolves.toMatchObject({ terminal: { state: "succeeded" } });
+    } else {
+      await expect(execution).rejects.toBe(executionFailure);
+    }
+    expect(connection.cancel).toHaveBeenCalledTimes(terminalState === "succeeded" ? 0 : 1);
     expect(closeSession).toHaveBeenCalledTimes(1);
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(registry.size).toBe(0);
+    await expect(registry.cancel(sessionIdentity)).rejects.toThrow("does not exist");
   });
   it("preserves the engine cancellation deadline through provider registration", async () => {
     const controller = new AbortController();
