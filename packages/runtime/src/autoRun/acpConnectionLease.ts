@@ -176,7 +176,9 @@ class DedicatedAcpConnectionLease implements AcpConnectionLease {
     const operationOptions: AcpOperationOptions = {
       ...(options?.signal ? { signal: options.signal } : {}),
       ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-      ...(options?.cleanupDeadline ? { cleanupDeadline: options.cleanupDeadline } : {})
+      get cleanupDeadline() {
+        return options?.cleanupDeadline;
+      }
     };
     if (parsed.kind === "load") {
       if (!this.advertisedCapabilities.loadSession) {

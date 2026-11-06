@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import type { SessionNotification } from "@agentclientprotocol/sdk";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -462,13 +463,22 @@ describe("ACP conversation turn", () => {
     const operationSignal = harness.operationSignals.at(-1);
     if (!operationSignal) throw new Error("Expected prompt operation signal.");
     let abortedWhenCancelDispatched: boolean | null = null;
+    let now = 100;
+    const monotonicClock = vi.spyOn(performance, "now").mockImplementation(() => now);
     vi.mocked(harness.connection.cancel).mockImplementationOnce(async () => {
       abortedWhenCancelDispatched = operationSignal.aborted;
       harness.operationOrder.push("cancel-dispatched");
+      now += 350;
     });
 
-    await harness.coordinator.cancel(harness.input.key, harness.input.identity);
-    await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
+    try {
+      await harness.coordinator.cancel(harness.input.key, harness.input.identity);
+      await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
+      expect(harness.cleanupOptions()?.cleanupDeadline?.expiresAt).toBe(1100);
+      expect(harness.cleanupOptions()?.timeoutMs).toBeLessThanOrEqual(650);
+    } finally {
+      monotonicClock.mockRestore();
+    }
 
     expect(abortedWhenCancelDispatched).toBe(false);
     expect(operationSignal.aborted).toBe(true);
@@ -477,6 +487,43 @@ describe("ACP conversation turn", () => {
     );
     expect(harness.cleanupOptions()?.cleanupDeadline).toBeDefined();
     expect(harness.cleanupOptions()?.timeoutMs).toBeGreaterThan(0);
+  });
+
+  it("records failed rather than cancelled when turn cleanup could not finish", async () => {
+    const harness = createHarness({ holdAt: "prompt" });
+    vi.mocked(harness.connection.dispose).mockRejectedValueOnce(
+      new Error("owned turn cleanup failed")
+    );
+    const sending = harness.coordinator.send(harness.input);
+    const rejected = expect(sending).rejects.toBeInstanceOf(AggregateError);
+    await vi.waitFor(() => expect(harness.connection.prompt).toHaveBeenCalledOnce());
+    await harness.coordinator.cancel(harness.input.key, harness.input.identity);
+    await rejected;
+    expect(harness.coordinator.query(harness.input.key, harness.input.identity)).toMatchObject({
+      found: true,
+      state: { terminal: "failed", cancellationRequested: true }
+    });
+    expect(harness.connection.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("bounds a cancel notification that never settles before abort and disposal", async () => {
+    const harness = createHarness({ holdAt: "prompt", holdCancel: true });
+    const sending = harness.coordinator.send(harness.input);
+    await vi.waitFor(() => expect(harness.connection.prompt).toHaveBeenCalledOnce());
+    let guard: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        harness.coordinator.cancel(harness.input.key, harness.input.identity),
+        new Promise<never>((_resolve, reject) => {
+          guard = setTimeout(() => reject(new Error("cancel was not bounded")), 2000);
+        })
+      ]);
+      await expect(sending).resolves.toMatchObject({ terminal: "cancelled" });
+      expect(harness.connection.cancel).toHaveBeenCalledOnce();
+      expect(harness.connection.dispose).toHaveBeenCalledOnce();
+    } finally {
+      clearTimeout(guard);
+    }
   });
 
   it("rejects cancellation atomically after prompting completed and cleanup started", async () => {

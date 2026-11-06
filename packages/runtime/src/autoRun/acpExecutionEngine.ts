@@ -18,7 +18,8 @@ import {
   AcpOperationTimeoutError,
   AcpProcessError,
   AcpProtocolError,
-  AcpStderrLimitError
+  AcpStderrLimitError,
+  type AcpOperationOptions
 } from "./acpConnection.js";
 import type { AcpConnectionLease, AcpOwnedSession } from "./acpConnectionProvider.js";
 import { createAcpConnectionProvider } from "./acpConnectionProviderFactory.js";
@@ -29,7 +30,11 @@ import {
 } from "./acpSharedConnectionErrors.js";
 import { createAcpSessionNotificationNormalizer } from "./acpEventNormalization.js";
 import { normalizedRedactedContent } from "./normalizedEventContract.js";
-import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
+import {
+  AcpCleanupSequencer,
+  createAcpCleanupDeadline,
+  type AcpCleanupDeadline
+} from "./acpExecutionCleanup.js";
 import { assistantTextChunk } from "./acpExecutionOutput.js";
 import { acpShutdownPolicySchema } from "../acpProfile/schema.js";
 import {
@@ -184,7 +189,29 @@ async function executeAcpOutcome(
 
   const clock = options.clock ?? systemClock;
   const abortController = new AbortController();
-  const relayAbort = (): void => abortController.abort(options.signal?.reason);
+  let cleanupDeadline: AcpCleanupDeadline | undefined;
+  const beginCleanup = (): AcpCleanupDeadline => {
+    if (!cleanupDeadline) {
+      cleanupDeadline = createAcpCleanupDeadline(
+        shutdown.cleanupDeadlineMs,
+        undefined,
+        options.cancellationStartedAt
+      );
+      options.cleanupObserver?.(cleanupDeadline);
+    }
+    return cleanupDeadline;
+  };
+  const operationOptions: AcpOperationOptions = {
+    signal: abortController.signal,
+    timeoutMs: limits.operationTimeoutMs,
+    get cleanupDeadline() {
+      return cleanupDeadline;
+    }
+  };
+  const relayAbort = (): void => {
+    beginCleanup();
+    abortController.abort(options.signal?.reason);
+  };
   options.signal?.addEventListener("abort", relayAbort, { once: true });
   if (options.signal?.aborted) relayAbort();
   let lease: AcpConnectionLease | null = null;
@@ -320,8 +347,12 @@ async function executeAcpOutcome(
       onElicitationRequest: interactionHandlers.onElicitationRequest
     };
     try {
+      if (abortController.signal.aborted) throw abortController.signal.reason;
       lease = await provider.acquire({
         signal: abortController.signal,
+        get cleanupDeadline() {
+          return cleanupDeadline;
+        },
         launch: options.launch,
         cwd: options.workspace.cwd,
         env: options.env,
@@ -344,10 +375,7 @@ async function executeAcpOutcome(
       throw error;
     }
     await observeLifecycle({ kind: "connection_ready", processId: lease.processId });
-    const initialized = await lease.initialize({
-      signal: abortController.signal,
-      timeoutMs: limits.operationTimeoutMs
-    });
+    const initialized = await lease.initialize(operationOptions);
     initializedCapabilities = initialized.agentCapabilities;
     await observeLifecycle({
       kind: "initialized",
@@ -380,10 +408,7 @@ async function executeAcpOutcome(
       hints: options.authentication?.hints,
       availableEnvironmentVariables:
         options.authentication?.availableEnvironmentVariables ?? new Set(Object.keys(options.env)),
-      operationOptions: {
-        signal: abortController.signal,
-        timeoutMs: limits.operationTimeoutMs
-      }
+      operationOptions
     });
     await observeLifecycle({ kind: "authentication_completed", authentication });
     const openSession = async (): Promise<AcpOwnedSession> => {
@@ -396,6 +421,9 @@ async function executeAcpOutcome(
       }
       return lease.openSession(sessionStart, {
         signal: abortController.signal,
+        get cleanupDeadline() {
+          return cleanupDeadline;
+        },
         timeoutMs: limits.operationTimeoutMs,
         ownerId: sessionOwnerId,
         handlers: sessionHandlers
@@ -427,15 +455,12 @@ async function executeAcpOutcome(
       session: boundSession.created,
       configurator: {
         setMode: async (modeId) => {
-          await boundSession.setMode(modeId, {
-            signal: abortController.signal,
-            timeoutMs: limits.operationTimeoutMs
-          });
+          await boundSession.setMode(modeId, operationOptions);
         },
         setConfigOption: async ({ configId, value }) => {
           const response = await boundSession.setConfigOption(
             { configId, value },
-            { signal: abortController.signal, timeoutMs: limits.operationTimeoutMs }
+            operationOptions
           );
           return response.configOptions;
         }
@@ -472,10 +497,7 @@ async function executeAcpOutcome(
         prompt
       });
       if (response) await drainInteractions(response.stopReason);
-      response = await boundSession.prompt([{ type: "text", text: prompt }], {
-        signal: abortController.signal,
-        timeoutMs: limits.operationTimeoutMs
-      });
+      response = await boundSession.prompt([{ type: "text", text: prompt }], operationOptions);
       await drainInteractions(response.stopReason);
       await drainSessionUpdates();
       if (response.usage) {
@@ -529,15 +551,10 @@ async function executeAcpOutcome(
   } finally {
     interactionHandlers.close();
     cleanupAttempted = true;
-    const cleanup = new AcpCleanupSequencer(createAcpCleanupDeadline(shutdown.cleanupDeadlineMs));
+    const cleanup = new AcpCleanupSequencer(beginCleanup());
     let cleanupEventFailure: unknown;
     const cleanupFailures: unknown[] = [];
     if (acquisitionCleanupFailure) cleanupFailures.push(acquisitionCleanupFailure);
-    try {
-      await emit({ kind: "lifecycle", state: "cleanup" });
-    } catch (error) {
-      cleanupEventFailure = error;
-    }
     if (terminal === null) {
       terminal = {
         state: "failed",
@@ -546,11 +563,6 @@ async function executeAcpOutcome(
       };
     }
     const executionTerminal = terminal;
-    try {
-      await observeLifecycle({ kind: "cleanup_starting", terminal });
-    } catch (error) {
-      cleanupFailures.push(error);
-    }
     if (ownedSession && terminal.state !== "succeeded") {
       const cleanupSession = ownedSession;
       try {
@@ -562,6 +574,16 @@ async function executeAcpOutcome(
       } catch (error) {
         cleanupFailures.push(error);
       }
+    }
+    try {
+      await emit({ kind: "lifecycle", state: "cleanup" });
+    } catch (error) {
+      cleanupEventFailure = error;
+    }
+    try {
+      await observeLifecycle({ kind: "cleanup_starting", terminal });
+    } catch (error) {
+      cleanupFailures.push(error);
     }
     if (lease) {
       const cleanupLease = lease;
@@ -576,6 +598,7 @@ async function executeAcpOutcome(
       }
     }
     cleanupCompleted = cleanupFailures.length === 0;
+    if (cleanupCompleted) options.cleanupObserver?.(null);
     if (cleanupFailures.length > 0) {
       const failures =
         executionCause === undefined ? cleanupFailures : [executionCause, ...cleanupFailures];

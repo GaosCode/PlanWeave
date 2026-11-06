@@ -41,6 +41,7 @@ export type AcpSharedPoolIdentity = {
 export type AcpConnectionAcquireRequest = CreateAcpConnectionOptions & {
   readonly poolIdentity?: AcpSharedPoolIdentity;
   readonly signal?: AbortSignal;
+  readonly cleanupDeadline?: AcpCleanupDeadline;
 };
 
 export type AcpSessionHandlerPort = {

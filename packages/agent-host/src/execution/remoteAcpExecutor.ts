@@ -537,6 +537,12 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
             }
           },
           signal: context.signal,
+          get cancellationStartedAt() {
+            return context.cancellationStartedAt;
+          },
+          cleanupObserver: (deadline) => {
+            if (deadline) context.cleanupObserver?.(deadline);
+          },
           connectionMode: profile.connection?.mode ?? "dedicated",
           poolIdentity: hostPoolIdentity(profile, workspace.cwd),
           limits: {
@@ -579,6 +585,7 @@ export class RemoteAcpExecutor implements AgentHostExecutor {
       );
     }
     const result = executionOutcome.result;
+    if (result.cleanup.completed && cleanupError === undefined) context.cleanupObserver?.(null);
     if (!result.cleanup.completed) {
       throw engineFailure("cleanup_failed");
     }

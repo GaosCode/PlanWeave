@@ -1,3 +1,4 @@
+import type { ExecuteAcpOptions } from "@planweave-ai/runtime";
 import type {
   ArtifactRef,
   DispatchResult,
@@ -34,6 +35,8 @@ export interface AgentHostArtifactTransfer {
 
 export type AgentHostExecutionContext = {
   signal: AbortSignal;
+  readonly cancellationStartedAt?: number;
+  cleanupObserver?: ExecuteAcpOptions["cleanupObserver"];
   executionKey: string;
   artifacts: AgentHostArtifactTransfer;
   sessionStart: { kind: "new" } | { kind: "load"; sessionId: string };

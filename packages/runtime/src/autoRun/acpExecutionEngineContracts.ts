@@ -1,3 +1,4 @@
+import type { AcpCleanupDeadline } from "./acpExecutionCleanup.js";
 import type { AcpPermissionOption } from "@planweave-ai/agent-host-protocol";
 import type {
   AgentCapabilities,
@@ -254,6 +255,8 @@ export type ExecuteAcpOptions = {
   readonly lifecycleObserver?: AcpEngineLifecycleObserver;
   readonly eventSink?: AcpEngineEventSink;
   readonly signal?: AbortSignal;
+  readonly cancellationStartedAt?: number;
+  readonly cleanupObserver?: (deadline: AcpCleanupDeadline | null) => void;
   readonly limits?: Partial<AcpExecutionLimits>;
   readonly clock?: AcpEngineClock;
   readonly connect?: AcpEngineConnectionFactory;

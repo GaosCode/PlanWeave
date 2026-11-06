@@ -152,6 +152,9 @@ export async function executeLocalAcpAdapter(options: {
     async acquire(request) {
       const lease = await innerProvider.acquire({
         ...request,
+        get cleanupDeadline() {
+          return request.cleanupDeadline;
+        },
         ...(options.spawnCwd !== undefined ? { spawnCwd: options.spawnCwd } : {}),
         ...(options.decorateProcessTree
           ? { decorateProcessTree: options.decorateProcessTree }
@@ -167,7 +170,9 @@ export async function executeLocalAcpAdapter(options: {
         registrationCleanup = lease
           .release({
             terminal: "failed",
-            cleanupDeadline: createAcpCleanupDeadline(options.shutdown.cleanupDeadlineMs)
+            cleanupDeadline:
+              request.cleanupDeadline ??
+              createAcpCleanupDeadline(options.shutdown.cleanupDeadlineMs)
           })
           .then(() => undefined);
         throw error;

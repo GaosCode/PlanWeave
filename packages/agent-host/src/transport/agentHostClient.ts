@@ -20,17 +20,13 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import {
   parseAgentHostCapabilities,
-  parseAgentHostDispatchResult,
   parseAgentHostServerEvent,
   serializeAgentHostHello,
   type ServerEvent
 } from "../protocol.js";
 import { HttpArtifactClient } from "../artifacts/httpArtifactTransfer.js";
-import {
-  AgentHostSessionLoadError,
-  type AgentHostExecutionContext
-} from "../execution/agentHostExecutor.js";
-import type { AgentHostExecution, AgentHostExecutionSettlement } from "../state/agentHostState.js";
+import { type AgentHostExecutionContext } from "../execution/agentHostExecutor.js";
+import type { AgentHostExecution } from "../state/agentHostState.js";
 import {
   type HostTransport,
   type HostTransportClock,
@@ -53,14 +49,6 @@ export { selectRemoteRunnerEventProtocolVersion } from "./remoteRunnerDiscovery.
 export type { AgentHostClientOptions } from "./agentHostClientOptions.js";
 import type { AgentHostClientOptions } from "./agentHostClientOptions.js";
 
-type ActiveExecution = {
-  execution: AgentHostExecution;
-  controller: AbortController;
-  sessionStart: AgentHostExecutionContext["sessionStart"];
-  cleanupTimer?: unknown;
-  cleanupFailed: boolean;
-};
-
 function endpoint(base: URL, path: string, websocket: boolean): URL {
   const result = new URL(base.origin);
   result.protocol = websocket ? (base.protocol === "https:" ? "wss:" : "ws:") : base.protocol;
@@ -68,7 +56,14 @@ function endpoint(base: URL, path: string, websocket: boolean): URL {
   return result;
 }
 
-import { executionFailure, executionCleanupFailed } from "./agentHostExecutionOutcome.js";
+import {
+  runHostExecution,
+  hostExecutionSessionBusy,
+  markExecutionCancellation,
+  observeExecutionCleanup,
+  armExecutionCleanup,
+  type ActiveExecution
+} from "./agentHostExecutionRunner.js";
 import type { ReconnectBackoffOptions } from "./reconnectBackoff.js";
 
 export class AgentHostClient implements HostTransport {
@@ -379,7 +374,13 @@ export class AgentHostClient implements HostTransport {
     if (startup) await this.waitBounded(startup);
     await this.waitBounded(this.options.conversations?.stop() ?? Promise.resolve());
     await this.waitBounded(this.processing);
-    await this.waitBounded(Promise.allSettled([...this.runs]).then(() => undefined));
+    await this.waitBounded(
+      Promise.allSettled([...this.runs]).then(() => undefined),
+      Math.max(
+        this.limits.shutdownTimeoutMs,
+        ...[...this.active.values()].map((active) => active.cleanupDeadline?.remainingMs() ?? 0)
+      )
+    );
     await this.waitBounded(Promise.allSettled([...this.canvasRuns]).then(() => undefined));
     this.compatibilityShutdown = undefined;
     if (
@@ -795,7 +796,8 @@ export class AgentHostClient implements HostTransport {
     for (const pending of this.options.state.pendingResumptions(Number.MAX_SAFE_INTEGER)) {
       if (this.rejectPreviousExecution(pending)) return;
       const sessionId = this.options.state.executionEvidence(pending.sequence)?.acpSessionId;
-      if (this.sessionBusy(pending.sequence, sessionId)) continue;
+      if (hostExecutionSessionBusy(this.active, this.options.state, pending.sequence, sessionId))
+        continue;
       const resumption = this.options.state.startResumption(pending.sequence, this.serverNow());
       if (!resumption) continue;
       this.launch(resumption.execution, { kind: "load", sessionId: resumption.sessionId });
@@ -803,7 +805,14 @@ export class AgentHostClient implements HostTransport {
     }
     for (const pending of this.options.state.pendingExecutions(Number.MAX_SAFE_INTEGER)) {
       if (this.rejectPreviousExecution(pending)) return;
-      if (this.sessionBusy(pending.sequence, pending.command.envelope.restoration?.sessionId))
+      if (
+        hostExecutionSessionBusy(
+          this.active,
+          this.options.state,
+          pending.sequence,
+          pending.command.envelope.restoration?.sessionId
+        )
+      )
         continue;
       const execution = this.options.state.startExecution(pending.sequence, this.serverNow());
       if (!execution) continue;
@@ -828,38 +837,23 @@ export class AgentHostClient implements HostTransport {
     return true;
   }
 
-  private sessionBusy(sequence: number, sessionId: string | undefined): boolean {
-    if (this.active.has(sequence)) return true;
-    if (!sessionId) return false;
-    return [...this.active.values()].some((active) => {
-      const activeSessionId =
-        active.sessionStart.kind === "load"
-          ? active.sessionStart.sessionId
-          : this.options.state.executionEvidence(active.execution.sequence)?.acpSessionId;
-      return activeSessionId === sessionId;
-    });
-  }
-
   private launch(
     execution: AgentHostExecution,
     sessionStart: AgentHostExecutionContext["sessionStart"]
   ): void {
-    const command = execution.command;
-    if (command.protocolVersion !== agentHostProtocolVersion) {
-      this.rejectPreviousExecution(execution);
-      return;
-    }
     const controller = new AbortController();
     const active: ActiveExecution = { execution, controller, sessionStart, cleanupFailed: false };
     this.active.set(execution.sequence, active);
     controller.signal.addEventListener(
       "abort",
       () => {
-        active.cleanupTimer = this.clock.setTimeout(() => {
-          active.cleanupTimer = undefined;
-          if (this.active.get(execution.sequence) !== active) return;
-          this.failExecutionProtection("execution_cleanup_timeout");
-        }, this.limits.shutdownTimeoutMs);
+        markExecutionCancellation(active);
+        if (active.cleanupTimer === undefined)
+          armExecutionCleanup(
+            this.cleanupProtection(),
+            active,
+            active.cleanupDeadline?.remainingMs() ?? this.limits.shutdownTimeoutMs
+          );
       },
       { once: true }
     );
@@ -924,93 +918,32 @@ export class AgentHostClient implements HostTransport {
     this.socket?.close(4003, reason);
   }
 
+  private cleanupProtection() {
+    return {
+      clock: this.clock,
+      isActive: (active: ActiveExecution) => this.active.get(active.execution.sequence) === active,
+      failProtection: (reason: string) => this.failExecutionProtection(reason)
+    };
+  }
+
   private async run(active: ActiveExecution): Promise<void> {
-    const { execution, controller, sessionStart } = active;
-    const command = execution.command;
-    if (command.protocolVersion !== agentHostProtocolVersion) {
-      this.rejectPreviousExecution(execution);
-      return;
-    }
     try {
-      let outcome:
-        | { kind: "completed"; result: ReturnType<typeof parseAgentHostDispatchResult> }
-        | { kind: "failed"; error: unknown };
-      try {
-        if (!this.checkExecutionLeases() || controller.signal.aborted) return;
-        if (
-          execution.command.envelope.restoration &&
-          execution.command.envelope.restoration.hostId !== this.options.hostId
-        )
-          throw new Error("acp_restore_host_changed");
-        if (
-          execution.command.envelope.restoration &&
-          this.options.conversations?.isSessionActive(
-            execution.command.envelope.restoration.sessionId
-          )
-        )
-          throw new Error("acp_conversation_turn_in_flight");
-        outcome = {
-          kind: "completed",
-          result: parseAgentHostDispatchResult(
-            await this.options.executor.execute(command, {
-              signal: controller.signal,
-              executionKey: `${execution.command.dispatchId}:${execution.command.leaseId}:${execution.command.executionAttemptId}`,
-              artifacts: this.artifacts.forExecution(
-                command,
-                (evidence) =>
-                  this.options.state.recordArtifactTransfer(
-                    execution.sequence,
-                    execution.command.leaseId,
-                    evidence
-                  ),
-                controller.signal
-              ),
-              sessionStart
-            })
-          )
-        };
-      } catch (error) {
-        outcome = { kind: "failed", error };
-      }
-      if (outcome.kind === "failed" && executionCleanupFailed(outcome.error)) {
-        active.cleanupFailed = true;
-        this.failExecutionProtection("execution_cleanup_failed");
-        return;
-      }
-      if (!this.checkExecutionLeases() || this.stopped) return;
-      let settlement: AgentHostExecutionSettlement;
-      if (outcome.kind === "completed") {
-        settlement = this.options.state.completeExecution(
-          execution.sequence,
-          execution.command,
-          outcome.result,
-          this.serverNow()
-        );
-      } else if (
-        outcome.error instanceof AgentHostSessionLoadError &&
-        !controller.signal.aborted &&
-        !execution.command.envelope.restoration
-      ) {
-        settlement = this.options.state.failResumption(
-          execution.sequence,
-          execution.command,
-          this.serverNow()
-        );
-      } else {
-        settlement = this.options.state.failExecution(
-          execution.sequence,
-          execution.command,
-          executionFailure(outcome.error, controller.signal.aborted),
-          this.serverNow()
-        );
-      }
-      if (settlement !== "applied") controller.abort();
-    } catch {
-      this.failExecutionProtection("execution_persistence_failed");
+      await runHostExecution({
+        active,
+        options: this.options,
+        artifacts: this.artifacts,
+        now: () => this.serverNow(),
+        checkLeases: () => this.checkExecutionLeases(),
+        stopped: () => this.stopped,
+        persistenceFailed: () => this.leasePersistenceFailed,
+        failProtection: (reason) => this.failExecutionProtection(reason),
+        observeCleanup: (execution, deadline) =>
+          observeExecutionCleanup(this.cleanupProtection(), execution, deadline)
+      });
     } finally {
       if (active.cleanupTimer !== undefined) this.clock.clearTimeout(active.cleanupTimer);
-      if (this.active.get(execution.sequence) === active && !active.cleanupFailed) {
-        this.active.delete(execution.sequence);
+      if (this.active.get(active.execution.sequence) === active && !active.cleanupFailed) {
+        this.active.delete(active.execution.sequence);
       }
       this.checkExecutionLeases();
       this.outbox.request();
@@ -1102,13 +1035,16 @@ export class AgentHostClient implements HostTransport {
     this.socket?.close(4003, "canvas runtime persistence failed");
   }
 
-  private async waitBounded(operation: Promise<void>): Promise<void> {
+  private async waitBounded(
+    operation: Promise<void>,
+    timeoutMs = this.limits.shutdownTimeoutMs
+  ): Promise<void> {
     let timer: unknown;
     try {
       const timedOut = await Promise.race([
         operation.then(() => false),
         new Promise<true>((resolve) => {
-          timer = this.clock.setTimeout(() => resolve(true), this.limits.shutdownTimeoutMs);
+          timer = this.clock.setTimeout(() => resolve(true), timeoutMs);
         })
       ]);
       if (timedOut) throw new Error("agent_host_transport_shutdown_timeout");

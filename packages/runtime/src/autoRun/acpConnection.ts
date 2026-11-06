@@ -455,7 +455,7 @@ class SubprocessAcpConnection implements AcpConnection {
     });
     const abort = (): void => {
       const error = asError(options?.signal?.reason, `ACP ${name} aborted.`);
-      this.terminate(error, options?.cleanupDeadline);
+      if (name !== "session/prompt") this.terminate(error, options?.cleanupDeadline);
       rejectBoundary?.(error);
     };
     options?.signal?.addEventListener("abort", abort, { once: true });

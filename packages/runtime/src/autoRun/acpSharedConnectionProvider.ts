@@ -198,7 +198,9 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
     const operationOptions: AcpOperationOptions = {
       ...(options?.signal ? { signal: options.signal } : {}),
       ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-      ...(options?.cleanupDeadline ? { cleanupDeadline: options.cleanupDeadline } : {})
+      get cleanupDeadline() {
+        return options?.cleanupDeadline;
+      }
     };
     const created = await this.entry.router.withOpening(
       ownerId,
@@ -284,7 +286,7 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
         closedSession = true;
       } catch (error) {
         failures.push(error);
-        await this.entry.poison(error, this.leaseId);
+        await this.entry.poison(error, this.leaseId, parsed.cleanupDeadline);
         this.entry.removeLease(this);
         return acpLeaseReleaseResultSchema.parse({
           closedSession: false,
@@ -297,10 +299,10 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
     let disposed = false;
     if (this.entry.leaseCount() === 0) {
       try {
-        if (this.entry.advertised.closeSession) {
+        if (this.entry.advertised.closeSession && parsed.terminal !== "cancelled") {
           disposed = await this.entry.idleThenDispose();
         } else {
-          await this.entry.disposeImmediate();
+          await this.entry.disposeImmediate(parsed.cleanupDeadline);
           disposed = true;
         }
       } catch (error) {

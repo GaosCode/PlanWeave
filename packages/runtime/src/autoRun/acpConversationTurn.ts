@@ -33,7 +33,12 @@ import {
   type AcpConversationTurnState
 } from "./acpConversationTurnContract.js";
 import { createAcpSessionNotificationNormalizer } from "./acpEventNormalization.js";
-import { AcpCleanupSequencer, createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
+import { AcpSharedConnectionCleanupError } from "./acpSharedConnectionErrors.js";
+import {
+  AcpCleanupSequencer,
+  createAcpCleanupDeadline,
+  type AcpCleanupDeadline
+} from "./acpExecutionCleanup.js";
 import type { AcpCompletedConversationWriter } from "./acpEventStore.js";
 import {
   normalizedRedactedContent,
@@ -103,6 +108,8 @@ type ActiveConversationTurn = {
   cancellationRequested: boolean;
   cancelPromise: Promise<void> | null;
   cancellationDiagnostic: string | null;
+  cleanupDeadline?: AcpCleanupDeadline;
+  cleanupFailed: boolean;
 };
 type StableConversationTurnIdentity = Omit<AcpConversationTurnIdentity, "version" | "turnId">;
 type TerminalConversationTurn = { state: AcpConversationTurnState; expiresAt: number };
@@ -307,8 +314,12 @@ export class AcpConversationTurnCoordinator {
       });
     }
     turn.cancellationRequested = true;
+    const cleanupDeadline = createAcpCleanupDeadline(turn.input.profile.shutdown.cleanupDeadlineMs);
+    turn.cleanupDeadline = cleanupDeadline;
     turn.phase = "cancelling";
-    turn.cancelPromise = Promise.resolve().then(() => this.dispatchCancellation(turn));
+    turn.cancelPromise = Promise.resolve().then(() =>
+      this.dispatchCancellation(turn, cleanupDeadline)
+    );
     await this.notify(key);
     await turn.cancelPromise;
     return acpConversationTurnCancelResultSchema.parse({
@@ -340,7 +351,8 @@ export class AcpConversationTurnCoordinator {
       sessionLoaded: false,
       cancellationRequested: false,
       cancelPromise: null,
-      cancellationDiagnostic: null
+      cancellationDiagnostic: null,
+      cleanupFailed: false
     };
     this.active.set(input.key, turn);
     this.terminal.delete(input.key);
@@ -351,7 +363,9 @@ export class AcpConversationTurnCoordinator {
       await this.execute(turn);
       terminal = "succeeded";
     } catch (error) {
-      if (turn.cancellationRequested || error instanceof AcpConversationTurnCancelledError) {
+      if (turn.cleanupFailed || error instanceof AcpSharedConnectionCleanupError) {
+        executionError = error;
+      } else if (turn.cancellationRequested || error instanceof AcpConversationTurnCancelledError) {
         terminal = "cancelled";
       } else {
         executionError = error;
@@ -370,11 +384,19 @@ export class AcpConversationTurnCoordinator {
     return this.terminal.get(input.key)!.state;
   }
 
-  private async dispatchCancellation(turn: ActiveConversationTurn): Promise<void> {
+  private async dispatchCancellation(
+    turn: ActiveConversationTurn,
+    deadline: AcpCleanupDeadline
+  ): Promise<void> {
     if (turn.sessionLoaded && turn.session) {
       const dispatchMs = Math.min(500, turn.input.profile.shutdown.cleanupDeadlineMs);
       try {
-        await turn.session.cancel({ timeoutMs: dispatchMs });
+        const session = turn.session;
+        await new AcpCleanupSequencer(deadline).run(
+          "continuation cancellation",
+          (timeoutMs) => session.cancel({ timeoutMs, cleanupDeadline: deadline }),
+          dispatchMs
+        );
       } catch (error) {
         turn.cancellationDiagnostic = `ACP continuation cancel notification failed: ${diagnostic(error)}`;
       }
@@ -422,6 +444,9 @@ export class AcpConversationTurnCoordinator {
     };
     const lease = await this.providerFor(input.profile.connection.mode).acquire({
       signal,
+      get cleanupDeadline() {
+        return turn.cleanupDeadline;
+      },
       launch: { trusted: true, command: preparedLaunch.command, args: preparedLaunch.args },
       cwd: input.cwd,
       spawnCwd: preparedLaunch.spawnCwd ?? null,
@@ -454,7 +479,12 @@ export class AcpConversationTurnCoordinator {
     turn.lease = lease;
     let executionError: unknown;
     const secondaryErrors: unknown[] = [];
-    const operationOptions = { signal };
+    const operationOptions = {
+      signal,
+      get cleanupDeadline() {
+        return turn.cleanupDeadline;
+      }
+    };
     try {
       turn.phase = "initializing";
       await this.notify(input.key);
@@ -485,6 +515,9 @@ export class AcpConversationTurnCoordinator {
           { kind: "load", sessionId: input.identity.sessionId },
           {
             ...operationOptions,
+            get cleanupDeadline() {
+              return operationOptions.cleanupDeadline;
+            },
             cwd: preparedLaunch.sessionCwd,
             ownerId: input.key,
             handlers: sessionHandlers
@@ -546,7 +579,7 @@ export class AcpConversationTurnCoordinator {
       turn.phase = "cleaning";
       await this.notify(input.key);
       const cleanup = new AcpCleanupSequencer(
-        createAcpCleanupDeadline(input.profile.shutdown.cleanupDeadlineMs)
+        turn.cleanupDeadline ?? createAcpCleanupDeadline(input.profile.shutdown.cleanupDeadlineMs)
       );
       try {
         const released = await lease.release({
@@ -560,6 +593,7 @@ export class AcpConversationTurnCoordinator {
           cleanupDeadline: cleanup.deadline
         });
         if (released.failures.length > 0) {
+          turn.cleanupFailed = true;
           const cleanupError =
             released.failures.length === 1
               ? released.failures[0]
@@ -577,6 +611,7 @@ export class AcpConversationTurnCoordinator {
           }
         }
       } catch (cleanupError) {
+        turn.cleanupFailed = true;
         secondaryErrors.push(cleanupError);
         try {
           await append({

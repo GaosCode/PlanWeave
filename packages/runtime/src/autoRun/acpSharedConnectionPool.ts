@@ -11,7 +11,7 @@ import {
   type AcpProtocolObserver,
   type CreateAcpConnectionOptions
 } from "./acpConnection.js";
-import { createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
+import { createAcpCleanupDeadline, type AcpCleanupDeadline } from "./acpExecutionCleanup.js";
 import type {
   AcpConnectionAcquireRequest,
   AcpLeaseAdvertisedCapabilities
@@ -38,6 +38,7 @@ type PendingStart = {
   readonly controller: AbortController;
   cancellation?: Promise<void>;
   waiters: number;
+  cleanupBoundary: { deadline?: AcpCleanupDeadline };
 };
 
 export type SharedAcpConnectionEntryState = "starting" | "ready" | "draining" | "failed" | "closed";
@@ -66,8 +67,8 @@ export type SharedAcpConnectionEntry = {
   leaseCount(): number;
   cancelIdle(): void;
   idleThenDispose(): Promise<boolean>;
-  disposeImmediate(): Promise<void>;
-  poison(error: unknown, exceptLeaseId?: string): Promise<void>;
+  disposeImmediate(deadline?: AcpCleanupDeadline): Promise<void>;
+  poison(error: unknown, exceptLeaseId?: string, deadline?: AcpCleanupDeadline): Promise<void>;
   sessionCloseBudgetMs(): number;
 };
 
@@ -111,10 +112,18 @@ export class SharedAcpConnectionPool {
     }
     if (!pending) {
       const controller = new AbortController();
+      const cleanupBoundary: PendingStart["cleanupBoundary"] = {};
       pending = {
+        cleanupBoundary,
         controller,
         waiters: 0,
-        promise: this.startEntry(key, { ...request, signal: controller.signal })
+        promise: this.startEntry(key, {
+          ...request,
+          signal: controller.signal,
+          get cleanupDeadline() {
+            return cleanupBoundary.deadline;
+          }
+        })
       };
       this.starts.set(key, pending);
       const started = pending;
@@ -127,14 +136,15 @@ export class SharedAcpConnectionPool {
       };
       void started.promise.then(clear, clear);
     }
-    return this.waitForStart(key, pending, request.signal);
+    return this.waitForStart(key, pending, request);
   }
 
   private waitForStart(
     key: string,
     pending: PendingStart,
-    signal?: AbortSignal
+    request: AcpConnectionAcquireRequest
   ): Promise<SharedAcpPoolEntry> {
+    const signal = request.signal;
     pending.waiters += 1;
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -152,10 +162,12 @@ export class SharedAcpConnectionPool {
           finish({ error: signal?.reason });
           return;
         }
+        pending.cleanupBoundary.deadline =
+          request.cleanupDeadline ?? createAcpCleanupDeadline(request.shutdown.cleanupDeadlineMs);
         pending.controller.abort(signal?.reason);
         pending.cancellation ??= pending.promise.then(
           async (entry) => {
-            await entry.disposeImmediate();
+            await entry.disposeImmediate(pending.cleanupBoundary.deadline);
           },
           (error) => {
             if (error instanceof AcpSharedConnectionCleanupError) throw error;
@@ -421,8 +433,8 @@ class SharedAcpPoolEntry implements SharedAcpConnectionEntry {
     return false;
   }
 
-  disposeImmediate(): Promise<void> {
-    this.disposePromise ??= this.disposeTransport();
+  disposeImmediate(deadline?: AcpCleanupDeadline): Promise<void> {
+    this.disposePromise ??= this.disposeTransport(deadline);
     this.cancelIdle();
     return this.disposePromise;
   }
@@ -431,12 +443,16 @@ class SharedAcpPoolEntry implements SharedAcpConnectionEntry {
     return this.request.shutdown.eofDrainMs;
   }
 
-  async poison(error: unknown, exceptLeaseId?: string): Promise<void> {
+  async poison(
+    error: unknown,
+    exceptLeaseId?: string,
+    deadline?: AcpCleanupDeadline
+  ): Promise<void> {
     const lost = new AcpSharedConnectionLostError(
       error instanceof Error ? error.message : "ACP shared connection was lost."
     );
     this.fanOutLost(lost, exceptLeaseId);
-    await this.disposeImmediate();
+    await this.disposeImmediate(deadline);
   }
 
   async shutdown(): Promise<void> {
@@ -497,8 +513,12 @@ class SharedAcpPoolEntry implements SharedAcpConnectionEntry {
       this.closedPromise = connection.closed.finally(() => {
         this.onConnectionEnded();
       });
+      const request = this.request;
       const initialized = await this.initialize({
         signal: this.request.signal,
+        get cleanupDeadline() {
+          return request.cleanupDeadline;
+        },
         timeoutMs: this.request.defaultTimeoutMs
       });
       if (this.request.signal?.aborted) throw this.request.signal.reason;
@@ -507,7 +527,7 @@ class SharedAcpPoolEntry implements SharedAcpConnectionEntry {
       this.entryState = "ready";
     } catch (error) {
       try {
-        await this.disposeImmediate();
+        await this.disposeImmediate(this.request.cleanupDeadline);
       } catch (disposeError) {
         throw this.reportCleanupFailure(
           new AggregateError(
@@ -521,11 +541,18 @@ class SharedAcpPoolEntry implements SharedAcpConnectionEntry {
   }
 
   private async authenticateIfHeadless(initialized: InitializeResponse): Promise<void> {
+    const request = this.request;
     const outcome = await coordinateAcpAuthentication({
       connection: this,
       initialized,
-      availableEnvironmentVariables: new Set(Object.keys(this.request.env)),
-      operationOptions: { signal: this.request.signal, timeoutMs: this.request.defaultTimeoutMs }
+      availableEnvironmentVariables: new Set(Object.keys(request.env)),
+      operationOptions: {
+        signal: request.signal,
+        timeoutMs: request.defaultTimeoutMs,
+        get cleanupDeadline() {
+          return request.cleanupDeadline;
+        }
+      }
     });
     if (outcome.kind === "auth_required") {
       throw new AcpSharedConnectionAuthRequiredError(outcome, initialized);
@@ -557,14 +584,15 @@ class SharedAcpPoolEntry implements SharedAcpConnectionEntry {
     }
   }
 
-  private async disposeTransport(): Promise<void> {
+  private async disposeTransport(deadline?: AcpCleanupDeadline): Promise<void> {
     this.cancelIdle();
     this.entryState = this.entryState === "failed" ? "failed" : "closed";
     const connection = this.live;
     try {
       if (connection) {
         await connection.dispose({
-          cleanupDeadline: createAcpCleanupDeadline(this.request.shutdown.cleanupDeadlineMs)
+          cleanupDeadline:
+            deadline ?? createAcpCleanupDeadline(this.request.shutdown.cleanupDeadlineMs)
         });
       }
     } catch (error) {

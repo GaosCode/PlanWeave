@@ -5,6 +5,7 @@ import { type AcpConnection } from "../autoRun/acpConnection.js";
 import { ActiveAgentRunRegistry } from "../autoRun/activeAgentRunRegistry.js";
 import { agentRunControlLeaseIdSchema } from "../autoRun/agentRunControlContract.js";
 import { createLocalAcpActiveRunHandle } from "../autoRun/acpLocalActiveRunHandle.js";
+import { AcpSharedConnectionCleanupError } from "../autoRun/acpSharedConnectionErrors.js";
 import { AcpEngineExecutionError } from "../autoRun/acpExecutionEngine.js";
 import type { AcpEngineEvent, AcpEngineTerminal } from "../autoRun/acpExecutionEngineContracts.js";
 import {
@@ -202,5 +203,63 @@ describe("local ACP execution adapter", () => {
     expect(closeSession).toHaveBeenCalledTimes(1);
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(registry.size).toBe(0);
+  });
+  it("preserves the engine cancellation deadline through provider registration", async () => {
+    const controller = new AbortController();
+    const cause = new Error("cancelled during local provider startup");
+    let notifyAcquired!: () => void;
+    const acquired = new Promise<void>((resolve) => {
+      notifyAcquired = resolve;
+    });
+    const events: AcpEngineEvent[] = [];
+    const execution = executeLocalAcpAdapter({
+      launch: { command: process.execPath, args: [] },
+      cwd: process.cwd(),
+      agentId: "local-deadline",
+      env: {},
+      shutdown: { eofDrainMs: 25, terminateGraceMs: 25, cleanupDeadlineMs: 300 },
+      capabilityPolicy: { required: [], optional: [] },
+      prompt: "do not start",
+      sessionStart: { kind: "new" },
+      signal: controller.signal,
+      provider: {
+        acquire: (request) =>
+          new Promise((_resolve, reject) => {
+            request.signal?.addEventListener(
+              "abort",
+              () => {
+                if (!request.cleanupDeadline)
+                  reject(
+                    new AcpSharedConnectionCleanupError(
+                      new Error("provider cancellation lost its deadline")
+                    )
+                  );
+                else reject(request.signal?.reason);
+              },
+              { once: true }
+            );
+            notifyAcquired();
+          }),
+        shutdown: async () => undefined
+      },
+      onConnection: () => undefined,
+      interactionBroker: {
+        requestPermission: () => ({ kind: "cancel" }),
+        requestElicitation: () => ({ action: "cancel" })
+      },
+      interactionDeadline: () => null,
+      followUpPrompts: (async function* () {})(),
+      eventSink: (event) => events.push(event),
+      lifecycleObserver: () => undefined
+    });
+    await acquired;
+    controller.abort(cause);
+    await expect(execution).rejects.toBe(cause);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: "terminal",
+        terminal: expect.objectContaining({ state: "cancelled" })
+      })
+    );
   });
 });

@@ -14,12 +14,14 @@ export type AcpCleanupDeadline = {
 
 export function createAcpCleanupDeadline(
   timeoutMs: number,
-  now: () => number = () => performance.now()
+  now: () => number = () => performance.now(),
+  startedAt: number = now()
 ): AcpCleanupDeadline {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
     throw new Error("ACP cleanup deadline must be a positive integer.");
   }
-  const expiresAt = now() + timeoutMs;
+  if (!Number.isFinite(startedAt)) throw new Error("ACP cleanup start must be finite.");
+  const expiresAt = startedAt + timeoutMs;
   return Object.freeze({
     expiresAt,
     remainingMs: () => Math.max(0, Math.ceil(expiresAt - now()))
@@ -36,11 +38,20 @@ export class AcpCleanupSequencer {
     return timeoutMs;
   }
 
-  run<T>(
+  async run<T>(
     step: string,
     operation: (timeoutMs: number) => Promise<T>,
     stepLimitMs?: number
   ): Promise<T> {
-    return operation(this.remaining(step, stepLimitMs));
+    const timeoutMs = this.remaining(step, stepLimitMs);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const boundary = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new AcpCleanupTimeoutError(step)), timeoutMs);
+    });
+    try {
+      return await Promise.race([operation(timeoutMs), boundary]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
