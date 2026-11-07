@@ -657,6 +657,7 @@
         "acpEvents.test.ts",
         "acpExecutionEngine.test.ts",
         "acpCancellationLifecycle.test.ts",
+        "acpPromptSubscriptionHandoff.test.ts",
         "acpConversationAdmission.test.ts",
         "acpConversationCleanup.test.ts",
         "acpInteractionTerminal.test.ts",

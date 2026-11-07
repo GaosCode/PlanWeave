@@ -371,56 +371,24 @@ export async function consumeAcpPromptRunRecord(
     subscribeTurn: (key, subscriber) => acpConversationTurns.subscribe(key, subscriber)
   }
 ): Promise<RunnerRecordReadConsumer> {
-  const consumer = await dependencies.consume({
-    runDir: options.runDir,
-    metadata: options.metadata,
-    cursor: options.cursor,
-    subscriber: options.subscriber,
-    ...acpPromptReadOptions(options.context)
-  });
-  if (!options.context.available) return consumer;
+  if (!options.context.available) {
+    return dependencies.consume({
+      runDir: options.runDir,
+      metadata: options.metadata,
+      cursor: options.cursor,
+      subscriber: options.subscriber
+    });
+  }
+  let consumer: RunnerRecordReadConsumer | null = null;
+  let unsubscribeTurn: (() => void) | null = null;
   let closed = false;
+  let initializing = true;
+  let invalidated = false;
   let resolveClosed = (_result: AcpEventSubscriptionCloseResult): void => undefined;
   let refreshTail = Promise.resolve();
   let lastDeliveredSequence = options.cursor?.afterSequence ?? 0;
   const closedPromise = new Promise<AcpEventSubscriptionCloseResult>((resolve) => {
     resolveClosed = resolve;
-  });
-  const unsubscribeTurn = dependencies.subscribeTurn(options.context.runDir, ({ signal }) => {
-    const onAbort = () => {
-      const result = acpEventSubscriptionCloseResultSchema.safeParse(signal.reason);
-      if (result.success && result.data.reason === "subscriber_callback_failed") {
-        close(
-          createAcpEventSubscriptionCloseResult(
-            result.data.reason,
-            lastDeliveredSequence,
-            result.data.message
-          )
-        );
-      }
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    if (signal.aborted) onAbort();
-    const refresh = refreshTail.then(async () => {
-      if (closed || signal.aborted) return;
-      const refreshed = await dependencies.consume({
-        runDir: options.runDir,
-        metadata: options.metadata,
-        cursor: options.cursor,
-        ...acpPromptReadOptions(options.context)
-      });
-      if (closed || signal.aborted) return;
-      if (refreshed.snapshot) {
-        await options.subscriber(refreshed.snapshot);
-        if (!closed && !signal.aborted)
-          lastDeliveredSequence = refreshed.snapshot.cursor.afterSequence;
-      }
-    });
-    const delivered = refresh.then(() => {
-      signal.removeEventListener("abort", onAbort);
-    });
-    refreshTail = delivered.catch(() => undefined);
-    return delivered;
   });
   const settleClosed = async (
     preferred: AcpEventSubscriptionCloseResult | undefined
@@ -430,7 +398,7 @@ export async function consumeAcpPromptRunRecord(
       return;
     }
     const fallback = preferred ?? createAcpEventSubscriptionCloseResult("explicit_unsubscribe", 0);
-    const underlyingClosed = consumer.subscription?.closed ?? Promise.resolve(fallback);
+    const underlyingClosed = consumer?.subscription?.closed ?? Promise.resolve(fallback);
     const [underlying] = await Promise.allSettled([underlyingClosed, refreshTail]);
     if (preferred) {
       resolveClosed(preferred);
@@ -449,24 +417,87 @@ export async function consumeAcpPromptRunRecord(
   const close = (preferred?: AcpEventSubscriptionCloseResult): void => {
     if (closed) return;
     closed = true;
-    unsubscribeTurn();
-    // Prefer the publisher close reason when the underlying subscription ended first.
-    // Explicit outer unsubscribe still calls underlying unsubscribe, which resolves the same reason.
-    if (!preferred) {
-      consumer.subscription?.unsubscribe();
-    } else if (consumer.subscription) {
-      // Underlying already closed; still invoke unsubscribe for idempotent cleanup.
-      consumer.subscription.unsubscribe();
-    }
+    unsubscribeTurn?.();
+    consumer?.subscription?.unsubscribe();
     void settleClosed(preferred);
   };
-  if (consumer.subscription) {
-    void consumer.subscription.closed.then((result) => close(result));
-  }
-  return {
-    snapshot: consumer.snapshot,
-    subscription: { unsubscribe: () => close(), closed: closedPromise }
+  const readOptions = {
+    runDir: options.runDir,
+    metadata: options.metadata,
+    cursor: options.cursor,
+    ...acpPromptReadOptions(options.context)
   };
+  const refresh = (signal?: AbortSignal): Promise<void> => {
+    const delivered = refreshTail.then(async () => {
+      if (closed || signal?.aborted) return;
+      const refreshed = await dependencies.consume(readOptions);
+      if (closed || signal?.aborted || !refreshed.snapshot) return;
+      await options.subscriber(refreshed.snapshot);
+      if (!closed && !signal?.aborted)
+        lastDeliveredSequence = refreshed.snapshot.cursor.afterSequence;
+    });
+    refreshTail = delivered.catch(() => undefined);
+    return delivered;
+  };
+  try {
+    unsubscribeTurn = dependencies.subscribeTurn(options.context.runDir, ({ signal }) => {
+      if (closed) return;
+      const onAbort = () => {
+        const result = acpEventSubscriptionCloseResultSchema.safeParse(signal.reason);
+        if (result.success && result.data.reason === "subscriber_callback_failed") {
+          close(
+            createAcpEventSubscriptionCloseResult(
+              result.data.reason,
+              lastDeliveredSequence,
+              result.data.message
+            )
+          );
+        }
+      };
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      if (initializing) {
+        invalidated = true;
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+      const delivered = refresh(signal).then(() => {
+        signal.removeEventListener("abort", onAbort);
+      });
+      return delivered;
+    });
+    if (closed) unsubscribeTurn();
+    consumer = await dependencies.consume({
+      ...readOptions,
+      subscriber: () => {
+        if (closed) return;
+        if (initializing) {
+          invalidated = true;
+          return;
+        }
+        return refresh();
+      }
+    });
+    if (closed) consumer.subscription?.unsubscribe();
+    if (consumer.subscription) {
+      void consumer.subscription.closed.then((result) => close(result));
+    }
+    let snapshot = consumer.snapshot;
+    while (invalidated && !closed) {
+      invalidated = false;
+      snapshot = (await dependencies.consume(readOptions)).snapshot;
+    }
+    initializing = false;
+    return {
+      snapshot,
+      subscription: { unsubscribe: () => close(), closed: closedPromise }
+    };
+  } catch (error) {
+    close();
+    throw error;
+  }
 }
 
 export async function continueAcpPrompt(options: {
