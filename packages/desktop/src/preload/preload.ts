@@ -108,16 +108,6 @@ const invokeApi = createDesktopBridgeInvokeApi((channel, ...args) =>
 let lastSmokeRevealPath: string | null = null;
 let runnerRecordSubscriptionSequence = 0;
 
-function runnerRecordSubscriptionIsTerminal(
-  snapshot: Extract<DesktopRunnerRecordSubscriptionPush, { kind: "snapshot" }>["snapshot"]
-): boolean {
-  return (
-    snapshot.terminal &&
-    !snapshot.intervention.prompt.available &&
-    !snapshot.intervention.prompt.inFlight
-  );
-}
-
 const api: DesktopBridgeApi = {
   ...invokeApi,
   revealPathInFinder: async (path) => {
@@ -148,11 +138,18 @@ const api: DesktopBridgeApi = {
     runnerRecordSubscriptionSequence += 1;
     const subscriptionId = `renderer-${runnerRecordSubscriptionSequence}`;
     let active = true;
+    let backendReleased = false;
+    let unsubscribePromise: Promise<void> | null = null;
+    const stopDelivery = (): void => {
+      if (!active) return;
+      active = false;
+      ipcRenderer.off(runnerRecordEventChannel, listener);
+    };
     const listener = (_event: IpcRendererEvent, payload: DesktopRunnerRecordSubscriptionPush) => {
       if (!active || payload.subscriptionId !== subscriptionId) return;
       if (payload.kind === "closed") {
-        active = false;
-        ipcRenderer.off(runnerRecordEventChannel, listener);
+        backendReleased = true;
+        stopDelivery();
         callback({
           kind: "closed",
           updateSequence: payload.updateSequence,
@@ -165,10 +162,6 @@ const api: DesktopBridgeApi = {
         updateSequence: payload.updateSequence,
         snapshot: payload.snapshot
       });
-      if (runnerRecordSubscriptionIsTerminal(payload.snapshot)) {
-        active = false;
-        ipcRenderer.off(runnerRecordEventChannel, listener);
-      }
     };
     ipcRenderer.on(runnerRecordEventChannel, listener);
     const request: DesktopRunnerRecordSubscriptionInput = {
@@ -177,22 +170,27 @@ const api: DesktopBridgeApi = {
     };
     try {
       const start = await ipcRenderer.invoke(runnerRecordSubscribeChannel, request);
-      if (start.snapshot && runnerRecordSubscriptionIsTerminal(start.snapshot)) {
-        active = false;
-        ipcRenderer.off(runnerRecordEventChannel, listener);
-      }
       return {
         ...start,
-        unsubscribe: async () => {
-          if (!active) return;
-          active = false;
-          ipcRenderer.off(runnerRecordEventChannel, listener);
-          await ipcRenderer.invoke(runnerRecordUnsubscribeChannel, subscriptionId);
+        unsubscribe: () => {
+          stopDelivery();
+          if (backendReleased) return Promise.resolve();
+          unsubscribePromise ??= ipcRenderer
+            .invoke(runnerRecordUnsubscribeChannel, subscriptionId)
+            .then(
+              () => {
+                backendReleased = true;
+              },
+              (error: unknown) => {
+                unsubscribePromise = null;
+                throw error;
+              }
+            );
+          return unsubscribePromise;
         }
       };
     } catch (error) {
-      active = false;
-      ipcRenderer.off(runnerRecordEventChannel, listener);
+      stopDelivery();
       throw error;
     }
   }

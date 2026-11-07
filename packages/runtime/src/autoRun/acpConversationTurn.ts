@@ -27,6 +27,7 @@ import {
   acpConversationTurnQueryResultSchema,
   acpConversationTurnStateSchema,
   type AcpConversationTurnCancelResult,
+  type AcpConversationTurnAdmission,
   type AcpConversationTurnIdentity,
   type AcpConversationTurnPhase,
   type AcpConversationTurnQueryResult,
@@ -130,6 +131,10 @@ type ActiveConversationTurn = {
 };
 type StableConversationTurnIdentity = Omit<AcpConversationTurnIdentity, "version" | "turnId">;
 type TerminalConversationTurn = { state: AcpConversationTurnState; expiresAt: number };
+type TurnNotificationScope = Pick<
+  ActiveConversationTurn,
+  "input" | "notifications" | "pendingNotifications"
+>;
 
 const DEFAULT_TERMINAL_TURN_LIMIT = 256;
 const DEFAULT_TERMINAL_TURN_TTL_MS = 5 * 60_000;
@@ -221,6 +226,7 @@ export class AcpConversationTurnCoordinator {
   private readonly pendingWrites = new Map<string, Set<Promise<void>>>();
   private readonly terminal = new Map<string, TerminalConversationTurn>();
   private readonly subscribers = new Map<string, Set<TurnStateSubscriber>>();
+  private readonly settledNotifications = new Map<string, TurnNotificationScope>();
   private readonly terminalLimit: number;
   private readonly terminalTtlMs: number;
 
@@ -267,6 +273,40 @@ export class AcpConversationTurnCoordinator {
 
   isInFlight(key: string): boolean {
     return this.active.has(key);
+  }
+
+  admission(key: string): AcpConversationTurnAdmission {
+    if (this.active.has(key)) {
+      return {
+        available: false,
+        inFlight: true,
+        reason: "An ACP conversation turn is already in progress."
+      };
+    }
+    if (this.pendingCleanup.has(key)) {
+      return {
+        available: false,
+        inFlight: false,
+        reason:
+          "ACP conversation cleanup has not been confirmed. This run cannot accept another turn."
+      };
+    }
+    if (this.pendingWrites.has(key)) {
+      return {
+        available: false,
+        inFlight: false,
+        reason:
+          "ACP conversation persistence is still pending. This run cannot accept another turn yet."
+      };
+    }
+    if (this.finalizing.has(key)) {
+      return {
+        available: false,
+        inFlight: false,
+        reason: "The ACP conversation turn is finalizing. Please wait before sending another turn."
+      };
+    }
+    return { available: true, inFlight: false, reason: null };
   }
 
   subscriberCount(key: string): number {
@@ -364,14 +404,13 @@ export class AcpConversationTurnCoordinator {
   }
 
   async send(input: AcpConversationTurnInput): Promise<AcpConversationTurnState> {
-    if (
-      this.active.has(input.key) ||
-      this.pendingWrites.has(input.key) ||
-      this.pendingCleanup.has(input.key) ||
-      this.finalizing.has(input.key)
-    ) {
-      throw new Error("An ACP conversation turn is already in progress for this run record.");
+    const admission = this.admission(input.key);
+    if (!admission.available) {
+      throw new Error(
+        `An ACP conversation turn is already in progress for this run record. ${admission.reason}`
+      );
     }
+    this.settledNotifications.get(input.key)?.notifications.abort();
     const turn: ActiveConversationTurn = {
       input,
       controller: new AbortController(),
@@ -420,11 +459,12 @@ export class AcpConversationTurnCoordinator {
     this.finalizing.add(input.key);
     this.active.delete(input.key);
     try {
-      this.notify(turn);
+      if (cleanup.deadline.remainingMs() > 0) this.notify(turn);
       await this.finishNotifications(turn, cleanup);
     } finally {
       turn.notifications.abort();
       this.finalizing.delete(input.key);
+      this.notifySettled(turn);
     }
     if (executionError !== undefined) throw executionError;
     return terminalState;
@@ -635,6 +675,7 @@ export class AcpConversationTurnCoordinator {
           throw combineTurnErrors(undefined, result.failures);
         }
         this.pendingCleanup.delete(input.key);
+        this.notifySettled(turn);
       });
       this.pendingCleanup.set(input.key, released);
       void released.catch((error) => {
@@ -729,6 +770,7 @@ export class AcpConversationTurnCoordinator {
       turn.pendingPersistence.delete(pending);
       writes.delete(pending);
       if (writes.size === 0) this.pendingWrites.delete(turn.input.key);
+      this.notifySettled(turn);
     };
     void pending.then(settled, (error) => {
       turn.persistenceErrors.push(error);
@@ -737,7 +779,31 @@ export class AcpConversationTurnCoordinator {
     return pending;
   }
 
-  private notify(turn: ActiveConversationTurn): void {
+  private notifySettled(turn: ActiveConversationTurn): void {
+    const key = turn.input.key;
+    if (this.active.has(key) || this.finalizing.has(key)) return;
+    const terminal = this.terminal.get(key);
+    if (terminal && !sameIdentity(terminal.state.identity, turn.input.identity)) return;
+    this.settledNotifications.get(key)?.notifications.abort();
+    const scope: TurnNotificationScope = {
+      input: turn.input,
+      notifications: new AbortController(),
+      pendingNotifications: new Map()
+    };
+    this.settledNotifications.set(key, scope);
+    this.notify(scope);
+    void this.finishNotifications(
+      scope,
+      new AcpCleanupSequencer(
+        createAcpCleanupDeadline(turn.input.profile.shutdown.cleanupDeadlineMs)
+      )
+    ).finally(() => {
+      scope.notifications.abort();
+      if (this.settledNotifications.get(key) === scope) this.settledNotifications.delete(key);
+    });
+  }
+
+  private notify(turn: TurnNotificationScope): void {
     for (const subscriber of [...(this.subscribers.get(turn.input.key) ?? [])]) {
       const existing = turn.pendingNotifications.get(subscriber);
       if (existing) {
@@ -788,7 +854,7 @@ export class AcpConversationTurnCoordinator {
   }
 
   private async finishNotifications(
-    turn: ActiveConversationTurn,
+    turn: TurnNotificationScope,
     cleanup: AcpCleanupSequencer
   ): Promise<void> {
     try {

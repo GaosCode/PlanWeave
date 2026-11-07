@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { acpConversationTurns } from "./acpConversationTurn.js";
+import type { AcpConversationTurnAdmission } from "./acpConversationTurnContract.js";
 import { activeAgentRunRegistry } from "./activeAgentRunRegistry.js";
 import { acpEventReadModels } from "./acpEventReadModel.js";
 import type { AcpEventSubscription } from "./acpEventPublisher.js";
@@ -75,7 +77,7 @@ export async function readRunnerRecordReadModel(options: {
   metadata: Record<string, unknown>;
   promptIdentity?: DesktopAgentPromptIdentity;
   promptContinuationAvailable?: boolean;
-  promptInFlight?: boolean;
+  promptAdmission?: () => AcpConversationTurnAdmission;
   promptUnavailableReason?: string;
   now?: () => Date;
   ownerFreshnessThresholdMs?: number;
@@ -237,7 +239,7 @@ function interactionState(
   knownSessionIds?: ReadonlySet<string>,
   promptIdentity?: DesktopAgentPromptIdentity,
   promptContinuationAvailable = false,
-  promptInFlight = false,
+  promptAdmission: AcpConversationTurnAdmission = acpConversationTurns.admission(runDir),
   promptUnavailableReason?: string
 ): Pick<RunnerRecordReadModel, "interaction" | "intervention"> {
   const persistedRequestIds = new Set<string>(
@@ -253,7 +255,7 @@ function interactionState(
       "Exact runner identity is unavailable.",
       promptIdentity,
       promptContinuationAvailable,
-      promptInFlight,
+      promptAdmission,
       promptUnavailableReason
     );
   }
@@ -269,7 +271,7 @@ function interactionState(
       "Exact ACP session identity is unavailable.",
       promptIdentity,
       promptContinuationAvailable,
-      promptInFlight,
+      promptAdmission,
       promptUnavailableReason
     );
   try {
@@ -287,7 +289,7 @@ function interactionState(
         "No live owned ACP session is available.",
         promptIdentity,
         promptContinuationAvailable,
-        promptInFlight,
+        promptAdmission,
         promptUnavailableReason
       );
     if (
@@ -299,7 +301,7 @@ function interactionState(
         "Live ACP session identity does not match the selected record.",
         promptIdentity,
         promptContinuationAvailable,
-        promptInFlight,
+        promptAdmission,
         promptUnavailableReason
       );
     }
@@ -309,7 +311,7 @@ function interactionState(
         "Exact Desktop run/session identity is unavailable.",
         promptIdentity,
         promptContinuationAvailable,
-        promptInFlight,
+        promptAdmission,
         promptUnavailableReason
       );
     }
@@ -431,7 +433,7 @@ function interactionState(
       "Live ACP session identity could not be verified.",
       promptIdentity,
       promptContinuationAvailable,
-      promptInFlight,
+      promptAdmission,
       promptUnavailableReason
     );
   }
@@ -440,9 +442,9 @@ function interactionState(
 function unavailableIntervention(
   persisted: boolean,
   reason: string,
-  promptIdentity?: DesktopAgentPromptIdentity,
+  promptIdentity: DesktopAgentPromptIdentity | undefined,
   promptContinuationAvailable = false,
-  promptInFlight = false,
+  promptAdmission: AcpConversationTurnAdmission,
   promptUnavailableReason?: string
 ): Pick<RunnerRecordReadModel, "interaction" | "intervention"> {
   return {
@@ -450,10 +452,10 @@ function unavailableIntervention(
       prompt:
         promptIdentity && promptContinuationAvailable
           ? {
-              available: !promptInFlight,
-              reason: promptInFlight ? "An ACP conversation turn is already in progress." : null,
+              available: promptAdmission.available,
+              reason: promptAdmission.reason,
               identity: promptIdentity,
-              inFlight: promptInFlight
+              inFlight: promptAdmission.inFlight
             }
           : {
               available: false,
@@ -584,7 +586,7 @@ function activeSnapshot(options: {
   cursor?: RunnerEventCursor;
   promptIdentity?: DesktopAgentPromptIdentity;
   promptContinuationAvailable?: boolean;
-  promptInFlight?: boolean;
+  promptAdmission?: () => AcpConversationTurnAdmission;
   promptUnavailableReason?: string;
 }): RunnerRecordReadModel {
   const replay = options.model.replay(options.cursor ?? 0);
@@ -606,7 +608,7 @@ function activeSnapshot(options: {
       options.model.knownSessionIds(),
       options.promptIdentity,
       options.promptContinuationAvailable,
-      options.promptInFlight,
+      options.promptAdmission?.() ?? acpConversationTurns.admission(options.runDir),
       options.promptUnavailableReason
     )
   };
@@ -621,7 +623,7 @@ function subscribeActiveModel(options: {
   cursor?: RunnerEventCursor;
   promptIdentity?: DesktopAgentPromptIdentity;
   promptContinuationAvailable?: boolean;
-  promptInFlight?: boolean;
+  promptAdmission?: () => AcpConversationTurnAdmission;
   promptUnavailableReason?: string;
   afterSequence: number;
   subscriber: RunnerRecordReadSubscriber;
@@ -676,7 +678,7 @@ export async function consumeRunnerRecordReadModel(options: {
   subscriber?: RunnerRecordReadSubscriber;
   promptIdentity?: DesktopAgentPromptIdentity;
   promptContinuationAvailable?: boolean;
-  promptInFlight?: boolean;
+  promptAdmission?: () => AcpConversationTurnAdmission;
   promptUnavailableReason?: string;
   now?: () => Date;
   ownerFreshnessThresholdMs?: number;
@@ -705,7 +707,7 @@ export async function consumeRunnerRecordReadModel(options: {
           ...(options.cursor ? { cursor: options.cursor } : {}),
           ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
           promptContinuationAvailable: options.promptContinuationAvailable,
-          promptInFlight: options.promptInFlight,
+          promptAdmission: options.promptAdmission,
           promptUnavailableReason: options.promptUnavailableReason
         }),
         {
@@ -738,7 +740,7 @@ export async function consumeRunnerRecordReadModel(options: {
       subscriber: options.subscriber,
       ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
       promptContinuationAvailable: options.promptContinuationAvailable,
-      promptInFlight: options.promptInFlight,
+      promptAdmission: options.promptAdmission,
       promptUnavailableReason: options.promptUnavailableReason,
       now: options.now,
       ownerFreshnessThresholdMs: options.ownerFreshnessThresholdMs
@@ -753,7 +755,7 @@ export async function consumeRunnerRecordReadModel(options: {
           ...(options.cursor ? { cursor: options.cursor } : {}),
           ...(options.promptIdentity ? { promptIdentity: options.promptIdentity } : {}),
           promptContinuationAvailable: options.promptContinuationAvailable,
-          promptInFlight: options.promptInFlight,
+          promptAdmission: options.promptAdmission,
           promptUnavailableReason: options.promptUnavailableReason
         }),
         {
@@ -834,7 +836,7 @@ export async function consumeRunnerRecordReadModel(options: {
         undefined,
         options.promptIdentity,
         options.promptContinuationAvailable,
-        options.promptInFlight,
+        options.promptAdmission?.() ?? acpConversationTurns.admission(options.runDir),
         options.promptUnavailableReason
       )
     }),

@@ -32,6 +32,10 @@ export const acpConversationTurnStateSchema = z
   .strict();
 export type AcpConversationTurnState = z.infer<typeof acpConversationTurnStateSchema>;
 
+export type AcpConversationTurnAdmission =
+  | { available: true; inFlight: false; reason: null }
+  | { available: false; inFlight: boolean; reason: string };
+
 export const acpConversationTurnQueryResultSchema = z.discriminatedUnion("found", [
   z.object({ found: z.literal(true), state: acpConversationTurnStateSchema }).strict(),
   z

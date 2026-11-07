@@ -210,7 +210,7 @@ export function acpPromptReadOptions(context: AcpPromptContext) {
     ? {
         promptIdentity: context.identity,
         promptContinuationAvailable: context.mode === "completed",
-        promptInFlight: acpConversationTurns.isInFlight(context.runDir)
+        promptAdmission: () => acpConversationTurns.admission(context.runDir)
       }
     : {};
 }
