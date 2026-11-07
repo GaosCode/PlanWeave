@@ -484,12 +484,12 @@ export async function consumeAcpPromptRunRecord(
     if (consumer.subscription) {
       void consumer.subscription.closed.then((result) => close(result));
     }
+    initializing = false;
     let snapshot = consumer.snapshot;
-    while (invalidated && !closed) {
+    if (invalidated && !closed) {
       invalidated = false;
       snapshot = (await dependencies.consume(readOptions)).snapshot;
     }
-    initializing = false;
     return {
       snapshot,
       subscription: { unsubscribe: () => close(), closed: closedPromise }

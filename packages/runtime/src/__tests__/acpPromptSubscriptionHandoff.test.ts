@@ -273,6 +273,215 @@ describe("ACP prompt subscription handoff", () => {
 
   it.each([
     "new",
+    "reconnect"
+  ] as const)("returns initial state and streams progress while production continues: %s", async (mode) => {
+    const h = await harness();
+    if (mode === "reconnect") {
+      const previous = await h.subscribe();
+      previous.subscription?.unsubscribe();
+      await previous.subscription?.closed;
+    }
+    const firstCheckpoint = gate();
+    const secondCheckpoint = gate();
+    let producerActive = true;
+    let stopProducer = false;
+    let consumer: RunnerRecordReadConsumer | undefined;
+    let reads = 0;
+    const pushes: RunnerRecordReadModel[] = [];
+    const original = PersistentRunnerInteractionStore.prototype.listSnapshots;
+    const spy = vi
+      .spyOn(PersistentRunnerInteractionStore.prototype, "listSnapshots")
+      .mockImplementation(async function (this: PersistentRunnerInteractionStore, ...args) {
+        const result = await original.apply(this, args);
+        await new Promise<void>((resolve) => setTimeout(resolve, ++reads === 2 ? 80 : 20));
+        return result;
+      });
+    const subscribing = h
+      .subscribe((snapshot) => {
+        pushes.push(snapshot);
+      })
+      .then((value) => {
+        consumer = value;
+        return value;
+      });
+    const writer = h.model.store.completedConversationWriter(h.input.identity.sessionId);
+    const producing = (async () => {
+      try {
+        for (let index = 0; index < 192 && !stopProducer; index += 1) {
+          await writer.append(
+            {
+              kind: "message",
+              role: "assistant",
+              messageId: `stream-${index}`,
+              chunk: true,
+              content: `stream ${index}`,
+              redaction: { classes: [], replaced: 0 }
+            },
+            { sessionId: h.input.identity.sessionId }
+          );
+          await new Promise<void>((resolve) => setTimeout(resolve, 5));
+          if (index === 63) firstCheckpoint.resolve();
+          if (index === 127) secondCheckpoint.resolve();
+        }
+      } finally {
+        producerActive = false;
+      }
+    })();
+    try {
+      await firstCheckpoint.promise;
+      expect(producerActive).toBe(true);
+      expect(
+        consumer,
+        "initial registration must finish while the real producer is active"
+      ).toBeDefined();
+      expect(consumer?.snapshot?.cursor.afterSequence).toBeGreaterThan(1);
+      expect(pushes.length).toBeGreaterThan(0);
+      const checkpoint = pushes.at(-1)?.cursor.afterSequence ?? 0;
+      await secondCheckpoint.promise;
+      expect(producerActive).toBe(true);
+      expect(pushes.at(-1)?.cursor.afterSequence).toBeGreaterThan(checkpoint);
+      expect(h.model.store.eventsAfterSequence(0).at(-1)?.sequence).toBeGreaterThan(
+        pushes.at(-1)?.cursor.afterSequence ?? 0
+      );
+      consumer?.subscription?.unsubscribe();
+      expect(acpConversationTurns.subscriberCount(h.runDir)).toBe(0);
+      expect(h.model.store.publisher.subscriberCount).toBe(0);
+      await producing;
+    } finally {
+      stopProducer = true;
+      await producing;
+      spy.mockRestore();
+      consumer = await subscribing;
+      consumer.subscription?.unsubscribe();
+      await consumer.subscription?.closed;
+      expect(acpConversationTurns.subscriberCount(h.runDir)).toBe(0);
+      expect(h.model.store.publisher.subscriberCount).toBe(0);
+      acpEventReadModels.release(h.runDir);
+      await rm(h.runDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    false,
+    true
+  ])("delivers ready before a held repair finishes, rejecting repair: %s", async (rejectRepair) => {
+    const h = await harness();
+    const finalizing = gate();
+    const finishTurn = gate();
+    const repairCaptured = gate();
+    const finishRepair = gate();
+    const initialEvent = gate();
+    const readyPush = gate();
+    const consumers: RunnerRecordReadConsumer[] = [];
+    const pushes: RunnerRecordReadModel[] = [];
+    let reads = 0;
+    let consumer: RunnerRecordReadConsumer | undefined;
+    const stop = acpConversationTurns.subscribe(h.runDir, () => {
+      if (acpConversationTurns.admission(h.runDir).reason?.includes("finaliz")) {
+        finalizing.resolve();
+        return finishTurn.promise;
+      }
+    });
+    const sending = acpConversationTurns.send(h.input);
+    let subscribing: Promise<RunnerRecordReadConsumer> | undefined;
+    try {
+      await finalizing.promise;
+      subscribing = h.subscribe(
+        (snapshot) => {
+          pushes.push(snapshot);
+          if (snapshot.intervention.prompt.available) readyPush.resolve();
+        },
+        {
+          subscribeTurn: (key, subscriber) => acpConversationTurns.subscribe(key, subscriber),
+          consume: async (settings) => {
+            const result = await consumeRunnerRecordReadModel({
+              ...settings,
+              ...(settings.subscriber
+                ? {
+                    subscriber: async (snapshot) => {
+                      await settings.subscriber?.(snapshot);
+                      initialEvent.resolve();
+                    }
+                  }
+                : {})
+            });
+            if (settings.subscriber) {
+              consumers.push(result);
+              await h.model.store.completedConversationWriter(h.input.identity.sessionId).append(
+                {
+                  kind: "message",
+                  role: "assistant",
+                  messageId: "repair-invalidation",
+                  chunk: false,
+                  content: "repair invalidation",
+                  redaction: { classes: [], replaced: 0 }
+                },
+                { sessionId: h.input.identity.sessionId }
+              );
+              await initialEvent.promise;
+            } else if (++reads === 1) {
+              repairCaptured.resolve();
+              await finishRepair.promise;
+              if (rejectRepair) throw new Error("repair read rejected");
+            }
+            return result;
+          }
+        }
+      );
+      await repairCaptured.promise;
+      finishTurn.resolve();
+      await readyPush.promise;
+      expect((await sending).terminal).toBe("succeeded");
+      expect(pushes.at(-1)?.intervention.prompt).toMatchObject({
+        available: true,
+        inFlight: false
+      });
+      finishRepair.resolve();
+      if (rejectRepair) {
+        await expect(subscribing).rejects.toThrow("repair read rejected");
+        expect(acpConversationTurns.subscriberCount(h.runDir)).toBe(1);
+        expect(h.model.store.publisher.subscriberCount).toBe(0);
+        expect(await consumers[0].subscription?.closed).toMatchObject({
+          reason: "explicit_unsubscribe"
+        });
+      } else {
+        consumer = await subscribing;
+        expect(consumer.snapshot?.intervention.prompt).toMatchObject({
+          available: false,
+          inFlight: false,
+          reason: expect.stringMatching(/finaliz/i)
+        });
+        expect(pushes.at(-1)?.intervention.prompt.available).toBe(true);
+      }
+      expect(
+        (
+          await acpConversationTurns.send({
+            ...h.input,
+            identity: { ...h.input.identity, turnId: randomUUID() },
+            text: "after repair"
+          })
+        ).terminal
+      ).toBe("succeeded");
+    } finally {
+      finishTurn.resolve();
+      finishRepair.resolve();
+      stop();
+      await sending;
+      if (subscribing)
+        await subscribing.then(
+          (value) => value.subscription?.unsubscribe(),
+          () => undefined
+        );
+      await consumer?.subscription?.closed;
+      expect(acpConversationTurns.subscriberCount(h.runDir)).toBe(0);
+      expect(h.model.store.publisher.subscriberCount).toBe(0);
+      acpEventReadModels.release(h.runDir);
+      await rm(h.runDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    "new",
     "resubscribe",
     "healthy"
   ] as const)("returns ready after a real turn settles during registration: %s", async (mode) => {
