@@ -9,7 +9,7 @@ import type {
   SetSessionConfigOptionResponse,
   SetSessionModeResponse
 } from "@agentclientprotocol/sdk";
-import type { AcpOperationOptions } from "./acpConnection.js";
+import { DEFAULT_ACP_OPERATION_TIMEOUT_MS, type AcpOperationOptions } from "./acpConnection.js";
 import { AcpCleanupSequencer } from "./acpExecutionCleanup.js";
 import type { LivePendingOperationHandle } from "./liveControl.js";
 import {
@@ -123,7 +123,8 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
 
   constructor(
     readonly entry: SharedAcpConnectionEntry,
-    private readonly sessionCwd: string
+    private readonly sessionCwd: string,
+    private readonly defaultTimeoutMs: number
   ) {
     this.closed = entry.closed;
     this.entry.addLease(this);
@@ -200,7 +201,7 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
     const ownerId = options?.ownerId ?? this.leaseId;
     const operationOptions: AcpOperationOptions = {
       ...(options?.signal ? { signal: options.signal } : {}),
-      ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      timeoutMs: options?.timeoutMs ?? this.defaultTimeoutMs,
       get cleanupDeadline() {
         return options?.cleanupDeadline;
       }
@@ -209,18 +210,22 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
     this.routerOwner = owner;
     let created: NewSessionResponse;
     try {
-      created = await this.entry.router.withOpening(owner, async () => {
-        if (parsed.kind === "load") {
-          if (!this.entry.advertised.loadSession) {
-            throw new Error("ACP agent does not advertise session/load capability.");
+      created = await this.entry.router.withOpening(
+        owner,
+        async (remainingOptions) => {
+          if (parsed.kind === "load") {
+            if (!this.entry.advertised.loadSession) {
+              throw new Error("ACP agent does not advertise session/load capability.");
+            }
+            const loaded = await this.entry
+              .connection()
+              .loadSession({ sessionId: parsed.sessionId, cwd, mcpServers: [] }, remainingOptions);
+            return { sessionId: parsed.sessionId, ...loaded };
           }
-          const loaded = await this.entry
-            .connection()
-            .loadSession({ sessionId: parsed.sessionId, cwd, mcpServers: [] }, operationOptions);
-          return { sessionId: parsed.sessionId, ...loaded };
-        }
-        return this.entry.connection().newSession({ cwd, mcpServers: [] }, operationOptions);
-      });
+          return this.entry.connection().newSession({ cwd, mcpServers: [] }, remainingOptions);
+        },
+        operationOptions
+      );
     } catch (error) {
       this.routerOwner = undefined;
       throw error;
@@ -329,7 +334,11 @@ export function createSharedAcpConnectionProvider(
   return {
     async acquire(request: AcpConnectionAcquireRequest): Promise<AcpConnectionLease> {
       const entry = await pool.acquire(request);
-      return new SharedAcpConnectionLease(entry, request.cwd);
+      return new SharedAcpConnectionLease(
+        entry,
+        request.cwd,
+        request.defaultTimeoutMs ?? DEFAULT_ACP_OPERATION_TIMEOUT_MS
+      );
     },
     shutdown: () => pool.shutdown()
   };

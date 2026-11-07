@@ -46,6 +46,10 @@ createInterface({ input: process.stdin })
       if (params.sessionId === "fail-open") {
         send({ id: message.id, error: { code: -32000, message: "fixture load failure" } });
       } else {
+        if (params.sessionId === "session-A") {
+          while (existsSync(join(directory, "pause-A")))
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
         if (params.sessionId === "flush-fail") update(params.sessionId, "early-failure");
         if (params.sessionId === "slow-open") {
           while (existsSync(join(directory, "pause-open")))

@@ -650,6 +650,7 @@
         "acpDedicatedConnectionProvider.test.ts",
         "acpSharedConnectionProvider.test.ts",
         "acpSharedContinuation.test.ts",
+        "acpQueuedSessionOpen.test.ts",
         "acpSharedLeaseOwnership.test.ts",
         "acpCrossProcessPermission.test.ts",
         "acpElicitationSettlement.test.ts",

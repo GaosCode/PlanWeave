@@ -7,6 +7,8 @@ import type {
   TerminalOutputRequest,
   TerminalOutputResponse
 } from "@agentclientprotocol/sdk";
+import { AcpOperationTimeoutError, type AcpOperationOptions } from "./acpConnection.js";
+import { createAcpCleanupDeadline } from "./acpExecutionCleanup.js";
 import type { AcpSessionHandlerPort } from "./acpConnectionProvider.js";
 
 export class AcpSessionRoutingError extends Error {
@@ -69,6 +71,7 @@ export class AcpSessionRouter {
   private openingOwner: AcpSessionOwner | null = null;
   private readonly owners = new Map<string, AcpSessionOwner>();
   private openChain: Promise<void> = Promise.resolve();
+  private readonly queuedOpens = new Map<AcpSessionOwner, (error: Error) => void>();
   private readonly bindings = new Map<string, BoundSession>();
   private readonly ownerSessions = new Map<string, string>();
   private readonly openingBuffers = new Map<string, OpeningBuffer>();
@@ -76,23 +79,68 @@ export class AcpSessionRouter {
 
   async withOpening<T extends { readonly sessionId: string }>(
     owner: AcpSessionOwner,
-    open: () => Promise<T>
+    open: (options: AcpOperationOptions) => Promise<T>,
+    options: AcpOperationOptions = {}
   ): Promise<T> {
+    options.signal?.throwIfAborted();
+    const timeoutMs = options.timeoutMs;
+    const deadline = timeoutMs === undefined ? undefined : createAcpCleanupDeadline(timeoutMs);
     if (this.owners.has(owner.ownerId)) {
       throw new AcpSessionRoutingError("ACP shared session owner is already opening or bound.");
     }
     this.owners.set(owner.ownerId, owner);
-    const run = this.openChain.then(() => this.runOpen(owner, open));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const signal = options.signal;
+    const abort = () => this.unbindOwner(owner, asError(signal?.reason));
+    const clearQueued = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      this.queuedOpens.delete(owner);
+    };
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      this.queuedOpens.set(owner, (error) => {
+        clearQueued();
+        reject(error);
+      });
+    });
+    signal?.addEventListener("abort", abort, { once: true });
+    if (deadline && timeoutMs !== undefined) {
+      timer = setTimeout(
+        () => this.unbindOwner(owner, new AcpOperationTimeoutError("session opening", timeoutMs)),
+        deadline.remainingMs()
+      );
+    }
+    if (signal?.aborted) abort();
+    const run = this.openChain.then(() => {
+      clearQueued();
+      return this.runOpen(owner, () => {
+        signal?.throwIfAborted();
+        const remaining = deadline?.remainingMs();
+        if (remaining === 0 && timeoutMs !== undefined)
+          throw new AcpOperationTimeoutError("session opening", timeoutMs);
+        return open({
+          ...options,
+          ...(remaining === undefined ? {} : { timeoutMs: remaining }),
+          get cleanupDeadline() {
+            return options.cleanupDeadline;
+          }
+        });
+      });
+    });
     this.openChain = run.then(
       () => undefined,
       () => undefined
     );
-    return run;
+    return Promise.race([run, cancelled]);
   }
 
-  unbindOwner(owner: AcpSessionOwner): void {
+  unbindOwner(
+    owner: AcpSessionOwner,
+    reason = new AcpSessionRoutingError("ACP shared session owner was released during opening.")
+  ): void {
     if (this.owners.get(owner.ownerId) !== owner) return;
     this.owners.delete(owner.ownerId);
+    this.queuedOpens.get(owner)?.(reason);
     const sessionId = this.ownerSessions.get(owner.ownerId);
     if (sessionId) {
       this.bindings.delete(sessionId);

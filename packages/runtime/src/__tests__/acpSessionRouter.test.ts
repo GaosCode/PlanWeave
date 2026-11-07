@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { performance } from "node:perf_hooks";
+import { describe, expect, it, vi } from "vitest";
 import { AcpSessionRouter } from "../autoRun/acpSessionRouter.js";
 import type { CreateElicitationRequest, SessionNotification } from "@agentclientprotocol/sdk";
 
@@ -232,6 +233,154 @@ describe("ACP session router", () => {
     router.unbindOwner(owner);
     await router.sessionUpdate(update("session-a", "fresh"));
     expect(received).toEqual(["old", "new"]);
+  });
+
+  it("does not reserve an already-aborted owner and permits its later valid use", async () => {
+    const router = new AcpSessionRouter();
+    const controller = new AbortController();
+    const reason = new Error("cancelled before admission");
+    controller.abort(reason);
+    const owner = { ownerId: "pre-aborted", handlers: {} };
+    const opening = vi.fn(async () => ({ sessionId: "unreachable" }));
+    await expect(router.withOpening(owner, opening, { signal: controller.signal })).rejects.toBe(
+      reason
+    );
+    expect(opening).not.toHaveBeenCalled();
+    await expect(router.withOpening(owner, async () => ({ sessionId: "valid" }))).resolves.toEqual({
+      sessionId: "valid"
+    });
+  });
+
+  it("settles a released queued owner before its predecessor and protects a same-name replacement", async () => {
+    const router = new AcpSessionRouter();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const a = router.withOpening({ ownerId: "a", handlers: {} }, async () => {
+      await gate;
+      return { sessionId: "a" };
+    });
+    const old = { ownerId: "queued", handlers: {} };
+    const opening = vi.fn(async () => ({ sessionId: "must-not-open" }));
+    const cancelled = router.withOpening(old, opening);
+    router.unbindOwner(old);
+    await expect(cancelled).rejects.toThrow("released during opening");
+    const received: string[] = [];
+    const replacement = {
+      ownerId: "queued",
+      handlers: {
+        onSessionUpdate: () => {
+          received.push("replacement");
+        }
+      }
+    };
+    const next = router.withOpening(replacement, async () => ({ sessionId: "new" }));
+    router.unbindOwner(old);
+    release();
+    await a;
+    await next;
+    expect(opening).not.toHaveBeenCalled();
+    await router.sessionUpdate(update("new", "still-routed"));
+    expect(received).toEqual(["replacement"]);
+  });
+
+  it("hands only the unused queue budget to the active RPC and releases its queue timer", async () => {
+    const router = new AcpSessionRouter();
+    vi.useFakeTimers();
+    let now = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      const a = router.withOpening({ ownerId: "a", handlers: {} }, async () => {
+        await gate;
+        return { sessionId: "a" };
+      });
+      let handedTimeout: number | undefined;
+      const b = router.withOpening(
+        { ownerId: "b", handlers: {} },
+        async (options) => {
+          handedTimeout = options.timeoutMs;
+          return { sessionId: "b" };
+        },
+        { timeoutMs: 100 }
+      );
+      now = 40;
+      release();
+      await a;
+      await b;
+      expect(handedTimeout).toBe(60);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      release();
+      clock.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects an expired handoff without invoking its RPC even before the timer callback runs", async () => {
+    const router = new AcpSessionRouter();
+    vi.useFakeTimers();
+    let now = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      const a = router.withOpening({ ownerId: "a", handlers: {} }, async () => {
+        await gate;
+        return { sessionId: "a" };
+      });
+      const opening = vi.fn(async () => ({ sessionId: "unreachable" }));
+      const owner = { ownerId: "expired", handlers: {} };
+      const b = router.withOpening(owner, opening, { timeoutMs: 100 });
+      const rejected = expect(b).rejects.toThrow("timed out");
+      now = 100;
+      release();
+      await a;
+      await rejected;
+      expect(opening).not.toHaveBeenCalled();
+      await expect(
+        router.withOpening({ ownerId: "expired", handlers: {} }, async () => ({
+          sessionId: "retry"
+        }))
+      ).resolves.toEqual({ sessionId: "retry" });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      release();
+      clock.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the active RPC cancellation signal and rolls back after an abort past handoff", async () => {
+    const router = new AcpSessionRouter();
+    const controller = new AbortController();
+    const reason = new Error("active abort");
+    let entered = false;
+    const owner = { ownerId: "active", handlers: {} };
+    const opening = router.withOpening(
+      owner,
+      (options) =>
+        new Promise<{ sessionId: string }>((_resolve, reject) => {
+          entered = true;
+          expect(options.signal).toBe(controller.signal);
+          options.signal?.addEventListener("abort", () => reject(options.signal?.reason), {
+            once: true
+          });
+        }),
+      { signal: controller.signal, timeoutMs: 1000 }
+    );
+    await vi.waitFor(() => expect(entered).toBe(true));
+    controller.abort(reason);
+    await expect(opening).rejects.toBe(reason);
+    await expect(
+      router.withOpening({ ownerId: "active", handlers: {} }, async () => ({ sessionId: "retry" }))
+    ).resolves.toEqual({ sessionId: "retry" });
   });
 
   it("single-flights prompts on the same session and allows different sessions to run concurrently", async () => {
