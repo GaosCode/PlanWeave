@@ -1,5 +1,6 @@
 import type {
   DesktopRemoteAcpConversationInput,
+  DesktopRemoteAcpConversationResult,
   DesktopRemoteAcpConversationPage
 } from "./remoteAcpConversation.js";
 import {
@@ -181,3 +182,12 @@ export interface PlanWeaveWorkspaceExecutionApi {
     input: DesktopWorkspaceExecutionRespondInput
   ): Promise<DesktopWorkspaceExecutionResponse>;
 }
+
+export type PlanWeaveWorkspaceExecutionPreloadApi = Omit<
+  PlanWeaveWorkspaceExecutionApi,
+  "remoteAcpConversation"
+> & {
+  remoteAcpConversation(
+    input: DesktopRemoteAcpConversationInput
+  ): Promise<DesktopRemoteAcpConversationResult>;
+};

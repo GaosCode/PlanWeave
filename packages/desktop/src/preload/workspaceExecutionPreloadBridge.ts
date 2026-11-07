@@ -2,7 +2,7 @@ import {
   desktopRemoteAcpConversationInputSchema,
   desktopRemoteAcpConversationResultSchema
 } from "../shared/remoteAcpConversation.js";
-import type { PlanWeaveWorkspaceExecutionApi } from "../shared/workspaceExecution.js";
+import type { PlanWeaveWorkspaceExecutionPreloadApi } from "../shared/workspaceExecution.js";
 import {
   desktopWorkspaceExecutionCancelInputSchema,
   desktopWorkspaceExecutionStartCancellationInputSchema,
@@ -27,7 +27,9 @@ async function invokeWorkspaceExecution(invoke: Invoke, channel: string, input: 
   return desktopWorkspaceExecutionResponseSchema.parse(result.value);
 }
 
-export function createWorkspaceExecutionPreloadApi(invoke: Invoke): PlanWeaveWorkspaceExecutionApi {
+export function createWorkspaceExecutionPreloadApi(
+  invoke: Invoke
+): PlanWeaveWorkspaceExecutionPreloadApi {
   return {
     cancelWorkspaceExecutionStart: async (input) => {
       const result = workspaceExecutionIpcResultSchema.parse(
@@ -56,8 +58,7 @@ export function createWorkspaceExecutionPreloadApi(invoke: Invoke): PlanWeaveWor
           desktopRemoteAcpConversationInputSchema.parse(input)
         )
       );
-      if (!result.ok) throw new Error(result.error);
-      return result.value;
+      return result;
     },
     startWorkspaceExecution: (input) =>
       invokeWorkspaceExecution(

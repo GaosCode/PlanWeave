@@ -1,3 +1,4 @@
+import { createWorkspaceExecutionRendererApi } from "./workspaceExecutionBridge";
 import { desktopCommandBridge } from "./desktopCommandBridge.js";
 import type {
   DesktopBridgeApi,
@@ -41,7 +42,9 @@ export const operatorControlBridge: PlanWeaveOperatorControlApi | null =
 export const workspaceExecutionBridge: PlanWeaveWorkspaceExecutionApi | null =
   typeof window !== "undefined" && "planweaveWorkspaceExecution" in window
     ? window.planweaveWorkspaceExecution
-      ? desktopCommandBridge(window.planweaveWorkspaceExecution)
+      ? createWorkspaceExecutionRendererApi(
+          desktopCommandBridge(window.planweaveWorkspaceExecution)
+        )
       : null
     : null;
 

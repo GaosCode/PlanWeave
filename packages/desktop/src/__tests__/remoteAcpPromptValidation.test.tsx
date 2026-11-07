@@ -1,3 +1,4 @@
+import { createWorkspaceExecutionRendererApi } from "../renderer/workspaceExecutionBridge";
 /* @vitest-environment jsdom */
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -89,7 +90,7 @@ function setup() {
     ok: true,
     value: await respond(desktopRemoteAcpConversationInputSchema.parse(input))
   }));
-  const api = createWorkspaceExecutionPreloadApi(invoke);
+  const api = createWorkspaceExecutionRendererApi(createWorkspaceExecutionPreloadApi(invoke));
   function Composer({
     input = scope,
     locale = "en"
@@ -147,11 +148,11 @@ describe("remote ACP prompt validation", () => {
       invalid: ` \n${"a".repeat(32769)}\t`,
       valid: ` \n${"a".repeat(32768)}\t`
     },
-    { name: "emoji surrogate pairs", invalid: "😀".repeat(32769), valid: "😀".repeat(32768) },
+    { name: "emoji surrogate pairs", invalid: "😀".repeat(32769), valid: "😀".repeat(16000) },
     {
       name: "mixed emoji and ASCII",
       invalid: `${"😀".repeat(16384)}${"a".repeat(16385)}`,
-      valid: `${"😀".repeat(16384)}a`
+      valid: `${"😀".repeat(16000)}a`
     }
   ])("rejects $name locally and allows a corrected prompt in the same scope", async ({
     invalid,

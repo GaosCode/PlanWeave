@@ -1,3 +1,4 @@
+import { REMOTE_CONTROL_HTTP_BODY_MAX_BYTES } from "@planweave-ai/agent-host-protocol";
 import {
   agentHostProtocolVersion,
   agentHostProtocolVersionSchema
@@ -45,7 +46,6 @@ import {
   type TransportAdmissionPolicy
 } from "./insecureTransport.js";
 
-const MAX_OPERATOR_BODY_BYTES = 64 * 1024;
 const OPERATOR_HUMAN_IDENTITY_HEADER = "x-planweave-human-identity";
 
 const buildRevisionSchema = z.string().regex(/^(?:[0-9a-f]{7,64}|development)$/);
@@ -321,7 +321,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   if (Array.isArray(declaredLength)) throw new Error("operator_content_length_invalid");
   if (
     declaredLength &&
-    (!/^\d+$/.test(declaredLength) || Number(declaredLength) > MAX_OPERATOR_BODY_BYTES)
+    (!/^\d+$/.test(declaredLength) || Number(declaredLength) > REMOTE_CONTROL_HTTP_BODY_MAX_BYTES)
   ) {
     throw new Error("operator_body_too_large");
   }
@@ -330,7 +330,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   for await (const chunk of request) {
     const bytes = Buffer.from(chunk);
     size += bytes.byteLength;
-    if (size > MAX_OPERATOR_BODY_BYTES) throw new Error("operator_body_too_large");
+    if (size > REMOTE_CONTROL_HTTP_BODY_MAX_BYTES) throw new Error("operator_body_too_large");
     chunks.push(bytes);
   }
   try {

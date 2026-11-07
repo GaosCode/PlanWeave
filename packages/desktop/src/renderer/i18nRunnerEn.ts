@@ -61,6 +61,7 @@ export const runnerEnCatalog = {
   acpSendPrompt: "Send message",
   acpPromptSending: "Agent is working…",
   acpPromptFailed: "Message could not be sent",
+  acpPromptBodyTooLarge: "This message exceeds the remote request limit. Shorten it and try again.",
   acpPromptTooLong: "This message is too long. Shorten it and try again.",
   acpPromptInvalid: "This message is invalid. Check it and try again.",
   acpTaskStopped: "Task stopped",

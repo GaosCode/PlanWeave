@@ -500,7 +500,8 @@
         "workspaceSessionPreflight.test.ts",
         "workspaceCanvasPublishSnapshot.test.ts",
         "desktopWatchHomeRegistration.test.ts",
-        "desktopInspectorHome.test.ts"
+        "desktopInspectorHome.test.ts",
+        "remoteAcpWireBudget.test.tsx"
       ],
       "platform": ["agentToolsWindows.test.ts", "runtimeStateWatch.test.ts"],
       "performance": []

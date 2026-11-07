@@ -1,5 +1,5 @@
 import { remoteAcpConversation } from "./remoteAcpConversation.js";
-import { desktopRemoteAcpConversationResultSchema } from "../shared/remoteAcpConversation.js";
+import { remoteAcpConversationResult } from "./remoteAcpConversationResult.js";
 import { ipcMain } from "electron";
 import {
   desktopWorkspaceExecutionCancelInputSchema,
@@ -34,32 +34,11 @@ export function registerWorkspaceExecutionHandlers(input: {
   const service =
     input.service ??
     new WorkspaceExecutionDesktopService(input.collaboration, getOperatorControlService());
-  handleWorkspaceExecution(workspaceExecutionInvokeChannels.conversation, async (rawInput) => {
-    try {
-      return desktopRemoteAcpConversationResultSchema.parse({
-        ok: true,
-        value: await remoteAcpConversation(
-          rawInput,
-          input.collaboration,
-          getOperatorControlService()
-        )
-      });
-    } catch (error) {
-      const code =
-        error && typeof error === "object" && "code" in error
-          ? error.code
-          : error instanceof Error
-            ? error.message
-            : null;
-      return desktopRemoteAcpConversationResultSchema.parse({
-        ok: false,
-        error:
-          typeof code === "string" && /^[a-z][a-z0-9_]{1,255}$/.test(code)
-            ? code
-            : "acp_conversation_request_failed"
-      });
-    }
-  });
+  handleWorkspaceExecution(workspaceExecutionInvokeChannels.conversation, (rawInput) =>
+    remoteAcpConversationResult(() =>
+      remoteAcpConversation(rawInput, input.collaboration, getOperatorControlService())
+    )
+  );
   handleWorkspaceExecution(workspaceExecutionInvokeChannels.recoverCancellation, async (rawInput) =>
     workspaceExecutionHandlerResult(() =>
       service.recoverCancellations(

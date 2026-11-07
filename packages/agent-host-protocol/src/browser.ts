@@ -1,3 +1,4 @@
+export * from "./acpConversationHttp.js";
 export * from "./historicalPermissionReplay.js";
 export * from "./acpPermissionOptions.js";
 export {

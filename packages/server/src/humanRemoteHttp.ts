@@ -1,3 +1,4 @@
+import { REMOTE_CONTROL_HTTP_BODY_MAX_BYTES } from "@planweave-ai/agent-host-protocol";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { AcpConversationError } from "./acpConversationService.js";
 import {
@@ -25,8 +26,6 @@ import { agentEndpointCatalogErrorCode } from "./agentEndpointCatalog.js";
 import { remoteAgentAuthorizationErrorCode } from "./remoteAgent/errors.js";
 import { CanvasRuntimeAttachmentConflictError } from "./canvas/runtimeAttachment.js";
 import { CanvasRuntimeHostAmbiguousError } from "./canvas/runtimeHostLocator.js";
-
-const MAX_BODY_BYTES = 64 * 1024;
 
 export type HumanRemoteHttpOptions = {
   service: HumanRemoteControlService;
@@ -124,7 +123,8 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   if (
     Array.isArray(declaredLength) ||
     (declaredLength !== undefined &&
-      (!/^\d+$/.test(declaredLength) || Number(declaredLength) > MAX_BODY_BYTES))
+      (!/^\d+$/.test(declaredLength) ||
+        Number(declaredLength) > REMOTE_CONTROL_HTTP_BODY_MAX_BYTES))
   ) {
     throw new HumanRemoteControlError("human_remote_body_too_large");
   }
@@ -133,7 +133,8 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   for await (const chunk of request) {
     const bytes = Buffer.from(chunk);
     size += bytes.byteLength;
-    if (size > MAX_BODY_BYTES) throw new HumanRemoteControlError("human_remote_body_too_large");
+    if (size > REMOTE_CONTROL_HTTP_BODY_MAX_BYTES)
+      throw new HumanRemoteControlError("human_remote_body_too_large");
     chunks.push(bytes);
   }
   try {

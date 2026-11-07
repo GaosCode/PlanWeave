@@ -8,7 +8,7 @@ import type { PlanWeaveCredentialStorageSettingsApi } from "../shared/credential
 import type { PlanWeaveMcpTunnelApi } from "../shared/mcpTunnel";
 import type { PlanWeaveOperatorControlApi } from "../shared/operatorControl";
 import type { PlanWeaveWindowApi } from "../shared/windowAppearance";
-import type { PlanWeaveWorkspaceExecutionApi } from "../shared/workspaceExecution";
+import type { PlanWeaveWorkspaceExecutionPreloadApi } from "../shared/workspaceExecution";
 
 declare global {
   interface Window {
@@ -22,7 +22,7 @@ declare global {
     planweaveMcpTunnel?: PlanWeaveMcpTunnelApi;
     planweaveOperatorControl?: PlanWeaveOperatorControlApi;
     planweaveWindow?: PlanWeaveWindowApi;
-    planweaveWorkspaceExecution?: PlanWeaveWorkspaceExecutionApi;
+    planweaveWorkspaceExecution?: PlanWeaveWorkspaceExecutionPreloadApi;
   }
 }
 

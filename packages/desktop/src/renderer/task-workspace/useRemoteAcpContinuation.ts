@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   acpConversationActionSchema,
+  acpConversationHttpBodyBytes,
+  REMOTE_CONTROL_HTTP_BODY_MAX_BYTES,
   type AcpConversationAction
 } from "@planweave-ai/agent-host-protocol/browser";
+import { RemoteAcpConversationError } from "../../shared/remoteAcpConversation";
 import type {
   DesktopRemoteAcpConversationInput,
   DesktopRemoteAcpConversationPage
@@ -52,6 +55,7 @@ export function useRemoteAcpContinuation(
   const store = useRef<RemoteAcpContinuationStore | null>(null);
   const cursor = useRef(0);
   const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const pendingPromptUncertain = useRef(false);
   const pendingPrompt = useRef<Extract<AcpConversationAction, { kind: "prompt" }> | null>(null);
   const [state, setState] = useState<{
     key: string;
@@ -61,7 +65,7 @@ export function useRemoteAcpContinuation(
   const [restoreFailed, setRestoreFailed] = useState(false);
   const [draftError, setDraftError] = useState<{
     key: string;
-    message: "acpPromptTooLong" | "acpPromptInvalid";
+    message: "acpPromptTooLong" | "acpPromptBodyTooLarge" | "acpPromptInvalid";
   } | null>(null);
   const [actionError, setActionError] = useState<{
     action: NonNullable<DesktopRemoteAcpConversationInput["action"]>;
@@ -95,6 +99,7 @@ export function useRemoteAcpContinuation(
     const prompt = pendingPrompt.current;
     if (prompt && confirmsPrompt(snapshot.page, prompt)) {
       pendingPrompt.current = null;
+      pendingPromptUncertain.current = false;
       setActionError((current) => (current?.action === prompt ? null : current));
     }
     if (snapshot !== previous)
@@ -107,6 +112,7 @@ export function useRemoteAcpContinuation(
     store.current = new RemoteAcpContinuationStore();
     cursor.current = 0;
     pendingPrompt.current = null;
+    pendingPromptUncertain.current = false;
     setLocalMessages([]);
     sendingRef.current = false;
     pageRef.current = null;
@@ -181,7 +187,31 @@ export function useRemoteAcpContinuation(
       if (response.hasMore) await refreshRef.current();
       return epoch.current === generation;
     } catch (cause) {
-      if (epoch.current === generation && action.kind === "prompt") {
+      const rejectedBeforeAdmission =
+        cause instanceof RemoteAcpConversationError &&
+        (cause.code === "operator_body_too_large" || cause.code === "human_remote_body_too_large");
+      if (
+        epoch.current === generation &&
+        action.kind === "prompt" &&
+        rejectedBeforeAdmission &&
+        !pendingPromptUncertain.current
+      ) {
+        if (pendingPrompt.current === action) {
+          pendingPrompt.current = null;
+          setLocalMessages((messages) =>
+            messages.filter(
+              (message) =>
+                !(
+                  message.key === key &&
+                  message.turnId === action.turnId &&
+                  message.executionAttemptId === action.executionAttemptId &&
+                  message.sessionId === action.sessionId
+                )
+            )
+          );
+        }
+      } else if (epoch.current === generation && action.kind === "prompt") {
+        if (pendingPrompt.current === action) pendingPromptUncertain.current = true;
         await refreshRef.current();
         if (epoch.current === generation && confirmsPrompt(pageRef.current, action)) return true;
       }
@@ -189,7 +219,12 @@ export function useRemoteAcpContinuation(
         setRestoreFailed(action.kind === "restore_task");
         setActionError({
           action,
-          message: cause instanceof Error ? cause.message : "acp_conversation_request_failed"
+          message:
+            rejectedBeforeAdmission && pendingPromptUncertain.current
+              ? "acp_conversation_retry_original_message"
+              : cause instanceof Error
+                ? cause.message
+                : "acp_conversation_request_failed"
         });
       }
       return false;
@@ -288,6 +323,10 @@ export function useRemoteAcpContinuation(
           return false;
         }
         action = parsed.data;
+      }
+      if (acpConversationHttpBodyBytes(action) > REMOTE_CONTROL_HTTP_BODY_MAX_BYTES) {
+        setDraftError({ key, message: "acpPromptBodyTooLarge" });
+        return false;
       }
       pendingPrompt.current = action;
       setLocalMessages((messages) =>

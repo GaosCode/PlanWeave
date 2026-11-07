@@ -7,6 +7,8 @@ import {
 import { z } from "zod";
 import {
   acpConversationActionSchema,
+  acpConversationHttpBodyBytes,
+  REMOTE_CONTROL_HTTP_BODY_MAX_BYTES,
   acpConversationOrderedPageSchema
 } from "@planweave-ai/agent-host-protocol/browser";
 import { workspaceCanvasLocatorSchema } from "./canvasLocator.js";
@@ -42,7 +44,18 @@ export const desktopRemoteAcpConversationInputSchema = z
       ])
       .optional()
   })
-  .strict();
+  .strict()
+  .superRefine((input, context) => {
+    if (
+      input.action?.kind === "prompt" &&
+      acpConversationHttpBodyBytes(input.action) > REMOTE_CONTROL_HTTP_BODY_MAX_BYTES
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["action", "text"],
+        message: "acp_conversation_http_body_too_large"
+      });
+  });
 export type DesktopRemoteAcpConversationInput = z.input<
   typeof desktopRemoteAcpConversationInputSchema
 >;
@@ -64,3 +77,14 @@ export const desktopRemoteAcpConversationResultSchema = z.discriminatedUnion("ok
   z.object({ ok: z.literal(true), value: desktopRemoteAcpConversationPageSchema }).strict(),
   z.object({ ok: z.literal(false), error: z.string().min(1).max(256) }).strict()
 ]);
+
+export type DesktopRemoteAcpConversationResult = z.infer<
+  typeof desktopRemoteAcpConversationResultSchema
+>;
+
+export class RemoteAcpConversationError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = "RemoteAcpConversationError";
+  }
+}

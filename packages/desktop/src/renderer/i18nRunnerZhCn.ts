@@ -61,6 +61,7 @@ export const runnerZhCnCatalog = {
   acpSendPrompt: "发送消息",
   acpPromptSending: "Agent 正在处理…",
   acpPromptFailed: "消息发送失败",
+  acpPromptBodyTooLarge: "消息超过远程请求大小限制，请缩短后重试。",
   acpPromptTooLong: "消息过长，请缩短后重试。",
   acpPromptInvalid: "消息内容无效，请检查后重试。",
   acpTaskStopped: "任务已停止",
