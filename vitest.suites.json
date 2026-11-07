@@ -659,6 +659,7 @@
         "acpInteractionTerminal.test.ts",
         "acpGrokLiveSmoke.test.ts",
         "acpLocalExecutionAdapter.test.ts",
+        "acpLocalTransportOwnership.test.ts",
         "acpMockHarness.test.ts",
         "acpOwnerWriteFence.test.ts",
         "acpPreflightProbe.test.ts",

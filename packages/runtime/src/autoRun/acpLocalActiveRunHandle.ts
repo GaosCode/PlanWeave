@@ -2,7 +2,11 @@ import type { SessionNotification } from "@agentclientprotocol/sdk";
 import type { AcpLiveRunTransport } from "./acpConnectionProvider.js";
 import type { ActiveAgentRunHandle, ActiveAgentRunIdentity } from "./activeAgentRunRegistry.js";
 import type { AgentRunControlLeaseId } from "./agentRunControlContract.js";
-import { createLiveOwnership, type LivePendingRequestHandle } from "./liveControl.js";
+import {
+  createLiveOwnership,
+  type LivePendingOperationHandle,
+  type LivePendingRequestHandle
+} from "./liveControl.js";
 
 export type LocalAcpActiveRunHandle = ActiveAgentRunHandle & {
   releaseTransportControl(): void;
@@ -64,7 +68,22 @@ export function createLocalAcpActiveRunHandle(options: {
         elicitationPreview: false
       },
       pendingRequests: options.pendingRequests,
-      pendingOperations: options.connection.pendingOperations
+      get pendingOperations() {
+        if (!controlsTransport) return new Map<string, LivePendingOperationHandle>();
+        return new Map(
+          [...options.connection.pendingOperations].map(([operationId, operation]) => [
+            operationId,
+            {
+              operationId: operation.operationId,
+              operation: operation.operation,
+              reject: async (reason: string) => {
+                if (!controlsTransport) return;
+                await operation.reject(reason);
+              }
+            }
+          ])
+        );
+      }
     }
   };
 }
