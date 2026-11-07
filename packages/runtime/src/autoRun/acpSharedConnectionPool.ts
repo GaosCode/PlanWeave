@@ -23,7 +23,7 @@ import {
   AcpSharedConnectionShutdownError
 } from "./acpSharedConnectionErrors.js";
 import { acpSharedConnectionKey } from "./acpSharedConnectionKey.js";
-import { AcpSessionRouter } from "./acpSessionRouter.js";
+import { AcpSessionRouter, type AcpSessionOwner } from "./acpSessionRouter.js";
 import { coordinateAcpAuthentication } from "./acpAuthentication.js";
 
 export const SHARED_ACP_CONNECTION_IDLE_MS = 250;
@@ -45,6 +45,7 @@ export type SharedAcpConnectionEntryState = "starting" | "ready" | "draining" | 
 
 export type SharedAcpLeaseHandle = {
   readonly leaseId: string;
+  readonly routerOwner: AcpSessionOwner | undefined;
   notifyLost(error: AcpSharedConnectionLostError): void;
 };
 
@@ -338,9 +339,9 @@ class SharedAcpPoolEntry implements SharedAcpConnectionEntry {
   }
 
   removeLease(handle: SharedAcpLeaseHandle): void {
-    this.leases.delete(handle);
+    if (!this.leases.delete(handle)) return;
     this.sessions.delete(handle.leaseId);
-    this.router.unbindOwner(handle.leaseId);
+    if (handle.routerOwner) this.router.unbindOwner(handle.routerOwner);
   }
 
   bindSession(leaseId: string, sessionId: string): void {

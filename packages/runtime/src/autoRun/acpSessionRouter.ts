@@ -16,13 +16,12 @@ export class AcpSessionRoutingError extends Error {
   }
 }
 
-type OpeningOwner = {
+export type AcpSessionOwner = {
   readonly ownerId: string;
   readonly handlers: AcpSessionHandlerPort;
 };
 
 type BoundSession = {
-  readonly ownerId: string;
   readonly sessionId: string;
   readonly handlers: AcpSessionHandlerPort;
 };
@@ -67,7 +66,8 @@ function asError(error: unknown): Error {
 }
 
 export class AcpSessionRouter {
-  private openingOwner: OpeningOwner | null = null;
+  private openingOwner: AcpSessionOwner | null = null;
+  private readonly owners = new Map<string, AcpSessionOwner>();
   private openChain: Promise<void> = Promise.resolve();
   private readonly bindings = new Map<string, BoundSession>();
   private readonly ownerSessions = new Map<string, string>();
@@ -75,14 +75,14 @@ export class AcpSessionRouter {
   private readonly promptFlights = new Map<string, Promise<unknown>>();
 
   async withOpening<T extends { readonly sessionId: string }>(
-    ownerId: string,
-    handlers: AcpSessionHandlerPort,
+    owner: AcpSessionOwner,
     open: () => Promise<T>
   ): Promise<T> {
-    if (this.ownerSessions.has(ownerId) || this.openingOwner?.ownerId === ownerId) {
+    if (this.owners.has(owner.ownerId)) {
       throw new AcpSessionRoutingError("ACP shared session owner is already opening or bound.");
     }
-    const run = this.openChain.then(() => this.runOpen(ownerId, handlers, open));
+    this.owners.set(owner.ownerId, owner);
+    const run = this.openChain.then(() => this.runOpen(owner, open));
     this.openChain = run.then(
       () => undefined,
       () => undefined
@@ -90,16 +90,21 @@ export class AcpSessionRouter {
     return run;
   }
 
-  unbindOwner(ownerId: string): void {
-    const sessionId = this.ownerSessions.get(ownerId);
+  unbindOwner(owner: AcpSessionOwner): void {
+    if (this.owners.get(owner.ownerId) !== owner) return;
+    this.owners.delete(owner.ownerId);
+    const sessionId = this.ownerSessions.get(owner.ownerId);
     if (sessionId) {
       this.bindings.delete(sessionId);
       this.failClosedBuffer(this.openingBuffers.get(sessionId));
       this.openingBuffers.delete(sessionId);
       this.promptFlights.delete(sessionId);
     }
-    this.ownerSessions.delete(ownerId);
-    if (this.openingOwner?.ownerId === ownerId) this.openingOwner = null;
+    this.ownerSessions.delete(owner.ownerId);
+    if (this.openingOwner === owner) {
+      this.openingOwner = null;
+      this.dropUnmatchedBuffers();
+    }
   }
 
   sessionUpdate(notification: SessionNotification): Promise<void> {
@@ -172,34 +177,43 @@ export class AcpSessionRouter {
   }
 
   private async runOpen<T extends { readonly sessionId: string }>(
-    ownerId: string,
-    handlers: AcpSessionHandlerPort,
+    owner: AcpSessionOwner,
     open: () => Promise<T>
   ): Promise<T> {
     if (this.openingOwner) {
       throw new AcpSessionRoutingError("ACP shared connection already has an opening owner.");
     }
-    this.openingOwner = { ownerId, handlers };
+    this.assertOwned(owner);
+    this.openingOwner = owner;
     try {
       const created = await open();
-      this.bindSession(ownerId, created.sessionId, handlers);
+      this.assertOwned(owner);
+      this.bindSession(owner, created.sessionId);
       await this.flushBuffer(created.sessionId);
+      this.assertOwned(owner);
       this.dropUnmatchedBuffers();
       return created;
     } catch (error) {
+      this.unbindOwner(owner);
       this.dropUnmatchedBuffers();
       throw error;
     } finally {
-      if (this.openingOwner?.ownerId === ownerId) this.openingOwner = null;
+      if (this.openingOwner === owner) this.openingOwner = null;
     }
   }
 
-  private bindSession(ownerId: string, sessionId: string, handlers: AcpSessionHandlerPort): void {
+  private assertOwned(owner: AcpSessionOwner): void {
+    if (this.owners.get(owner.ownerId) !== owner) {
+      throw new AcpSessionRoutingError("ACP shared session owner was released during opening.");
+    }
+  }
+
+  private bindSession(owner: AcpSessionOwner, sessionId: string): void {
     if (this.bindings.has(sessionId)) {
       throw new AcpSessionRoutingError("ACP shared session id is already bound.");
     }
-    this.bindings.set(sessionId, { ownerId, sessionId, handlers });
-    this.ownerSessions.set(ownerId, sessionId);
+    this.bindings.set(sessionId, { sessionId, handlers: owner.handlers });
+    this.ownerSessions.set(owner.ownerId, sessionId);
   }
 
   private bufferFor(sessionId: string): OpeningBuffer {
@@ -219,39 +233,47 @@ export class AcpSessionRouter {
     const buffered = this.openingBuffers.get(sessionId);
     this.openingBuffers.delete(sessionId);
     if (!buffered) return;
-    const bound = this.bindings.get(sessionId);
-    for (const notification of buffered.updates) {
-      await bound?.handlers.onSessionUpdate?.(notification);
-    }
-    for (const item of buffered.permissions) {
-      try {
-        const response = bound?.handlers.onPermissionRequest
-          ? await bound.handlers.onPermissionRequest(item.request)
-          : cancelledPermission();
-        item.resolve(response);
-      } catch (error) {
-        item.reject(asError(error));
+    const binding = this.bindings.get(sessionId);
+    const current = () => (this.bindings.get(sessionId) === binding ? binding : undefined);
+    try {
+      for (const notification of buffered.updates) {
+        await current()?.handlers.onSessionUpdate?.(notification);
       }
-    }
-    for (const item of buffered.elicitations) {
-      try {
-        const response = bound?.handlers.onElicitationRequest
-          ? await bound.handlers.onElicitationRequest(item.request)
-          : cancelledElicitation();
-        item.resolve(response);
-      } catch (error) {
-        item.reject(asError(error));
+      for (const item of buffered.permissions) {
+        try {
+          const bound = current();
+          const response = bound?.handlers.onPermissionRequest
+            ? await bound.handlers.onPermissionRequest(item.request)
+            : cancelledPermission();
+          item.resolve(response);
+        } catch (error) {
+          item.reject(asError(error));
+        }
       }
-    }
-    for (const item of buffered.terminals) {
-      try {
-        const response = bound?.handlers.onTerminalOutput
-          ? await bound.handlers.onTerminalOutput(item.request)
-          : emptyTerminalOutput();
-        item.resolve(response);
-      } catch (error) {
-        item.reject(asError(error));
+      for (const item of buffered.elicitations) {
+        try {
+          const bound = current();
+          const response = bound?.handlers.onElicitationRequest
+            ? await bound.handlers.onElicitationRequest(item.request)
+            : cancelledElicitation();
+          item.resolve(response);
+        } catch (error) {
+          item.reject(asError(error));
+        }
       }
+      for (const item of buffered.terminals) {
+        try {
+          const bound = current();
+          const response = bound?.handlers.onTerminalOutput
+            ? await bound.handlers.onTerminalOutput(item.request)
+            : emptyTerminalOutput();
+          item.resolve(response);
+        } catch (error) {
+          item.reject(asError(error));
+        }
+      }
+    } finally {
+      this.failClosedBuffer(buffered);
     }
   }
 

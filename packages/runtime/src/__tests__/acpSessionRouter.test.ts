@@ -17,10 +17,12 @@ describe("ACP session router", () => {
     const router = new AcpSessionRouter();
     const received: string[] = [];
     const opening = router.withOpening(
-      "owner-a",
       {
-        onSessionUpdate: (notification) => {
-          received.push(`${notification.sessionId}:${JSON.stringify(notification.update)}`);
+        ownerId: "owner-a",
+        handlers: {
+          onSessionUpdate: (notification) => {
+            received.push(`${notification.sessionId}:${JSON.stringify(notification.update)}`);
+          }
         }
       },
       async () => {
@@ -41,23 +43,25 @@ describe("ACP session router", () => {
     let terminal: ReturnType<AcpSessionRouter["terminalOutput"]> | undefined;
     let unmatched: ReturnType<AcpSessionRouter["permission"]> | undefined;
     await router.withOpening(
-      "owner-a",
       {
-        onPermissionRequest: (request) => {
-          received.push(`permission:${request.sessionId}`);
-          return { outcome: { outcome: "selected", optionId: "allow" } };
-        },
-        onElicitationRequest: (request) => {
-          const sessionId =
-            "sessionId" in request && typeof request.sessionId === "string"
-              ? request.sessionId
-              : "none";
-          received.push(`elicitation:${sessionId}`);
-          return { action: "accept" };
-        },
-        onTerminalOutput: (request) => {
-          received.push(`terminal:${request.sessionId}`);
-          return { output: "out", truncated: false };
+        ownerId: "owner-a",
+        handlers: {
+          onPermissionRequest: (request) => {
+            received.push(`permission:${request.sessionId}`);
+            return { outcome: { outcome: "selected", optionId: "allow" } };
+          },
+          onElicitationRequest: (request) => {
+            const sessionId =
+              "sessionId" in request && typeof request.sessionId === "string"
+                ? request.sessionId
+                : "none";
+            received.push(`elicitation:${sessionId}`);
+            return { action: "accept" };
+          },
+          onTerminalOutput: (request) => {
+            received.push(`terminal:${request.sessionId}`);
+            return { output: "out", truncated: false };
+          }
         }
       },
       async () => {
@@ -100,18 +104,20 @@ describe("ACP session router", () => {
     const router = new AcpSessionRouter();
     const received: string[] = [];
     await router.withOpening(
-      "owner-a",
       {
-        onSessionUpdate: () => {
-          received.push("update");
-        },
-        onPermissionRequest: () => {
-          received.push("permission");
-          return { outcome: { outcome: "selected", optionId: "allow" } };
-        },
-        onElicitationRequest: () => {
-          received.push("elicitation");
-          return { action: "accept" };
+        ownerId: "owner-a",
+        handlers: {
+          onSessionUpdate: () => {
+            received.push("update");
+          },
+          onPermissionRequest: () => {
+            received.push("permission");
+            return { outcome: { outcome: "selected", optionId: "allow" } };
+          },
+          onElicitationRequest: () => {
+            received.push("elicitation");
+            return { action: "accept" };
+          }
         }
       },
       async () => ({ sessionId: "session-a" })
@@ -137,11 +143,13 @@ describe("ACP session router", () => {
     const router = new AcpSessionRouter();
     const received: string[] = [];
     await router.withOpening(
-      "owner-a",
       {
-        onElicitationRequest: () => {
-          received.push("open");
-          return { action: "accept" };
+        ownerId: "owner-a",
+        handlers: {
+          onElicitationRequest: () => {
+            received.push("open");
+            return { action: "accept" };
+          }
         }
       },
       async () => {
@@ -163,6 +171,67 @@ describe("ACP session router", () => {
     } satisfies CreateElicitationRequest);
     expect(received).toEqual(["open"]);
     expect(afterOpen).toEqual({ action: "cancel" });
+  });
+
+  it("settles buffered requests when a replay handler fails and permits another owner", async () => {
+    const router = new AcpSessionRouter();
+    let permission: ReturnType<AcpSessionRouter["permission"]> | undefined;
+    const owner = {
+      ownerId: "owner-a",
+      handlers: {
+        onSessionUpdate: () => {
+          throw new Error("replay failed");
+        }
+      }
+    };
+    await expect(
+      router.withOpening(owner, async () => {
+        await router.sessionUpdate(update("session-a", "early"));
+        permission = router.permission({
+          sessionId: "session-a",
+          toolCall: { toolCallId: "pending" },
+          options: []
+        });
+        return { sessionId: "session-a" };
+      })
+    ).rejects.toThrow("replay failed");
+    await expect(permission).resolves.toEqual({ outcome: { outcome: "cancelled" } });
+    await expect(
+      router.withOpening({ ownerId: "owner-a", handlers: {} }, async () => ({ sessionId: "new-a" }))
+    ).resolves.toEqual({ sessionId: "new-a" });
+  });
+
+  it("does not flush remaining buffered events to a released owner or let its late release remove a new owner", async () => {
+    const router = new AcpSessionRouter();
+    const received: string[] = [];
+    const owner = {
+      ownerId: "owner-a",
+      handlers: {
+        onSessionUpdate: () => {
+          received.push("old");
+          router.unbindOwner(owner);
+        }
+      }
+    };
+    await expect(
+      router.withOpening(owner, async () => {
+        await router.sessionUpdate(update("session-a", "first"));
+        await router.sessionUpdate(update("session-a", "second"));
+        return { sessionId: "session-a" };
+      })
+    ).rejects.toThrow("released during opening");
+    const replacement = {
+      ownerId: "owner-a",
+      handlers: {
+        onSessionUpdate: () => {
+          received.push("new");
+        }
+      }
+    };
+    await router.withOpening(replacement, async () => ({ sessionId: "session-a" }));
+    router.unbindOwner(owner);
+    await router.sessionUpdate(update("session-a", "fresh"));
+    expect(received).toEqual(["old", "new"]);
   });
 
   it("single-flights prompts on the same session and allows different sessions to run concurrently", async () => {

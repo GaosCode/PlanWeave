@@ -38,6 +38,8 @@ import {
   type SharedAcpLeaseHandle
 } from "./acpSharedConnectionPool.js";
 
+import type { AcpSessionOwner } from "./acpSessionRouter.js";
+
 const SESSION_CANCEL_STEP_LIMIT_MS = 100;
 
 export type SharedAcpConnectionProviderOptions = SharedAcpConnectionPoolOptions;
@@ -109,6 +111,7 @@ class SharedAcpOwnedSession implements AcpOwnedSession {
 class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHandle {
   readonly leaseId = createSharedLeaseId();
   readonly closed: Promise<void>;
+  routerOwner: AcpSessionOwner | undefined;
   private initialized = false;
   private released = false;
   private boundSession: SharedAcpOwnedSession | null = null;
@@ -190,7 +193,8 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
     if (!this.initialized) {
       throw new Error("ACP lease must be initialized before opening a session.");
     }
-    if (this.boundSession) throw new Error("ACP lease already has an open session.");
+    if (this.boundSession || this.routerOwner)
+      throw new Error("ACP lease already has an open session.");
     const parsed = acpOwnedSessionOpenSchema.parse(start);
     const cwd = options?.cwd ?? this.sessionCwd;
     const ownerId = options?.ownerId ?? this.leaseId;
@@ -201,10 +205,11 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
         return options?.cleanupDeadline;
       }
     };
-    const created = await this.entry.router.withOpening(
-      ownerId,
-      options?.handlers ?? {},
-      async () => {
+    const owner: AcpSessionOwner = { ownerId, handlers: options?.handlers ?? {} };
+    this.routerOwner = owner;
+    let created: NewSessionResponse;
+    try {
+      created = await this.entry.router.withOpening(owner, async () => {
         if (parsed.kind === "load") {
           if (!this.entry.advertised.loadSession) {
             throw new Error("ACP agent does not advertise session/load capability.");
@@ -215,8 +220,12 @@ class SharedAcpConnectionLease implements AcpConnectionLease, SharedAcpLeaseHand
           return { sessionId: parsed.sessionId, ...loaded };
         }
         return this.entry.connection().newSession({ cwd, mcpServers: [] }, operationOptions);
-      }
-    );
+      });
+    } catch (error) {
+      this.routerOwner = undefined;
+      throw error;
+    }
+    if (this.released) throw new AcpLeaseReleasedError("openSession");
     this.boundSession = new SharedAcpOwnedSession(this, created);
     this.entry.bindSession(this.leaseId, created.sessionId);
     return this.boundSession;

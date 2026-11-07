@@ -649,6 +649,8 @@
         "acpConnectionCleanup.test.ts",
         "acpDedicatedConnectionProvider.test.ts",
         "acpSharedConnectionProvider.test.ts",
+        "acpSharedContinuation.test.ts",
+        "acpSharedLeaseOwnership.test.ts",
         "acpCrossProcessPermission.test.ts",
         "acpElicitationSettlement.test.ts",
         "acpEventController.test.ts",
