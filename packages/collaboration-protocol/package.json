@@ -1,6 +1,6 @@
 {
   "name": "@planweave-ai/collaboration-protocol",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Schema-only public wire contracts for PlanWeave human collaboration (Desktop ↔ Server).",
   "license": "MIT",
   "type": "module",

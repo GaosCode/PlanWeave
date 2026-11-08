@@ -1,4 +1,4 @@
-export const serverPackageVersion = "0.4.0";
+export const serverPackageVersion = "0.5.0";
 
 const revisionPattern = /^(?:[0-9a-f]{7,64}|development)$/;
 

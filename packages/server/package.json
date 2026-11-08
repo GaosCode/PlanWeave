@@ -1,6 +1,6 @@
 {
   "name": "@planweave-ai/server",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Server foundation for PlanWeave distributed collaboration.",
   "license": "MIT",
   "type": "module",

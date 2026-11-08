@@ -1,1 +1,1 @@
-export const mcpPackageVersion = "0.4.0";
+export const mcpPackageVersion = "0.5.0";

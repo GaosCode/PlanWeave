@@ -1,6 +1,6 @@
 {
   "name": "@planweave-ai/desktop",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Desktop application for PlanWeave plan packages, task graphs, and agent workflows.",
   "license": "MIT",

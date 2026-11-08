@@ -1,1 +1,1 @@
-export const agentHostPackageVersion = "0.4.0";
+export const agentHostPackageVersion = "0.5.0";

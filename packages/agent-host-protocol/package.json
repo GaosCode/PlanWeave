@@ -1,6 +1,6 @@
 {
   "name": "@planweave-ai/agent-host-protocol",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Schema-only wire contracts for PlanWeave distributed collaboration.",
   "license": "MIT",
   "type": "module",
