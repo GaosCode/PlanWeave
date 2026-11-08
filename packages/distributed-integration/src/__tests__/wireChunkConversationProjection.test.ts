@@ -1,4 +1,7 @@
-import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
+import {
+  acpConversationPromptCommandSchema,
+  agentHostProtocolVersion
+} from "@planweave-ai/agent-host-protocol";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -24,12 +27,13 @@ it.each([
   cleanups.push(() => rm(f.directory, { recursive: true, force: true }));
   cleanups.push(() => f.server.close());
   f.service.act(f.operation, "actor", f.prompt);
-  const command = f.mailbox
+  const storedCommand = f.mailbox
     .listAfter(f.host.id, 0)
     .slice()
     .reverse()
     .find((message) => message.command.type === "acp_conversation.prompt")?.command;
-  if (command?.type !== "acp_conversation.prompt") throw new Error("expected_prompt");
+  if (storedCommand?.type !== "acp_conversation.prompt") throw new Error("expected_prompt");
+  const command = acpConversationPromptCommandSchema.parse(storedCommand);
   const path = join(f.directory, "chunk-host.sqlite");
   let host = await openAgentHostState(path);
   cleanups.push(() => host.close());

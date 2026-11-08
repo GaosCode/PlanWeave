@@ -117,14 +117,16 @@ it.each([
     coordination.mailbox.enqueue(other.host.id, cancel(`other-${index}`, "none"));
     const accepted =
       index < received
-        ? f.initial.receive({
-            type: "mailbox.message",
-            protocolVersion: agentHostProtocolVersion,
-            sequence: message.sequence,
-            previousSequence: message.previousSequence,
-            messageId: message.messageId,
-            command: message.command
-          })
+        ? f.initial.receive(
+            mailboxDeliverySchema.parse({
+              type: "mailbox.message",
+              protocolVersion: agentHostProtocolVersion,
+              sequence: message.sequence,
+              previousSequence: message.previousSequence,
+              messageId: message.messageId,
+              command: message.command
+            })
+          )
         : undefined;
     if (index < confirmed)
       coordination.mailbox.acknowledge(

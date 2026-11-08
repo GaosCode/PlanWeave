@@ -1,4 +1,7 @@
-import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
+import {
+  agentHostProtocolVersion,
+  canvasRuntimeCancelCommandSchema
+} from "@planweave-ai/agent-host-protocol";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,14 +78,14 @@ export function request(
 }
 
 export function cancel(requestId: string, targetRequestId: string) {
-  return {
-    type: "canvas_runtime.cancel" as const,
+  return canvasRuntimeCancelCommandSchema.parse({
+    type: "canvas_runtime.cancel",
     protocolVersion: agentHostProtocolVersion,
     requestId,
     targetRequestId,
     scope,
     deadline: "2099-01-01T00:00:00.000Z"
-  };
+  });
 }
 
 export function delivery(

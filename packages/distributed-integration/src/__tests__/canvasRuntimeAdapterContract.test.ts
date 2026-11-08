@@ -1,6 +1,7 @@
 import {
   CANVAS_RUNTIME_CAPABILITY,
   agentHostProtocolVersion,
+  canvasRuntimeRequestCommandSchema,
   canvasRuntimeResponseEventSchema,
   type CanvasRuntimeRequestCommand
 } from "@planweave-ai/agent-host-protocol";
@@ -388,8 +389,8 @@ async function createRemoteFixture(): Promise<RemoteContractFixture> {
     );
   };
   mailbox.subscribe(host.id, (message) => {
-    const command = message.command;
-    if (command.type !== "canvas_runtime.request") return;
+    if (message.command.type !== "canvas_runtime.request") return;
+    const command = canvasRuntimeRequestCommandSchema.parse(message.command);
     void (async () => {
       const operation = command.operation;
       if (holdMutation && operation.operation === "claim") {
