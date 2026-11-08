@@ -580,7 +580,23 @@ describe("PlanWeave MCP OAuth server", () => {
     });
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "invalid_redirect_uris" });
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_redirect_uri" });
+  });
+
+  it("accepts bracketed IPv6 loopback redirect URIs during dynamic client registration", async () => {
+    const baseUrl = await startOAuthServer();
+
+    const response = await fetch(`${baseUrl}/oauth/register`, {
+      method: "POST",
+      body: JSON.stringify({
+        redirect_uris: ["http://[::1]:51234/oauth/callback"]
+      }),
+      headers: {
+        "content-type": "application/json"
+      }
+    });
+
+    expect(response.status).toBe(201);
   });
 
   it("accepts tokens from DCR authorization code flow on /mcp", async () => {

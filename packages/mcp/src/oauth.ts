@@ -239,7 +239,11 @@ async function handleRegister(
     redirectUris.length === 0 ||
     redirectUris.some((uri) => !isAllowedRedirectUri(uri, redirectUriPrefixes))
   ) {
-    writeJson(res, 400, { error: "invalid_redirect_uris" });
+    writeJson(res, 400, {
+      error: "invalid_redirect_uri",
+      error_description:
+        "One or more redirect URIs are not acceptable to this authorization server."
+    });
     return;
   }
 
