@@ -22,9 +22,14 @@ export function isAllowedRedirectUri(value: string, redirectUriPrefixes?: string
       }
       return redirectUriPrefixes.some((prefix) => value.startsWith(prefix));
     }
+    // WHATWG URL keeps the brackets on IPv6 literals, so "::1" arrives as "[::1]".
+    const hostname =
+      url.hostname.startsWith("[") && url.hostname.endsWith("]")
+        ? url.hostname.slice(1, -1)
+        : url.hostname;
     return (
       url.protocol === "http:" &&
-      (url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "::1")
+      (hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1")
     );
   } catch {
     return false;
