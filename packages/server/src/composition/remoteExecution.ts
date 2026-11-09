@@ -1,3 +1,5 @@
+import { RuntimeArtifactRetention } from "../canvas/runtimeArtifactRetention.js";
+import type { RuntimeArtifactGrantRepository } from "../canvas/runtimeArtifactGrantRepository.js";
 import type { SqliteDatabase } from "../sqlite.js";
 import type { ServerConfig } from "../config.js";
 import type { startRemoteBlockCoordinationServer } from "../distributedCoordination.js";
@@ -182,6 +184,7 @@ type Coordination = Awaited<ReturnType<typeof startRemoteBlockCoordinationServer
 
 export function createRemoteExecutionComposition(input: {
   database: SqliteDatabase;
+  runtimeArtifactGrants: RuntimeArtifactGrantRepository;
   config: ServerConfig;
   clock: () => Date;
   coordination: Coordination;
@@ -316,20 +319,33 @@ export function createRemoteExecutionComposition(input: {
     createMaintenance() {
       const retention = new RemoteOperationRetention(input.database, input.clock);
       const conversations = new AcpConversationRetention(input.database, input.clock);
+      const runtimeArtifacts = new RuntimeArtifactRetention(
+        input.database,
+        input.runtimeArtifactGrants,
+        input.clock
+      );
       return new RemoteCoordinationMaintenance(
         () => input.coordination.reconcile(),
         input.config.limits.heartbeatIntervalMs,
         () => {
           const result = { selected: 0, compacted: 0, skipped: 0 };
           const failures: unknown[] = [];
-          for (const owner of [conversations, retention]) {
+          for (const [name, owner] of [
+            ["conversations", conversations],
+            ["operations", retention],
+            ["runtime_artifacts", runtimeArtifacts]
+          ] as const) {
             try {
               const batch = owner.compactBatch();
               result.selected += batch.selected;
-              result.compacted += batch.compacted;
+              result.compacted +=
+                batch.compacted +
+                ("grantsDeleted" in batch && typeof batch.grantsDeleted === "number"
+                  ? batch.grantsDeleted
+                  : 0);
               result.skipped += batch.skipped;
             } catch (error) {
-              failures.push(error);
+              failures.push(new Error(`remote_retention_owner_failed:${name}`, { cause: error }));
             }
           }
           if (failures.length === 1) throw failures[0];

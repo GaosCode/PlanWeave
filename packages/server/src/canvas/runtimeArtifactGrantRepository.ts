@@ -56,6 +56,7 @@ function artifactRef(sha256: string): string {
 
 export class RuntimeArtifactGrantRepository {
   private readonly clock: () => Date;
+  private readonly transfers = new Map<string, number>();
 
   constructor(
     private readonly database: SqliteDatabase,
@@ -102,6 +103,9 @@ export class RuntimeArtifactGrantRepository {
       if (digest(existing) !== digest(lease))
         throw new Error("canvas_runtime_lease_identity_conflict");
       return existing;
+    }
+    if (Date.parse(lease.expiresAt) <= this.clock().getTime()) {
+      throw new Error("runtime_artifact_scope_forbidden");
     }
     this.database
       .prepare(
@@ -357,6 +361,30 @@ export class RuntimeArtifactGrantRepository {
         )
         .run(now, now, id);
     });
+  }
+
+  holdTransfer(runtimeLeaseId: string): () => void {
+    const lease = this.requireActiveLease(runtimeLeaseId);
+    this.transfers.set(lease.runtimeLeaseId, (this.transfers.get(lease.runtimeLeaseId) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = this.transfers.get(lease.runtimeLeaseId)! - 1;
+      if (remaining === 0) this.transfers.delete(lease.runtimeLeaseId);
+      else this.transfers.set(lease.runtimeLeaseId, remaining);
+    };
+  }
+
+  canRetireLease(runtimeLeaseId: string): boolean {
+    const lease = this.lease(runtimeLeaseId);
+    if (!lease || this.transfers.has(runtimeLeaseId)) return false;
+    const authorityActive = this.options.leaseActive(lease);
+    return !(
+      lease.status === "active" &&
+      Date.parse(lease.expiresAt) > this.clock().getTime() &&
+      authorityActive
+    );
   }
 
   private requireGrant(

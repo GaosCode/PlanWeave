@@ -324,6 +324,7 @@ export async function createDistributedServerComposition(
     attachmentMaintenance.start();
     const remoteExecution = createRemoteExecutionComposition({
       database: server.database,
+      runtimeArtifactGrants,
       config,
       clock,
       coordination,

@@ -1050,6 +1050,7 @@
         "exactPermissionRelay.test.ts",
         "canvasRuntimeAdapterContract.test.ts",
         "canvasRuntimeArtifactLoopback.test.ts",
+        "runtimeArtifactRetentionLoopback.test.ts",
         "contentVersionTransferIntegration.test.ts",
         "agentHostProtocolUpgradeConnection.test.ts"
       ],
@@ -1262,6 +1263,7 @@
         "runtimeArtifactAdapter.test.ts",
         "runtimeArtifactDownloadHandoff.test.ts",
         "runtimeArtifactGrantRepository.test.ts",
+        "runtimeArtifactRetention.test.ts",
         "runtimeAttachment.test.ts",
         "runtimeCompositionBoundary.test.ts",
         "runtimeHostLocator.test.ts",

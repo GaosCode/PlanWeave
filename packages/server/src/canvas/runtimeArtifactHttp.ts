@@ -117,10 +117,27 @@ export async function handleCanvasRuntimeArtifactRequest(
     request.resume();
     return true;
   }
+  let releaseTransfer: (() => void) | undefined;
+  let transferPending = true;
+  let responseDone = response.destroyed || response.writableFinished;
+  const releaseWhenDone = () => {
+    if (!transferPending && responseDone) releaseTransfer?.();
+  };
+  const onResponseDone = () => {
+    responseDone = true;
+    releaseWhenDone();
+    response.off("finish", onResponseDone);
+    response.off("close", onResponseDone);
+    response.off("error", onResponseDone);
+  };
+  response.once("finish", onResponseDone);
+  response.once("close", onResponseDone);
+  response.once("error", onResponseDone);
   try {
     const grantId = header(request.headers["x-planweave-runtime-artifact-grant-id"]);
     if (request.method === "GET") {
       const grant = options.grants.authorizeDownload({ ...matched, grantId });
+      releaseTransfer = options.grants.holdTransfer(matched.runtimeLeaseId);
       const { metadata, stream } = await options.artifacts.openRead(grant.artifactRef);
       let handedOff = false;
       try {
@@ -153,6 +170,7 @@ export async function handleCanvasRuntimeArtifactRequest(
       sizeBytes: contentLength,
       mediaType
     });
+    releaseTransfer = options.grants.holdTransfer(matched.runtimeLeaseId);
     const artifact = await options.artifacts.put({
       expectedSha256: matched.sha256,
       expectedSizeBytes: contentLength,
@@ -183,5 +201,8 @@ export async function handleCanvasRuntimeArtifactRequest(
     else respond(response, safe.status, safe.code);
     request.resume();
     return true;
+  } finally {
+    transferPending = false;
+    releaseWhenDone();
   }
 }

@@ -9,6 +9,7 @@ import { setImmediate } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArtifactStore } from "../artifacts.js";
 import { handleCanvasRuntimeArtifactRequest } from "../canvas/runtimeArtifactHttp.js";
+import { RuntimeArtifactRetention } from "../canvas/runtimeArtifactRetention.js";
 import { RuntimeArtifactGrantRepository } from "../canvas/runtimeArtifactGrantRepository.js";
 import { AgentHostRepository } from "../hosts.js";
 import { applyMigrations } from "../migrations.js";
@@ -50,7 +51,10 @@ async function setup() {
     mediaType: "text/plain",
     chunks: ReadableBytes(bytes)
   });
+  let now = new Date();
+  const clock = () => now;
   const grants = new RuntimeArtifactGrantRepository(database, {
+    clock,
     maxArtifactBytes: 1_024,
     leaseActive: () => true
   });
@@ -90,6 +94,11 @@ async function setup() {
   sources.push(opened.stream);
   vi.spyOn(artifacts, "openRead").mockResolvedValue(opened);
   return {
+    retention: new RuntimeArtifactRetention(database, grants, clock),
+    expire: () => {
+      now = new Date("2100-01-01T00:00:00.000Z");
+    },
+    bytes,
     request,
     response,
     opened,
@@ -149,5 +158,95 @@ describe("runtime artifact opened-source ownership", () => {
     test.response.emit("close");
     expect(test.opened.stream.destroyed).toBe(true);
     await setImmediate();
+  });
+
+  it.each([
+    "finish",
+    "close",
+    "error"
+  ])("holds an authorized download through async open and response %s", async (terminal) => {
+    const test = await setup();
+    let open: ((value: typeof test.opened) => void) | undefined;
+    vi.mocked(test.artifacts.openRead).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          open = resolve;
+        })
+    );
+    const handling = handleCanvasRuntimeArtifactRequest(test.request, test.response, test.options);
+    test.expire();
+    expect(test.retention.compactBatch().compacted).toBe(0);
+    open!(test.opened);
+    await handling;
+    expect(test.retention.compactBatch().compacted).toBe(0);
+    test.response.emit(terminal, ...(terminal === "error" ? [new Error("closed transfer")] : []));
+    expect(test.retention.compactBatch().compacted).toBe(1);
+  });
+
+  it("keeps a transfer protected when response closes while openRead is pending", async () => {
+    const test = await setup();
+    let open: ((value: typeof test.opened) => void) | undefined;
+    vi.mocked(test.artifacts.openRead).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          open = resolve;
+        })
+    );
+    const handling = handleCanvasRuntimeArtifactRequest(test.request, test.response, test.options);
+    test.response.destroy();
+    test.response.emit("close");
+    test.expire();
+    expect(test.retention.compactBatch().compacted).toBe(0);
+    open!(test.opened);
+    await handling;
+    expect(test.opened.stream.destroyed).toBe(true);
+    expect(test.retention.compactBatch().compacted).toBe(1);
+  });
+
+  it("releases a failed asynchronous open only after its error receipt is finished", async () => {
+    const test = await setup();
+    vi.mocked(test.artifacts.openRead).mockRejectedValueOnce(new Error("disk unavailable"));
+    await handleCanvasRuntimeArtifactRequest(test.request, test.response, test.options);
+    expect(test.response.statusCode).toBe(500);
+    test.expire();
+    expect(test.retention.compactBatch().compacted).toBe(0);
+    test.response.emit("finish");
+    expect(test.retention.compactBatch().compacted).toBe(1);
+  });
+
+  it("protects upload body and persistence even after response close, then fails closed at expiry", async () => {
+    const test = await setup();
+    const transfer = test.options.grants.createUploadGrant({
+      runtimeLeaseId: "download-lease",
+      operationId: "upload-operation",
+      artifactRef: test.opened.metadata.ref,
+      sha256: test.opened.metadata.sha256,
+      mediaType: "text/plain",
+      maxSizeBytes: 1024,
+      expiresAt: "2098-01-01T00:00:00.000Z"
+    });
+    test.request.method = "PUT";
+    test.request.headers["x-planweave-runtime-artifact-grant-id"] = transfer.grantId;
+    test.request.headers["content-type"] = "text/plain";
+    test.request.headers["content-length"] = String(test.bytes.length);
+    test.request.push(test.bytes);
+    test.request.push(null);
+    const put = test.artifacts.put.bind(test.artifacts);
+    let proceed: (() => void) | undefined;
+    vi.spyOn(test.artifacts, "put").mockImplementationOnce(async (input) => {
+      await new Promise<void>((resolve) => {
+        proceed = resolve;
+      });
+      return put(input);
+    });
+    const handling = handleCanvasRuntimeArtifactRequest(test.request, test.response, test.options);
+    test.expire();
+    test.response.destroy();
+    test.response.emit("close");
+    expect(test.retention.compactBatch().compacted).toBe(0);
+    proceed!();
+    await handling;
+    expect(test.retention.compactBatch().compacted).toBe(1);
+    expect(test.artifacts.getRequired(test.opened.metadata.ref).sha256).toBe(transfer.sha256);
   });
 });
