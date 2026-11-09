@@ -1169,6 +1169,7 @@
         "workspaceCanvasPublish.test.ts",
         "dispatches.test.ts",
         "distributedPackageArtifacts.test.ts",
+        "collaborationPackageExports.test.ts",
         "exposureLeaseRepository.test.ts",
         "hostEnrollment.test.ts",
         "hostCredentialLifecycle.test.ts",

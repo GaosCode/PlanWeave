@@ -16,7 +16,15 @@
  */
 import { createHash } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "node:fs";
 import { mkdir, cp, writeFile, access } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -24,6 +32,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createRequire } from "node:module";
+import { inspectCollaborationPackageExports } from "./collaboration-package-exports.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -45,42 +54,6 @@ const packOrder = [
   "agent-host"
 ];
 
-const collaborationProtocolModules = [
-  ["core/primitives", "primitives"],
-  ["core/limits", "limits"],
-  ["errors", "errors"],
-  ["identity/workspace", "identity"],
-  ["identity/migration", "migration"],
-  ["access/project", "projectAccess"],
-  ["access/control", "accessControl"],
-  ["content/snapshot", "packageSnapshot"],
-  ["content/version", "contentVersion"],
-  ["content/transfer", "contentVersionTransfer"],
-  ["work/assignment", "assignment"],
-  ["work/responsibility", "responsibility"],
-  ["work/review", "review"],
-  ["work/execution-target", "executionTarget"],
-  ["work/host-authorization", "hostAuthorization"],
-  ["work/authority", "workAuthority"],
-  ["work/assignment-migration", "assignmentMigration"],
-  ["canvas/commands", "canvasCommands"],
-  ["canvas/live-sync", "canvasLiveSync"],
-  ["canvas/status", "runtimeStatus"],
-  ["canvas/presence", "presence"],
-  ["activity/comments", "comments"],
-  ["activity/attachments", "attachments"],
-  ["activity/observer", "observer"],
-  ["connection", "connection"],
-  ["setup", "setup"],
-  ["handoff/setup", "setupHandoff"],
-  ["handoff/invitation", "invitationHandoff"],
-  ["deployment", "deployment"],
-  ["loopback", "loopbackServer"],
-  ["remote-run", "remoteRun"],
-  ["fixtures/collaboration", "fixtures/collaboration"],
-  ["fixtures/content-version", "fixtures/contentVersion"]
-];
-
 const packageMeta = {
   "agent-host-protocol": {
     name: "@planweave-ai/agent-host-protocol",
@@ -90,10 +63,7 @@ const packageMeta = {
   "collaboration-protocol": {
     name: "@planweave-ai/collaboration-protocol",
     dir: "packages/collaboration-protocol",
-    requiredPaths: collaborationProtocolModules.flatMap(([, target]) => [
-      `dist/${target}.js`,
-      `dist/${target}.d.ts`
-    ])
+    requiredPaths: []
   },
   runtime: {
     name: "@planweave-ai/runtime",
@@ -290,7 +260,18 @@ function inspectTarball(tarballPath, meta) {
   if (!listing.includes("package/LICENSE")) {
     throw new Error(`tarball_missing_license:${meta.name}`);
   }
-  for (const relativePath of meta.requiredPaths) {
+  const exportEntries =
+    meta.name === packageMeta["collaboration-protocol"].name
+      ? inspectCollaborationPackageExports({
+          packageJson,
+          hasTarget: (target) => listing.includes(`package/${target}`)
+        })
+      : [];
+  const requiredPaths = [
+    ...meta.requiredPaths,
+    ...exportEntries.flatMap((entry) => [entry.import.slice(2), entry.types.slice(2)])
+  ];
+  for (const relativePath of requiredPaths) {
     if (!listing.includes(`package/${relativePath}`)) {
       throw new Error(`tarball_missing_path:${meta.name}:${relativePath}`);
     }
@@ -314,7 +295,8 @@ function inspectTarball(tarballPath, meta) {
     license: packageJson.license ?? null,
     licenseFile: true,
     dependencyNames: Object.keys(packageJson.dependencies ?? {}).sort(),
-    pathsPresent: meta.requiredPaths
+    pathsPresent: requiredPaths,
+    exportEntries
   };
 }
 
@@ -412,22 +394,19 @@ async function main() {
     });
     const consumerAudit = auditInstalledConsumer(installDir);
 
-    const collaborationImportSmokePath = join(installDir, "collaboration-import-smoke.mjs");
-    writeFileSync(
-      collaborationImportSmokePath,
-      [
-        `const packageName = ${JSON.stringify(packageMeta["collaboration-protocol"].name)};`,
-        `const subpaths = ${JSON.stringify(collaborationProtocolModules.map(([subpath]) => subpath))};`,
-        "for (const subpath of subpaths) await import(`${packageName}/${subpath}`);",
-        "try {",
-        "  await import(packageName);",
-        '  throw new Error("collaboration_protocol_root_export_available");',
-        "} catch (error) {",
-        '  if (error?.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED") throw error;',
-        "}"
-      ].join("\n")
+    const collaborationPackageRoot = join(
+      installDir,
+      "node_modules",
+      packageMeta["collaboration-protocol"].name
     );
-    run(process.execPath, [collaborationImportSmokePath], { cwd: installDir });
+    const collaborationExports = inspectCollaborationPackageExports({
+      packageJson: JSON.parse(readFileSync(join(collaborationPackageRoot, "package.json"), "utf8")),
+      hasTarget: (target) => {
+        const path = join(collaborationPackageRoot, target);
+        return existsSync(path) && statSync(path).isFile();
+      },
+      consumerDir: installDir
+    });
 
     const { agentHostProtocolVersion } = await import(
       pathToFileURL(
@@ -472,6 +451,7 @@ async function main() {
       manager: "npm",
       root: "<redacted>",
       audit: consumerAudit,
+      collaborationExports,
       bins: {
         "planweave-server": existsSync(join(installDir, "node_modules/.bin/planweave-server")),
         "planweave-agent-host": existsSync(
