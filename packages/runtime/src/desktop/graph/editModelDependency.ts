@@ -176,7 +176,7 @@ export async function bulkRemoveGraphItems(
     const mutation = buildPlanPackageGraphMutation(nextManifest, {
       kind: "removeNode",
       nodeId: taskId,
-      removeTaskDirectory: true
+      removePrompt: true
     });
     nextManifest = mutation.nextManifest;
     affectedTasks.push(...mutation.affectedTasks, taskId);

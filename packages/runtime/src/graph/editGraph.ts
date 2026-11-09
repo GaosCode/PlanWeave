@@ -1,5 +1,15 @@
 import { withImportTransactionReadAdmission } from "../package/importTransactionLock.js";
-import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname } from "node:path";
 import { affectedTaskIdsForManifestChange } from "./affectedTasks.js";
@@ -13,6 +23,7 @@ import { withPackageFileConsistency } from "../package/packageFileConsistency.js
 import { assertNoPendingImportTransactionWrite } from "../package/importTransaction.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { stableJson } from "../plangraph/hash.js";
+import { preparePromptReferenceSideEffects } from "./promptRemoval.js";
 import { manifestSchema } from "../schema/manifest.js";
 import {
   buildPlanPackageGraphMutation,
@@ -92,6 +103,7 @@ function result(
 type SideEffectBackup =
   | { kind: "absent"; targetPath: string }
   | { kind: "file"; targetPath: string; content: Buffer }
+  | { kind: "symlink"; targetPath: string; link: string }
   | { kind: "directory"; targetPath: string; backupPath: string };
 
 async function sideEffectTargetPath(
@@ -107,10 +119,14 @@ async function sideEffectTargetPath(
 
 async function backupSideEffectTarget(
   targetPath: string,
-  temporaryRoot: string
+  temporaryRoot: string,
+  preserveSymlink: boolean
 ): Promise<SideEffectBackup> {
   try {
     const stats = await lstat(targetPath);
+    if (stats.isSymbolicLink() && preserveSymlink) {
+      return { kind: "symlink", targetPath, link: await readlink(targetPath) };
+    }
     if (stats.isDirectory()) {
       const backupPath = await mkdtemp(`${temporaryRoot}/side-effect-dir-`);
       await rm(backupPath, { recursive: true, force: true });
@@ -132,6 +148,11 @@ async function restoreSideEffectBackup(backup: SideEffectBackup): Promise<void> 
     return;
   }
   await mkdir(dirname(backup.targetPath), { recursive: true });
+  if (backup.kind === "symlink") {
+    await rm(backup.targetPath, { force: true });
+    await symlink(backup.link, backup.targetPath);
+    return;
+  }
   if (backup.kind === "directory") {
     await rm(backup.targetPath, { recursive: true, force: true });
     await cp(backup.backupPath, backup.targetPath, { recursive: true });
@@ -150,13 +171,18 @@ async function applyMutationSideEffectsWithRollback(
     return;
   }
   const temporaryRoot = await mkdtemp(`${tmpdir()}/planweave-graph-mutation-`);
-  const targetPaths = new Map<string, string>();
+  const targetPaths = new Map<string, boolean>();
   for (const sideEffect of sideEffects) {
     const targetPath = await sideEffectTargetPath(packageDir, sideEffect);
-    targetPaths.set(targetPath, targetPath);
+    targetPaths.set(
+      targetPath,
+      (targetPaths.get(targetPath) ?? false) || sideEffect.kind === "writePrompt"
+    );
   }
   const backups = await Promise.all(
-    [...targetPaths.values()].map((targetPath) => backupSideEffectTarget(targetPath, temporaryRoot))
+    [...targetPaths.entries()].map(([targetPath, writesPrompt]) =>
+      backupSideEffectTarget(targetPath, temporaryRoot, !writesPrompt)
+    )
   );
 
   try {
@@ -165,8 +191,6 @@ async function applyMutationSideEffectsWithRollback(
       if (sideEffect.kind === "writePrompt") {
         await mkdir(dirname(targetPath), { recursive: true });
         await writeFile(targetPath, sideEffect.markdown, "utf8");
-      } else if (sideEffect.kind === "removeTaskDirectory") {
-        await rm(targetPath, { recursive: true, force: true });
       } else {
         await rm(targetPath, { force: true });
       }
@@ -240,10 +264,12 @@ export async function commitStagedPlanPackageGraphMutation(options: {
         const current = await loadPackage(workspace);
         const conflict = checkPlanPackageGraphMutationVersion(current.manifest, options.mutation);
         if (conflict) return conflict;
-        await applyMutationSideEffectsWithRollback(
+        const sideEffects = await preparePromptReferenceSideEffects(
           workspace.packageDir,
-          options.mutation.sideEffects,
-          () => writeJsonFile(workspace.manifestFile, prepared.value.manifest)
+          options.mutation
+        );
+        await applyMutationSideEffectsWithRollback(workspace.packageDir, sideEffects, () =>
+          writeJsonFile(workspace.manifestFile, prepared.value.manifest)
         );
         return result(
           prepared.value.manifest,

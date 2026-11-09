@@ -184,7 +184,7 @@ export function buildCanvasCommandMutation(
       return buildPlanPackageGraphMutation(manifest, {
         kind: "removeNode",
         nodeId: intent.taskId,
-        removeTaskDirectory: true
+        removePrompt: true
       });
     case "update_task_fields":
     case "update_task_prompt": {

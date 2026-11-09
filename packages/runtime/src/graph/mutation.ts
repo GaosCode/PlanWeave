@@ -18,7 +18,7 @@ export type PlanPackageGraphMutationIntent =
     }
   | { kind: "addBlock"; taskId: string; block: ManifestBlock; promptMarkdown: string }
   | { kind: "updateNode"; node: ManifestNode }
-  | { kind: "removeNode"; nodeId: string; removePrompt?: boolean; removeTaskDirectory?: boolean }
+  | { kind: "removeNode"; nodeId: string; removePrompt?: boolean }
   | { kind: "addEdge"; edge: ManifestEdge }
   | { kind: "removeEdge"; edge: ManifestEdge }
   | { kind: "removeBlock"; blockRef: string }
@@ -26,9 +26,8 @@ export type PlanPackageGraphMutationIntent =
   | { kind: "writeBlockPrompt"; blockRef: string; markdown: string };
 
 export type PlanPackageGraphMutationSideEffect =
-  | { kind: "writePrompt"; packagePath: string; markdown: string }
-  | { kind: "removePrompt"; packagePath: string }
-  | { kind: "removeTaskDirectory"; packagePath: string };
+  | { kind: "writePrompt"; packagePath: string; markdown: string; preserveReferenced?: true }
+  | { kind: "removePrompt"; packagePath: string };
 
 export type PlanPackageGraphMutation = {
   baseManifest: PlanPackageManifest;
@@ -56,10 +55,10 @@ function sameEdge(left: ManifestEdge, right: ManifestEdge): boolean {
   return left.from === right.from && left.to === right.to && left.type === right.type;
 }
 
-function packageDirname(packagePath: string): string {
-  const parts = packagePath.split("/");
-  parts.pop();
-  return parts.join("/");
+export function manifestPromptPaths(manifest: PlanPackageManifest): string[] {
+  return manifest.nodes.flatMap((node) =>
+    node.type === "task" ? [node.prompt, ...node.blocks.map((block) => block.prompt)] : []
+  );
 }
 
 function taskNode(manifest: PlanPackageManifest, taskId: string): ManifestTaskNode {
@@ -170,10 +169,10 @@ export function buildPlanPackageGraphMutation(
   if (intent.kind === "removeNode") {
     const node = manifest.nodes.find((candidate) => candidate.id === intent.nodeId);
     const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
-    if (node?.type === "task" && intent.removeTaskDirectory) {
-      sideEffects.push({ kind: "removeTaskDirectory", packagePath: packageDirname(node.prompt) });
-    } else if (node?.type === "task" && intent.removePrompt) {
-      sideEffects.push(removePromptSideEffect(node.prompt));
+    if (node?.type === "task" && intent.removePrompt) {
+      sideEffects.push(
+        ...[node.prompt, ...node.blocks.map((block) => block.prompt)].map(removePromptSideEffect)
+      );
     }
     const nextManifest = {
       ...manifest,

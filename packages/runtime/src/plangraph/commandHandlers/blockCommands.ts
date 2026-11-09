@@ -69,7 +69,8 @@ function readBlockSnapshot(
 function blockSnapshotMutation(
   loaded: LoadedPlanGraphPackage,
   task: ManifestTaskNode,
-  snapshot: BlockComponentSnapshot
+  snapshot: BlockComponentSnapshot,
+  restoring: boolean
 ): PlanPackageGraphMutation {
   const insertIndex =
     snapshot.insertIndex === null
@@ -98,7 +99,12 @@ function blockSnapshotMutation(
     },
     {
       affectedTasks: [task.id],
-      sideEffects: writePromptSideEffects(snapshot.block.prompt, snapshot.promptMarkdown)
+      sideEffects: writePromptSideEffects(snapshot.block.prompt, snapshot.promptMarkdown).map(
+        (effect) =>
+          restoring && effect.kind === "writePrompt"
+            ? { ...effect, preserveReferenced: true }
+            : effect
+      )
     }
   );
 }
@@ -215,7 +221,7 @@ export const blockCommandHandler: PlanGraphCommandHandler<BlockCommand> = {
           command.snapshot.block.id
         );
       }
-      return blockSnapshotMutation(loaded, task, command.snapshot);
+      return blockSnapshotMutation(loaded, task, command.snapshot, command.type === "restoreBlock");
     }
     if (!blockFromManifest(loaded.manifest, command.blockRef)) {
       return diagnostic(

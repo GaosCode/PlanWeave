@@ -1,3 +1,4 @@
+import type { ReviewPipelinePromptWrite } from "./reviewPipelinePromptWrites.js";
 import type { DesktopLayoutNode } from "../desktop/types/desktopLayoutSchema.js";
 import type { PlanPackageExecutionPolicyFieldEditInput } from "../graph/fieldEditMutation.js";
 import type { ProjectTaskRef } from "../projectGraph/types.js";
@@ -153,7 +154,7 @@ export type UpdateReviewPipelineCommand = PlanGraphCommandBase & {
     completionPolicy: "strict";
   };
   reviewBlocks: ManifestReviewBlock[];
-  promptMarkdownByBlockId: Array<{ blockId: string; markdown: string }>;
+  promptMarkdownByBlockId: ReviewPipelinePromptWrite[];
 };
 
 export type UpdateLayoutCommand = PlanGraphCommandBase & {

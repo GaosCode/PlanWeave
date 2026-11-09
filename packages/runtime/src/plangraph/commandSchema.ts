@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reviewPipelinePromptWriteSchema } from "./reviewPipelinePromptWrites.js";
 import { userRequiredCapabilitiesSchema } from "@planweave-ai/agent-host-protocol/browser";
 import {
   desktopLayoutFileSchema,
@@ -285,9 +286,7 @@ const planGraphCommandSchemaOptions = [
         })
         .strict(),
       reviewBlocks: z.array(reviewBlockSchema),
-      promptMarkdownByBlockId: z.array(
-        z.object({ blockId: z.string(), markdown: z.string() }).strict()
-      )
+      promptMarkdownByBlockId: z.array(reviewPipelinePromptWriteSchema)
     })
     .strict(),
   updateLayoutCommandSchema,

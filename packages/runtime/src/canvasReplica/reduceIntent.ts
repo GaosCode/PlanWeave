@@ -3,7 +3,7 @@ import {
   type CanvasCommandIntent
 } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import { buildCanvasCommandApplication } from "../graph/canvasCommandMutation.js";
-import type { PlanPackageGraphMutationSideEffect } from "../graph/mutation.js";
+import { manifestPromptPaths, type PlanPackageGraphMutationSideEffect } from "../graph/mutation.js";
 import { parseCanvasReplicaDocument, type CanvasReplicaDocument } from "./document.js";
 
 function applySideEffect(
@@ -14,14 +14,7 @@ function applySideEffect(
     prompts.set(sideEffect.packagePath, sideEffect.markdown);
     return;
   }
-  if (sideEffect.kind === "removePrompt") {
-    prompts.delete(sideEffect.packagePath);
-    return;
-  }
-  const prefix = `${sideEffect.packagePath}/`;
-  for (const path of prompts.keys()) {
-    if (path.startsWith(prefix)) prompts.delete(path);
-  }
+  prompts.delete(sideEffect.packagePath);
 }
 
 /** Pure, deterministic application of one accepted collaboration intent. */
@@ -33,7 +26,11 @@ export function applyCanvasReplicaIntent(
   const intent = canvasCommandIntentSchema.parse(rawIntent);
   const application = buildCanvasCommandApplication(document.manifest, document.layout, intent);
   const prompts = new Map(Object.entries(document.promptMarkdownByPath));
+  const remainingPrompts = new Set(manifestPromptPaths(application.graphMutation.nextManifest));
   for (const sideEffect of application.graphMutation.sideEffects) {
+    if (sideEffect.kind === "removePrompt" && remainingPrompts.has(sideEffect.packagePath)) {
+      continue;
+    }
     applySideEffect(prompts, sideEffect);
   }
   return parseCanvasReplicaDocument({

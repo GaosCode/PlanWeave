@@ -243,18 +243,20 @@ describe("editGraph", () => {
     });
   });
 
-  it("removes task package directories through commit-only mutation side effects", async () => {
+  it("removes task prompt files through commit-only mutation side effects", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
     const manifest = await readJsonFile<PlanPackageManifest>(init.workspace.manifestFile);
 
     const mutation = buildPlanPackageGraphMutation(manifest, {
       kind: "removeNode",
       nodeId: "T-002",
-      removeTaskDirectory: true
+      removePrompt: true
     });
 
     expect(mutation.sideEffects).toEqual([
-      { kind: "removeTaskDirectory", packagePath: "nodes/T-002" }
+      { kind: "removePrompt", packagePath: "nodes/T-002/prompt.md" },
+      { kind: "removePrompt", packagePath: "nodes/T-002/blocks/B-001.prompt.md" },
+      { kind: "removePrompt", packagePath: "nodes/T-002/blocks/R-001.prompt.md" }
     ]);
     await expect(
       readFile(`${init.workspace.packageDir}/nodes/T-002/prompt.md`, "utf8")

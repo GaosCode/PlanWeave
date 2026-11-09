@@ -97,7 +97,9 @@ function restoreTaskMutation(
     },
     {
       affectedTasks: [...addTaskMutation.affectedTasks, command.snapshot.task.id],
-      sideEffects: addTaskMutation.sideEffects
+      sideEffects: addTaskMutation.sideEffects.map((effect) =>
+        effect.kind === "writePrompt" ? { ...effect, preserveReferenced: true } : effect
+      )
     }
   );
 }
@@ -157,7 +159,7 @@ export const taskCommandHandler: PlanGraphCommandHandler<TaskCommand> = {
     return buildPlanPackageGraphMutation(loaded.manifest, {
       kind: "removeNode",
       nodeId: command.taskId,
-      removeTaskDirectory: true
+      removePrompt: true
     });
   },
   inverse(

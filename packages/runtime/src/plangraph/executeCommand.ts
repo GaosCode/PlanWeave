@@ -9,6 +9,7 @@ import { defaultPlanGraphCommandDependencies } from "./adapters.js";
 import { PlanGraphOperationLogParseError } from "./commandSchema.js";
 import { handlerForCommand, type PlanGraphCommandHandler } from "./commandHandlers/index.js";
 import { diagnostic, isPlanGraphCommandDiagnostic } from "./commandHandlers/types.js";
+import { reviewPipelineSnapshotCommand } from "./reviewPipelinePromptWrites.js";
 import { stableJson } from "./hash.js";
 import {
   applyProjectGraphHistoryCommand,
@@ -468,7 +469,8 @@ async function applyHistoryCommand(
   options: PlanGraphHistoryOptions,
   command: PlanGraphCommand | PlanGraphCommand[],
   expectedGraphVersion: string,
-  workspaceRef: PackageWorkspaceRef
+  workspaceRef: PackageWorkspaceRef,
+  inverseOf?: PlanGraphCommand
 ): Promise<PlanGraphCommandResult> {
   const dependencies = {
     ...defaultPlanGraphCommandDependencies,
@@ -507,7 +509,7 @@ async function applyHistoryCommand(
     latest = await executePlanGraphCommand({
       ...options,
       projectRoot: workspaceRef,
-      command: commandForHistoryReplay(item),
+      command: commandForHistoryReplay(item, inverseOf),
       recordOperation: false,
       dependencies
     });
@@ -524,7 +526,10 @@ async function applyHistoryCommand(
   return latest;
 }
 
-function commandForHistoryReplay(command: PlanGraphCommand): PlanGraphCommand {
+function commandForHistoryReplay(
+  command: PlanGraphCommand,
+  inverseOf?: PlanGraphCommand
+): PlanGraphCommand {
   const replayCommand = structuredClone(command);
   delete replayCommand.baseGraphVersion;
   if (replayCommand.type === "updateTaskPrompt" || replayCommand.type === "updateBlockPrompt") {
@@ -533,7 +538,11 @@ function commandForHistoryReplay(command: PlanGraphCommand): PlanGraphCommand {
   if (replayCommand.type === "updateTaskFields" || replayCommand.type === "updateBlockFields") {
     delete replayCommand.fields.basePromptHash;
   }
-  return replayCommand;
+  return replayCommand.type === "updateReviewPipeline" &&
+    inverseOf?.type === "updateReviewPipeline" &&
+    replayCommand.taskId === inverseOf.taskId
+    ? reviewPipelineSnapshotCommand(replayCommand, inverseOf)
+    : replayCommand;
 }
 
 export async function undoPlanGraphCommand(
@@ -571,7 +580,8 @@ async function undoPlanGraphCommandLocked(
     options,
     entry.inverse,
     entry.graphVersionAfter,
-    entry.workspaceRef
+    entry.workspaceRef,
+    entry.command
   );
   if (result.ok) {
     await store.log.markUndone(entry.id);
