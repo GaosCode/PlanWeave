@@ -2,6 +2,14 @@ import { inventoryEntry } from "./workspaceExecutionPlaneInventoryTypes.js";
 
 export const workspaceMappingsInventory = [
   inventoryEntry(
+    "wm-canvasRuntimeArtifactLoopbackFixture",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/distributed-integration/src/__tests__/support/canvasRuntimeArtifactLoopbackFixture.ts",
+    "readiness.workspaceMappings: []",
+    "Canvas runtime Host fixtures report empty mapping observations."
+  ),
+  inventoryEntry(
     "wm-hostReadiness-schema",
     "workspaceMappings",
     "endpoint_readiness",
