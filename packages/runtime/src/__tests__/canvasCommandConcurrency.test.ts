@@ -28,6 +28,7 @@ const directories: string[] = [];
 const actors: ReturnType<typeof spawnReviewRetryActor>[] = [];
 const gates: Array<() => void> = [];
 const pending: Promise<unknown>[] = [];
+const taskNotesContent = "Auxiliary task notes must remain unchanged.\n";
 function track<T>(promise: Promise<T>): Promise<T> {
   pending.push(promise.catch(() => undefined));
   return promise;
@@ -59,6 +60,7 @@ async function fixture() {
   );
   directories.push(f.home, f.root);
   const projectRoot = f.init.workspace;
+  await fs.writeFile(join(projectRoot.packageDir, "nodes", "T-002", "notes.txt"), taskNotesContent);
   await claimNext({ projectRoot });
   await submitBlockResult({
     projectRoot,
@@ -113,9 +115,14 @@ async function assertWriter(
     expect(manifest.nodes.find((node) => node.id === "T-002")?.title).toBe("Child edit");
   } else {
     expect(manifest.nodes.find((node) => node.id === "T-002")).toBeUndefined();
-    await expect(fs.stat(join(workspace.packageDir, "nodes", "T-002"))).rejects.toMatchObject({
-      code: "ENOENT"
-    });
+    for (const prompt of ["prompt.md", "blocks/B-001.prompt.md", "blocks/R-001.prompt.md"]) {
+      await expect(
+        fs.stat(join(workspace.packageDir, "nodes", "T-002", prompt))
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    }
+    expect(
+      await fs.readFile(join(workspace.packageDir, "nodes", "T-002", "notes.txt"), "utf8")
+    ).toBe(taskNotesContent);
   }
   return manifest;
 }
