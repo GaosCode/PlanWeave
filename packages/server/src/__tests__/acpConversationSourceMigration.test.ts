@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentHostRepository } from "../hosts.js";
-import { applyMigrations, centralSchemaVersion } from "../migrations.js";
+import {
+  applyMigrations,
+  centralSchemaVersion,
+  latestCentralSchemaVersion
+} from "../migrations.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 import { applyMigrationsThroughVersion } from "./support/migrationFixture.js";
 
@@ -39,7 +43,7 @@ describe("ACP source command index migration", () => {
     const hosts = database.prepare("SELECT * FROM agent_hosts").all();
 
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(79);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
     const markers = database.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
     applyMigrations(database);
     expect(database.prepare("SELECT * FROM mailbox_messages").all()).toEqual(messages);
@@ -80,7 +84,7 @@ describe("ACP source command index migration", () => {
     expect(database.prepare("SELECT * FROM mailbox_messages").all()).toEqual(messages);
     database.exec("DROP TRIGGER reject_source_migration");
     applyMigrations(database);
-    expect(centralSchemaVersion(database)).toBe(79);
+    expect(centralSchemaVersion(database)).toBe(latestCentralSchemaVersion);
     expect(database.prepare("SELECT * FROM mailbox_messages").all()).toEqual(messages);
   });
 
