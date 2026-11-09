@@ -425,7 +425,7 @@ describe("layout request ownership", () => {
             : shared
               ? [
                   { nodeId: "T-ALPHA", x: 80, y: 80 },
-                  { nodeId: "T-BETA", x: 400, y: 80 }
+                  { nodeId: "T-BETA", x: 80, y: 440 }
                 ]
               : []
       })

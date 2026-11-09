@@ -36,7 +36,7 @@ describe("desktop graph flow model", () => {
 
   it("prefers saved desktop layout positions over default dependency positions", () => {
     const graph = graphView(
-      ["T-001", "T-002"],
+      ["T-001", "T-002", "T-003"],
       [{ from: "T-002", to: "T-001", type: "depends_on" }]
     );
     const layout: DesktopLayout = {
@@ -81,11 +81,13 @@ describe("desktop graph flow model", () => {
       undefined,
       null,
       null,
-      { kind: "state_uninitialized" }
+      { kind: "state_uninitialized" },
+      [{ id: "T-001", measured: { width: 720, height: 800 } }]
     );
 
     expect(nodes.find((node) => node.id === "T-002")?.position).toEqual({ x: 999, y: 888 });
     expect(nodes.find((node) => node.id === "T-001")?.position.x).toBeLessThan(999);
+    expect(nodes.find((node) => node.id === "T-003")?.position).toEqual({ x: 80, y: 1020 });
     expect(nodes.find((node) => node.id === "T-001")?.data).not.toHaveProperty("blockRunRecords");
     expect(nodes.find((node) => node.id === "T-001")?.data).not.toHaveProperty(
       "blockReviewAttempts"

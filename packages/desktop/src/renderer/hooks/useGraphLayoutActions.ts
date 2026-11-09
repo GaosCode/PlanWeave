@@ -9,6 +9,7 @@ import type {
 import type { CanvasLocator } from "../../shared/canvasLocator";
 import { bridge, desktopCanvasReference } from "../bridge";
 import type { createTranslator } from "../i18n";
+import { defaultTaskNodePositions } from "../graph/defaultTaskLayout";
 import type { AppFlowNode } from "../types";
 import type { DesktopSelectionReceipt } from "./useDesktopProjectSnapshot";
 import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
@@ -152,45 +153,36 @@ export function useGraphLayoutActions({
   );
 
   const resetLayout = useCallback(async () => {
-    if (!selectedProject) return;
     if (workspaceCanvas?.enabled) {
-      const layoutNodes =
-        graph && graph.tasks.length > 0
-          ? graph.tasks.map((task, index) => ({
-              nodeId: task.taskId,
-              x: 80 + (index % 4) * 320,
-              y: 80 + Math.floor(index / 4) * 180
-            }))
-          : nodes.map((node, index) => ({
-              nodeId: node.id,
-              x: 80 + (index % 4) * 320,
-              y: 80 + Math.floor(index / 4) * 180
-            }));
+      if (!graph || graph.tasks.length === 0) return;
+      const positions = defaultTaskNodePositions(graph, getLayoutNodes?.() ?? nodes);
+      const layoutNodes = graph.tasks.map((task) => ({
+        nodeId: task.taskId,
+        ...positions.get(task.taskId)!
+      }));
       const updatedAt = new Date().toISOString();
       return persistLayout(async (_isSelectionCurrent, isCurrent) => {
-        if (layoutNodes.length > 0) {
-          const result = await workspaceCanvas.submit({
-            intent: { kind: "update_layout", nodes: layoutNodes, updatedAt },
-            isOwnerCurrent: isCurrent
-          });
-          if (result.status === "retired") return null;
-          if (!result.ok) throw new Error(result.error ?? t("canvasCommandNotConnected"));
-        }
+        const result = await workspaceCanvas.submit({
+          intent: { kind: "update_layout", nodes: layoutNodes, updatedAt },
+          isOwnerCurrent: isCurrent
+        });
+        if (result.status === "retired") return null;
+        if (!result.ok) throw new Error(result.error ?? t("canvasCommandNotConnected"));
         return {
           version: "desktop-layout/v1",
-          projectId: layout?.projectId ?? graph?.projectId ?? selectedProject.projectId,
+          projectId: graph.projectId,
           nodes: layoutNodes,
           updatedAt
         };
       });
     }
-    if (!bridge) return;
+    if (!bridge || !selectedProject) return;
     const api = bridge;
     const canvas = desktopCanvasReference(selectedProject, selectedCanvasId);
     return persistLayout(() => api.resetDesktopLayout(canvas));
   }, [
     graph,
-    layout?.projectId,
+    getLayoutNodes,
     nodes,
     persistLayout,
     selectedCanvasId,

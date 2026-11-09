@@ -190,6 +190,7 @@
         "graphActionsHook.test.tsx",
         "graphDependencyEdges.test.ts",
         "graphFlowModel.test.ts",
+        "graphLayoutReset.test.tsx",
         "graphPaletteActions.test.tsx",
         "graphViewViewport.test.tsx",
         "historyNavigationButtons.test.tsx",
