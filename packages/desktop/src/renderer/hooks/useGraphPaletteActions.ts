@@ -24,6 +24,7 @@ import type {
 import { defaultBlockTitleForUi } from "../viewHelpers";
 import type { WorkspaceCanvasCommandsResult } from "./useWorkspaceCanvasCommands";
 
+import { useGraphLayoutActions } from "./useGraphLayoutActions";
 import type { CanvasLocator } from "../../shared/canvasLocator";
 import type {
   DesktopSelectionReceipt,
@@ -129,114 +130,20 @@ export function useGraphPaletteActions({
     [getLayoutNodes, nodes]
   );
 
-  const handleNodeDragStop = useCallback(
-    async (_event: React.MouseEvent, node: Node) => {
-      const layoutNodes = getPersistableLayoutNodes(node).map((item) => ({
-        nodeId: item.id,
-        x: item.id === node.id && !getLayoutNodes ? node.position.x : item.position.x,
-        y: item.id === node.id && !getLayoutNodes ? node.position.y : item.position.y
-      }));
-      if (workspaceCanvas?.enabled) {
-        const updatedAt = new Date().toISOString();
-        const ok = await submitSharedPackageIntent(
-          workspaceCanvas,
-          { kind: "update_layout", nodes: layoutNodes, updatedAt },
-          setError
-        );
-        if (ok && graph) {
-          setLayout({
-            version: "desktop-layout/v1",
-            projectId: graph.projectId,
-            nodes: layoutNodes,
-            updatedAt
-          });
-        }
-        return;
-      }
-      if (!bridge || !selectedProject) return;
-      const canvas = desktopCanvasReference(selectedProject, selectedCanvasId);
-      const baseLayout = layout ?? (await bridge.getDesktopLayout(canvas));
-      const nextLayout: DesktopLayout = {
-        ...baseLayout,
-        nodes: layoutNodes
-      };
-      const saved = await bridge.saveDesktopLayout(canvas, nextLayout);
-      setLayout(saved);
-    },
-    [
-      getLayoutNodes,
-      getPersistableLayoutNodes,
-      graph,
-      layout,
-      selectedCanvasId,
-      selectedProject,
-      setError,
-      setLayout,
-      workspaceCanvas
-    ]
-  );
-
-  const resetLayout = useCallback(async () => {
-    if (!selectedProject) {
-      return;
-    }
-    if (workspaceCanvas?.enabled) {
-      // Workspace commands have no reset_layout intent; write default grid positions via update_layout.
-      const layoutNodes =
-        graph && graph.tasks.length > 0
-          ? graph.tasks.map((task, index) => ({
-              nodeId: task.taskId,
-              x: 80 + (index % 4) * 320,
-              y: 80 + Math.floor(index / 4) * 180
-            }))
-          : nodes.length > 0
-            ? nodes.map((node, index) => ({
-                nodeId: node.id,
-                x: 80 + (index % 4) * 320,
-                y: 80 + Math.floor(index / 4) * 180
-              }))
-            : null;
-      if (!layoutNodes || layoutNodes.length === 0) {
-        setLayout({
-          version: "desktop-layout/v1",
-          projectId: layout?.projectId ?? graph?.projectId ?? selectedProject.projectId,
-          nodes: [],
-          updatedAt: new Date().toISOString()
-        });
-        return;
-      }
-      const updatedAt = new Date().toISOString();
-      const ok = await submitSharedPackageIntent(
-        workspaceCanvas,
-        { kind: "update_layout", nodes: layoutNodes, updatedAt },
-        setError
-      );
-      if (ok) {
-        setLayout({
-          version: "desktop-layout/v1",
-          projectId: layout?.projectId ?? graph?.projectId ?? selectedProject.projectId,
-          nodes: layoutNodes,
-          updatedAt
-        });
-      }
-      return;
-    }
-    if (!bridge) {
-      return;
-    }
-    setLayout(
-      await bridge.resetDesktopLayout(desktopCanvasReference(selectedProject, selectedCanvasId))
-    );
-  }, [
+  const { handleNodeDragStop, resetLayout } = useGraphLayoutActions({
+    captureProjectSelection,
+    canvasLocator,
+    getLayoutNodes,
     graph,
-    layout?.projectId,
+    layout,
     nodes,
     selectedCanvasId,
     selectedProject,
     setError,
     setLayout,
-    workspaceCanvas
-  ]);
+    workspaceCanvas,
+    t
+  });
 
   const handleConnect = useCallback(
     async (connection: Connection) => {

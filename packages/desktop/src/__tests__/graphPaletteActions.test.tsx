@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type * as React from "react";
 import type { Edge, Node } from "@xyflow/react";
 import type {
@@ -11,6 +11,7 @@ import type {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { createTranslator } from "../renderer/i18n";
+import { initialLayoutSelection, layoutOwnerHarness } from "./helpers/graphLayoutOwnerHarness";
 import { defaultDesktopSettings } from "../renderer/settings";
 import type { AppFlowNode, DesktopUiSettings } from "../renderer/types";
 
@@ -158,6 +159,7 @@ describe("useGraphPaletteActions layout snapshots", () => {
       });
     });
     expect(submit).toHaveBeenCalledWith({
+      isOwnerCurrent: expect.any(Function),
       intent: {
         kind: "update_layout",
         updatedAt: expect.any(String),
@@ -326,5 +328,193 @@ describe("useGraphPaletteActions layout snapshots", () => {
       expectedSnapshot
     );
     expect(refreshProjectDerivedState).toHaveBeenCalledTimes(3);
+  });
+});
+
+const retirementCases = ["canvas", "project", "home", "authority", "return", "unmount"] as const;
+const ownershipCases = [false, true].flatMap((shared) =>
+  (["save", "reset"] as const).flatMap((operation) =>
+    [false, true].flatMap((failure) =>
+      retirementCases
+        .filter((retirement) => shared || retirement !== "authority")
+        .map((retirement) => ({ shared, operation, failure, retirement }))
+    )
+  )
+);
+
+describe("layout request ownership", () => {
+  it.each(
+    ownershipCases
+  )("isolates shared=$shared $operation failure=$failure after $retirement", async ({
+    shared,
+    operation,
+    failure,
+    retirement
+  }) => {
+    const hook = await layoutOwnerHarness(shared);
+    let previous!: Promise<void>;
+    act(() => {
+      previous = hook.invoke(operation);
+    });
+    expect(hook.writes).toHaveLength(1);
+    if (retirement === "unmount") hook.unmount();
+    else {
+      hook.rerender({
+        ...initialLayoutSelection,
+        ...(retirement === "project" ? { projectRoot: "/tmp/next-project" } : {}),
+        ...(retirement === "home" ? { home: "home-b" } : {}),
+        ...(retirement === "authority" ? { authority: "authority-b" } : {}),
+        ...(["canvas", "return"].includes(retirement) ? { canvasId: "canvas-b" } : {})
+      });
+      await hook.ready();
+      if (retirement === "return") {
+        hook.rerender(initialLayoutSelection);
+        await hook.ready();
+      }
+    }
+    hook.setLayout.mockClear();
+    hook.setError.mockClear();
+    await hook.finish(0, failure);
+    await previous;
+    expect(hook.setLayout).not.toHaveBeenCalled();
+    expect(hook.setError).not.toHaveBeenCalled();
+    if (retirement !== "unmount" && shared) {
+      expect(hook.result.current.commands.snapshot.lastError).toBeNull();
+      expect(hook.result.current.commands.snapshot.busy).toBe(false);
+    }
+  });
+
+  it.each(
+    [false, true].flatMap((shared) =>
+      (["save", "reset"] as const).map((operation) => ({ shared, operation }))
+    )
+  )("preserves current $operation failure and retry shared=$shared", async ({
+    shared,
+    operation
+  }) => {
+    const hook = await layoutOwnerHarness(shared);
+    let previous!: Promise<void>;
+    let current!: Promise<void>;
+    act(() => {
+      previous = hook.invoke("save");
+    });
+    hook.rerender({ ...initialLayoutSelection, canvasId: "canvas-b" });
+    await hook.ready();
+    act(() => {
+      current = hook.invoke(operation, 900);
+    });
+    expect(hook.writes).toHaveLength(2);
+    await hook.finish(0, true);
+    await previous;
+    expect(hook.setError).not.toHaveBeenCalled();
+    if (shared) expect(hook.result.current.commands.snapshot.lastError).toBeNull();
+    await hook.finish(1, true);
+    await current;
+    expect(hook.setError).toHaveBeenLastCalledWith("layout failure 1");
+    let retry!: Promise<void>;
+    act(() => {
+      retry = hook.invoke(operation, 950);
+    });
+    await hook.finish(2);
+    await retry;
+    expect(hook.setLayout).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        nodes:
+          operation === "save"
+            ? [{ nodeId: "T-ALPHA", x: 950, y: 180 }]
+            : shared
+              ? [
+                  { nodeId: "T-ALPHA", x: 80, y: 80 },
+                  { nodeId: "T-BETA", x: 400, y: 80 }
+                ]
+              : []
+      })
+    );
+    expect(hook.setError).toHaveBeenLastCalledWith(null);
+  });
+
+  it.each([
+    false,
+    true
+  ])("preserves the next session connection pending after old failure=%s", async (failure) => {
+    const hook = await layoutOwnerHarness(true);
+    let previous!: Promise<void>;
+    act(() => {
+      previous = hook.invoke("save");
+    });
+    const opening = hook.holdNextOpen();
+    hook.rerender({ ...initialLayoutSelection, canvasId: "canvas-b" });
+    await waitFor(() => expect(hook.result.current.commands.snapshot.busy).toBe(true));
+    await hook.finish(0, failure);
+    await previous;
+    expect(hook.result.current.commands.snapshot.busy).toBe(true);
+    expect(hook.result.current.commands.snapshot.connectionPhase).toBe("connecting");
+    expect(hook.result.current.commands.snapshot.lastError).toBeNull();
+    await act(async () => opening.resolve());
+    await hook.ready();
+  });
+
+  it.each([false, true])("keeps current error after an older success shared=%s", async (shared) => {
+    const hook = await layoutOwnerHarness(shared);
+    let previous!: Promise<void>;
+    let current!: Promise<void>;
+    act(() => {
+      previous = hook.invoke("save");
+    });
+    hook.rerender({ ...initialLayoutSelection, canvasId: "canvas-b" });
+    await hook.ready();
+    act(() => {
+      current = hook.invoke("reset");
+    });
+    await hook.finish(1, true);
+    await current;
+    hook.setError.mockClear();
+    await hook.finish(0);
+    await previous;
+    expect(hook.setError).not.toHaveBeenCalled();
+    expect(hook.setLayout).not.toHaveBeenCalled();
+    if (shared) expect(hook.result.current.commands.snapshot.lastError).toBe("layout failure 1");
+  });
+
+  it.each([
+    false,
+    true
+  ])("orders same-scope save/reset and retires superseded errors shared=%s", async (shared) => {
+    const hook = await layoutOwnerHarness(shared);
+    let previous!: Promise<void>;
+    let current!: Promise<void>;
+    act(() => {
+      previous = hook.invoke("save");
+      current = hook.invoke("reset");
+    });
+    expect(hook.writes).toHaveLength(1);
+    await hook.finish(0, true);
+    await previous;
+    expect(hook.writes).toHaveLength(2);
+    expect(hook.setError).not.toHaveBeenCalled();
+    await hook.finish(1);
+    await current;
+    expect(hook.setLayout).toHaveBeenCalledTimes(1);
+    expect(hook.setError).toHaveBeenLastCalledWith(null);
+  });
+  it.each([false, true])("publishes final same-canvas drag shared=%s", async (shared) => {
+    const hook = await layoutOwnerHarness(shared);
+    let first!: Promise<void>;
+    let last!: Promise<void>;
+    act(() => {
+      first = hook.invoke("save", 120);
+      last = hook.invoke("save", 900);
+    });
+    expect(hook.writes).toHaveLength(1);
+    await hook.finish(0);
+    await first;
+    expect(hook.setLayout).not.toHaveBeenCalled();
+    expect(hook.writes).toHaveLength(2);
+    await hook.finish(1);
+    await last;
+    expect(hook.setLayout).toHaveBeenCalledTimes(1);
+    expect(hook.setLayout).toHaveBeenLastCalledWith(
+      expect.objectContaining({ nodes: [{ nodeId: "T-ALPHA", x: 900, y: 180 }] })
+    );
   });
 });

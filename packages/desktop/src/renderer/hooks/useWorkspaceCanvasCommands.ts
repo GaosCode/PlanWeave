@@ -43,6 +43,11 @@ export type WorkspaceCanvasSubmitResult =
       staleConflict: null;
     };
 
+export type WorkspaceCanvasSubmitInput = {
+  intent: CanvasCommandIntent;
+  isOwnerCurrent?: () => boolean;
+};
+
 export type WorkspaceCanvasCommandsResult = {
   sessionAuthority: object;
   /** Workspace authority always routes durable mutations through the Server command session. */
@@ -52,7 +57,7 @@ export type WorkspaceCanvasCommandsResult = {
   projectionStatus: WorkspaceCanvasProjectionStatus | null;
   initialRuntimeAvailability: CanvasRuntimeAvailability | null;
   offline: boolean;
-  submit: (input: { intent: CanvasCommandIntent }) => Promise<WorkspaceCanvasSubmitResult>;
+  submit: (input: WorkspaceCanvasSubmitInput) => Promise<WorkspaceCanvasSubmitResult>;
   reconnect: () => Promise<boolean>;
 };
 

@@ -7,7 +7,6 @@ import {
   useState,
   type SetStateAction
 } from "react";
-import type { CanvasCommandIntent } from "@planweave-ai/collaboration-protocol/canvas/commands";
 import type { CanvasRuntimeAvailability } from "@planweave-ai/collaboration-protocol/canvas/runtime-availability";
 import type {
   WorkspaceCanvasCommandLabels,
@@ -21,6 +20,7 @@ import type {
 } from "../../shared/workspaceCanvasProjection";
 import type {
   WorkspaceCanvasCommandBridge,
+  WorkspaceCanvasSubmitInput,
   WorkspaceCanvasSubmitResult
 } from "./useWorkspaceCanvasCommands";
 
@@ -74,7 +74,7 @@ export type WorkspaceCanvasSessionView = {
   projection: CollaborationCanvasBindingReplicaProjection | null;
   projectionStatus: WorkspaceCanvasProjectionStatus | null;
   initialRuntimeAvailability: CanvasRuntimeAvailability | null;
-  submit: (input: { intent: CanvasCommandIntent }) => Promise<WorkspaceCanvasSubmitResult>;
+  submit: (input: WorkspaceCanvasSubmitInput) => Promise<WorkspaceCanvasSubmitResult>;
   reconnect: () => Promise<boolean>;
 };
 
@@ -227,7 +227,7 @@ export function useWorkspaceCanvasSession(input: {
   }, [input.api, input.locator, input.sessionConnected, publishProjection, setSnapshot]);
 
   const submit = useCallback(
-    async (submitInput: { intent: CanvasCommandIntent }): Promise<WorkspaceCanvasSubmitResult> => {
+    async (submitInput: WorkspaceCanvasSubmitInput): Promise<WorkspaceCanvasSubmitResult> => {
       const submittedGeneration = generation.current;
       const isCurrent = () =>
         activeAuthority.current === authority && generation.current === submittedGeneration;
@@ -257,7 +257,8 @@ export function useWorkspaceCanvasSession(input: {
           intent: submitInput.intent
         });
         if (!isCurrent()) return RETIRED_SUBMIT_RESULT;
-        const publicationError = publishProjection(projection);
+        const publicationError =
+          submitInput.isOwnerCurrent?.() === false ? null : publishProjection(projection);
         if (publicationError) {
           return { status: "completed", ok: false, error: publicationError, staleConflict: null };
         }
@@ -280,7 +281,9 @@ export function useWorkspaceCanvasSession(input: {
       } catch (error) {
         if (!isCurrent()) return RETIRED_SUBMIT_RESULT;
         const message = error instanceof Error ? error.message : String(error);
-        setSnapshot((current) => ({ ...current, busy: false, lastError: message }));
+        if (submitInput.isOwnerCurrent?.() !== false) {
+          setSnapshot((current) => ({ ...current, busy: false, lastError: message }));
+        }
         return { status: "completed", ok: false, error: message, staleConflict: null };
       }
     },

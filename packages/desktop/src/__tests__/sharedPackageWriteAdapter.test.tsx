@@ -353,6 +353,7 @@ describe("shared-mode package write gate", () => {
     const setLayout = vi.fn();
     const { result } = renderHook(() =>
       useGraphPaletteActions({
+        captureProjectSelection: () => ({ isCurrent: () => true }),
         flowInstance: null,
         graph,
         layout,
@@ -381,6 +382,7 @@ describe("shared-mode package write gate", () => {
 
     expect(bridge.resetDesktopLayout).not.toHaveBeenCalled();
     expect(submit).toHaveBeenCalledWith({
+      isOwnerCurrent: expect.any(Function),
       intent: expect.objectContaining({ kind: "update_layout" })
     });
     expect(setLayout).toHaveBeenCalled();

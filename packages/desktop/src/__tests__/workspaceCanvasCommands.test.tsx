@@ -2,6 +2,7 @@
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { deferred } from "./helpers/desktopProjectFixtures";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 import { createTranslator } from "../renderer/i18n";
 import {
@@ -321,5 +322,57 @@ describe("useWorkspaceCanvasCommands", () => {
 
     act(() => resolveNext?.(projectionForLocator(nextLocator)));
     await waitFor(() => expect(result.current.projection?.canvasId).toBe(nextLocator.canvasId));
+  });
+});
+
+describe("Workspace command owner publication", () => {
+  it.each([
+    "accepted",
+    "rejected",
+    "throw"
+  ] as const)("returns the real %s result without publishing a superseded layout callback", async (settlement) => {
+    const port = bridge(projection());
+    const pending = deferred<WorkspaceCanvasProjection>();
+    port.submitWorkspaceCanvasCommand.mockImplementation(() => pending.promise);
+    const hook = renderHook(() =>
+      useWorkspaceCanvasCommands({
+        api: port.api,
+        authorityKey: "test-authority",
+        locator,
+        sessionConnected: true,
+        t
+      })
+    );
+    await waitFor(() => expect(hook.result.current.projection?.revision).toBe(4));
+    let current = true;
+    let submitted!: ReturnType<typeof hook.result.current.submit>;
+    act(() => {
+      submitted = hook.result.current.submit({
+        intent: { kind: "update_layout", nodes: [], updatedAt: "2026-11-09T00:00:00.000Z" },
+        isOwnerCurrent: () => current
+      });
+    });
+    current = false;
+    await act(async () => {
+      if (settlement === "throw") pending.reject(new Error("superseded failure"));
+      else
+        pending.resolve({
+          ...projection(),
+          status: settlement,
+          rejectCode: settlement === "rejected" ? "superseded_reject" : null,
+          replica: { ...projection().replica, revision: 5, contentDigest: "c".repeat(64) }
+        });
+      const result = await submitted;
+      expect(result.status).toBe("completed");
+      expect(result.ok).toBe(settlement === "accepted");
+      if (result.ok) expect(result.confirmedProjection.revision).toBe(5);
+      else
+        expect(result.error).toContain(
+          settlement === "throw" ? "superseded failure" : "superseded_reject"
+        );
+    });
+    expect(hook.result.current.projection?.revision).toBe(4);
+    expect(hook.result.current.snapshot.lastError).toBeNull();
+    expect(hook.result.current.snapshot.busy).toBe(false);
   });
 });

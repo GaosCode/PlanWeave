@@ -418,6 +418,7 @@
         "desktopSettingsStore.test.ts",
         "developmentToolDetectionCache.test.ts",
         "firstLaunchExample.test.ts",
+        "graphLayoutPersistence.test.tsx",
         "hostAdministrationPackagedE2E.test.tsx",
         "hostAdministrationRegistrationPersistence.test.tsx",
         "humanObserverSessionLifecycle.test.ts",
