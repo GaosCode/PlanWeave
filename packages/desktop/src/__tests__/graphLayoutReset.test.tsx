@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { DesktopGraphViewModel } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
@@ -10,6 +10,12 @@ import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironmen
 import { createTranslator } from "../renderer/i18n";
 import { defaultDesktopSettings } from "../renderer/settings";
 import type { AppFlowNode } from "../renderer/types";
+import type { WorkspaceCanvasLocator } from "../shared/canvasLocator";
+import type {
+  WorkspaceCanvasProjection,
+  WorkspaceCanvasProjectionSignal
+} from "../shared/workspaceCanvasProjection";
+import type { WorkspaceCanvasCommandBridge } from "../renderer/hooks/useWorkspaceCanvasCommands";
 
 afterEach(cleanupRendererTestEnvironment);
 
@@ -25,12 +31,93 @@ async function resetHarness(source: DesktopGraphViewModel | null, nodes: AppFlow
   vi.stubGlobal("planweave", api);
   vi.resetModules();
   const { useGraphPaletteActions } = await import("../renderer/hooks/useGraphPaletteActions");
-  const submit = vi.fn().mockResolvedValue({ status: "completed", ok: true });
+  const { useWorkspaceCanvasCommands } = await import(
+    "../renderer/hooks/useWorkspaceCanvasCommands"
+  );
+  const t = createTranslator("en");
+  const locator: WorkspaceCanvasLocator = {
+    kind: "workspace",
+    connectionProfileId: "profile-reset",
+    workspaceId: "workspace-reset",
+    projectId: graph.projectId,
+    canvasId: "default"
+  };
+  let stored: WorkspaceCanvasProjection = {
+    locator,
+    status: "accepted",
+    authorityMode: "server_authoritative",
+    readOnly: false,
+    cachedAt: null,
+    initialRuntimeAvailability: null,
+    conflict: null,
+    rejectCode: null,
+    replica: {
+      authorityId: "reset-authority",
+      bindingKind: "remote",
+      workspaceId: locator.workspaceId,
+      projectId: locator.projectId,
+      canvasId: locator.canvasId,
+      revision: 1,
+      contentDigest: "1".padStart(64, "0"),
+      canEdit: true,
+      optimisticOperationIds: [],
+      rejections: [],
+      content: {
+        ...(source ?? graph),
+        tasks: source?.tasks ?? [],
+        layout,
+        blockDependenciesByRef: {},
+        taskOpenFeedbackCountByTaskId: {},
+        blockPromptMarkdownByRef: {}
+      }
+    }
+  };
+  const listeners = new Set<(signal: WorkspaceCanvasProjectionSignal) => void>();
+  const submit = vi.fn<WorkspaceCanvasCommandBridge["submitWorkspaceCanvasCommand"]>(
+    async ({ intent }) => {
+      if (intent.kind !== "update_layout") throw new Error("Unexpected reset command");
+      const revision = stored.replica.revision + 1;
+      stored = {
+        ...stored,
+        replica: {
+          ...stored.replica,
+          revision,
+          contentDigest: revision.toString(16).padStart(64, "0"),
+          content: {
+            ...stored.replica.content,
+            layout: { ...layout, nodes: intent.nodes, updatedAt: intent.updatedAt }
+          }
+        }
+      };
+      for (const listener of listeners)
+        listener({ type: "workspace.canvas.projection", projection: stored });
+      return stored;
+    }
+  );
+  const workspaceApi: WorkspaceCanvasCommandBridge = {
+    openWorkspaceCanvasSession: vi.fn(async () => stored),
+    reconnectWorkspaceCanvasSession: vi.fn(async () => stored),
+    closeWorkspaceCanvasSession: vi.fn(async () => undefined),
+    onWorkspaceCanvasProjectionSignal: vi.fn((listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    }),
+    submitWorkspaceCanvasCommand: submit
+  };
   const setLayout = vi.fn();
   const setError = vi.fn();
   const getLayoutNodes = vi.fn(() => nodes);
-  const hook = renderHook(() =>
-    useGraphPaletteActions({
+  const hook = renderHook(() => {
+    const commands = useWorkspaceCanvasCommands({
+      api: workspaceApi,
+      authorityKey: "reset-authority",
+      locator,
+      sessionConnected: true,
+      t
+    });
+    const actions = useGraphPaletteActions({
       captureProjectSelection: () => ({ isCurrent: () => true }),
       flowInstance: null,
       graph: source,
@@ -47,27 +134,16 @@ async function resetHarness(source: DesktopGraphViewModel | null, nodes: AppFlow
       setError,
       selectTaskPanel: vi.fn(),
       settings: defaultDesktopSettings,
-      t: createTranslator("en"),
-      workspaceCanvas: {
-        enabled: true,
-        offline: false,
-        projection: null,
-        projectionStatus: null,
-        initialRuntimeAvailability: null,
-        submit,
-        reconnect: vi.fn(),
-        snapshot: {
-          session: null,
-          connectionPhase: "connected",
-          lastError: null,
-          lastStaleConflict: null,
-          busy: false
-        }
-      }
-    })
+      t,
+      workspaceCanvas: commands
+    });
+    return { ...actions, commands };
+  });
+  await waitFor(() =>
+    expect(hook.result.current.commands.snapshot.connectionPhase).toBe("connected")
   );
   const reset = () => act(async () => hook.result.current.resetLayout());
-  return { reset, submit, setLayout, setError, getLayoutNodes, api };
+  return { result: hook.result, reset, submit, setLayout, setError, getLayoutNodes, api };
 }
 
 describe("shared default layout reset", () => {
@@ -123,10 +199,14 @@ describe("shared default layout reset", () => {
     }
     expect(Math.min(...gaps)).toBeGreaterThanOrEqual(140);
     expect(hook.setLayout).toHaveBeenCalledWith(expect.objectContaining({ nodes: submitted }));
+    expect(hook.result.current.commands.projection?.content.layout.nodes).toEqual(submitted);
+    expect(hook.result.current.commands.layout?.nodes).toEqual(submitted);
     expect(hook.api.resetDesktopLayout).not.toHaveBeenCalled();
     await hook.reset();
     expect(hook.submit.mock.calls[1][0].intent.nodes).toEqual(submitted);
     expect(hook.setLayout).toHaveBeenCalledTimes(2);
+    expect(hook.result.current.commands.projection?.revision).toBe(3);
+    expect(hook.result.current.commands.layout?.nodes).toEqual(submitted);
   });
 
   it("places dependencies after the widest prerequisite layer", async () => {

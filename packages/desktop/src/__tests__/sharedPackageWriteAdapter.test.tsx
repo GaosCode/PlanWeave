@@ -8,7 +8,6 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
 import { createTranslator } from "../renderer/i18n";
-import type { AppFlowNode, DesktopUiSettings } from "../renderer/types";
 import { layout, project } from "./helpers/desktopProjectFixtures";
 import { graph } from "./helpers/graphFixtures";
 import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
@@ -55,6 +54,8 @@ function workspaceCanvasMock(
 ): WorkspaceCanvasCommandsResult {
   return {
     sessionAuthority: {},
+    layout: null,
+    stageLayout: vi.fn(),
     enabled: true,
     snapshot: {
       session: {
@@ -80,15 +81,6 @@ function workspaceCanvasMock(
     reconnect: vi.fn().mockResolvedValue(true)
   };
 }
-
-const paletteSettings = {
-  defaultExecutor: "",
-  palette: {
-    defaultBlockSet: ["implementation"],
-    dragHint: true,
-    visible: { task: true, implementation: true, review: true }
-  }
-} as unknown as DesktopUiSettings;
 
 describe("shared-mode package write gate", () => {
   it("routes prompt/title saves through shared intents and skips bridge writers", async () => {
@@ -334,58 +326,6 @@ describe("shared-mode package write gate", () => {
     expect(bridge.updateReviewPipeline).not.toHaveBeenCalled();
     expect(setError).toHaveBeenCalled();
     expect(submit).not.toHaveBeenCalled();
-  });
-
-  it("routes resetLayout through update_layout and skips resetDesktopLayout", async () => {
-    const submit = vi.fn<WorkspaceCanvasCommandsResult["submit"]>().mockResolvedValue({
-      status: "completed",
-      ok: true,
-      error: null,
-      staleConflict: null,
-      confirmedProjection
-    });
-    const bridge = createDesktopBridgeMock({
-      resetDesktopLayout: vi.fn().mockResolvedValue(layout)
-    });
-    vi.stubGlobal("planweave", bridge);
-    vi.resetModules();
-    const { useGraphPaletteActions } = await import("../renderer/hooks/useGraphPaletteActions");
-    const setLayout = vi.fn();
-    const { result } = renderHook(() =>
-      useGraphPaletteActions({
-        captureProjectSelection: () => ({ isCurrent: () => true }),
-        flowInstance: null,
-        graph,
-        layout,
-        loadProject: vi.fn().mockResolvedValue(undefined),
-        nodes: [
-          { id: "T-ALPHA", position: { x: 1, y: 2 } },
-          { id: "T-BETA", position: { x: 3, y: 4 } }
-        ] as AppFlowNode[],
-        refreshProjectDerivedState: vi.fn().mockResolvedValue(undefined),
-        selectedCanvasId: "canvas-main",
-        selectedBlock: null,
-        selectedProject: project,
-        selectedTaskPanelId: null,
-        setError: vi.fn(),
-        setLayout,
-        selectTaskPanel: vi.fn(),
-        settings: paletteSettings,
-        t: createTranslator("en"),
-        workspaceCanvas: workspaceCanvasMock(submit)
-      })
-    );
-
-    await act(async () => {
-      await result.current.resetLayout();
-    });
-
-    expect(bridge.resetDesktopLayout).not.toHaveBeenCalled();
-    expect(submit).toHaveBeenCalledWith({
-      isOwnerCurrent: expect.any(Function),
-      intent: expect.objectContaining({ kind: "update_layout" })
-    });
-    expect(setLayout).toHaveBeenCalled();
   });
 
   it("routes task-workspace prompt/executor writes through shared intents", async () => {

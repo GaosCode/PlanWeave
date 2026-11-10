@@ -149,9 +149,7 @@ export function useProjectWorkspaceAuthority(input: UseProjectWorkspaceAuthority
           : localGraph,
     [localGraph, remoteWorkspace.binding, workspaceCanvasCommands.projection]
   );
-  const layout =
-    workspaceCanvasCommands.projection?.content.layout ??
-    (remoteWorkspace.binding ? null : localLayout);
+  const layout = workspaceCanvasCommands.layout ?? (remoteWorkspace.binding ? null : localLayout);
   const collaborationRuntime = useWorkspaceRuntime({
     activeProfileId: collaborationSurface.activeProfileId,
     activeProjectId: collaborationSurface.activeProjectId,

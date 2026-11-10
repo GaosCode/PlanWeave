@@ -11,6 +11,10 @@ import type {
   WorkspaceCanvasCommandSnapshot
 } from "../collaboration/workspaceCanvasCommandView";
 import type { createTranslator } from "../i18n";
+import {
+  useWorkspaceLayoutIntents,
+  type WorkspaceLayoutIntents
+} from "./useWorkspaceLayoutIntents";
 import { useWorkspaceCanvasSession } from "./useWorkspaceCanvasSession";
 
 export type WorkspaceCanvasCommandBridge = Pick<
@@ -48,7 +52,7 @@ export type WorkspaceCanvasSubmitInput = {
   isOwnerCurrent?: () => boolean;
 };
 
-export type WorkspaceCanvasCommandsResult = {
+export type WorkspaceCanvasCommandsResult = WorkspaceLayoutIntents & {
   sessionAuthority: object;
   /** Workspace authority always routes durable mutations through the Server command session. */
   enabled: boolean;
@@ -91,8 +95,11 @@ export function useWorkspaceCanvasCommands(input: {
     sessionConnected: input.sessionConnected
   });
 
+  const layoutIntents = useWorkspaceLayoutIntents(session);
+
   return useMemo(
     () => ({
+      ...layoutIntents,
       sessionAuthority: session.sessionAuthority,
       enabled: input.locator !== null,
       snapshot: session.snapshot,
@@ -105,6 +112,6 @@ export function useWorkspaceCanvasCommands(input: {
       submit: session.submit,
       reconnect: session.reconnect
     }),
-    [input.locator, input.sessionConnected, session]
+    [input.locator, input.sessionConnected, session, layoutIntents]
   );
 }

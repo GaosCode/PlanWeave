@@ -348,6 +348,7 @@
         "workspaceCanvasDownloadConsumer.test.tsx",
         "workspaceCanvasRetiredWrites.test.tsx",
         "workspaceCanvasSessionAuthority.test.tsx",
+        "workspaceLayoutIntents.test.tsx",
         "workspaceCanvasDirectory.test.tsx",
         "workspaceCanvasPresenceController.test.ts",
         "workspaceCanvasPublishAuthority.test.ts",

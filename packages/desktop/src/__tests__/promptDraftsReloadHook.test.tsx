@@ -44,6 +44,8 @@ const conflictResult: DesktopGraphEditResult = {
 function sharedAuthority(): WorkspaceCanvasCommandsResult {
   return {
     sessionAuthority: {},
+    layout: null,
+    stageLayout: vi.fn(),
     enabled: true,
     snapshot: {
       session: null,

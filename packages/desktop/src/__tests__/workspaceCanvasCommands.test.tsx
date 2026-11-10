@@ -330,7 +330,7 @@ describe("Workspace command owner publication", () => {
     "accepted",
     "rejected",
     "throw"
-  ] as const)("returns the real %s result without publishing a superseded layout callback", async (settlement) => {
+  ] as const)("preserves the real %s authority result while retiring the superseded owner error", async (settlement) => {
     const port = bridge(projection());
     const pending = deferred<WorkspaceCanvasProjection>();
     port.submitWorkspaceCanvasCommand.mockImplementation(() => pending.promise);
@@ -371,7 +371,7 @@ describe("Workspace command owner publication", () => {
           settlement === "throw" ? "superseded failure" : "superseded_reject"
         );
     });
-    expect(hook.result.current.projection?.revision).toBe(4);
+    expect(hook.result.current.projection?.revision).toBe(settlement === "throw" ? 4 : 5);
     expect(hook.result.current.snapshot.lastError).toBeNull();
     expect(hook.result.current.snapshot.busy).toBe(false);
   });

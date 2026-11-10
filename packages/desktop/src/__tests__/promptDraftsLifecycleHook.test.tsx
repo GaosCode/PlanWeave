@@ -445,6 +445,8 @@ describe("desktop renderer hook interfaces", () => {
       .mockResolvedValue({ status: "completed", ok: true, error: null, staleConflict: null });
     const workspaceCanvas: WorkspaceCanvasCommandsResult = {
       sessionAuthority: {},
+      layout: null,
+      stageLayout: vi.fn(),
       enabled: true,
       snapshot: {
         session: null,

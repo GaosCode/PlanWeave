@@ -70,7 +70,8 @@ export function useGraphLayoutActions({
       write: (
         isSelectionCurrent: () => boolean,
         isCurrent: () => boolean
-      ) => Promise<DesktopLayout | null>
+      ) => Promise<DesktopLayout | null>,
+      discard?: () => void
     ) => {
       const generation = owner.current.generation;
       const operation = ++owner.current.operation;
@@ -82,7 +83,10 @@ export function useGraphLayoutActions({
         selection.isCurrent();
       const isCurrent = () => isSelectionCurrent() && owner.current.operation === operation;
       const execute = async () => {
-        if (!isSelectionCurrent()) return;
+        if (!isSelectionCurrent()) {
+          discard?.();
+          return;
+        }
         try {
           const saved = await write(isSelectionCurrent, isCurrent);
           if (saved && isCurrent()) {
@@ -91,6 +95,8 @@ export function useGraphLayoutActions({
           }
         } catch (caught) {
           if (isCurrent()) setError(caught instanceof Error ? caught.message : String(caught));
+        } finally {
+          discard?.();
         }
       };
       const previous = queues.current.get(scopeKey);
@@ -113,22 +119,22 @@ export function useGraphLayoutActions({
       }));
       if (workspaceCanvas?.enabled) {
         const updatedAt = new Date().toISOString();
+        const positions = graph ? defaultTaskNodePositions(graph, nodes) : new Map();
+        const changedIds = new Set([
+          node.id,
+          ...nodes.filter((item) => item.selected).map((item) => item.id)
+        ]);
+        const intent = workspaceCanvas.stageLayout({
+          nodes: layoutNodes.filter((item) => changedIds.has(item.nodeId)),
+          defaults: [...positions].map(([nodeId, position]) => ({ nodeId, ...position })),
+          updatedAt
+        });
         return persistLayout(async (_isSelectionCurrent, isCurrent) => {
-          const result = await workspaceCanvas.submit({
-            intent: { kind: "update_layout", nodes: layoutNodes, updatedAt },
-            isOwnerCurrent: isCurrent
-          });
+          const result = await intent.submit(isCurrent);
           if (result.status === "retired") return null;
           if (!result.ok) throw new Error(result.error ?? t("canvasCommandNotConnected"));
-          return graph
-            ? {
-                version: "desktop-layout/v1",
-                projectId: graph.projectId,
-                nodes: layoutNodes,
-                updatedAt
-              }
-            : null;
-        });
+          return result.confirmedProjection.content.layout;
+        }, intent.discard);
       }
       if (!bridge || !selectedProject) return;
       const api = bridge;
@@ -161,20 +167,17 @@ export function useGraphLayoutActions({
         ...positions.get(task.taskId)!
       }));
       const updatedAt = new Date().toISOString();
+      const intent = workspaceCanvas.stageLayout({
+        nodes: layoutNodes,
+        defaults: layoutNodes,
+        updatedAt
+      });
       return persistLayout(async (_isSelectionCurrent, isCurrent) => {
-        const result = await workspaceCanvas.submit({
-          intent: { kind: "update_layout", nodes: layoutNodes, updatedAt },
-          isOwnerCurrent: isCurrent
-        });
+        const result = await intent.submit(isCurrent);
         if (result.status === "retired") return null;
         if (!result.ok) throw new Error(result.error ?? t("canvasCommandNotConnected"));
-        return {
-          version: "desktop-layout/v1",
-          projectId: graph.projectId,
-          nodes: layoutNodes,
-          updatedAt
-        };
-      });
+        return result.confirmedProjection.content.layout;
+      }, intent.discard);
     }
     if (!bridge || !selectedProject) return;
     const api = bridge;

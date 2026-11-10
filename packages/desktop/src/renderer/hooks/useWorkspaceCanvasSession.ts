@@ -76,6 +76,7 @@ export type WorkspaceCanvasSessionView = {
   initialRuntimeAvailability: CanvasRuntimeAvailability | null;
   submit: (input: WorkspaceCanvasSubmitInput) => Promise<WorkspaceCanvasSubmitResult>;
   reconnect: () => Promise<boolean>;
+  readProjection: () => CollaborationCanvasBindingReplicaProjection | null;
 };
 
 const IDLE_SNAPSHOT: WorkspaceCanvasCommandSnapshot = {
@@ -105,6 +106,7 @@ export function useWorkspaceCanvasSession(input: {
   sessionConnected: boolean;
 }): WorkspaceCanvasSessionView {
   const generation = useRef(0);
+  const submitOwner = useRef<{ isCurrent?: () => boolean } | null>(null);
   const locatorKey = JSON.stringify(input.locator);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Home, bridge and connection changes retire the current session authority.
   const authority = useMemo(
@@ -114,6 +116,7 @@ export function useWorkspaceCanvasSession(input: {
   const activeAuthority = useRef<typeof authority | null>(null);
   useLayoutEffect(() => {
     activeAuthority.current = authority;
+    submitOwner.current = null;
     generation.current += 1;
     return () => {
       activeAuthority.current = null;
@@ -158,7 +161,12 @@ export function useWorkspaceCanvasSession(input: {
       }
       publishedProjection.current = { authority, projection };
       setWorkspaceView({ authority, projection });
-      setSnapshot(snapshotFromWorkspaceProjection(projection, input.labels, "connected"));
+      const nextSnapshot = snapshotFromWorkspaceProjection(projection, input.labels, "connected");
+      setSnapshot(
+        submitOwner.current?.isCurrent?.() === false
+          ? { ...nextSnapshot, lastError: null, lastStaleConflict: null }
+          : nextSnapshot
+      );
       return null;
     },
     [authority, input.labels, setSnapshot]
@@ -251,14 +259,15 @@ export function useWorkspaceCanvasSession(input: {
           staleConflict: null
         };
       }
+      const operationOwner = { isCurrent: submitInput.isOwnerCurrent };
+      submitOwner.current = operationOwner;
       try {
         const projection = await input.api.submitWorkspaceCanvasCommand({
           locator: input.locator,
           intent: submitInput.intent
         });
         if (!isCurrent()) return RETIRED_SUBMIT_RESULT;
-        const publicationError =
-          submitInput.isOwnerCurrent?.() === false ? null : publishProjection(projection);
+        const publicationError = publishProjection(projection);
         if (publicationError) {
           return { status: "completed", ok: false, error: publicationError, staleConflict: null };
         }
@@ -285,6 +294,8 @@ export function useWorkspaceCanvasSession(input: {
           setSnapshot((current) => ({ ...current, busy: false, lastError: message }));
         }
         return { status: "completed", ok: false, error: message, staleConflict: null };
+      } finally {
+        if (submitOwner.current === operationOwner) submitOwner.current = null;
       }
     },
     [
@@ -316,6 +327,13 @@ export function useWorkspaceCanvasSession(input: {
     }
   }, [authority, input.api, input.locator, publishProjection]);
 
+  const readProjection = useCallback(
+    () =>
+      publishedProjection.current?.authority === authority
+        ? publishedProjection.current.projection.replica
+        : null,
+    [authority]
+  );
   const replica = activeWorkspaceProjection?.replica ?? null;
   const projection = useMemo(
     () =>
@@ -345,13 +363,15 @@ export function useWorkspaceCanvasSession(input: {
         ? (activeWorkspaceProjection?.initialRuntimeAvailability ?? null)
         : null,
       submit,
-      reconnect
+      reconnect,
+      readProjection
     }),
     [
       input.sessionConnected,
       sessionAuthority,
       projection,
       reconnect,
+      readProjection,
       snapshot,
       submit,
       activeWorkspaceProjection?.initialRuntimeAvailability,

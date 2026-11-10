@@ -153,6 +153,8 @@ function workspaceCanvasWithProjection(
 ): WorkspaceCanvasCommandsResult {
   return {
     sessionAuthority: {},
+    layout: null,
+    stageLayout: vi.fn(),
     enabled: true,
     authorityMode: "shared",
     snapshot: {

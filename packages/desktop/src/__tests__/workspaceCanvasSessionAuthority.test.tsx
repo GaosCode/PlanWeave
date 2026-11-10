@@ -11,6 +11,7 @@ import type {
   WorkspaceCanvasProjection,
   WorkspaceCanvasProjectionSignal
 } from "../shared/workspaceCanvasProjection";
+import { graph as layoutGraph } from "./helpers/graphFixtures";
 import { deferred } from "./helpers/desktopProjectFixtures";
 import {
   bridges,
@@ -77,6 +78,43 @@ function authorizeCanvas(...locators: WorkspaceCanvasLocator[]) {
 }
 
 describe("Provider Workspace Canvas session authority", () => {
+  it("restores a connected Provider graph with real command-dependent task actions without a render loop", async () => {
+    const mocked = await import("../renderer/hooks/useGraphDeleteActions");
+    const actual = await vi.importActual<typeof mocked>("../renderer/hooks/useGraphDeleteActions");
+    const realActions = vi
+      .spyOn(mocked, "useGraphDeleteActions")
+      .mockImplementation(actual.useGraphDeleteActions);
+    authorizeCanvas(locator);
+    const connected = editableProjectionFor("Connected layout");
+    connected.replica.content.tasks = layoutGraph.tasks;
+    bridges.collaboration.target.openWorkspaceCanvasSession = vi.fn(async () => connected);
+    bridges.collaboration.target.reconnectWorkspaceCanvasSession = vi.fn(async () => connected);
+    let current: ProjectWorkspaceValue | null = null;
+    let publications = 0;
+    const mounted = render(
+      <ProviderHarness
+        initialSettings={workspaceSettings()}
+        onSettings={vi.fn()}
+        onValue={(value) => {
+          if (++publications > 100)
+            throw new Error("Workspace Provider did not settle after connection");
+          current = value;
+        }}
+      />
+    );
+    await waitFor(() =>
+      expect(current?.graphWorkspace.graph?.projectTitle).toBe("Connected layout")
+    );
+    expect(current?.graphWorkspace.nodes.length).toBeGreaterThan(0);
+    await act(async () => {
+      await current!.graphWorkspace.onRefreshWorkspaceCanvas!();
+    });
+    expect(current?.graphWorkspace.nodes.length).toBeGreaterThan(0);
+    expect(bridges.collaboration.target.openWorkspaceCanvasSession).toHaveBeenCalledOnce();
+    mounted.unmount();
+    realActions.mockRestore();
+  });
+
   it.each([
     "Home",
     "credential"
