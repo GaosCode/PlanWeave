@@ -92,7 +92,7 @@ function content(updatedAt = "2026-01-01T00:00:00.000Z"): CompleteContentVersion
   };
 }
 
-function caseDistinctContent(): CompleteContentVersion {
+function localeOrderContent(): CompleteContentVersion {
   const base = content();
   const manifestMember = base.members.find((member) => member.kind === "manifest");
   if (!manifestMember) throw new Error("expected manifest member");
@@ -105,7 +105,7 @@ function caseDistinctContent(): CompleteContentVersion {
   };
   const template = manifest.nodes[0];
   if (!template) throw new Error("expected manifest task");
-  manifest.nodes = ["a", "A"].map((id) => ({
+  manifest.nodes = ["a-first", "A-second"].map((id) => ({
     ...template,
     id,
     prompt: `nodes/${id}/prompt.md`,
@@ -232,8 +232,8 @@ describe("authoritative content version repository", () => {
   });
 
   it("retains canonical locale ordering when SQLite ordering differs", async () => {
-    const { repository } = await fixture();
-    const value = caseDistinctContent();
+    const { database, repository } = await fixture();
+    const value = localeOrderContent();
     const scope = { workspaceId: "w", projectId: "p", canvasId: "default" };
     const stored = repository.persistImmutable({
       scope,
@@ -241,8 +241,20 @@ describe("authoritative content version repository", () => {
       createdBy: { kind: "human", id: "owner" }
     });
     const expectedPaths = value.members.map((member) => member.path);
-    expect(expectedPaths.indexOf("nodes/a/prompt.md")).toBeLessThan(
-      expectedPaths.indexOf("nodes/A/prompt.md")
+    expect(expectedPaths.indexOf("nodes/a-first/prompt.md")).toBeLessThan(
+      expectedPaths.indexOf("nodes/A-second/prompt.md")
+    );
+    const sqlitePaths = database
+      .prepare(
+        `SELECT member_path FROM canvas_content_version_members
+         WHERE workspace_id=? AND project_id=? AND canvas_id=? AND version_id=?
+         ORDER BY member_path`
+      )
+      .all(scope.workspaceId, scope.projectId, scope.canvasId, stored.completed.versionId)
+      .map((row) => row.member_path);
+    expect(sqlitePaths).not.toEqual(expectedPaths);
+    expect(sqlitePaths.indexOf("nodes/A-second/prompt.md")).toBeLessThan(
+      sqlitePaths.indexOf("nodes/a-first/prompt.md")
     );
     expect(
       repository.readVersion(scope, stored.completed).content.members.map((member) => member.path)
