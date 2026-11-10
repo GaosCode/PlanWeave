@@ -1,4 +1,9 @@
 import { createServer } from "node:http";
+import {
+  agentHostProtocolVersion,
+  CANVAS_RUNTIME_CAPABILITY
+} from "@planweave-ai/agent-host-protocol";
+import { WebSocket } from "ws";
 import { expect, it, vi } from "vitest";
 import { parseServerConfig } from "../../../server/src/config.js";
 import { RuntimeArtifactGrantRepository } from "../../../server/src/canvas/runtimeArtifactGrantRepository.js";
@@ -6,12 +11,37 @@ import { RuntimeArtifactRetention } from "../../../server/src/canvas/runtimeArti
 import { ArtifactStore } from "../../../server/src/artifacts.js";
 import { createDistributedServerComposition } from "../../../server/src/serverComposition.js";
 import { openServerDatabase } from "../../../server/src/sqlite.js";
+import { ProjectAccessRepository } from "../../../server/src/projectAccessRepository.js";
 import { scope, setup, storeReport } from "./support/canvasRuntimeArtifactLoopbackFixture.js";
 
 it("collects real Host RPC and HTTP history after a Server restart without reviving old grants", async () => {
   const fixture = await setup();
   const bytes = Buffer.from("retention round trip payload\n");
   const artifact = await storeReport(fixture.artifacts, bytes);
+  const access = new ProjectAccessRepository(fixture.server.database);
+  const removedScope = { ...scope, canvasId: "removed" };
+  access.registerCanvasInternal({
+    ...removedScope,
+    packageDir: fixture.workspace.init.workspace.packageDir
+  });
+  const removedLease = fixture.grants.recordLease({
+    ...removedScope,
+    runtimeLeaseId: "a-removed-scope",
+    hostId: fixture.hostRegistration.host.id,
+    attachmentVersion: 0,
+    sourceRevision: `snapshot:${"b".repeat(64)}`,
+    graphFingerprint: `pkg-${"a".repeat(64)}`,
+    expiresAt: new Date(Date.now() + 10_000).toISOString()
+  });
+  fixture.grants.createDownloadGrant({
+    runtimeLeaseId: removedLease.runtimeLeaseId,
+    operationId: "removed-scope-download",
+    artifactRef: artifact.ref,
+    sha256: artifact.sha256,
+    mediaType: artifact.mediaType,
+    sizeBytes: bytes.length,
+    expiresAt: removedLease.expiresAt
+  });
   const counts = () => ({
     leases: Number(
       fixture.server.database.prepare("SELECT COUNT(*) n FROM canvas_runtime_leases").get()!.n
@@ -61,7 +91,8 @@ it("collects real Host RPC and HTTP history after a Server restart without reviv
     if (index < 120) await acquired.release();
     if (index === 59) await fixture.restartHost();
   }
-  expect(counts()).toEqual({ leases: 121, grants: 242 });
+  expect(counts()).toEqual({ leases: 122, grants: 243 });
+  access.reconcileRuntimeCanvases(scope.workspaceId, scope.projectId, [scope.canvasId]);
   const headers = {
     Authorization: `Bearer ${fixture.hostRegistration.token}`,
     "x-planweave-runtime-artifact-grant-id": oldGrantId
@@ -107,6 +138,7 @@ it("collects real Host RPC and HTTP history after a Server restart without reviv
     clock: () => now
   });
   const database = await openServerDatabase(config.databasePath, 5000);
+  let reconnected: WebSocket | undefined;
   try {
     const count = () => ({
       leases: Number(database.prepare("SELECT COUNT(*) n FROM canvas_runtime_leases").get()!.n),
@@ -114,11 +146,55 @@ it("collects real Host RPC and HTTP history after a Server restart without reviv
         database.prepare("SELECT COUNT(*) n FROM canvas_runtime_artifact_grants").get()!.n
       )
     });
-    expect(count()).toEqual({ leases: 121, grants: 242 });
+    expect(count()).toEqual({ leases: 122, grants: 243 });
     expect(
       database.prepare("SELECT COUNT(*) n FROM canvas_runtime_leases WHERE status='active'").get()!
         .n
     ).toBe(0);
+    expect(
+      database
+        .prepare(
+          "SELECT status,attachment_version FROM canvas_runtime_leases WHERE runtime_lease_id=?"
+        )
+        .get(removedLease.runtimeLeaseId)
+    ).toEqual({ status: "revoked", attachment_version: 0 });
+    expect(
+      new ProjectAccessRepository(database).registry.canvasInternal(
+        removedScope.workspaceId,
+        removedScope.projectId,
+        removedScope.canvasId
+      )?.revokedAt
+    ).toEqual(expect.any(String));
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    const address = httpServer.address();
+    if (!address || typeof address === "string") throw new Error("test_http_address_missing");
+    reconnected = new WebSocket(
+      `ws://127.0.0.1:${address.port}/agent-hosts/${fixture.hostRegistration.host.id}/connect`,
+      {
+        headers: { Authorization: `Bearer ${fixture.hostRegistration.token}` }
+      }
+    );
+    const socket = reconnected;
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject);
+      socket.once("open", () =>
+        socket.send(
+          JSON.stringify({
+            type: "host.hello",
+            protocolVersion: agentHostProtocolVersion,
+            supportedExecutionEnvelopeVersions: [1, 2],
+            lastAcknowledgedSequence: 0,
+            lastAcknowledgementRecoverySequence: 0,
+            capabilities: [CANVAS_RUNTIME_CAPABILITY],
+            capacity: 1
+          })
+        )
+      );
+      socket.once("message", (data) => {
+        expect(JSON.parse(data.toString()).type).toBe("host.welcome");
+        resolve();
+      });
+    });
     now = new Date(now.getTime() + 2 * 24 * 60 * 60_000);
     const progress: Array<ReturnType<typeof count>> = [count()];
     for (let pass = 0; pass < 12 && count().leases > 0; pass++) {
@@ -135,9 +211,6 @@ it("collects real Host RPC and HTTP history after a Server restart without reviv
     expect(
       await new ArtifactStore(database, config.dataDirectory, 1024 * 1024).read(artifact.ref)
     ).toEqual(bytes);
-    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
-    const address = httpServer.address();
-    if (!address || typeof address === "string") throw new Error("test_http_address_missing");
     const denied = await fetch(`http://127.0.0.1:${address.port}${oldUrl}`, { headers });
     expect(denied.status).toBe(403);
     await denied.body?.cancel();
@@ -153,6 +226,8 @@ it("collects real Host RPC and HTTP history after a Server restart without reviv
       `${JSON.stringify({
         retentionLoopback: {
           progress,
+          removedScopeLease: removedLease.runtimeLeaseId,
+          reconnectedAttachmentVersion: removedLease.attachmentVersion,
           payloadBytes: bytes.length,
           releasedStatus: released.status,
           collectedStatus: denied.status
@@ -161,6 +236,7 @@ it("collects real Host RPC and HTTP history after a Server restart without reviv
     );
   } finally {
     schedule.mockRestore();
+    reconnected?.terminate();
     await composition.close();
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     database.close();

@@ -379,11 +379,10 @@ export class RuntimeArtifactGrantRepository {
   canRetireLease(runtimeLeaseId: string): boolean {
     const lease = this.lease(runtimeLeaseId);
     if (!lease || this.transfers.has(runtimeLeaseId)) return false;
-    const authorityActive = this.options.leaseActive(lease);
     return !(
       lease.status === "active" &&
       Date.parse(lease.expiresAt) > this.clock().getTime() &&
-      authorityActive
+      this.options.leaseActive(lease)
     );
   }
 

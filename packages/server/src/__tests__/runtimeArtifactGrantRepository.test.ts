@@ -18,10 +18,15 @@ async function setup() {
   databases.push(database);
   applyMigrations(database);
   const host = new AgentHostRepository(database).register("Runtime Host").host;
-  let active = true;
+  let active: boolean | Error = true;
+  let now = new Date("2030-01-01T00:00:00.000Z");
   const grants = new RuntimeArtifactGrantRepository(database, {
     maxArtifactBytes: 1024,
-    leaseActive: () => active
+    clock: () => now,
+    leaseActive: () => {
+      if (active instanceof Error) throw active;
+      return active;
+    }
   });
   grants.recordLease({
     runtimeLeaseId: "runtime-lease-a",
@@ -32,10 +37,36 @@ async function setup() {
     graphFingerprint,
     expiresAt: "2099-01-01T00:00:00.000Z"
   });
-  return { database, grants, host, deactivate: () => (active = false) };
+  return {
+    database,
+    grants,
+    host,
+    deactivate: () => (active = false),
+    failAuthority: () => (active = new Error("authority_unavailable")),
+    time: (value: string) => (now = new Date(value))
+  };
 }
 
 describe("RuntimeArtifactGrantRepository", () => {
+  it.each([
+    "released",
+    "revoked",
+    "expired"
+  ] as const)("protects held transfers and active authority before retiring %s history", async (state) => {
+    const test = await setup();
+    const id = "runtime-lease-a";
+    expect(test.grants.canRetireLease(id)).toBe(false);
+    const finish = test.grants.holdTransfer(id);
+    test.failAuthority();
+    expect(test.grants.canRetireLease(id)).toBe(false);
+    finish();
+    expect(() => test.grants.canRetireLease(id)).toThrow("authority_unavailable");
+    if (state === "released") test.grants.releaseLease(id);
+    else if (state === "revoked") test.grants.revokeActiveAfterRestart();
+    else test.time("2099-01-01T00:00:00.000Z");
+    expect(test.grants.canRetireLease(id)).toBe(true);
+  });
+
   it("replays identical grants and rejects changed evidence for the same operation", async () => {
     const { grants } = await setup();
     const sha256 = "c".repeat(64);
