@@ -1,22 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
-import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { manifestPromptPaths, type PlanPackageGraphMutation } from "./mutation.js";
-
-async function promptIdentity(
-  packageDir: string,
-  packagePath: string
-): Promise<{ path: string; exists: boolean }> {
-  const target = await resolvePackagePath(packageDir, packagePath, { forWrite: true });
-  try {
-    return { path: await realpath(target), exists: true };
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      return { path: target, exists: false };
-    }
-    throw error;
-  }
-}
+import { promptIdentity } from "./promptIdentity.js";
 
 export async function preparePromptReferenceSideEffects(
   packageDir: string,

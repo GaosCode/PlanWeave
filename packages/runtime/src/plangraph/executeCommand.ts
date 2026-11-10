@@ -2,6 +2,7 @@ import { assertCurrentCanvasWorkspace } from "../package/assertCurrentCanvasWork
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import type { PlanPackageGraphMutation } from "../graph/mutation.js";
+import { preparePromptReferenceSideEffects } from "../graph/promptRemoval.js";
 import { assertCurrentProjectWorkspace } from "../project.js";
 import { withProjectMutationLock } from "../fs/withProjectMutationLock.js";
 import { dirname } from "node:path";
@@ -9,7 +10,10 @@ import { defaultPlanGraphCommandDependencies } from "./adapters.js";
 import { PlanGraphOperationLogParseError } from "./commandSchema.js";
 import { handlerForCommand, type PlanGraphCommandHandler } from "./commandHandlers/index.js";
 import { diagnostic, isPlanGraphCommandDiagnostic } from "./commandHandlers/types.js";
-import { reviewPipelineSnapshotCommand } from "./reviewPipelinePromptWrites.js";
+import {
+  reviewPipelinePromptSideEffects,
+  reviewPipelineSnapshotCommand
+} from "./reviewPipelinePromptWrites.js";
 import { stableJson } from "./hash.js";
 import {
   applyProjectGraphHistoryCommand,
@@ -366,7 +370,7 @@ async function executePlanGraphCommandLocked(
       packageFingerprint: loaded.graph.packageFingerprint
     });
   }
-  const inverse = handler.inverse(loaded, options.command);
+  let inverse = handler.inverse(loaded, options.command);
   if (isDiagnostic(inverse)) {
     return fail({
       command: options.command,
@@ -387,6 +391,17 @@ async function executePlanGraphCommandLocked(
   let mutation: ReturnType<PlanGraphCommandHandler["mutation"]>;
   try {
     mutation = handler.mutation(loaded, options.command);
+    if (
+      !isDiagnostic(mutation) &&
+      !Array.isArray(inverse) &&
+      inverse.type === "updateReviewPipeline"
+    ) {
+      inverse = await reviewPipelineSnapshotCommand(
+        inverse,
+        loaded.workspace.packageDir,
+        await preparePromptReferenceSideEffects(loaded.workspace.packageDir, mutation)
+      );
+    }
   } catch (caught) {
     return fail({
       command: options.command,
@@ -509,7 +524,7 @@ async function applyHistoryCommand(
     latest = await executePlanGraphCommand({
       ...options,
       projectRoot: workspaceRef,
-      command: commandForHistoryReplay(item, inverseOf),
+      command: await commandForHistoryReplay(item, loaded.workspace.packageDir, inverseOf),
       recordOperation: false,
       dependencies
     });
@@ -526,10 +541,11 @@ async function applyHistoryCommand(
   return latest;
 }
 
-function commandForHistoryReplay(
+async function commandForHistoryReplay(
   command: PlanGraphCommand,
+  packageDir: string,
   inverseOf?: PlanGraphCommand
-): PlanGraphCommand {
+): Promise<PlanGraphCommand> {
   const replayCommand = structuredClone(command);
   delete replayCommand.baseGraphVersion;
   if (replayCommand.type === "updateTaskPrompt" || replayCommand.type === "updateBlockPrompt") {
@@ -541,7 +557,13 @@ function commandForHistoryReplay(
   return replayCommand.type === "updateReviewPipeline" &&
     inverseOf?.type === "updateReviewPipeline" &&
     replayCommand.taskId === inverseOf.taskId
-    ? reviewPipelineSnapshotCommand(replayCommand, inverseOf)
+    ? reviewPipelineSnapshotCommand(
+        replayCommand,
+        packageDir,
+        reviewPipelinePromptSideEffects(inverseOf).filter(
+          (effect) => effect.kind === "writePrompt" && !effect.preserveReferenced
+        )
+      )
     : replayCommand;
 }
 

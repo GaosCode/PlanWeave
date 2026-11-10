@@ -1,9 +1,8 @@
 import {
   buildPlanPackageManifestChangeMutation,
-  writePromptSideEffects,
   type PlanPackageGraphMutation
 } from "../../graph/mutation.js";
-import { reviewPipelineSnapshotCommand } from "../reviewPipelinePromptWrites.js";
+import { reviewPipelinePromptSideEffects } from "../reviewPipelinePromptWrites.js";
 import type { ManifestTaskNode } from "../../types.js";
 import type {
   PlanGraphCommand,
@@ -36,23 +35,7 @@ export const reviewCommandHandler: PlanGraphCommandHandler<UpdateReviewPipelineC
     const removedPrompts = task.blocks
       .filter((block) => block.type === "review" && !reviewPromptPaths.has(block.prompt))
       .map((block) => ({ kind: "removePrompt" as const, packagePath: block.prompt }));
-    const promptMarkdownByBlockId = new Map(
-      command.promptMarkdownByBlockId.map((item) => [item.blockId, item])
-    );
-    const sideEffects = [
-      ...removedPrompts,
-      ...command.reviewBlocks.flatMap((block) =>
-        writePromptSideEffects(
-          block.prompt,
-          promptMarkdownByBlockId.get(block.id)?.markdown ?? ""
-        ).map((effect) =>
-          promptMarkdownByBlockId.get(block.id)?.intent === "restore" &&
-          effect.kind === "writePrompt"
-            ? { ...effect, preserveReferenced: true as const }
-            : effect
-        )
-      )
-    ];
+    const sideEffects = [...removedPrompts, ...reviewPipelinePromptSideEffects(command)];
     const nextTask: ManifestTaskNode = {
       ...task,
       blocks: [...task.blocks.filter((block) => block.type !== "review"), ...command.reviewBlocks]
@@ -92,18 +75,15 @@ export const reviewCommandHandler: PlanGraphCommandHandler<UpdateReviewPipelineC
       }
       promptMarkdownByBlockId.push({ blockId: block.id, markdown });
     }
-    return reviewPipelineSnapshotCommand(
-      {
-        type: "updateReviewPipeline",
-        taskId: command.taskId,
-        packageDefaults: { ...loaded.manifest.review },
-        reviewBlocks: task.blocks
-          .filter((block) => block.type === "review")
-          .map((block) => structuredClone(block)),
-        promptMarkdownByBlockId
-      },
-      command
-    );
+    return {
+      type: "updateReviewPipeline",
+      taskId: command.taskId,
+      packageDefaults: { ...loaded.manifest.review },
+      reviewBlocks: task.blocks
+        .filter((block) => block.type === "review")
+        .map((block) => structuredClone(block)),
+      promptMarkdownByBlockId
+    };
   },
   touchedRefs(command: UpdateReviewPipelineCommand): { tasks: string[]; blocks: string[] } {
     return {

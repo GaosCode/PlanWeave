@@ -1,7 +1,16 @@
 import { readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getReviewPipeline, updateReviewPipeline } from "../desktop/index.js";
+import {
+  getGraphViewModel,
+  getReviewPipeline,
+  redoDesktopPlanGraphCommand,
+  undoDesktopPlanGraphCommand,
+  updateReviewPipeline
+} from "../desktop/index.js";
+import { executeDesktopPlanGraphCommand } from "../desktop/graph/editModelCommand.js";
+import { readJsonFile } from "../json.js";
+import { loadPackage } from "../package/loadPackage.js";
 import {
   createSqlitePlanGraphStore,
   executePlanGraphCommand,
@@ -37,6 +46,182 @@ async function history(root: string) {
 }
 
 describe("review pipeline prompt write intent", () => {
+  it.each([
+    ...["task", "block"].flatMap((owner) =>
+      ["shared", "normalized", "symlink"].map((reference) => ({
+        owner,
+        reference,
+        historyFormat: "current"
+      }))
+    ),
+    { owner: "task", reference: "shared", historyFormat: "legacy-unmarked" },
+    { owner: "task", reference: "shared", historyFormat: "legacy-restore" }
+  ])("replays replacement IDs sharing a $owner prompt through $reference paths ($historyFormat)", async ({
+    owner,
+    reference,
+    historyFormat
+  }) => {
+    const manifest = basicManifest();
+    const task = manifest.nodes[0];
+    if (task?.type !== "task") throw new Error("Fixture task missing.");
+    const review = task.blocks.find((block) => block.type === "review");
+    const implementation = task.blocks.find((block) => block.type === "implementation");
+    if (!review || !implementation) throw new Error("Fixture blocks missing.");
+    const target = "nodes/T-001/blocks/R-002.prompt.md";
+    review.prompt =
+      reference === "normalized" ? "nodes/T-001/blocks/../blocks/R-002.prompt.md" : target;
+    if (owner === "task") task.prompt = target;
+    else implementation.prompt = target;
+    const f = await createTestWorkspace(manifest);
+    if (reference === "symlink") {
+      review.prompt = "nodes/T-001/blocks/alias.prompt.md";
+      await symlink("R-002.prompt.md", join(f.init.workspace.packageDir, review.prompt));
+      await writeFile(f.init.workspace.manifestFile, JSON.stringify(manifest));
+    }
+    const path = join(f.init.workspace.packageDir, target);
+    const before = "# Before replacement\r\n中文\n";
+    const after = "# Explicit replacement\n新正文\n";
+    await writeFile(path, before);
+    const manifestBefore = (await loadPackage(f.root)).manifest;
+    const pipeline = await getReviewPipeline(f.root, task.id);
+    const versionBefore = (await getGraphViewModel(f.root)).graphVersion;
+    await expect(
+      updateReviewPipeline(f.root, task.id, {
+        packageDefaults: pipeline.packageDefaults,
+        steps: pipeline.steps.map((step) => ({
+          ...step,
+          blockId: "",
+          blockRef: null,
+          promptMarkdown: after
+        }))
+      })
+    ).resolves.toMatchObject({ ok: true });
+    await expect(readFile(path, "utf8")).resolves.toBe(after);
+    const manifestAfter = await readJsonFile(f.init.workspace.manifestFile);
+    expect((await getReviewPipeline(f.root, task.id)).steps).toEqual([
+      expect.objectContaining({ blockId: "R-002", promptMarkdown: after })
+    ]);
+    const versionAfter = (await getGraphViewModel(f.root)).graphVersion;
+    expect(versionAfter).not.toBe(versionBefore);
+    const { store, entry } = await history(f.root);
+    expect(entry).toMatchObject({
+      graphVersionBefore: versionBefore,
+      graphVersionAfter: versionAfter
+    });
+    if (historyFormat !== "current") {
+      if (Array.isArray(entry.inverse) || entry.inverse.type !== "updateReviewPipeline")
+        throw new Error("Pipeline inverse missing.");
+      const saved = {
+        ...entry.inverse,
+        promptMarkdownByBlockId: entry.inverse.promptMarkdownByBlockId.map((item) =>
+          historyFormat === "legacy-restore"
+            ? { ...item, intent: "restore" }
+            : { blockId: item.blockId, markdown: item.markdown }
+        )
+      };
+      const db = await openDatabase(store.indexPath);
+      try {
+        db.prepare("UPDATE operation_log SET inverse_json = ? WHERE id = ?").run(
+          JSON.stringify(saved),
+          entry.id
+        );
+      } finally {
+        db.close();
+      }
+    }
+    await expect(store.log.latestRedoable()).resolves.toBeNull();
+    await expect(undoDesktopPlanGraphCommand(f.root)).resolves.toMatchObject({
+      ok: true,
+      graphVersion: versionBefore
+    });
+    await expect(readFile(path, "utf8")).resolves.toBe(before);
+    await expect(readJsonFile(f.init.workspace.manifestFile)).resolves.toEqual(manifestBefore);
+    expect((await getGraphViewModel(f.root)).graphVersion).toBe(versionBefore);
+    await expect(store.log.latestUndoable()).resolves.toBeNull();
+    await expect(store.log.latestRedoable()).resolves.toMatchObject({ id: entry.id });
+    await expect(redoDesktopPlanGraphCommand(f.root)).resolves.toMatchObject({
+      ok: true,
+      graphVersion: versionAfter
+    });
+    await expect(readFile(path, "utf8")).resolves.toBe(after);
+    await expect(readJsonFile(f.init.workspace.manifestFile)).resolves.toEqual(manifestAfter);
+    expect((await getGraphViewModel(f.root)).graphVersion).toBe(versionAfter);
+    await expect(store.log.latestUndoable()).resolves.toMatchObject({ id: entry.id });
+    await expect(store.log.latestRedoable()).resolves.toBeNull();
+  });
+
+  it.each([
+    "different",
+    "normalized",
+    "symlink"
+  ])("tracks the actual file when an existing ID switches to a %s path", async (reference) => {
+    const f = await fixture();
+    const oldPath = join(f.init.workspace.packageDir, f.review.prompt);
+    const before = await readFile(oldPath, "utf8");
+    const nextPath =
+      reference === "different"
+        ? "moved-review.md"
+        : reference === "normalized"
+          ? "nodes/T-001/blocks/../blocks/R-001.prompt.md"
+          : "nodes/T-001/blocks/alias.prompt.md";
+    if (reference === "symlink")
+      await symlink("R-001.prompt.md", join(f.init.workspace.packageDir, nextPath));
+    const moved = { ...f.review, prompt: nextPath };
+    const after = "# Moved review explicit bytes\r\n中文\n";
+    const manifestBefore = (await loadPackage(f.root)).manifest;
+    const versionBefore = (await getGraphViewModel(f.root)).graphVersion;
+    await expect(
+      executeDesktopPlanGraphCommand(f.root, {
+        type: "updateReviewPipeline",
+        taskId: f.task.id,
+        packageDefaults: f.manifest.review,
+        reviewBlocks: [moved],
+        promptMarkdownByBlockId: [{ blockId: moved.id, markdown: after }]
+      })
+    ).resolves.toMatchObject({ ok: true });
+    await expect(readFile(join(f.init.workspace.packageDir, nextPath), "utf8")).resolves.toBe(
+      after
+    );
+    await expect(readFile(oldPath, "utf8")).resolves.toBe(
+      reference === "different" ? before : after
+    );
+    const manifestAfter = await readJsonFile(f.init.workspace.manifestFile);
+    const versionAfter = (await getGraphViewModel(f.root)).graphVersion;
+    const { store, entry, inverse } = await history(f.root);
+    expect(entry).toMatchObject({
+      graphVersionBefore: versionBefore,
+      graphVersionAfter: versionAfter
+    });
+    await expect(undoDesktopPlanGraphCommand(f.root)).resolves.toMatchObject({
+      ok: true,
+      graphVersion: versionBefore
+    });
+    await expect(readFile(oldPath, "utf8")).resolves.toBe(before);
+    await expect(readJsonFile(f.init.workspace.manifestFile)).resolves.toEqual(manifestBefore);
+    expect((await getGraphViewModel(f.root)).graphVersion).toBe(versionBefore);
+    await expect(store.log.latestUndoable()).resolves.toBeNull();
+    await expect(store.log.latestRedoable()).resolves.toMatchObject({ id: entry.id });
+    await expect(redoDesktopPlanGraphCommand(f.root)).resolves.toMatchObject({
+      ok: true,
+      graphVersion: versionAfter
+    });
+    await expect(readFile(join(f.init.workspace.packageDir, nextPath), "utf8")).resolves.toBe(
+      after
+    );
+    await expect(readJsonFile(f.init.workspace.manifestFile)).resolves.toEqual(manifestAfter);
+    expect((await getGraphViewModel(f.root)).graphVersion).toBe(versionAfter);
+    await expect(store.log.latestUndoable()).resolves.toMatchObject({ id: entry.id });
+    await expect(store.log.latestRedoable()).resolves.toBeNull();
+    if (reference === "different") {
+      const survivor = "# Current survivor after path change\n";
+      await writeFile(oldPath, survivor);
+      await expect(executeDesktopPlanGraphCommand(f.root, inverse)).resolves.toMatchObject({
+        ok: true
+      });
+      await expect(readFile(oldPath, "utf8")).resolves.toBe(survivor);
+    }
+  });
+
   it("accepts persisted restoration intent and rejects unknown intent", async () => {
     const f = await fixture();
     await updateReviewPipeline(f.root, f.task.id, {
