@@ -262,6 +262,9 @@ importers:
         specifier: workspace:*
         version: link:../runtime
     devDependencies:
+      '@planweave-ai/desktop':
+        specifier: workspace:*
+        version: link:../desktop
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
