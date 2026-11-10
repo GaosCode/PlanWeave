@@ -1,3 +1,4 @@
+import { captureRemovedPromptLinks, preparePromptLinkMutation } from "./promptLinkHistory.js";
 import { assertCurrentCanvasWorkspace } from "../package/assertCurrentCanvasWorkspace.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
@@ -177,9 +178,7 @@ function affectedRefs(
   handler: PlanGraphCommandHandler
 ): PlanGraphAffectedRefs {
   const touched = handler.touchedRefs(command, loaded);
-  const prompts = mutation.sideEffects
-    .filter((sideEffect) => sideEffect.kind === "writePrompt" || sideEffect.kind === "removePrompt")
-    .map((sideEffect) => sideEffect.packagePath);
+  const prompts = mutation.sideEffects.map((sideEffect) => sideEffect.packagePath);
   const manifestFiles = mutationChangesManifest(loaded, mutation) ? ["manifest.json"] : [];
   return {
     canvases: [],
@@ -398,6 +397,18 @@ async function executePlanGraphCommandLocked(
         options.command,
         mutation,
         loaded.workspace.packageDir
+      );
+    }
+    if (!isDiagnostic(mutation)) {
+      mutation = await preparePromptLinkMutation(
+        options.command,
+        loaded.workspace.packageDir,
+        mutation
+      );
+      inverse = await captureRemovedPromptLinks(
+        inverse,
+        loaded.workspace.packageDir,
+        await preparePromptReferenceSideEffects(loaded.workspace.packageDir, mutation)
       );
     }
     if (

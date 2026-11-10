@@ -14,7 +14,11 @@ function applySideEffect(
     prompts.set(sideEffect.packagePath, sideEffect.markdown);
     return;
   }
-  prompts.delete(sideEffect.packagePath);
+  if (sideEffect.kind === "removePrompt") {
+    prompts.delete(sideEffect.packagePath);
+    return;
+  }
+  throw new Error("Filesystem prompt link restoration is not supported by canvas replicas.");
 }
 
 /** Pure, deterministic application of one accepted collaboration intent. */

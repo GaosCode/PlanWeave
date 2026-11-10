@@ -292,9 +292,16 @@ async function indexPlanGraphExternalChange(
       projectRoot: workspace,
       indexPath: defaultPlanGraphIndexPath(project)
     });
-    const latestOperation = await store.log.latestUndoable();
+    const [undo, redo] = await Promise.all([
+      store.log.latestUndoable(),
+      store.log.latestRedoable()
+    ]);
     const graph = await store.indexChangedPaths(paths);
-    if (!latestOperation || latestOperation.graphVersionAfter !== graph.graphVersion) {
+    const cursorVersion = redo ? redo.graphVersionBefore : undo?.graphVersionAfter;
+    if (
+      cursorVersion !== graph.graphVersion ||
+      (undo && undo.graphVersionAfter !== graph.graphVersion)
+    ) {
       await store.log.clear();
     }
     return result;

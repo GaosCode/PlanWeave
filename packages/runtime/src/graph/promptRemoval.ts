@@ -60,7 +60,7 @@ export async function preparePromptReferenceSideEffects(
   const sideEffects: PlanPackageGraphMutation["sideEffects"] = [];
   for (const effect of mutation.sideEffects) {
     if (effect.kind !== "removePrompt") {
-      if (effect.preserveReferenced) {
+      if (effect.kind === "writePrompt" && effect.preserveReferenced) {
         const identity = await promptIdentity(packageDir, effect.packagePath);
         if (identity.exists && existingPrompts.has(identity.path)) continue;
       }

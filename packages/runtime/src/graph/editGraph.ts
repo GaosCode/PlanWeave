@@ -1,3 +1,5 @@
+import { preparePromptLinkRestores } from "./promptLinkRestorePlan.js";
+import { validatePromptLinkRestore } from "./promptLink.js";
 import { withImportTransactionReadAdmission } from "../package/importTransactionLock.js";
 import {
   cp,
@@ -113,7 +115,7 @@ async function sideEffectTargetPath(
   return resolvePackagePath(
     packageDir,
     sideEffect.packagePath,
-    sideEffect.kind === "writePrompt" ? { forWrite: true } : undefined
+    sideEffect.kind !== "removePrompt" ? { forWrite: true } : undefined
   );
 }
 
@@ -170,6 +172,7 @@ async function applyMutationSideEffectsWithRollback(
     await writeManifestAfterSideEffects();
     return;
   }
+  sideEffects = await preparePromptLinkRestores(packageDir, sideEffects);
   const temporaryRoot = await mkdtemp(`${tmpdir()}/planweave-graph-mutation-`);
   const targetPaths = new Map<string, boolean>();
   for (const sideEffect of sideEffects) {
@@ -191,6 +194,12 @@ async function applyMutationSideEffectsWithRollback(
       if (sideEffect.kind === "writePrompt") {
         await mkdir(dirname(targetPath), { recursive: true });
         await writeFile(targetPath, sideEffect.markdown, "utf8");
+      } else if (sideEffect.kind === "restorePromptLink") {
+        const link = await validatePromptLinkRestore(packageDir, sideEffect);
+        if (!link.exists) {
+          await mkdir(dirname(targetPath), { recursive: true });
+          await symlink(sideEffect.linkTarget, targetPath);
+        }
       } else {
         await rm(targetPath, { force: true });
       }

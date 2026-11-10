@@ -1,3 +1,4 @@
+import type { PromptLinkRestore } from "./promptLinkSchema.js";
 import { affectedTaskIdsForManifestChange } from "./affectedTasks.js";
 import { parseBlockRef } from "./compileTaskGraph.js";
 import type {
@@ -27,7 +28,8 @@ export type PlanPackageGraphMutationIntent =
 
 export type PlanPackageGraphMutationSideEffect =
   | { kind: "writePrompt"; packagePath: string; markdown: string; preserveReferenced?: true }
-  | { kind: "removePrompt"; packagePath: string };
+  | { kind: "removePrompt"; packagePath: string }
+  | ({ kind: "restorePromptLink" } & PromptLinkRestore);
 
 export type PlanPackageGraphMutation = {
   baseManifest: PlanPackageManifest;

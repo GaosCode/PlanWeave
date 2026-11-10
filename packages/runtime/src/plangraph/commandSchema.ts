@@ -1,3 +1,4 @@
+import { promptLinkRestoreSchema } from "../graph/promptLinkSchema.js";
 import { z } from "zod";
 import {
   reviewPipelinePromptFileRestoreSchema,
@@ -259,6 +260,7 @@ const planGraphCommandSchemaOptions = [
     .object({
       ...baseCommandShape,
       type: z.literal("restoreTask"),
+      promptLinkRestores: z.array(promptLinkRestoreSchema).optional(),
       snapshot: taskComponentSnapshotSchema
     })
     .strict(),
@@ -274,6 +276,7 @@ const planGraphCommandSchemaOptions = [
     .object({
       ...baseCommandShape,
       type: z.literal("restoreBlock"),
+      promptLinkRestores: z.array(promptLinkRestoreSchema).optional(),
       snapshot: blockComponentSnapshotSchema
     })
     .strict(),
@@ -281,6 +284,7 @@ const planGraphCommandSchemaOptions = [
     .object({
       ...baseCommandShape,
       type: z.literal("updateReviewPipeline"),
+      promptLinkRestores: z.array(promptLinkRestoreSchema).optional(),
       taskId: z.string(),
       packageDefaults: z
         .object({

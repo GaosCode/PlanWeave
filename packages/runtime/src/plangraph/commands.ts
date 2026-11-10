@@ -1,3 +1,4 @@
+import type { PromptLinkRestore } from "../graph/promptLinkSchema.js";
 import type {
   ReviewPipelinePromptFileRestore,
   ReviewPipelinePromptWrite
@@ -130,6 +131,7 @@ export type RemoveTaskCommand = PlanGraphCommandBase & {
 };
 
 export type RestoreTaskCommand = PlanGraphCommandBase & {
+  promptLinkRestores?: PromptLinkRestore[];
   type: "restoreTask";
   snapshot: TaskComponentSnapshot;
 };
@@ -145,11 +147,13 @@ export type RemoveBlockCommand = PlanGraphCommandBase & {
 };
 
 export type RestoreBlockCommand = PlanGraphCommandBase & {
+  promptLinkRestores?: PromptLinkRestore[];
   type: "restoreBlock";
   snapshot: BlockComponentSnapshot;
 };
 
 export type UpdateReviewPipelineCommand = PlanGraphCommandBase & {
+  promptLinkRestores?: PromptLinkRestore[];
   type: "updateReviewPipeline";
   taskId: string;
   packageDefaults: {
