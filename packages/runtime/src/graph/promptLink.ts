@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, readFile, readlink, realpath } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
-import { promptIdentity } from "./promptIdentity.js";
+import { promptEntryPath, promptIdentity } from "./promptIdentity.js";
 import type { PromptLinkRestore } from "./promptLinkSchema.js";
 
 async function contentHash(path: string): Promise<string> {
@@ -15,7 +15,7 @@ export async function capturePromptLink(
   packageDir: string,
   packagePath: string
 ): Promise<PromptLinkRestore | null> {
-  const path = await resolvePackagePath(packageDir, packagePath, { requireExisting: true });
+  const path = await promptEntryPath(packageDir, packagePath);
   if (!(await lstat(path)).isSymbolicLink()) return null;
   const identity = await promptIdentity(packageDir, packagePath);
   return {
@@ -26,20 +26,39 @@ export async function capturePromptLink(
   };
 }
 
+export async function indexPromptLinkRestores(
+  packageDir: string,
+  links: PromptLinkRestore[]
+): Promise<Map<string, PromptLinkRestore>> {
+  const indexed = new Map<string, PromptLinkRestore>();
+  for (const link of links) {
+    const path = await promptEntryPath(packageDir, link.packagePath);
+    const previous = indexed.get(path);
+    if (previous) {
+      if (
+        previous.linkTarget !== link.linkTarget ||
+        previous.targetContentHash !== link.targetContentHash ||
+        (await promptEntryPath(packageDir, previous.targetPackagePath)) !==
+          (await promptEntryPath(packageDir, link.targetPackagePath))
+      )
+        throw new Error(`Conflicting prompt link restore '${link.packagePath}'.`);
+    } else indexed.set(path, link);
+  }
+  return indexed;
+}
+
 export async function validatePromptLinkRestore(
   packageDir: string,
   link: PromptLinkRestore
 ): Promise<{ path: string; exists: boolean }> {
-  const path = await resolvePackagePath(packageDir, link.packagePath, { forWrite: true });
+  const path = await promptEntryPath(packageDir, link.packagePath);
   const root = await realpath(packageDir);
   const anchoredTarget = resolve(await realpath(dirname(path)), link.linkTarget);
   const target = await resolvePackagePath(root, relative(root, anchoredTarget), {
     requireExisting: true
   });
   const identity = await promptIdentity(root, relative(root, target));
-  const expected = await resolvePackagePath(root, link.targetPackagePath, {
-    requireExisting: true
-  });
+  const expected = await promptEntryPath(root, link.targetPackagePath);
   if (identity.path !== expected || (await contentHash(identity.path)) !== link.targetContentHash) {
     throw new Error(
       `Prompt link restore conflict for '${link.packagePath}': target identity or content changed.`

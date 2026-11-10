@@ -776,6 +776,7 @@
         "editGraph.test.ts",
         "promptRemoval.test.ts",
         "promptRemovalHistory.test.ts",
+        "promptRemovalDirectoryAliases.test.ts",
         "promptRemovalLinkDependencies.test.ts",
         "promptRemovalSymlinkHistory.test.ts",
         "reviewPipelineHistory.test.ts",

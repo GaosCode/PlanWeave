@@ -206,10 +206,15 @@ describe("prompt removal", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("allows raw removal of already-missing prompts but rejects a missing desktop snapshot without writes", async () => {
+  it.each([
+    false,
+    true
+  ])("allows raw missing prompt removal (missing parent=%s) but rejects a missing desktop snapshot without writes", async (missingParent) => {
     const { root, init } = await createTestWorkspace();
+    if (missingParent)
+      await rm(join(init.workspace.packageDir, "nodes/T-001"), { recursive: true });
     const missing = join(init.workspace.packageDir, "nodes/T-001/prompt.md");
-    await rm(missing);
+    if (!missingParent) await rm(missing);
     const before = await readFile(init.workspace.manifestFile);
     await expect(removeTaskNode(root, "T-001")).resolves.toMatchObject({
       ok: false,

@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { manifestPromptPaths, type PlanPackageGraphMutation } from "./mutation.js";
-import { promptIdentity } from "./promptIdentity.js";
+import { promptEntryPath, promptIdentity } from "./promptIdentity.js";
 
 export async function preparePromptReferenceSideEffects(
   packageDir: string,
@@ -72,7 +72,7 @@ export async function preparePromptReferenceSideEffects(
     }
     const identity = (await promptIdentity(packageDir, effect.packagePath)).path;
     if (remainingPrompts.has(identity)) continue;
-    const target = resolve(packageDir, effect.packagePath);
+    const target = await promptEntryPath(packageDir, effect.packagePath);
     if (target === resolve(packageDir) || identity === realRoot) {
       throw new Error(`Cannot remove the package directory as prompt '${effect.packagePath}'.`);
     }

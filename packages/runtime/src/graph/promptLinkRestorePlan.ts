@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, readlink, realpath } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
-import { resolvePackagePath } from "../package/resolvePackagePath.js";
+import { dirname, relative, resolve } from "node:path";
+import { promptEntryPath } from "./promptIdentity.js";
+import { indexPromptLinkRestores } from "./promptLink.js";
 import type { PlanPackageGraphMutationSideEffect } from "./mutation.js";
 
 type LinkEffect = Extract<PlanPackageGraphMutationSideEffect, { kind: "restorePromptLink" }>;
@@ -27,17 +28,11 @@ export async function preparePromptLinkRestores(
 ): Promise<PlanPackageGraphMutationSideEffect[]> {
   if (!sideEffects.some((effect) => effect.kind === "restorePromptLink")) return sideEffects;
   const root = await realpath(packageDir);
-  const entryPath = async (packagePath: string): Promise<string> => {
-    const path = await resolvePackagePath(root, packagePath, { forWrite: true });
-    return join(await realpath(dirname(path)), basename(path));
-  };
-  const links = new Map<string, LinkEffect>();
-  for (const effect of sideEffects) {
-    if (effect.kind !== "restorePromptLink") continue;
-    const path = await entryPath(effect.packagePath);
-    if (links.has(path)) throw new Error(`Duplicate prompt link restore '${effect.packagePath}'.`);
-    links.set(path, effect);
-  }
+  const entryPath = (packagePath: string) => promptEntryPath(root, packagePath);
+  const links = await indexPromptLinkRestores(
+    root,
+    sideEffects.filter((effect): effect is LinkEffect => effect.kind === "restorePromptLink")
+  );
   const writes = new Map<string, PlanPackageGraphMutationSideEffect>();
   const ordinary: PlanPackageGraphMutationSideEffect[] = [];
   for (const effect of sideEffects) {
@@ -80,7 +75,7 @@ export async function preparePromptLinkRestores(
           );
         }
         resolved.set(path, target);
-        ordered.push(link);
+        ordered.push({ kind: "restorePromptLink", ...link });
         return target;
       }
       const planned = writes.get(path);

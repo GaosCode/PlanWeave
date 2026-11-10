@@ -1,7 +1,8 @@
 import { preparePromptLinkRestores } from "../graph/promptLinkRestorePlan.js";
 import { preparePromptReferenceSideEffects } from "../graph/promptRemoval.js";
 import type { PlanPackageGraphMutation } from "../graph/mutation.js";
-import { capturePromptLink } from "../graph/promptLink.js";
+import { capturePromptLink, indexPromptLinkRestores } from "../graph/promptLink.js";
+import { promptEntryPath } from "../graph/promptIdentity.js";
 import type { PromptLinkRestore } from "../graph/promptLinkSchema.js";
 import type { PlanGraphCommand } from "./commands.js";
 
@@ -41,21 +42,23 @@ export async function preparePromptLinkMutation(
   mutation: PlanPackageGraphMutation
 ): Promise<PlanPackageGraphMutation> {
   if (!canRestoreLinks(command) || !command.promptLinkRestores?.length) return mutation;
-  const links = new Map(command.promptLinkRestores.map((link) => [link.packagePath, link]));
-  if (links.size !== command.promptLinkRestores.length)
-    throw new Error("Duplicate prompt link restore path.");
+  const links = await indexPromptLinkRestores(packageDir, command.promptLinkRestores);
   const restored = new Set<string>();
-  const sideEffects: PlanPackageGraphMutation["sideEffects"] = mutation.sideEffects.flatMap(
-    (effect) => {
-      const link = links.get(effect.packagePath);
-      if (!link) return [effect];
-      if (effect.kind !== "writePrompt")
-        throw new Error(`Conflicting prompt link restore '${effect.packagePath}'.`);
-      if (restored.has(effect.packagePath)) return [];
-      restored.add(effect.packagePath);
-      return [{ kind: "restorePromptLink" as const, ...link }];
+  const sideEffects: PlanPackageGraphMutation["sideEffects"] = [];
+  for (const effect of mutation.sideEffects) {
+    const path = await promptEntryPath(packageDir, effect.packagePath);
+    const link = links.get(path);
+    if (!link) {
+      sideEffects.push(effect);
+      continue;
     }
-  );
+    if (effect.kind !== "writePrompt")
+      throw new Error(`Conflicting prompt link restore '${effect.packagePath}'.`);
+    sideEffects.push(effect);
+    if (restored.has(path)) continue;
+    restored.add(path);
+    sideEffects.push({ kind: "restorePromptLink", ...link });
+  }
   if (restored.size !== links.size)
     throw new Error("Prompt link restore has no matching prompt write.");
   const prepared = await preparePromptReferenceSideEffects(packageDir, {
