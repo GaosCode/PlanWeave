@@ -16,7 +16,7 @@ import {
 } from "./primitives.js";
 import { packageSnapshotDigestSchema } from "./packageSnapshot.js";
 import { packageFileNamespaceConflict } from "./packageFileNamespace.js";
-export { packageFileNamespaceConflict } from "./packageFileNamespace.js";
+export { packageFileAddressKey, packageFileNamespaceConflict } from "./packageFileNamespace.js";
 import { aclRevisionSchema, canvasVisibilitySchema } from "./projectAccess.js";
 export {
   workspaceCanvasPublishLocalSourceSchema,

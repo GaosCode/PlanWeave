@@ -12,7 +12,7 @@ import {
   packageSnapshotDigestManifestSchema,
   type PackageSnapshotDigestManifest
 } from "@planweave-ai/collaboration-protocol/content/snapshot";
-import type { PackageWorkspaceRef } from "../types.js";
+import type { PackageWorkspaceRef, ProjectWorkspace } from "../types.js";
 import { loadPackage, resolvePackageWorkspace } from "./loadPackage.js";
 import { resolvePackagePath } from "./resolvePackagePath.js";
 import { resolveTaskCanvasWorkspace } from "../desktop/canvasApi.js";
@@ -114,61 +114,65 @@ export async function capturePackageSnapshot(input: {
     ? await resolveTaskCanvasWorkspace(String(input.projectRoot), input.canvasId)
     : input.projectRoot;
   const workspace = await resolvePackageWorkspace(projectRoot);
-  return withPackageFileConsistency([workspace.packageDir], async () => {
-    const rootBefore = await stat(workspace.packageDir, { bigint: true });
-    const manifestRead = await readSnapshotMember(
-      workspace.packageDir,
-      "manifest.json",
-      PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES
-    );
-    const manifest = manifestSchema.parse(
-      JSON.parse(boundedUtf8(manifestRead.bytes, "manifest.json"))
-    );
-    const paths = ["manifest.json", ...referencedPromptPaths(manifest)];
-    const files: PackageSnapshotFile[] = [];
-    const members = [];
-    let totalBytes = 0;
-    for (const path of paths) {
-      const member =
-        path === "manifest.json"
-          ? manifestRead
-          : await readSnapshotMember(
-              workspace.packageDir,
-              path,
-              PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES - totalBytes
-            );
-      members.push(member);
-      const bytes = member.bytes;
-      totalBytes += bytes.byteLength;
-      if (totalBytes > PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES) {
-        throw new Error("package_snapshot_total_bytes_exceeded");
-      }
-      const content = boundedUtf8(bytes, path);
-      files.push({ path, content, digestSha256: digest(bytes), sizeBytes: bytes.byteLength });
+  return withPackageFileConsistency([workspace.packageDir], () => readPackageSnapshot(workspace));
+}
+
+export async function readPackageSnapshot(
+  workspace: ProjectWorkspace
+): Promise<CapturePackageSnapshotResult> {
+  const rootBefore = await stat(workspace.packageDir, { bigint: true });
+  const manifestRead = await readSnapshotMember(
+    workspace.packageDir,
+    "manifest.json",
+    PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES
+  );
+  const manifest = manifestSchema.parse(
+    JSON.parse(boundedUtf8(manifestRead.bytes, "manifest.json"))
+  );
+  const paths = ["manifest.json", ...referencedPromptPaths(manifest)];
+  const files: PackageSnapshotFile[] = [];
+  const members = [];
+  let totalBytes = 0;
+  for (const path of paths) {
+    const member =
+      path === "manifest.json"
+        ? manifestRead
+        : await readSnapshotMember(
+            workspace.packageDir,
+            path,
+            PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES - totalBytes
+          );
+    members.push(member);
+    const bytes = member.bytes;
+    totalBytes += bytes.byteLength;
+    if (totalBytes > PACKAGE_SNAPSHOT_MAX_TOTAL_BYTES) {
+      throw new Error("package_snapshot_total_bytes_exceeded");
     }
-    await verifySnapshotMembers(workspace.packageDir, members);
-    if (!sameSnapshotFile(rootBefore, await stat(workspace.packageDir, { bigint: true })))
-      throw snapshotConflict("directory");
-    const manifestFile = files[0];
-    if (!manifestFile) throw new Error("package_snapshot_manifest_missing");
-    const prompts = files.slice(1).map((file) => ({
-      path: file.path,
-      digest: { digestSha256: file.digestSha256, sizeBytes: file.sizeBytes }
-    }));
-    const digestManifest = packageSnapshotDigestManifestSchema.parse({
-      manifest: {
-        digestSha256: manifestFile.digestSha256,
-        sizeBytes: manifestFile.sizeBytes
-      },
-      prompts,
-      totalBytes
-    });
-    const sourceRevision = packageSnapshotSourceRevision(digestManifest);
-    return {
-      snapshot: { sourceRevision, digestManifest, files },
-      resolvedPackageDir: workspace.packageDir
-    };
+    const content = boundedUtf8(bytes, path);
+    files.push({ path, content, digestSha256: digest(bytes), sizeBytes: bytes.byteLength });
+  }
+  await verifySnapshotMembers(workspace.packageDir, members);
+  if (!sameSnapshotFile(rootBefore, await stat(workspace.packageDir, { bigint: true })))
+    throw snapshotConflict("directory");
+  const manifestFile = files[0];
+  if (!manifestFile) throw new Error("package_snapshot_manifest_missing");
+  const prompts = files.slice(1).map((file) => ({
+    path: file.path,
+    digest: { digestSha256: file.digestSha256, sizeBytes: file.sizeBytes }
+  }));
+  const digestManifest = packageSnapshotDigestManifestSchema.parse({
+    manifest: {
+      digestSha256: manifestFile.digestSha256,
+      sizeBytes: manifestFile.sizeBytes
+    },
+    prompts,
+    totalBytes
   });
+  const sourceRevision = packageSnapshotSourceRevision(digestManifest);
+  return {
+    snapshot: { sourceRevision, digestManifest, files },
+    resolvedPackageDir: workspace.packageDir
+  };
 }
 
 export async function restorePackageSnapshot(input: {

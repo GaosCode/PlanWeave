@@ -13,6 +13,7 @@ import { packageSnapshotDigestManifestSchema } from "@planweave-ai/collaboration
 import {
   captureAuthorizedCanvasContent,
   decodeCanvasReplicaDocument,
+  encodeCanvasReplicaDocument,
   materializeAuthoritativeCanvasWorkspace,
   parseCanvasReplicaDocument,
   restorePackageSnapshot
@@ -109,7 +110,12 @@ const collisions = [
   ["nested-descendant", "nodes/T-001/prompt.md", "nodes/T-001/prompt.md/a/b/child.md"],
   ["normalized-alias", "nodes/T-001/./prompt.md", "nodes/T-001/blocks/../prompt.md/child.md"],
   ["manifest-parent", "nodes/T-001/prompt.md", "manifest.json/child.md"],
-  ["normalized-manifest-parent", "nodes/T-001/prompt.md", "nodes/../manifest.json/child.md"]
+  ["normalized-manifest-parent", "nodes/T-001/prompt.md", "nodes/../manifest.json/child.md"],
+  ["case-alias", "shared/prompt.md", "shared/PROMPT.md"],
+  ["case-parent", "shared/prompt.md", "shared/PROMPT.md/child.md"],
+  ["case-reverse-parent", "shared/PROMPT.md/child.md", "shared/prompt.md"],
+  ["case-directory-alias", "SHARED/prompt.md", "shared/prompt.md"],
+  ["case-manifest-parent", "nodes/T-001/prompt.md", "MANIFEST.JSON/child.md"]
 ] as const;
 
 describe("physical package file namespace publication", () => {
@@ -121,6 +127,14 @@ describe("physical package file namespace publication", () => {
     });
     const content = explicitContent(fixture, first, second);
     const before = persistedRows(fixture);
+    expect(() =>
+      fixture.contentVersions.persistImmutable({
+        scope,
+        content,
+        createdBy: { kind: "human", id: "owner" }
+      })
+    ).toThrow("content_version_semantic_validation_failed");
+    expect(persistedRows(fixture)).toEqual(before);
     const result = publisher(fixture).publishWorkspaceCanvas(actor("owner"), "p", {
       operationId: `namespace-${name}`,
       localSource: { localProjectId: "local-namespace", localCanvasId: name },
@@ -135,15 +149,13 @@ describe("physical package file namespace publication", () => {
     expect(persistedRows(fixture)).toEqual(before);
   });
 
-  it("rejects the same impossible closure at wire, runtime, replica and snapshot materialization boundaries without file writes", async () => {
+  it.each(
+    collisions
+  )("rejects %s at wire, runtime, replica and snapshot boundaries without file writes", async (_name, first, second) => {
     const fixture = await canvasCommandServiceFixture({
       manifest: basicManifest({ includeSecondTask: true })
     });
-    const content = explicitContent(
-      fixture,
-      "nodes/T-001/prompt.md",
-      "nodes/T-001/prompt.md/child.md"
-    );
+    const content = explicitContent(fixture, first, second);
     const manifestMember = content.members.find((item) => item.kind === "manifest")!;
     const manifest = JSON.parse(manifestMember.content);
     const prompts = content.members.filter(
@@ -170,6 +182,17 @@ describe("physical package file namespace publication", () => {
         manifest,
         promptMarkdownByPath: Object.fromEntries(prompts.map((item) => [item.path, item.content])),
         layout: JSON.parse(content.members.find((item) => item.kind === "desktop_layout")!.content)
+      })
+    ).toThrow(error);
+    const document = decodeCanvasReplicaDocument(
+      fixture.contentVersions.readVersion(scope, fixture.contentVersions.head(scope)!.content)
+        .content
+    );
+    expect(() =>
+      encodeCanvasReplicaDocument({
+        ...document,
+        manifest,
+        promptMarkdownByPath: Object.fromEntries(prompts.map((item) => [item.path, item.content]))
       })
     ).toThrow(error);
     expect(() => packageSnapshotDigestManifestSchema.parse(digestManifest)).toThrow(error);
@@ -201,6 +224,7 @@ describe("physical package file namespace publication", () => {
 
   it.each([
     ["sibling-prefix", "nodes/custom/prompt.md", "nodes/custom/prompt.md-sibling/child.md"],
+    ["directory-case", "SHARED/first.md", "shared/second.md"],
     ["layout-label-parent", "desktop/layout.json/child.md", "desktop/layout.json-sibling.md"],
     ["layout-label-descendant", "desktop.md", "desktop/layout.json/child.md"]
   ])("publishes and materializes legal %s without treating the external layout label as a package file", async (name, first, second) => {

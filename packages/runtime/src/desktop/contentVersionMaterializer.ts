@@ -11,7 +11,7 @@ import {
   listPendingImportTransactions,
   listImportTransactionRecoveryTargets
 } from "../package/importRecovery.js";
-import { loadPackage } from "../package/loadPackage.js";
+import { verifyStagedContentVersionPackage } from "./contentVersionStaging.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { withManagedProjectCreation } from "./managedProjectCreation.js";
 import { resolvePlanweaveHome } from "../paths.js";
@@ -204,7 +204,7 @@ async function materializeAuthoritativeCanvasWorkspaceUnlocked(input: {
       packageDir: staging,
       manifestFile: join(staging, "manifest.json")
     };
-    await loadPackage(stagedWorkspace);
+    await verifyStagedContentVersionPackage(stagedWorkspace, content);
     const stagedLayout = resolveStagedContentVersionLayoutPath(staging);
     await writeFile(stagedLayout, `${JSON.stringify(parsedLayout, null, 2)}\n`, "utf8");
     await transaction.replacePath(workspace.packageDir, staging);
