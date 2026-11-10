@@ -1,5 +1,6 @@
 import {
   canvasRuntimeContentTargetSchema,
+  isContentVersionPromptKind,
   type CompleteContentVersion
 } from "@planweave-ai/collaboration-protocol/content/version";
 import type { PackageSnapshotDigestManifest } from "@planweave-ai/collaboration-protocol/content/snapshot";
@@ -17,7 +18,7 @@ export function packageDigestManifestFromContent(
   const manifest = content.members.find((member) => member.kind === "manifest");
   if (!manifest) throw new Error("canvas_content_manifest_missing");
   const prompts = content.members
-    .filter((member) => member.kind === "task_prompt" || member.kind === "block_prompt")
+    .filter((member) => isContentVersionPromptKind(member.kind))
     .map((member) => ({
       path: member.path,
       digest: { digestSha256: member.digestSha256, sizeBytes: member.sizeBytes }

@@ -15,6 +15,8 @@ import {
   timestampSchema
 } from "./primitives.js";
 import { packageSnapshotDigestSchema } from "./packageSnapshot.js";
+import { packageFileNamespaceConflict } from "./packageFileNamespace.js";
+export { packageFileNamespaceConflict } from "./packageFileNamespace.js";
 import { aclRevisionSchema, canvasVisibilitySchema } from "./projectAccess.js";
 export {
   workspaceCanvasPublishLocalSourceSchema,
@@ -50,12 +52,36 @@ export const contentVersionMemberKindSchema = z.enum([
   "manifest",
   "task_prompt",
   "block_prompt",
+  "shared_prompt",
   "desktop_layout"
 ]);
 export type ContentVersionMemberKind = z.infer<typeof contentVersionMemberKindSchema>;
 
-const taskPromptPathPattern = /^nodes\/[^/]+\/prompt\.md$/;
-const blockPromptPathPattern = /^nodes\/[^/]+\/blocks\/[^/]+\.prompt\.md$/;
+export function isContentVersionPromptKind(
+  kind: string
+): kind is "task_prompt" | "block_prompt" | "shared_prompt" {
+  return kind === "task_prompt" || kind === "block_prompt" || kind === "shared_prompt";
+}
+
+export function normalizeContentVersionPromptPath(path: string): string {
+  if (path.length > 512 || !/^[A-Za-z0-9._/-]+$/.test(path) || path.startsWith("/")) {
+    throw new Error("content_version_prompt_path_invalid");
+  }
+  const segments: string[] = [];
+  for (const segment of path.split("/")) {
+    if (segment === "..") {
+      if (segments.length === 0) throw new Error("content_version_prompt_path_outside");
+      segments.pop();
+    } else if (segment !== "" && segment !== ".") {
+      segments.push(segment);
+    }
+  }
+  const normalized = contentVersionMemberPathSchema.parse(segments.join("/"));
+  if (!normalized.endsWith(".md") || normalized === contentVersionDesktopLayoutMemberPath) {
+    throw new Error("content_version_prompt_path_invalid");
+  }
+  return normalized;
+}
 const textEncoder = new TextEncoder();
 
 export const contentVersionMemberSchema = z
@@ -79,8 +105,7 @@ export const contentVersionMemberSchema = z
     const pathIsValid =
       (value.kind === "manifest" && value.path === "manifest.json") ||
       (value.kind === "desktop_layout" && value.path === contentVersionDesktopLayoutMemberPath) ||
-      (value.kind === "task_prompt" && taskPromptPathPattern.test(value.path)) ||
-      (value.kind === "block_prompt" && blockPromptPathPattern.test(value.path));
+      (isContentVersionPromptKind(value.kind) && value.path.endsWith(".md"));
     if (!pathIsValid) {
       context.addIssue({
         code: "custom",
@@ -90,14 +115,6 @@ export const contentVersionMemberSchema = z
     }
   });
 export type ContentVersionMember = z.infer<typeof contentVersionMemberSchema>;
-
-function expectedMemberKind(path: string): ContentVersionMemberKind | undefined {
-  if (path === "manifest.json") return "manifest";
-  if (path === contentVersionDesktopLayoutMemberPath) return "desktop_layout";
-  if (taskPromptPathPattern.test(path)) return "task_prompt";
-  if (blockPromptPathPattern.test(path)) return "block_prompt";
-  return undefined;
-}
 
 const canonicalContentVersionMemberPathCollator = new Intl.Collator("en-US", {
   usage: "sort",
@@ -126,6 +143,14 @@ export const completeContentVersionSchema = z
   .strict()
   .superRefine((value, context) => {
     const paths = value.members.map((member) => member.path);
+    const namespaceConflict = packageFileNamespaceConflict(
+      value.members
+        .filter((member) => member.kind !== "desktop_layout")
+        .map((member) => member.path)
+    );
+    if (namespaceConflict) {
+      context.addIssue({ code: "custom", message: namespaceConflict, path: ["members"] });
+    }
     if (new Set(paths).size !== paths.length) {
       context.addIssue({
         code: "custom",
@@ -140,13 +165,6 @@ export const completeContentVersionSchema = z
           code: "custom",
           message: "content_version_members_must_be_canonically_ordered",
           path: ["members", index, "path"]
-        });
-      }
-      if (expectedMemberKind(member.path) !== member.kind) {
-        context.addIssue({
-          code: "custom",
-          message: "content_version_member_kind_path_mismatch",
-          path: ["members", index, "kind"]
         });
       }
     }

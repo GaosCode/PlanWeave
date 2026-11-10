@@ -95,15 +95,23 @@ export function buildPlanGraph(input: BuildPlanGraphInput): PlanGraph {
     if (!task) {
       continue;
     }
-    const taskPrompt =
-      input.promptIndex.get(task.prompt) ?? missingPromptRef("task", task.id, task.prompt);
+    const taskPrompt = {
+      ...(input.promptIndex.get(task.prompt) ?? missingPromptRef("task", task.id, task.prompt)),
+      ownerKind: "task" as const,
+      ownerRef: task.id,
+      path: task.prompt
+    };
     promptRefs.set(taskPrompt.ownerRef, taskPrompt);
     tasks.set(task.id, taskNode(task, taskPrompt, canvasId));
 
     for (const block of task.blocks) {
       const ref = blockRef(task.id, block.id);
-      const prompt =
-        input.promptIndex.get(block.prompt) ?? missingPromptRef("block", ref, block.prompt);
+      const prompt = {
+        ...(input.promptIndex.get(block.prompt) ?? missingPromptRef("block", ref, block.prompt)),
+        ownerKind: "block" as const,
+        ownerRef: ref,
+        path: block.prompt
+      };
       promptRefs.set(prompt.ownerRef, prompt);
       blocks.set(ref, blockNode(task.id, block, prompt));
     }

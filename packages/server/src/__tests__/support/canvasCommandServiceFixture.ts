@@ -22,11 +22,13 @@ import {
   decodeCanvasReplicaDocument,
   projectCanvasReplicaDocument
 } from "@planweave-ai/runtime";
+import type { PlanPackageManifest } from "@planweave-ai/runtime";
 import type { HumanAuthContext } from "../../identity/schemas.js";
 import { WorkspaceIdentityRepository } from "../../identity/workspaceRepository.js";
 import { applyMigrations } from "../../migrations.js";
 import { ProjectAccessRepository } from "../../projectAccessRepository.js";
 import { openServerDatabase, type SqliteDatabase } from "../../sqlite.js";
+import { applyMigrationsThroughVersion } from "./migrationFixture.js";
 
 const databases: SqliteDatabase[] = [];
 const directories: string[] = [];
@@ -43,6 +45,9 @@ export function digestOf(value: string): string {
 }
 
 export async function canvasCommandServiceFixture(options?: {
+  manifest?: PlanPackageManifest;
+  databasePath?: string;
+  migrationVersion?: number;
   journalRetention?: number;
   runtimeAvailability?: CanvasRuntimeAvailabilityPort;
   contentVersions?: boolean;
@@ -54,11 +59,12 @@ export async function canvasCommandServiceFixture(options?: {
     headContentDigest: string;
   }) => void;
 }) {
-  const workspace = await createTestWorkspace();
+  const workspace = await createTestWorkspace(options?.manifest);
   directories.push(workspace.home, workspace.root);
-  const database = await openServerDatabase(":memory:", 5_000);
+  const database = await openServerDatabase(options?.databasePath ?? ":memory:", 5_000);
   databases.push(database);
-  applyMigrations(database);
+  if (options?.migrationVersion === undefined) applyMigrations(database);
+  else applyMigrationsThroughVersion(database, options.migrationVersion);
   database.exec(`
     INSERT INTO workspaces(workspace_id,display_name,created_at) VALUES ('w','Workspace','2026-01-01');
     INSERT INTO workspace_principals(workspace_id,human_principal_id,display_name,created_at,revoked_at) VALUES

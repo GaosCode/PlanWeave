@@ -17,6 +17,7 @@ import {
   workspaceIdSchema
 } from "./primitives.js";
 import { canvasVisibilitySchema, projectVisibilitySchema } from "./projectAccess.js";
+import { packageFileNamespaceConflict } from "./packageFileNamespace.js";
 
 export const packageSnapshotSchemaVersion = "package-snapshot/v1" as const;
 export const packageSnapshotSchemaVersionSchema = z.literal(packageSnapshotSchemaVersion);
@@ -123,6 +124,10 @@ export const packageSnapshotDigestManifestSchema = z
   .strict()
   .superRefine((value, ctx) => {
     const paths = value.prompts.map((prompt) => prompt.path);
+    const namespaceConflict = packageFileNamespaceConflict(["manifest.json", ...paths]);
+    if (namespaceConflict) {
+      ctx.addIssue({ code: "custom", message: namespaceConflict, path: ["prompts"] });
+    }
     if (new Set(paths).size !== paths.length) {
       ctx.addIssue({ code: "custom", message: "duplicate_prompt_digest_path", path: ["prompts"] });
     }

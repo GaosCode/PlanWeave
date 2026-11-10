@@ -10,6 +10,8 @@ import { type PackageSnapshotDigestManifest } from "@planweave-ai/collaboration-
 import { capturePackageSnapshot } from "../package/packageSnapshot.js";
 import { withPackageFileConsistency } from "../package/packageFileConsistency.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
+import { manifestPromptContentMembers } from "../package/promptContentMembers.js";
+import { manifestSchema } from "../schema/manifest.js";
 import type { PackageWorkspaceRef } from "../types.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
 import { getDesktopLayoutDirect, layoutPathForWorkspace } from "./layoutStore.js";
@@ -61,19 +63,23 @@ export async function captureAuthorizedCanvasContent(input: {
     null,
     2
   )}\n`;
+  const manifestFile = captured.snapshot.files.find((file) => file.path === "manifest.json");
+  if (!manifestFile) throw new Error("package_snapshot_manifest_missing");
+  const expected = manifestPromptContentMembers(
+    manifestSchema.parse(JSON.parse(manifestFile.content))
+  );
   const members = [
-    ...captured.snapshot.files.map((file) => ({
-      kind:
-        file.path === "manifest.json"
-          ? ("manifest" as const)
-          : file.path.includes("/blocks/")
-            ? ("block_prompt" as const)
-            : ("task_prompt" as const),
-      path: file.path,
-      content: file.content,
-      digestSha256: file.digestSha256,
-      sizeBytes: file.sizeBytes
-    })),
+    ...captured.snapshot.files.map((file) => {
+      const kind = file.path === "manifest.json" ? ("manifest" as const) : expected.get(file.path);
+      if (!kind) throw new Error("content_version_prompt_set_mismatch");
+      return {
+        kind,
+        path: file.path,
+        content: file.content,
+        digestSha256: file.digestSha256,
+        sizeBytes: file.sizeBytes
+      };
+    }),
     {
       kind: "desktop_layout" as const,
       path: contentVersionDesktopLayoutMemberPath,

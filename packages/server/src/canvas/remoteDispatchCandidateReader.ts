@@ -105,8 +105,10 @@ export class ServerCanvasDispatchCandidateReader implements RemoteDispatchCandid
         `Executor '${effectiveExecutor}' for '${input.blockRef}' does not identify an Agent.`
       );
     }
-    const taskPrompt = document.promptMarkdownByPath[task.prompt];
-    const blockPrompt = document.promptMarkdownByPath[block.prompt];
+    const taskPrompt =
+      document.promptMarkdownByPath[normalizeContentVersionPromptPath(task.prompt)];
+    const blockPrompt =
+      document.promptMarkdownByPath[normalizeContentVersionPromptPath(block.prompt)];
     if (taskPrompt === undefined || blockPrompt === undefined) {
       throw new Error("canvas_replica_prompt_missing");
     }
@@ -245,3 +247,4 @@ export class ServerCanvasDispatchCandidateReader implements RemoteDispatchCandid
     });
   }
 }
+import { normalizeContentVersionPromptPath } from "@planweave-ai/collaboration-protocol/content/version";

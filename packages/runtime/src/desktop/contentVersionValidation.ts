@@ -3,11 +3,12 @@ import {
   canonicalContentVersionDigestPayload,
   completeContentVersionSchema,
   contentVersionDesktopLayoutMemberPath,
+  isContentVersionPromptKind,
   type CompleteContentVersion,
-  type ContentVersionMember,
-  type ContentVersionMemberKind
+  type ContentVersionMember
 } from "@planweave-ai/collaboration-protocol/content/version";
 import { manifestSchema } from "../schema/manifest.js";
+import { manifestPromptContentMembers } from "../package/promptContentMembers.js";
 import type { PlanPackageManifest } from "../types.js";
 import { desktopLayoutFileSchema, type DesktopLayout } from "./types/desktopLayoutSchema.js";
 
@@ -19,22 +20,6 @@ export type ValidatedAuthoritativeCanvasContent = {
 
 function sha256(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
-}
-
-function expectedPromptMembers(
-  manifest: PlanPackageManifest
-): Map<string, ContentVersionMemberKind> {
-  const expected = new Map<string, ContentVersionMemberKind>();
-  const add = (path: string, kind: ContentVersionMemberKind) => {
-    const existing = expected.get(path);
-    if (existing && existing !== kind) throw new Error("content_version_prompt_kind_conflict");
-    expected.set(path, kind);
-  };
-  for (const task of manifest.nodes) {
-    add(task.prompt, "task_prompt");
-    for (const block of task.blocks) add(block.prompt, "block_prompt");
-  }
-  return expected;
 }
 
 function verifyMemberDigests(content: CompleteContentVersion): void {
@@ -72,10 +57,10 @@ export function validateAuthoritativeCanvasContent(
   const layoutMember = memberAtPath(content, contentVersionDesktopLayoutMemberPath);
   const layout = desktopLayoutFileSchema.parse(JSON.parse(layoutMember.content));
 
-  const expected = expectedPromptMembers(manifest);
+  const expected = manifestPromptContentMembers(manifest);
   const actual = new Map(
     content.members
-      .filter((member) => member.kind === "task_prompt" || member.kind === "block_prompt")
+      .filter((member) => isContentVersionPromptKind(member.kind))
       .map((member) => [member.path, member.kind] as const)
   );
   if (actual.size !== expected.size) throw new Error("content_version_prompt_set_mismatch");

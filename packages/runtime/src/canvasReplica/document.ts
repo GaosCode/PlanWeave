@@ -5,7 +5,7 @@ import {
   compareContentVersionMemberPaths,
   completeContentVersionSchema,
   contentVersionDesktopLayoutMemberPath,
-  contentVersionMemberPathSchema,
+  isContentVersionPromptKind,
   type CompleteContentVersion,
   type ContentVersionMember,
   type ContentVersionMemberKind
@@ -18,6 +18,7 @@ import {
 } from "../desktop/types/desktopLayoutSchema.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { manifestSchema } from "../schema/manifest.js";
+import { manifestPromptContentMembers } from "../package/promptContentMembers.js";
 import type { PlanPackageManifest } from "../types.js";
 
 export const canvasReplicaDocumentSchemaVersion = "canvas-replica-document/v1" as const;
@@ -50,33 +51,6 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function expectedPromptMembers(
-  manifest: PlanPackageManifest
-): Map<string, Exclude<ContentVersionMemberKind, "manifest" | "desktop_layout">> {
-  const expected = new Map<
-    string,
-    Exclude<ContentVersionMemberKind, "manifest" | "desktop_layout">
-  >();
-  const add = (
-    path: string,
-    kind: Exclude<ContentVersionMemberKind, "manifest" | "desktop_layout">
-  ) => {
-    contentVersionMemberPathSchema.parse(path);
-    const pathMatchesKind =
-      (kind === "task_prompt" && /^nodes\/[^/]+\/prompt\.md$/.test(path)) ||
-      (kind === "block_prompt" && /^nodes\/[^/]+\/blocks\/[^/]+\.prompt\.md$/.test(path));
-    if (!pathMatchesKind || expected.has(path)) {
-      throw new Error("canvas_replica_prompt_path_invalid");
-    }
-    expected.set(path, kind);
-  };
-  for (const task of manifest.nodes) {
-    add(task.prompt, "task_prompt");
-    for (const block of task.blocks) add(block.prompt, "block_prompt");
-  }
-  return expected;
-}
-
 function validateManifest(manifest: PlanPackageManifest): void {
   const diagnostics = compileTaskGraph(manifest).diagnostics.errors;
   if (diagnostics.length > 0) {
@@ -90,7 +64,7 @@ function validatePromptSet(
   manifest: PlanPackageManifest,
   promptMarkdownByPath: Record<string, string>
 ): void {
-  const expected = expectedPromptMembers(manifest);
+  const expected = manifestPromptContentMembers(manifest);
   const paths = Object.keys(promptMarkdownByPath);
   if (paths.length !== expected.size || paths.some((path) => !expected.has(path))) {
     throw new Error("canvas_replica_prompt_set_mismatch");
@@ -128,7 +102,7 @@ export function decodeCanvasReplicaDocument(rawContent: unknown): CanvasReplicaD
   const validated = validateAuthoritativeCanvasContent(rawContent);
   const promptMarkdownByPath = Object.fromEntries(
     validated.content.members
-      .filter((member) => member.kind === "task_prompt" || member.kind === "block_prompt")
+      .filter((member) => isContentVersionPromptKind(member.kind))
       .map((member) => [member.path, member.content])
   );
   return parseCanvasReplicaDocument({
@@ -155,7 +129,7 @@ function member(
 
 export function encodeCanvasReplicaDocument(input: CanvasReplicaDocument): CompleteContentVersion {
   const document = parseCanvasReplicaDocument(input);
-  const expected = expectedPromptMembers(document.manifest);
+  const expected = manifestPromptContentMembers(document.manifest);
   const members = [
     member("manifest", "manifest.json", `${JSON.stringify(document.manifest, null, 2)}\n`),
     ...[...expected.entries()].map(([path, kind]) =>

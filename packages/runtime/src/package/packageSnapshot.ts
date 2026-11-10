@@ -21,6 +21,10 @@ import { manifestSchema } from "../schema/manifest.js";
 import { packageFingerprintFromContent } from "../plangraph/hash.js";
 import { withPackageFileConsistency } from "./packageFileConsistency.js";
 import {
+  manifestPromptContentMembers,
+  manifestPromptMarkdownByPath
+} from "./promptContentMembers.js";
+import {
   readSnapshotMember,
   sameSnapshotFile,
   snapshotConflict,
@@ -68,10 +72,13 @@ export function packageSnapshotGraphFingerprint(snapshot: CapturedPackageSnapsho
   const manifest = manifestSchema.parse(JSON.parse(manifestFile.content));
   return packageFingerprintFromContent(
     manifest,
-    new Map(
-      snapshot.files
-        .filter((file) => file.path !== "manifest.json")
-        .map((file) => [file.path, file.content])
+    manifestPromptMarkdownByPath(
+      manifest,
+      new Map(
+        snapshot.files
+          .filter((file) => file.path !== "manifest.json")
+          .map((file) => [file.path, file.content])
+      )
     )
   );
 }
@@ -92,11 +99,7 @@ function boundedUtf8(bytes: Uint8Array, path: string): string {
 function referencedPromptPaths(
   manifest: Awaited<ReturnType<typeof loadPackage>>["manifest"]
 ): string[] {
-  const paths = new Set<string>();
-  for (const node of manifest.nodes) {
-    paths.add(node.prompt);
-    for (const block of node.blocks) paths.add(block.prompt);
-  }
+  const paths = new Set(manifestPromptContentMembers(manifest).keys());
   if (paths.size > PACKAGE_SNAPSHOT_MAX_PROMPT_DIGESTS) {
     throw new Error("package_snapshot_prompt_count_exceeded");
   }

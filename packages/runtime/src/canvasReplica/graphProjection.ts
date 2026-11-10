@@ -18,6 +18,8 @@ import type {
 } from "../desktop/types/graphTypes.js";
 import { buildSharedResourceGroupsFromMembership } from "../desktop/graph/sharedResourceViewModel.js";
 import type { CanvasReplicaDocument } from "./document.js";
+import { normalizeContentVersionPromptPath } from "@planweave-ai/collaboration-protocol/content/version";
+import { manifestPromptMarkdownByPath } from "../package/promptContentMembers.js";
 
 export type CanvasReplicaGraphContent = {
   manifest: CanvasReplicaDocument["manifest"];
@@ -44,7 +46,7 @@ function requireReplicaPrompt(
   path: string,
   ownerRef: string
 ): string {
-  const markdown = markdownByPath.get(path);
+  const markdown = markdownByPath.get(normalizeContentVersionPromptPath(path));
   if (markdown === undefined) throw new Error(`canvas_replica_prompt_missing:${ownerRef}`);
   return markdown;
 }
@@ -62,7 +64,7 @@ function promptIndex(document: CanvasReplicaDocument) {
   >();
   const markdownByPath = new Map(Object.entries(document.promptMarkdownByPath));
   for (const task of document.manifest.nodes) {
-    const taskMarkdown = markdownByPath.get(task.prompt);
+    const taskMarkdown = markdownByPath.get(normalizeContentVersionPromptPath(task.prompt));
     if (taskMarkdown === undefined)
       throw new Error(`canvas_replica_task_prompt_missing:${task.id}`);
     index.set(task.prompt, {
@@ -74,7 +76,7 @@ function promptIndex(document: CanvasReplicaDocument) {
     });
     for (const block of task.blocks) {
       const ref = blockRef(task.id, block.id);
-      const blockMarkdown = markdownByPath.get(block.prompt);
+      const blockMarkdown = markdownByPath.get(normalizeContentVersionPromptPath(block.prompt));
       if (blockMarkdown === undefined)
         throw new Error(`canvas_replica_block_prompt_missing:${ref}`);
       index.set(block.prompt, {
@@ -161,7 +163,10 @@ export function projectCanvasReplicaDocument(
   if (compiledGraph.diagnostics.errors.length > 0) {
     throw new Error("canvas_replica_graph_invalid");
   }
-  const packageFingerprint = packageFingerprintFromContent(document.manifest, markdownByPath);
+  const packageFingerprint = packageFingerprintFromContent(
+    document.manifest,
+    manifestPromptMarkdownByPath(document.manifest, markdownByPath)
+  );
   const graph = buildPlanGraph({
     manifest: document.manifest,
     compiledGraph,

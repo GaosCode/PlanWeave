@@ -19,6 +19,7 @@ import { canvasBaselineMigration } from "./canvasBaseline.js";
 import { canvasSnapshotContentRefMigration } from "./canvasSnapshotContentRef.js";
 import { canvasOperationRetentionMigration } from "./canvasOperationRetention.js";
 import { contentVersionMigration } from "./contentVersions.js";
+import { sharedPromptContentMigration } from "./sharedPromptContent.js";
 import { setupCodeHostEnrollmentOutcomeMigration, setupCodeMigration } from "./setup.js";
 import { commentWorkspaceScopeMigration } from "./commentWorkspaceScope.js";
 import { hostReadinessMigration } from "./hostReadiness.js";
@@ -96,7 +97,7 @@ export const migrationModules: readonly MigrationModule[] = [
       canvasOperationRetentionMigration
     ]
   },
-  { name: "content-versions", migrations: [contentVersionMigration] },
+  { name: "content-versions", migrations: [contentVersionMigration, sharedPromptContentMigration] },
   { name: "setup-code", migrations: [setupCodeMigration, setupCodeHostEnrollmentOutcomeMigration] },
   { name: "comment-workspace-scope", migrations: [commentWorkspaceScopeMigration] },
   { name: "host-readiness", migrations: [hostReadinessMigration] },

@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { normalizeContentVersionPromptPath } from "@planweave-ai/collaboration-protocol/content/version";
 import { join } from "node:path";
 import { compilePackageGraph } from "../graph/compileTaskGraph.js";
 import { commitPlanPackageGraphMutation } from "../graph/editGraph.js";
@@ -78,7 +79,9 @@ async function readPromptEntry(options: {
   try {
     let markdown: string;
     if (options.promptMarkdownByPath) {
-      const captured = options.promptMarkdownByPath.get(options.packagePath);
+      const captured = options.promptMarkdownByPath.get(
+        normalizeContentVersionPromptPath(options.packagePath)
+      );
       if (captured === undefined)
         throw new Error(`Captured prompt '${options.packagePath}' is missing.`);
       markdown = captured;
