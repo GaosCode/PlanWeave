@@ -1,4 +1,7 @@
-import type { ReviewPipelinePromptWrite } from "./reviewPipelinePromptWrites.js";
+import type {
+  ReviewPipelinePromptFileRestore,
+  ReviewPipelinePromptWrite
+} from "./reviewPipelinePromptSchema.js";
 import type { DesktopLayoutNode } from "../desktop/types/desktopLayoutSchema.js";
 import type { PlanPackageExecutionPolicyFieldEditInput } from "../graph/fieldEditMutation.js";
 import type { ProjectTaskRef } from "../projectGraph/types.js";
@@ -155,6 +158,7 @@ export type UpdateReviewPipelineCommand = PlanGraphCommandBase & {
   };
   reviewBlocks: ManifestReviewBlock[];
   promptMarkdownByBlockId: ReviewPipelinePromptWrite[];
+  promptFileRestores?: ReviewPipelinePromptFileRestore[];
 };
 
 export type UpdateLayoutCommand = PlanGraphCommandBase & {

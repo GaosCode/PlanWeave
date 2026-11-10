@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { reviewPipelinePromptWriteSchema } from "./reviewPipelinePromptWrites.js";
+import {
+  reviewPipelinePromptFileRestoreSchema,
+  reviewPipelinePromptWriteSchema
+} from "./reviewPipelinePromptSchema.js";
 import { userRequiredCapabilitiesSchema } from "@planweave-ai/agent-host-protocol/browser";
 import {
   desktopLayoutFileSchema,
@@ -286,7 +289,8 @@ const planGraphCommandSchemaOptions = [
         })
         .strict(),
       reviewBlocks: z.array(reviewBlockSchema),
-      promptMarkdownByBlockId: z.array(reviewPipelinePromptWriteSchema)
+      promptMarkdownByBlockId: z.array(reviewPipelinePromptWriteSchema),
+      promptFileRestores: z.array(reviewPipelinePromptFileRestoreSchema).optional()
     })
     .strict(),
   updateLayoutCommandSchema,

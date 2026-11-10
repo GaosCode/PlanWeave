@@ -775,6 +775,7 @@
         "promptRemoval.test.ts",
         "promptRemovalHistory.test.ts",
         "reviewPipelineHistory.test.ts",
+        "reviewPipelinePromptOwners.test.ts",
         "executorApi.test.ts",
         "executorEnvironment.test.ts",
         "executorOutputLimits.test.ts",

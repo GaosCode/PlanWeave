@@ -12,7 +12,9 @@ import { handlerForCommand, type PlanGraphCommandHandler } from "./commandHandle
 import { diagnostic, isPlanGraphCommandDiagnostic } from "./commandHandlers/types.js";
 import {
   reviewPipelinePromptSideEffects,
-  reviewPipelineSnapshotCommand
+  reviewPipelineSnapshotCommand,
+  prepareReviewPipelineInverse,
+  prepareReviewPipelineMutation
 } from "./reviewPipelinePromptWrites.js";
 import { stableJson } from "./hash.js";
 import {
@@ -391,12 +393,19 @@ async function executePlanGraphCommandLocked(
   let mutation: ReturnType<PlanGraphCommandHandler["mutation"]>;
   try {
     mutation = handler.mutation(loaded, options.command);
+    if (!isDiagnostic(mutation) && options.command.type === "updateReviewPipeline") {
+      mutation = await prepareReviewPipelineMutation(
+        options.command,
+        mutation,
+        loaded.workspace.packageDir
+      );
+    }
     if (
       !isDiagnostic(mutation) &&
       !Array.isArray(inverse) &&
       inverse.type === "updateReviewPipeline"
     ) {
-      inverse = await reviewPipelineSnapshotCommand(
+      inverse = await prepareReviewPipelineInverse(
         inverse,
         loaded.workspace.packageDir,
         await preparePromptReferenceSideEffects(loaded.workspace.packageDir, mutation)

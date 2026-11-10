@@ -1,32 +1,29 @@
-import { z } from "zod";
+import { readFile } from "node:fs/promises";
 import {
   writePromptSideEffects,
+  type PlanPackageGraphMutation,
   type PlanPackageGraphMutationSideEffect
 } from "../graph/mutation.js";
 import { promptIdentity } from "../graph/promptIdentity.js";
+import type { ReviewPipelinePromptFileRestore } from "./reviewPipelinePromptSchema.js";
 import type { UpdateReviewPipelineCommand } from "./commands.js";
-
-export const reviewPipelinePromptWriteSchema = z
-  .object({
-    blockId: z.string(),
-    markdown: z.string(),
-    intent: z.literal("restore").optional()
-  })
-  .strict();
-
-export type ReviewPipelinePromptWrite = z.infer<typeof reviewPipelinePromptWriteSchema>;
 
 export function reviewPipelinePromptSideEffects(
   command: UpdateReviewPipelineCommand
 ): PlanPackageGraphMutationSideEffect[] {
   const writes = new Map(command.promptMarkdownByBlockId.map((item) => [item.blockId, item]));
-  return command.reviewBlocks.flatMap((block) =>
-    writePromptSideEffects(block.prompt, writes.get(block.id)?.markdown ?? "").map((effect) =>
-      writes.get(block.id)?.intent === "restore" && effect.kind === "writePrompt"
-        ? { ...effect, preserveReferenced: true as const }
-        : effect
+  return [
+    ...command.reviewBlocks.flatMap((block) =>
+      writePromptSideEffects(block.prompt, writes.get(block.id)?.markdown ?? "").map((effect) =>
+        writes.get(block.id)?.intent === "restore" && effect.kind === "writePrompt"
+          ? { ...effect, preserveReferenced: true as const }
+          : effect
+      )
+    ),
+    ...(command.promptFileRestores ?? []).flatMap((file) =>
+      writePromptSideEffects(file.packagePath, file.markdown)
     )
-  );
+  ];
 }
 
 export async function reviewPipelineSnapshotCommand(
@@ -62,4 +59,56 @@ export async function reviewPipelineSnapshotCommand(
         : { ...item, intent: "restore" };
     })
   };
+}
+
+export async function prepareReviewPipelineMutation(
+  command: UpdateReviewPipelineCommand,
+  mutation: PlanPackageGraphMutation,
+  packageDir: string
+): Promise<PlanPackageGraphMutation> {
+  if (!command.promptFileRestores?.length) return mutation;
+  const retainedFiles = new Set(
+    await Promise.all(
+      command.promptFileRestores.map(
+        async (file) => (await promptIdentity(packageDir, file.packagePath)).path
+      )
+    )
+  );
+  const sideEffects: PlanPackageGraphMutationSideEffect[] = [];
+  for (const effect of mutation.sideEffects) {
+    if (
+      effect.kind === "removePrompt" &&
+      retainedFiles.has((await promptIdentity(packageDir, effect.packagePath)).path)
+    )
+      continue;
+    sideEffects.push(effect);
+  }
+  return { ...mutation, sideEffects };
+}
+
+export async function prepareReviewPipelineInverse(
+  snapshot: UpdateReviewPipelineCommand,
+  packageDir: string,
+  forwardWrites: PlanPackageGraphMutationSideEffect[]
+): Promise<UpdateReviewPipelineCommand> {
+  const pipeline = await reviewPipelineSnapshotCommand(snapshot, packageDir, forwardWrites);
+  const captured = new Set(
+    await Promise.all(
+      snapshot.reviewBlocks.map(
+        async (block) => (await promptIdentity(packageDir, block.prompt)).path
+      )
+    )
+  );
+  const promptFileRestores: ReviewPipelinePromptFileRestore[] = [];
+  for (const effect of forwardWrites) {
+    if (effect.kind !== "writePrompt") continue;
+    const identity = await promptIdentity(packageDir, effect.packagePath);
+    if (!identity.exists || captured.has(identity.path)) continue;
+    promptFileRestores.push({
+      packagePath: effect.packagePath,
+      markdown: await readFile(identity.path, "utf8")
+    });
+    captured.add(identity.path);
+  }
+  return promptFileRestores.length === 0 ? pipeline : { ...pipeline, promptFileRestores };
 }
