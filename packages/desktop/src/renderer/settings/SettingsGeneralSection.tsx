@@ -1,5 +1,5 @@
 import { desktopCommandBridge } from "../desktopCommandBridge.js";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DesktopRuntimeToolAvailability, ProjectPromptPolicy } from "@planweave-ai/runtime";
 import { Button } from "@/components/ui/button";
 import {
@@ -115,6 +115,7 @@ export function SettingsGeneralSection({
   const [windowMaterialCapabilities, setWindowMaterialCapabilities] =
     useState<WindowMaterialCapabilities | null>(null);
   const [planweaveHomeDraft, setPlanweaveHomeDraft] = useState(settings.planweaveHome);
+  const cancellingPlanweaveHome = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,6 +142,7 @@ export function SettingsGeneralSection({
   }, [settings.planweaveHome]);
 
   const commitPlanweaveHome = () => {
+    if (cancellingPlanweaveHome.current) return;
     const nextHome = planweaveHomeDraft.trim();
     if (nextHome !== settings.planweaveHome) {
       updateSettings({ planweaveHome: nextHome });
@@ -251,12 +253,15 @@ export function SettingsGeneralSection({
             onBlur={commitPlanweaveHome}
             onChange={(event) => setPlanweaveHomeDraft(event.target.value)}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
               if (event.key === "Enter") {
                 event.currentTarget.blur();
               }
               if (event.key === "Escape") {
+                cancellingPlanweaveHome.current = true;
                 setPlanweaveHomeDraft(settings.planweaveHome);
                 event.currentTarget.blur();
+                cancellingPlanweaveHome.current = false;
               }
             }}
           />

@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -636,6 +636,94 @@ describe("desktop renderer settings interactions", () => {
     await userEvent.click(screen.getByRole("option", { name: "English" }));
 
     expect(updateSettings).toHaveBeenCalledWith({ language: "en" });
+  });
+
+  describe("PlanWeave Home", () => {
+    const homeA = "/tmp/home-a";
+    const homeB = "/tmp/home-b";
+
+    function renderHomeSettings() {
+      stubLayoutApis();
+      const user = userEvent.setup();
+      const updateSettings = vi.fn();
+      const view = (planweaveHome: string) => (
+        <SettingsView
+          agentDetectionRefreshing={false}
+          agents={[]}
+          graph={null}
+          language="en"
+          refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+          refreshRuntimeTools={vi.fn().mockResolvedValue(undefined)}
+          runtimeTools={{ tmux: { available: true, command: "tmux" } }}
+          setActiveView={vi.fn()}
+          settings={{ ...settings, planweaveHome }}
+          t={createTranslator("en")}
+          updateSettings={updateSettings}
+          updateSettingsAndWait={vi.fn().mockResolvedValue(undefined)}
+        />
+      );
+      const { rerender } = render(view(homeA));
+      const field = screen.getByRole("textbox", { name: "PlanWeave Home" });
+      const editHome = async (value: string) => {
+        await user.click(field);
+        await user.clear(field);
+        if (value) await user.paste(value);
+      };
+      return {
+        user,
+        field,
+        editHome,
+        updateSettings,
+        showConfirmedHome: (value: string) => rerender(view(value))
+      };
+    }
+
+    it("cancels the draft with Escape and allows the next Enter to save once", async () => {
+      const { user, field, editHome, updateSettings } = renderHomeSettings();
+
+      await editHome(homeB);
+      expect(field).toHaveValue(homeB);
+      await user.keyboard("{Escape}");
+      expect(updateSettings).not.toHaveBeenCalled();
+      expect(field).toHaveValue(homeA);
+      expect(field).not.toHaveFocus();
+
+      await editHome(` ${homeB} `);
+      await user.keyboard("{Enter}");
+      expect(field).not.toHaveFocus();
+      expect(updateSettings).toHaveBeenCalledExactlyOnceWith({ planweaveHome: homeB });
+    });
+
+    it.each([
+      { draft: ` ${homeB} `, saved: [{ planweaveHome: homeB }], label: "a trimmed change" },
+      { draft: "", saved: [{ planweaveHome: "" }], label: "the default directory" },
+      { draft: ` ${homeA} `, saved: [], label: "the unchanged directory" }
+    ])("handles $label on normal blur", async ({ draft, saved }) => {
+      const { user, field, editHome, updateSettings } = renderHomeSettings();
+
+      await editHome(draft);
+      expect(field).toHaveValue(draft);
+      await user.tab();
+      expect(field).not.toHaveFocus();
+      expect(updateSettings.mock.calls).toEqual(saved.map((patch) => [patch]));
+    });
+
+    it("leaves IME key presses to the composition and cancels back to the latest confirmed Home", async () => {
+      const { user, field, editHome, updateSettings, showConfirmedHome } = renderHomeSettings();
+      showConfirmedHome(homeB);
+      expect(field).toHaveValue(homeB);
+      await editHome(homeA);
+
+      fireEvent.keyDown(field, { key: "Enter", isComposing: true });
+      fireEvent.keyDown(field, { key: "Escape", isComposing: true });
+      expect(field).toHaveFocus();
+      expect(field).toHaveValue(homeA);
+      expect(updateSettings).not.toHaveBeenCalled();
+
+      await user.keyboard("{Escape}");
+      expect(field).toHaveValue(homeB);
+      expect(updateSettings).not.toHaveBeenCalled();
+    });
   });
 
   it("opens the MCP Tunnel settings section without persisting API keys", async () => {
