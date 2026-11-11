@@ -40,6 +40,31 @@ export const hostConnectionStatusDocumentSchema = z
 
 export type HostConnectionStatusDocument = z.infer<typeof hostConnectionStatusDocumentSchema>;
 
+export interface HostConnectionStatusPublisher {
+  publish(status: HostTransportStatus): void;
+  flush(): Promise<void>;
+}
+
+const writeFailureCode = "agent_host_connection_status_write_failed";
+
+export class HostConnectionStatusWriteError extends Error {
+  readonly details: string;
+
+  constructor(state: HostTransportStatus["state"], error: unknown) {
+    const cause = error instanceof AggregateError ? error.cause : error;
+    const code =
+      cause instanceof Error &&
+      "code" in cause &&
+      typeof cause.code === "string" &&
+      /^[A-Z][A-Z0-9_]+$/.test(cause.code)
+        ? ` (${cause.code})`
+        : "";
+    const details = `${state}${code}`;
+    super(`${writeFailureCode}: ${details}`, { cause: error });
+    this.details = details;
+  }
+}
+
 function missing(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
@@ -97,15 +122,46 @@ export async function writeHostConnectionStatus(
       await unlink(temporary);
     } catch (cleanupError) {
       if (!missing(cleanupError)) {
-        throw new AggregateError(
-          [error, cleanupError],
-          "agent_host_connection_status_write_failed"
-        );
+        throw new AggregateError([error, cleanupError], writeFailureCode, { cause: error });
       }
     }
     throw error;
   }
   return document;
+}
+
+export function createHostConnectionStatusPublisher(
+  dataDirectory: string
+): HostConnectionStatusPublisher {
+  let inFlight: Promise<void> | undefined;
+  let pending: { status: HostTransportStatus; observedAt: Date } | undefined;
+  let failure: HostConnectionStatusWriteError | undefined;
+
+  async function drain(): Promise<void> {
+    while (pending) {
+      const { status, observedAt } = pending;
+      pending = undefined;
+      try {
+        await writeHostConnectionStatus(dataDirectory, status, observedAt);
+        failure = undefined;
+      } catch (error) {
+        failure = new HostConnectionStatusWriteError(status.state, error);
+        process.emitWarning(failure.details, { code: writeFailureCode });
+      }
+    }
+    inFlight = undefined;
+  }
+
+  return {
+    publish(status) {
+      pending = { status: { ...status }, observedAt: new Date() };
+      inFlight ??= drain();
+    },
+    async flush() {
+      while (inFlight) await inFlight;
+      if (failure) throw failure;
+    }
+  };
 }
 
 export async function readHostConnectionStatus(

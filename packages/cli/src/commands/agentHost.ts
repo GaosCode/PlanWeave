@@ -8,6 +8,7 @@ type AgentHostCliRunner = (
   options: {
     io?: AgentHostCliIo;
     launcher: { executablePath: string; fixedArgs: readonly string[] };
+    onShutdownRequiresProcessExit: (code: number) => void;
   }
 ) => Promise<number>;
 
@@ -52,7 +53,8 @@ export function registerAgentHostCommand(
     .action(async (args: string[]) => {
       const code = await run(args, {
         io: dependencies.io,
-        launcher: agentHostLauncher(processArgv, executablePath)
+        launcher: agentHostLauncher(processArgv, executablePath),
+        onShutdownRequiresProcessExit: process.exit
       });
       if (code !== 0) {
         setExitCode(code);

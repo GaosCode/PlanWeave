@@ -32,6 +32,7 @@ import {
   ensureDurableHostIdentity
 } from "../state/durableHostIdentity.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
+import { createHostConnectionStatusPublisher } from "../transport/connectionStatus.js";
 import { CalibratedServerClock } from "../transport/calibratedServerClock.js";
 import { ConfiguredCanvasRuntimeResolver } from "../runtime/canvasRuntimeResolver.js";
 import {
@@ -73,6 +74,7 @@ import { resolveHostExecutable } from "../platform/resolveHostExecutable.js";
 import { agentProcessEnv, DEFAULT_ACP_SHUTDOWN_POLICY } from "@planweave-ai/runtime";
 
 const MAX_CONFIG_BYTES = 256 * 1_024;
+const daemonDataDirectories = new Set<string>();
 
 export type AgentHostDiagnostics = {
   version: typeof agentHostPackageVersion;
@@ -642,19 +644,24 @@ export class AgentHostOperator {
       await readExposedAgentProfileIds(config)
     );
     const capabilities = resolveAgentHostCapabilities(config);
-    await ensureDurableHostIdentity(
-      config.dataDirectory,
-      credential.hostId,
-      credentialInstanceId(credential)
-    );
-    const trust = await createAgentHostTlsTrust(config.coordinator.caCertificatePath);
+    const dataDirectory = await realpath(config.dataDirectory);
+    if (daemonDataDirectories.has(dataDirectory)) {
+      throw new Error("agent_host_daemon_already_active");
+    }
+    daemonDataDirectories.add(dataDirectory);
+    let closeTrust: (() => Promise<void>) | undefined;
     let state: Awaited<ReturnType<typeof openAgentHostState>> | undefined;
     try {
-      state = await openAgentHostState(join(config.dataDirectory, "state.sqlite"));
-      state.recoverableExecutionCount();
-      await state.importLegacyRemoteExecutionStore(
-        join(config.dataDirectory, "remote-execution.sqlite")
+      await ensureDurableHostIdentity(
+        dataDirectory,
+        credential.hostId,
+        credentialInstanceId(credential)
       );
+      const trust = await createAgentHostTlsTrust(config.coordinator.caCertificatePath);
+      closeTrust = trust.close;
+      state = await openAgentHostState(join(dataDirectory, "state.sqlite"));
+      state.recoverableExecutionCount();
+      await state.importLegacyRemoteExecutionStore(join(dataDirectory, "remote-execution.sqlite"));
       const interactionRelay = new DurableAcpInteractionRelay(state);
       const canvasRuntimeResolver = new ConfiguredCanvasRuntimeResolver(config);
       const serverClock = new CalibratedServerClock();
@@ -732,11 +739,21 @@ export class AgentHostOperator {
         ca: trust.ca,
         request: trust.request
       });
-      const { writeHostConnectionStatus } = await import("../transport/connectionStatus.js");
-      transport.subscribe((status) => {
-        void writeHostConnectionStatus(config.dataDirectory, status).catch(() => undefined);
+      const durableState = state;
+      return composeAgentHost({
+        state: {
+          close() {
+            durableState.close();
+            state = undefined;
+          }
+        },
+        transport,
+        statusPublisher: createHostConnectionStatusPublisher(dataDirectory),
+        async closeResources() {
+          await trust.close();
+          if (!state) daemonDataDirectories.delete(dataDirectory);
+        }
       });
-      return composeAgentHost({ state, transport, closeResources: trust.close });
     } catch (error) {
       const cleanupErrors: unknown[] = [];
       try {
@@ -745,7 +762,7 @@ export class AgentHostOperator {
         cleanupErrors.push(cleanupError);
       }
       try {
-        await trust.close();
+        await closeTrust?.();
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError);
       }
@@ -758,6 +775,7 @@ export class AgentHostOperator {
           }
         );
       }
+      daemonDataDirectories.delete(dataDirectory);
       throw error;
     }
   }

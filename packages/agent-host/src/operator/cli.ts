@@ -1,8 +1,14 @@
-import type { AgentHostComposition } from "../composition/agentHostComposition.js";
+import {
+  AGENT_HOST_SHUTDOWN_REQUIRES_PROCESS_EXIT,
+  type AgentHostComposition,
+  AgentHostCompositionShutdownError
+} from "../composition/agentHostComposition.js";
 import type { AgentHostBackgroundLauncher } from "../background/backgroundService.js";
+import { writeSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runRealAcpSmokeCli } from "../realAcp/cli.js";
+import { HostConnectionStatusWriteError } from "../transport/connectionStatus.js";
 import {
   AgentHostOperator,
   type AgentExposureMutationResult,
@@ -230,6 +236,11 @@ export function parseAgentHostArgs(argv: readonly string[]): ParsedCommand {
   };
 }
 
+function agentHostCliErrorCode(error: unknown): string {
+  const code = error instanceof Error ? error.message.split(":", 1)[0] : undefined;
+  return code && /^agent_host_[a-z0-9_]+$/.test(code) ? code : "agent_host_failed";
+}
+
 export async function waitForAgentHostSignal(
   composition: AgentHostComposition,
   processLike: Pick<NodeJS.Process, "once" | "off">
@@ -241,35 +252,53 @@ export async function waitForAgentHostSignal(
   const stop = () => resolveSignal();
   let terminal = false;
   let unsubscribe = () => {};
-  const terminalFailure = new Promise<never>((_resolve, reject) => {
+  const terminalFailure = new Promise<Error>((resolve) => {
     unsubscribe = composition.subscribeStatus((status) => {
       if (status.state === "auth-failed") {
         terminal = true;
         unsubscribe();
-        reject(new Error("agent_host_auth_failed"));
+        resolve(new Error("agent_host_auth_failed"));
       } else if (status.state === "reconciliation-required") {
         terminal = true;
         unsubscribe();
-        reject(new Error("agent_host_mailbox_reconciliation_required"));
+        resolve(new Error("agent_host_mailbox_reconciliation_required"));
       } else if (status.state === "degraded") {
         terminal = true;
         unsubscribe();
-        reject(new Error("agent_host_transport_degraded"));
+        resolve(new Error("agent_host_transport_degraded"));
       }
     });
     if (terminal) unsubscribe();
   });
   processLike.once("SIGINT", stop);
   processLike.once("SIGTERM", stop);
+  let runFailure: { error: unknown } | undefined;
   try {
     await composition.start();
-    await Promise.race([signal, terminalFailure]);
+    const failure = await Promise.race([signal, terminalFailure]);
+    if (failure) throw failure;
+  } catch (error) {
+    runFailure = { error };
   } finally {
     unsubscribe();
     processLike.off("SIGINT", stop);
     processLike.off("SIGTERM", stop);
-    await composition.shutdown();
   }
+  try {
+    await composition.shutdown();
+  } catch (error) {
+    if (
+      !runFailure ||
+      agentHostCliErrorCode(error) === AGENT_HOST_SHUTDOWN_REQUIRES_PROCESS_EXIT ||
+      (error instanceof AgentHostCompositionShutdownError && error === runFailure.error)
+    ) {
+      throw error;
+    }
+    const shutdownErrors =
+      error instanceof AgentHostCompositionShutdownError ? error.shutdownErrors : [error];
+    throw new AgentHostCompositionShutdownError([runFailure.error], shutdownErrors);
+  }
+  if (runFailure) throw runFailure.error;
 }
 
 export async function runAgentHostCli(
@@ -280,6 +309,7 @@ export async function runAgentHostCli(
     processLike?: Pick<NodeJS.Process, "once" | "off">;
     env?: Readonly<Record<string, string | undefined>>;
     launcher?: AgentHostBackgroundLauncher;
+    onShutdownRequiresProcessExit?: (code: number) => void;
   } = {}
 ): Promise<number> {
   const io = options.io ?? { stdout: console.log, stderr: console.error };
@@ -377,8 +407,32 @@ export async function runAgentHostCli(
     io.stdout(JSON.stringify(result));
     return 0;
   } catch (error) {
-    const code = error instanceof Error ? error.message.split(":", 1)[0] : "agent_host_failed";
-    io.stderr(code.startsWith("agent_host_") ? code : "agent_host_failed");
+    const combinedFailure =
+      error instanceof AgentHostCompositionShutdownError && error.runErrors.length > 0;
+    const code = agentHostCliErrorCode(combinedFailure ? error.runErrors[0] : error);
+    if (code === AGENT_HOST_SHUTDOWN_REQUIRES_PROCESS_EXIT) {
+      try {
+        const timedOutPublishingStatus =
+          error instanceof Error &&
+          error.cause instanceof Error &&
+          error.cause.message === "agent_host_connection_status_shutdown_timeout";
+        const message = timedOutPublishingStatus
+          ? `${code}: agent_host_connection_status_shutdown_timeout`
+          : code;
+        if (options.io || !options.onShutdownRequiresProcessExit) io.stderr(message);
+        else writeSync(process.stderr.fd, `${message}\n`);
+      } finally {
+        options.onShutdownRequiresProcessExit?.(1);
+      }
+      return 1;
+    }
+    io.stderr(code);
+    if (combinedFailure) {
+      const statusFailure = error.shutdownErrors.find(
+        (failure) => failure instanceof HostConnectionStatusWriteError
+      );
+      io.stderr(statusFailure?.message ?? error.message);
+    }
     return code.startsWith("agent_host_cli_") ? 2 : 1;
   }
 }

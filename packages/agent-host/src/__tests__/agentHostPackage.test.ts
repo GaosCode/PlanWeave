@@ -45,6 +45,42 @@ describe("@planweave-ai/agent-host", () => {
     await expect(composition.shutdown()).resolves.toBeUndefined();
   });
 
+  it("detaches status publication and closes resources when startup fails", async () => {
+    const { composeAgentHost } = await import("../index.js");
+    const failure = new Error("startup_local_state_failed");
+    const listeners = new Set<
+      import("../transport/hostTransport.js").HostTransportStatusListener
+    >();
+    const state = { close: vi.fn() };
+    const closeResources = vi.fn();
+    const statusPublisher = { publish: vi.fn(), flush: vi.fn().mockResolvedValue(undefined) };
+    const composition = composeAgentHost({
+      state,
+      closeResources,
+      statusPublisher,
+      transport: {
+        start() {
+          throw failure;
+        },
+        stop() {
+          for (const listener of listeners) listener({ state: "stopped" });
+        },
+        subscribe(listener) {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        }
+      }
+    });
+
+    await expect(composition.start()).rejects.toBe(failure);
+    expect(statusPublisher.publish).toHaveBeenCalledExactlyOnceWith({ state: "stopped" });
+    expect(listeners.size).toBe(0);
+    expect(state.close).toHaveBeenCalledOnce();
+    expect(closeResources).toHaveBeenCalledOnce();
+    await composition.shutdown();
+    expect(closeResources).toHaveBeenCalledOnce();
+  });
+
   it("keeps durable state open when transport shutdown fails", async () => {
     const { composeAgentHost } = await import("../index.js");
     const failure = new Error("transport_stop_failed");

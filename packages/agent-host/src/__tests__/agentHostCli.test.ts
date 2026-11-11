@@ -9,8 +9,16 @@ import {
   CANVAS_RUNTIME_CAPABILITY,
   WORKSPACE_CANVAS_EXECUTION_CAPABILITY
 } from "@planweave-ai/agent-host-protocol";
+import { composeAgentHost } from "../composition/agentHostComposition.js";
 import { AgentHostOperator } from "../operator/agentHostOperator.js";
-import { writeHostConnectionStatus } from "../transport/connectionStatus.js";
+import {
+  createHostConnectionStatusPublisher,
+  writeHostConnectionStatus
+} from "../transport/connectionStatus.js";
+import type {
+  HostTransportStatus,
+  HostTransportStatusListener
+} from "../transport/hostTransport.js";
 import {
   assertDurableStateReplacementSafe,
   ensureDurableHostIdentity
@@ -328,6 +336,92 @@ describe("Agent Host operator CLI", () => {
     ).resolves.toBe(1);
     expect(stderr).toHaveBeenCalledWith(expectedError);
     expect(composition.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { failure: "auth", expected: "agent_host_auth_failed" },
+    { failure: "startup", expected: "agent_host_execution_cleanup_failed" }
+  ])("preserves the $failure diagnostic when status publication fails", async ({
+    failure,
+    expected
+  }) => {
+    const root = await mkdtemp(join(tmpdir(), "planweave-agent-host-cli-"));
+    directories.push(root);
+    const dataDirectory = join(root, "private-host-data");
+    await writeFile(dataDirectory, "");
+    const listeners = new Set<HostTransportStatusListener>();
+    const emit = (status: HostTransportStatus) => {
+      for (const listener of listeners) listener(status);
+    };
+    const privateDetail = `${dataDirectory} token=private-host-token`;
+    const composition = composeAgentHost({
+      state: { close() {} },
+      statusPublisher: createHostConnectionStatusPublisher(dataDirectory),
+      transport: {
+        start() {
+          emit({ state: "connecting", attempt: 1 });
+          if (failure === "startup") {
+            throw new Error(`agent_host_execution_cleanup_failed: ${privateDetail}`);
+          }
+          emit({ state: "auth-failed", reason: privateDetail });
+        },
+        stop() {
+          emit({ state: "stopped" });
+        },
+        subscribe(listener) {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        }
+      }
+    });
+    const stdout = vi.fn();
+    const stderr = vi.fn();
+    const exit = vi.fn();
+    await expect(
+      runAgentHostCli(["run", "--config", join(root, "config.json")], {
+        operator: operator({ createDaemon: async () => composition }),
+        io: { stdout, stderr },
+        processLike: new EventEmitter(),
+        onShutdownRequiresProcessExit: exit
+      })
+    ).resolves.toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr.mock.calls).toEqual([
+      [expected],
+      ["agent_host_connection_status_write_failed: stopped (ENOTDIR)"]
+    ]);
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("prioritizes an unsafe shutdown over the terminal diagnostic and exits", async () => {
+    const timeout = new Error("agent_host_connection_status_shutdown_timeout");
+    const composition = {
+      start: vi.fn(),
+      shutdown: vi.fn().mockRejectedValue(
+        new AggregateError([timeout], "agent_host_shutdown_requires_process_exit", {
+          cause: timeout
+        })
+      ),
+      subscribeStatus(listener: HostTransportStatusListener) {
+        listener({ state: "auth-failed", reason: "credential_rejected" });
+        return vi.fn();
+      }
+    };
+    const stderr = vi.fn();
+    const exit = vi.fn();
+    await expect(
+      runAgentHostCli(["run", "--config", "/private/config.json"], {
+        operator: operator({ createDaemon: vi.fn().mockResolvedValue(composition) }),
+        io: { stdout: vi.fn(), stderr },
+        processLike: new EventEmitter(),
+        onShutdownRequiresProcessExit: exit
+      })
+    ).resolves.toBe(1);
+    expect(stderr).toHaveBeenCalledExactlyOnceWith(
+      "agent_host_shutdown_requires_process_exit: agent_host_connection_status_shutdown_timeout"
+    );
+    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
+    expect(stderr).toHaveBeenCalledBefore(exit);
   });
 
   it("redacts arbitrary exceptions, paths, tokens, and payloads", async () => {
