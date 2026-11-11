@@ -1,6 +1,6 @@
 import type { Dirent } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, normalize, relative, sep } from "node:path";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { toPackagePosixPath } from "../package/packagePosixPath.js";
 import { PackagePathError, resolvePackagePath } from "../package/resolvePackagePath.js";
@@ -361,13 +361,22 @@ export function compileTaskGraph(manifest: PlanPackageManifest): CompiledExecuti
 async function validatePromptReference(
   packageDir: string,
   prompt: string,
+  validatePromptContents: boolean,
   errors: ValidationIssue[]
 ): Promise<void> {
+  let promptPath: string;
   try {
-    const promptPath = await resolvePackagePath(packageDir, prompt);
+    promptPath = await resolvePackagePath(packageDir, prompt);
     const promptMetadata = await optionalStat(promptPath);
     if (!promptMetadata) {
       errors.push(issue("prompt_missing", `Prompt file '${prompt}' does not exist.`, prompt));
+      return;
+    }
+    if (!promptMetadata.isFile()) {
+      errors.push(
+        issue("prompt_not_file", `Prompt file '${prompt}' is not a regular file.`, prompt)
+      );
+      return;
     }
   } catch (error) {
     if (error instanceof PackagePathError) {
@@ -381,7 +390,27 @@ async function validatePromptReference(
         )
       );
     }
+    return;
   }
+
+  if (validatePromptContents) {
+    try {
+      await readFile(promptPath, "utf8");
+    } catch (error) {
+      errors.push(
+        issue(
+          "prompt_read_failed",
+          `Prompt '${prompt}' could not be read: ${nodeFileErrorSummary(error)}.`,
+          prompt
+        )
+      );
+    }
+  }
+}
+
+export function promptReferenceKey(prompt: string): string {
+  const normalized = normalize(prompt);
+  return normalized.endsWith(sep) ? normalized.slice(0, -1) : normalized;
 }
 
 export async function compilePackageGraph(
@@ -393,13 +422,19 @@ export async function compilePackageGraph(
   const validatePromptContents = options.validatePromptContents ?? true;
   const referencedPrompts = new Set<string>();
 
-  for (const taskId of graph.taskNodesInManifestOrder) {
-    const task = requireMapValue(graph.tasksById, taskId, "tasksById");
-    referencedPrompts.add(toPackagePosixPath(task.prompt));
-    await validatePromptReference(packageDir, task.prompt, graph.diagnostics.errors);
-    for (const block of task.blocks) {
-      referencedPrompts.add(toPackagePosixPath(block.prompt));
-      await validatePromptReference(packageDir, block.prompt, graph.diagnostics.errors);
+  for (const task of manifest.nodes) {
+    for (const { prompt } of [task, ...task.blocks]) {
+      const key = promptReferenceKey(prompt);
+      if (referencedPrompts.has(key)) {
+        continue;
+      }
+      referencedPrompts.add(key);
+      await validatePromptReference(
+        packageDir,
+        prompt,
+        validatePromptContents,
+        graph.diagnostics.errors
+      );
     }
   }
 
@@ -408,25 +443,11 @@ export async function compilePackageGraph(
     join(packageDir, "nodes"),
     graph.diagnostics.errors
   )) {
-    const promptPath = toPackagePosixPath(relative(packageDir, file));
-    if (!referencedPrompts.has(promptPath)) {
+    const path = relative(packageDir, file);
+    if (!referencedPrompts.has(path)) {
+      const promptPath = toPackagePosixPath(path);
       graph.diagnostics.warnings.push(
         issue("stale_prompt_reference", `Prompt '${promptPath}' is not referenced.`, promptPath)
-      );
-      continue;
-    }
-    if (!validatePromptContents) {
-      continue;
-    }
-    try {
-      await readFile(file, "utf8");
-    } catch (error) {
-      graph.diagnostics.errors.push(
-        issue(
-          "prompt_read_failed",
-          `Prompt '${promptPath}' could not be read: ${nodeFileErrorSummary(error)}.`,
-          promptPath
-        )
       );
     }
   }

@@ -1,5 +1,5 @@
 import { sep } from "node:path";
-import { compilePackageGraph } from "./compileTaskGraph.js";
+import { compilePackageGraph, promptReferenceKey } from "./compileTaskGraph.js";
 import { requireMapValue } from "./requireMapValue.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { ensureStateForManifest, readState } from "../state.js";
@@ -71,9 +71,9 @@ function boundedSection<T>(items: T[], limit: number): GraphInspectionBoundedSec
 
 function promptMissingPaths(graph: CompiledExecutionGraph): Set<string> {
   return new Set(
-    graph.diagnostics.errors
-      .filter((diagnostic) => diagnostic.code === "prompt_missing" && diagnostic.path)
-      .map((diagnostic) => diagnostic.path as string)
+    graph.diagnostics.errors.flatMap(({ code, path }) =>
+      code === "prompt_missing" && path ? [promptReferenceKey(path)] : []
+    )
   );
 }
 
@@ -92,7 +92,7 @@ function inspectTask(
     reviewBlockCount: task.blocks.filter((block) => block.type === "review").length,
     dependsOn: requireMapValue(graph.taskDependenciesByTask, task.id, "taskDependenciesByTask"),
     dependents: requireMapValue(graph.taskDependentsByTask, task.id, "taskDependentsByTask"),
-    promptMissing: missingPromptPaths.has(task.prompt)
+    promptMissing: missingPromptPaths.has(promptReferenceKey(task.prompt))
   };
 }
 

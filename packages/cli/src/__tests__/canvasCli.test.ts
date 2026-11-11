@@ -1,4 +1,4 @@
-import { access, cp, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, realpath, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -350,6 +350,66 @@ describe("STEP-1 CLI contract: canvas", () => {
       }
     });
     expect(await readFile(init.workspace.manifestFile, "utf8")).toBe(manifestBytes);
+  }, 20_000);
+
+  it("reports a directory that the prompt command cannot consume as a validation error", async () => {
+    const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const root = await mkdtemp(join(tmpdir(), "planweave-project-"));
+    const env = withoutInitCwd({ ...process.env, PLANWEAVE_HOME: home });
+    const rootArgs = ["--project-root", root];
+    const init = JSON.parse(
+      (await runCli([...rootArgs, "init", "--project-graph", "--json"], env)).stdout
+    );
+    const manifest = JSON.parse(
+      await readFile(init.workspace.manifestFile, "utf8")
+    ) as GraphTestManifest;
+    manifest.nodes = [
+      {
+        id: "T-001",
+        type: "task",
+        title: "Shared prompt task",
+        prompt: "shared/task.txt",
+        acceptance: ["Shared implementation complete"],
+        blocks: [
+          {
+            id: "B-001",
+            type: "implementation",
+            title: "Implement shared prompt task",
+            prompt: "shared/implementation.txt",
+            depends_on: []
+          }
+        ]
+      }
+    ];
+    const blockPrompt = join(init.workspace.packageDir, "shared", "implementation.txt");
+    await mkdir(blockPrompt, { recursive: true });
+    await writeFile(
+      join(init.workspace.packageDir, "shared", "task.txt"),
+      "Shared task instructions"
+    );
+    await writeFile(init.workspace.manifestFile, JSON.stringify(manifest));
+
+    const unreadable = await runCliExpectFailure([...rootArgs, "prompt", "T-001#B-001"], env);
+    expect(unreadable.code).toBe(1);
+    expect(unreadable.stderr).toContain("EISDIR");
+
+    const validation = await runCliExpectFailure([...rootArgs, "validate", "--json"], env);
+    expect(validation).toMatchObject({ code: 1, stderr: "" });
+    expect(JSON.parse(validation.stdout)).toMatchObject({
+      ok: false,
+      errors: [
+        {
+          code: "prompt_not_file",
+          path: "canvases/default/package/shared/implementation.txt",
+          message: "Prompt file 'shared/implementation.txt' is not a regular file."
+        }
+      ]
+    });
+
+    await rmdir(blockPrompt);
+    await writeFile(blockPrompt, "Shared implementation instructions");
+    const rendered = await runCli([...rootArgs, "prompt", "T-001#B-001"], env);
+    expect(rendered.stdout).toContain("Shared implementation instructions");
   }, 20_000);
 
   it.each([

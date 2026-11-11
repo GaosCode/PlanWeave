@@ -149,6 +149,22 @@ describe("inspectGraph", () => {
     });
   });
 
+  it("marks every task whose shared prompt path is missing and reports it once", async () => {
+    const manifest = basicManifest({ includeSecondTask: true });
+    const { root, init } = await createTestWorkspace(manifest);
+    manifest.nodes[0].prompt = "./nodes/absent.md";
+    manifest.nodes[1].prompt = "nodes/absent.md";
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+
+    const result = await inspectGraph({ projectRoot: root, view: "summary" });
+
+    expect(result.tasksPreview).toEqual([
+      expect.objectContaining({ taskId: "T-001", promptMissing: true }),
+      expect.objectContaining({ taskId: "T-002", promptMissing: true })
+    ]);
+    expect(result.counts.diagnosticCount).toBe(3);
+  });
+
   it("returns a task slice with adjacent nodes, edges, and block refs", async () => {
     const manifest = basicManifest({ includeSecondTask: true, taskDependsOn: ["T-002"] });
     const { root } = await createTestWorkspace(manifest);

@@ -69,6 +69,35 @@ describe("validatePackage", () => {
     expect(report.errors.map((error) => error.code)).toContain("prompt_missing");
   });
 
+  it("rejects directories as task, implementation, and review prompts", async () => {
+    const { root, init } = await createTestWorkspace();
+    const manifest = basicManifest();
+    const task = manifest.nodes[0];
+    task.prompt = "nodes/T-001";
+    task.blocks[0].prompt = "nodes/T-001/blocks";
+    task.blocks[1].prompt = "shared/review.md";
+    await mkdir(join(init.workspace.packageDir, task.blocks[1].prompt), { recursive: true });
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual([
+      expect.objectContaining({
+        code: "prompt_not_file",
+        path: "canvases/default/package/nodes/T-001"
+      }),
+      expect.objectContaining({
+        code: "prompt_not_file",
+        path: "canvases/default/package/nodes/T-001/blocks"
+      }),
+      expect.objectContaining({
+        code: "prompt_not_file",
+        path: "canvases/default/package/shared/review.md"
+      })
+    ]);
+  });
+
   it("validates prompt references inside desktop task canvas packages", async () => {
     const { root } = await createTestWorkspace();
     const canvas = await createTaskCanvas(root, { name: "Canvas missing prompts" });
