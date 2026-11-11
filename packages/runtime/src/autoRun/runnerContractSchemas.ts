@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { identifierSegmentSchema } from "../schema/identifierSegment.js";
 import { acpAgentIdSchema, runnerTransportSchema } from "../types/executor.js";
 import {
   acpAuthenticationActionReasonSchema,
@@ -18,8 +19,9 @@ const identifierSchema = z
 
 export const projectIdSchema = identifierSchema.brand("ProjectId");
 export const canvasIdSchema = identifierSchema.brand("CanvasId");
-export const taskIdSchema = z.string().min(1).max(256).brand("TaskId");
-export const blockIdSchema = z.string().min(1).max(256).brand("BlockId");
+const runnerIdentifierSegmentSchema = identifierSegmentSchema.max(256);
+export const taskIdSchema = runnerIdentifierSegmentSchema.brand("TaskId");
+export const blockIdSchema = runnerIdentifierSegmentSchema.brand("BlockId");
 export const claimRefSchema = z
   .string()
   .min(3)

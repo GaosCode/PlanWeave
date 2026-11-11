@@ -227,9 +227,18 @@ export async function resolveProjectWorkspaceInHome(
   projectRoot: string,
   planweaveHome: string
 ): Promise<ProjectWorkspace> {
-  return capturePackageStorageIdentity(
-    await resolveProjectWorkspaceAtRoot(await realpath(projectRoot), planweaveHome)
-  );
+  return capturePackageStorageIdentity(await locateProjectWorkspace(projectRoot, planweaveHome));
+}
+
+export async function locateProjectWorkspace(
+  projectRoot: string,
+  planweaveHome: string = resolvePlanweaveHome()
+): Promise<ProjectWorkspace> {
+  return resolveProjectWorkspaceAtRoot(await realpath(projectRoot), planweaveHome);
+}
+
+export async function hasProjectRegistration(projectRoot: string): Promise<boolean> {
+  return (await locateProjectWorkspace(projectRoot)).projectCreatedAt !== null;
 }
 
 export async function resolveProjectWorkspace(projectRoot: string): Promise<ProjectWorkspace> {

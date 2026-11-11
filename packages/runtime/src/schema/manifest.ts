@@ -7,6 +7,7 @@ import {
   supportedManifestVersion
 } from "../types.js";
 import { builtinExecutorNames } from "../executorNames.js";
+import { identifierSegmentSchema } from "./identifierSegment.js";
 
 const blockParallelPolicySchema = z
   .object({
@@ -43,7 +44,7 @@ const reviewHookSchema = z
 
 const implementationBlockSchema = z
   .object({
-    id: z.string().min(1),
+    id: identifierSegmentSchema,
     type: z.literal("implementation"),
     title: z.string().min(1),
     prompt: z.string().min(1),
@@ -56,7 +57,7 @@ const implementationBlockSchema = z
 
 export const reviewBlockSchema = z
   .object({
-    id: z.string().min(1),
+    id: identifierSegmentSchema,
     type: z.literal("review"),
     title: z.string().min(1),
     prompt: z.string().min(1),
@@ -84,7 +85,7 @@ export const manifestBlockSchema = z.discriminatedUnion("type", [
 
 const taskNodeSchema = z
   .object({
-    id: z.string().min(1),
+    id: identifierSegmentSchema,
     type: z.literal("task"),
     title: z.string().min(1),
     prompt: z.string().min(1),

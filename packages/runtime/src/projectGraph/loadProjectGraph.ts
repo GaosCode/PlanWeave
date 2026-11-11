@@ -11,6 +11,16 @@ import { defaultCanvasProjectGraph, projectGraphFromLegacyRegistry } from "./mig
 import { projectGraphManifestSchema } from "./schema.js";
 import type { LoadedProjectGraph, ProjectGraphManifest } from "./types.js";
 
+export class LegacyProjectGraphSourceReadError extends Error {
+  constructor(
+    readonly source: "default_manifest" | "canvas_registry",
+    readonly path: string,
+    cause: unknown
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
 function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
 }
@@ -40,7 +50,7 @@ async function manifestTitle(manifestFile: string): Promise<string> {
     if (isNodeFileNotFoundError(error)) {
       return "任务画布";
     }
-    throw error;
+    throw new LegacyProjectGraphSourceReadError("default_manifest", manifestFile, error);
   }
   if (raw && typeof raw === "object" && !Array.isArray(raw) && "project" in raw) {
     const project = (raw as { project?: unknown }).project;
@@ -60,9 +70,19 @@ async function defaultProjectGraph(workspace: ProjectWorkspace): Promise<Project
   return defaultCanvasProjectGraph(await manifestTitle(workspace.manifestFile));
 }
 
-async function legacyProjectGraph(workspace: ProjectWorkspace): Promise<ProjectGraphManifest> {
+async function legacyProjectGraph(
+  workspace: ProjectWorkspace
+): Promise<ProjectGraphManifest | null> {
   const registryFile = join(workspace.workspaceRoot, "desktop", "canvases.json");
-  const registry = normalizeRegistry(await readJsonFile<unknown>(registryFile));
+  let registry: ReturnType<typeof normalizeRegistry>;
+  try {
+    if (!(await optionalStat(registryFile))) {
+      return null;
+    }
+    registry = normalizeRegistry(await readJsonFile<unknown>(registryFile));
+  } catch (error) {
+    throw new LegacyProjectGraphSourceReadError("canvas_registry", registryFile, error);
+  }
   return projectGraphFromLegacyRegistry(registry);
 }
 
@@ -81,11 +101,11 @@ export async function loadProjectGraphForWorkspace(
       diagnostics: []
     };
   }
-  const registryFile = join(workspace.workspaceRoot, "desktop", "canvases.json");
-  if (await optionalStat(registryFile)) {
+  const legacyGraph = await legacyProjectGraph(workspace);
+  if (legacyGraph) {
     return {
       workspace,
-      manifest: await legacyProjectGraph(workspace),
+      manifest: legacyGraph,
       source: "legacy_registry",
       diagnostics: [
         issue(

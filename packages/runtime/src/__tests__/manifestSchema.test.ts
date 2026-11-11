@@ -9,6 +9,42 @@ describe("plan-package/v1 manifest schema", () => {
     expect(() => manifestSchema.parse(basicManifest())).not.toThrow();
   });
 
+  it.each(["", "id#suffix"])("reports the exact fields for invalid ID %j", (id) => {
+    const manifest = basicManifest();
+    const task = manifest.nodes[0];
+    task.id = id;
+    for (const block of task.blocks) {
+      block.id = id;
+    }
+
+    const result = manifestSchema.safeParse(manifest);
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((issue) => issue.path)).toEqual([
+      ["nodes", 0, "id"],
+      ["nodes", 0, "blocks", 0, "id"],
+      ["nodes", 0, "blocks", 1, "id"]
+    ]);
+  });
+
+  it.each([
+    " ",
+    " 任务:实作.()+[] ",
+    "a".repeat(257)
+  ])("preserves historically valid ID %j", (id) => {
+    const manifest = basicManifest();
+    const task = manifest.nodes[0];
+    task.id = id;
+    task.blocks[0].id = id;
+    const reviewId = `${id}.review`;
+    task.blocks[1].id = reviewId;
+    task.blocks[1].depends_on = [id];
+
+    expect(manifestSchema.parse(manifest).nodes[0]).toMatchObject({
+      id,
+      blocks: [{ id }, { id: reviewId, depends_on: [id] }]
+    });
+  });
+
   it("rejects context nodes because context belongs in task prompts and acceptance", () => {
     const manifest = basicManifest();
     manifest.nodes.unshift({

@@ -6,6 +6,7 @@ import type { ProjectWorkspace } from "../types.js";
 import { loadProjectGraphForWorkspace } from "./loadProjectGraph.js";
 import { projectCanvasWorkspace } from "./projectGraphWorkspace.js";
 import type { DefaultCanvasWorkspacePaths } from "./defaultCanvasWorkspaceMigration.js";
+import type { LoadedProjectGraph } from "./types.js";
 
 export type DefaultCanvasMigrationStorage = {
   paths: DefaultCanvasWorkspacePaths;
@@ -66,9 +67,10 @@ async function storageIdentity(root: string, paths: string[]): Promise<string> {
 export async function resolveDefaultCanvasMigrationStorage(
   workspace: ProjectWorkspace,
   traditional: DefaultCanvasWorkspacePaths,
-  canonical: DefaultCanvasWorkspacePaths
+  canonical: DefaultCanvasWorkspacePaths,
+  graph?: LoadedProjectGraph
 ): Promise<DefaultCanvasMigrationStorage> {
-  const loaded = await loadProjectGraphForWorkspace(workspace);
+  const loaded = graph ?? (await loadProjectGraphForWorkspace(workspace));
   const canvas = loaded.manifest.canvases.find((candidate) => candidate.id === "default");
   // Source and target paths must use the same captured root, including Home aliases.
   const registered = canvas ? projectCanvasWorkspace(workspace, canvas) : null;

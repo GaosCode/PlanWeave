@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
 import type {
@@ -14,7 +14,10 @@ import {
   projectCrossTaskEdgeKey,
   projectTaskRefKey
 } from "./projectGraphKeys.js";
-import { projectCanvasWorkspace } from "./projectGraphWorkspace.js";
+import {
+  ProjectCanvasWorkspacePathError,
+  projectCanvasWorkspace
+} from "./projectGraphWorkspace.js";
 import type {
   CompiledProjectGraph,
   LoadedProjectGraph,
@@ -116,10 +119,15 @@ type CompileProjectGraphOptions = {
 async function readCanvasPackage(
   projectWorkspace: ProjectWorkspace,
   canvas: ProjectCanvasNode,
+  index: number,
   options: CompileProjectGraphOptions
 ): Promise<CanvasReadResult> {
+  let manifestPath: string | undefined;
   try {
     const workspace = projectCanvasWorkspace(projectWorkspace, canvas);
+    manifestPath = relative(projectWorkspace.workspaceRoot, workspace.manifestFile)
+      .split("\\")
+      .join("/");
     const snapshot = options.packageSnapshotsByPackageDir?.get(resolve(workspace.packageDir));
     const packageManifest = snapshot?.manifest ?? (await loadPackage(workspace)).manifest;
     const graph = snapshot?.graph ?? compileTaskGraph(packageManifest);
@@ -131,16 +139,20 @@ async function readCanvasPackage(
       taskIdsInManifestOrder
     };
   } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
     return {
       canvas,
       manifest: null,
       taskIds: new Set(),
       taskIdsInManifestOrder: [],
-      error: issue(
-        "project_canvas_manifest_read_failed",
-        caught instanceof Error ? caught.message : String(caught),
-        canvas.id
-      )
+      error:
+        caught instanceof ProjectCanvasWorkspacePathError
+          ? issue(
+              "project_canvas_workspace_invalid",
+              `Canvas '${canvas.id}': ${message}`,
+              `canvases.${index}`
+            )
+          : issue("project_canvas_manifest_read_failed", message, manifestPath)
     };
   }
 }
@@ -231,7 +243,7 @@ export async function compileProjectGraph(
 
   const taskIdsByCanvas = new Map<string, Set<string>>();
   const canvasPackageResults = await Promise.all(
-    manifest.canvases.map((canvas) => readCanvasPackage(workspace, canvas, options))
+    manifest.canvases.map((canvas, index) => readCanvasPackage(workspace, canvas, index, options))
   );
   for (const result of canvasPackageResults) {
     if (result.error) {

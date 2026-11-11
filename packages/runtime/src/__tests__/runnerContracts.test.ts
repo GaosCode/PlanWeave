@@ -11,12 +11,15 @@ import {
 } from "../autoRun/normalizedEventContract.js";
 import { replayNormalizedRunnerEvents } from "../autoRun/runnerEventReplay.js";
 import {
+  blockIdSchema,
+  claimRefSchema,
   createExecutionWaveId,
   executionWaveIdSchema,
   negotiatedCapabilitiesSchema,
   persistedPendingInteractionSchema,
   runnerNextActionsSchema,
   runnerRunIdentitySchema,
+  taskIdSchema,
   terminalOutcomeSchema
 } from "../autoRun/runnerContractSchemas.js";
 import {
@@ -326,6 +329,25 @@ function terminalEvent(sequence: number) {
 }
 
 describe("runner identity and capability contracts", () => {
+  it.each([
+    ["task", taskIdSchema],
+    ["block", blockIdSchema]
+  ])("validates the branded %s ID as a single segment up to 256 units", (_, schema) => {
+    expect(schema.safeParse("id#suffix").success).toBe(false);
+    expect(schema.safeParse("").success).toBe(false);
+    expect(schema.parse(" 任务:+ ")).toBe(" 任务:+ ");
+    expect(schema.parse("a".repeat(256))).toHaveLength(256);
+    expect(schema.safeParse("a".repeat(257)).success).toBe(false);
+  });
+
+  it("preserves the claim ref's separate length and whitespace limits", () => {
+    const ref = `任务:+#${"b".repeat(508)}`;
+    expect(claimRefSchema.parse(ref)).toBe(ref);
+    expect(claimRefSchema.safeParse(`${ref}b`).success).toBe(false);
+    expect(claimRefSchema.safeParse("任务 #B-001").success).toBe(false);
+    expect(claimRefSchema.safeParse("T-001#B-001\n").success).toBe(false);
+  });
+
   it("requires the canonical run id to match its declared owner mapping", () => {
     const raw = {
       projectId: "project-1",

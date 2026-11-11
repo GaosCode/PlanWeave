@@ -4,6 +4,12 @@ import { loadProjectGraph } from "./loadProjectGraph.js";
 import type { ProjectCanvasNode } from "./types.js";
 import type { ProjectWorkspace } from "../types.js";
 
+export class ProjectCanvasWorkspacePathError extends Error {
+  constructor(path: string) {
+    super(`Project canvas path '${path}' is outside the PlanWeave workspace.`);
+  }
+}
+
 function fromWorkspaceRelative(workspace: ProjectWorkspace, path: string): string {
   return isAbsolute(path) ? path : join(workspace.workspaceRoot, path);
 }
@@ -13,7 +19,7 @@ function assertWorkspaceChild(projectWorkspace: ProjectWorkspace, path: string):
   const target = resolve(path);
   const relativeTarget = relative(workspaceRoot, target);
   if (!relativeTarget || relativeTarget.startsWith("..") || isAbsolute(relativeTarget)) {
-    throw new Error(`Project canvas path '${path}' is outside the PlanWeave workspace.`);
+    throw new ProjectCanvasWorkspacePathError(path);
   }
 }
 

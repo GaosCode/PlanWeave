@@ -12,6 +12,7 @@ import {
   repoRoot,
   type ValidationReport,
   type GraphQualityJsonReport,
+  type GraphTestManifest,
   type CreateCanvasWorkspaceJsonResult
 } from "./support/cliTestHarness.js";
 
@@ -282,7 +283,12 @@ describe("STEP-1 CLI contract: canvas", () => {
       resultsDir: `canvases/${validCanvasId}/results`
     });
     await writeFile(init.projectGraph.path, `${JSON.stringify(projectGraph, null, 2)}\n`, "utf8");
-    await writeFile(init.workspace.manifestFile, "{ invalid json", "utf8");
+    const historical = JSON.parse(
+      await readFile(join(validPackageDir, "manifest.json"), "utf8")
+    ) as GraphTestManifest;
+    historical.nodes[0].blocks[0].id = "B-001#old";
+    const manifestBytes = `${JSON.stringify(historical, null, 2)}\n`;
+    await writeFile(init.workspace.manifestFile, manifestBytes, "utf8");
 
     const scopedValidation = JSON.parse(
       (
@@ -305,9 +311,148 @@ describe("STEP-1 CLI contract: canvas", () => {
       ["--project-root", init.project.rootPath, "validate", "--json"],
       env
     );
+    expect(fullValidationFailure.code).toBe(1);
     const fullValidation = JSON.parse(fullValidationFailure.stdout) as ValidationReport;
     expect(fullValidation.ok).toBe(false);
-    expect(fullValidation.errors.map((error) => error.code)).toContain("manifest_read_failed");
+    const manifestIssue = expect.objectContaining({
+      code: "manifest_schema",
+      path: "canvases/default/package/manifest.json:nodes.0.blocks.0.id"
+    });
+    expect(fullValidation.errors).toContainEqual(manifestIssue);
+    expect(fullValidation.errors).not.toContainEqual(
+      expect.objectContaining({ path: expect.stringMatching(/^project-graph\.json/) })
+    );
+
+    const scopedFailure = await runCliExpectFailure(
+      ["--project-root", init.project.rootPath, "validate", "--canvas", "default", "--json"],
+      env
+    );
+    expect(scopedFailure.code).toBe(1);
+    expect(JSON.parse(scopedFailure.stdout)).toMatchObject({
+      ok: false,
+      errors: [manifestIssue]
+    });
+
+    const draftFailure = await runCliExpectFailure(
+      ["package-draft", "validate", "--draft-root", init.workspace.packageDir, "--json"],
+      env
+    );
+    expect(draftFailure.code).toBe(1);
+    expect(JSON.parse(draftFailure.stdout)).toMatchObject({
+      ok: false,
+      validation: {
+        errors: [
+          expect.objectContaining({
+            code: "manifest_schema",
+            path: "manifest.json:nodes.0.blocks.0.id"
+          })
+        ]
+      }
+    });
+    expect(await readFile(init.workspace.manifestFile, "utf8")).toBe(manifestBytes);
+  }, 20_000);
+
+  it.each([
+    {
+      failure: "canvas identity JSON",
+      corrupt: "canvases/default/package.canvas-instance.json",
+      content: "{",
+      code: "canvas_storage_identity_read_failed"
+    },
+    {
+      failure: "results identity schema",
+      corrupt: "canvases/default/results.results-instance.json",
+      content: '"invalid"',
+      code: "results_storage_identity_read_failed"
+    }
+  ])("isolates invalid $failure in real CLI validation", async ({ corrupt, content, code }) => {
+    const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const root = await mkdtemp(join(tmpdir(), "planweave-project-"));
+    const env = withoutInitCwd({ ...process.env, PLANWEAVE_HOME: home });
+    const rootArgs = ["--project-root", root];
+    const init = JSON.parse(
+      (await runCli([...rootArgs, "init", "--project-graph", "--json"], env)).stdout
+    );
+    const healthy = JSON.parse(
+      (await runCli([...rootArgs, "canvas", "create", "--title", "Healthy", "--json"], env)).stdout
+    ) as CreateCanvasWorkspaceJsonResult;
+    const stalePrompt = join(healthy.packageDir, "nodes", "unreferenced.md");
+    await writeFile(stalePrompt, "Unreferenced prompt\n");
+    const identityFile = join(init.workspace.workspaceRoot, corrupt);
+    await writeFile(identityFile, content);
+    const files = [
+      identityFile,
+      init.projectGraph.path,
+      init.workspace.manifestFile,
+      init.workspace.stateFile,
+      healthy.manifestPath,
+      healthy.statePath
+    ];
+    const bytes = await Promise.all(files.map((file) => readFile(file)));
+    const identityIssue = expect.objectContaining({ code, path: corrupt });
+
+    const full = await runCliExpectFailure([...rootArgs, "validate", "--json"], env);
+    expect(full).toMatchObject({ code: 1, stderr: "" });
+    expect(JSON.parse(full.stdout)).toMatchObject({
+      ok: false,
+      errors: [identityIssue],
+      warnings: [expect.objectContaining({ code: "stale_prompt_reference" })]
+    });
+
+    const bad = await runCliExpectFailure(
+      [...rootArgs, "validate", "--canvas", "default", "--json"],
+      env
+    );
+    expect(bad).toMatchObject({ code: 1, stderr: "" });
+    expect(JSON.parse(bad.stdout)).toMatchObject({ ok: false, errors: [identityIssue] });
+
+    const good = await runCli(
+      [...rootArgs, "validate", "--canvas", healthy.canvasId, "--json"],
+      env
+    );
+    expect(JSON.parse(good.stdout)).toMatchObject({ ok: true, errors: [] });
+    expect(await Promise.all(files.map((file) => readFile(file)))).toEqual(bytes);
+  }, 20_000);
+
+  it("reports the requested invalid canvas workspace and validates its healthy neighbor", async () => {
+    const home = await mkdtemp(join(tmpdir(), "planweave-home-"));
+    const root = await mkdtemp(join(tmpdir(), "planweave-project-"));
+    const env = withoutInitCwd({ ...process.env, PLANWEAVE_HOME: home });
+    const rootArgs = ["--project-root", root];
+    const init = JSON.parse(
+      (await runCli([...rootArgs, "init", "--project-graph", "--json"], env)).stdout
+    );
+    const projectGraph = JSON.parse(await readFile(init.projectGraph.path, "utf8"));
+    projectGraph.canvases.push({
+      id: "bad",
+      type: "canvas",
+      title: "Bad",
+      packageDir: "canvases/bad/package",
+      stateFile: "../outside.json",
+      resultsDir: "canvases/bad/results"
+    });
+    const graphBytes = JSON.stringify(projectGraph);
+    await writeFile(init.projectGraph.path, graphBytes);
+    const workspaceIssue = expect.objectContaining({
+      code: "project_canvas_workspace_invalid",
+      message: expect.stringContaining("outside.json"),
+      path: "project-graph.json:canvases.1"
+    });
+
+    const bad = await runCliExpectFailure(
+      [...rootArgs, "validate", "--canvas", "bad", "--json"],
+      env
+    );
+    expect(bad).toMatchObject({ code: 1, stderr: "" });
+    expect(JSON.parse(bad.stdout)).toMatchObject({ ok: false, errors: [workspaceIssue] });
+
+    const full = await runCliExpectFailure([...rootArgs, "validate", "--json"], env);
+    expect(full).toMatchObject({ code: 1, stderr: "" });
+    expect(JSON.parse(full.stdout)).toMatchObject({ ok: false, errors: [workspaceIssue] });
+
+    const good = await runCli([...rootArgs, "validate", "--canvas", "default", "--json"], env);
+    expect(JSON.parse(good.stdout)).toMatchObject({ ok: true, errors: [] });
+    expect(await readFile(init.projectGraph.path, "utf8")).toBe(graphBytes);
   }, 20_000);
 
   it("lists, activates, and archives canvases through the lifecycle CLI", async () => {

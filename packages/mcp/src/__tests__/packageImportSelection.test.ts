@@ -88,4 +88,57 @@ describe("MCP package import selection through the production gateway", () => {
       "default result"
     );
   });
+
+  it("returns a manifest field diagnostic for an invalid draft without replacing the target", async () => {
+    const f = await fixture();
+    const draftManifestFile = join(f.draftRoot, "manifest.json");
+    const draft = JSON.parse(
+      await readFile(draftManifestFile, "utf8")
+    ) as runtime.PlanPackageManifest;
+    const reviewIndex = draft.nodes[0].blocks.findIndex((block) => block.type === "review");
+    draft.nodes[0].blocks[reviewIndex].id += "#old";
+    await writeFile(draftManifestFile, JSON.stringify(draft));
+    const files = [
+      draftManifestFile,
+      f.defaultWorkspace.manifestFile,
+      f.defaultWorkspace.stateFile,
+      join(f.defaultWorkspace.resultsDir, "keep.txt")
+    ];
+    const bytes = await Promise.all(files.map((file) => readFile(file)));
+    const invalidDraft = {
+      ok: false,
+      validation: {
+        ok: false,
+        errors: [
+          expect.objectContaining({
+            code: "manifest_schema",
+            path: `manifest.json:nodes.0.blocks.${reviewIndex}.id`
+          })
+        ]
+      }
+    };
+
+    const validation = readJson(
+      await handlePlanweaveTool(
+        "validate_package_draft",
+        { draftRoot: f.draftRoot },
+        runtimeGateway
+      )
+    );
+    expect(validation).toMatchObject({ draft: invalidDraft });
+    const result = readJson(
+      await handlePlanweaveTool(
+        "import_package_draft",
+        {
+          projectId: f.project.projectId,
+          canvasId: "default",
+          draftRoot: f.draftRoot,
+          apply: true
+        },
+        runtimeGateway
+      )
+    );
+    expect(result).toMatchObject({ import: { ...invalidDraft, applied: false } });
+    expect(await Promise.all(files.map((file) => readFile(file)))).toEqual(bytes);
+  });
 });

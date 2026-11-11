@@ -1,12 +1,8 @@
 import type { Command } from "commander";
 import { validatePackage } from "@planweave-ai/runtime";
-import {
-  addCanvasOption,
-  resolveCliPackageWorkspace,
-  type CanvasCommandOptions
-} from "../cliWorkspace.js";
+import { addCanvasOption, type CanvasCommandOptions } from "../cliWorkspace.js";
 import { formatValidationReport } from "../output.js";
-import { resolveCliProjectRoot } from "../projectRoot.js";
+import { resolveCliValidationProjectRoot } from "../projectRoot.js";
 
 export function registerValidateCommand(program: Command): void {
   addCanvasOption(
@@ -15,11 +11,10 @@ export function registerValidateCommand(program: Command): void {
       .description("Validate the current project's Plan Package")
       .option("--json", "print machine-readable output")
   ).action(async (options: { json?: boolean } & CanvasCommandOptions) => {
-    const explicitCanvasId = options.canvas?.trim();
-    const projectRoot = explicitCanvasId
-      ? await resolveCliPackageWorkspace({ canvas: explicitCanvasId })
-      : await resolveCliProjectRoot();
-    const report = await validatePackage({ projectRoot });
+    const report = await validatePackage({
+      projectRoot: await resolveCliValidationProjectRoot(),
+      canvasId: options.canvas?.trim() || undefined
+    });
     console.log(options.json ? JSON.stringify(report, null, 2) : formatValidationReport(report));
     if (!report.ok) {
       process.exitCode = 1;

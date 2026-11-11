@@ -95,6 +95,12 @@ describe("planweave CLI help and schema output", () => {
       "Only implementation and review block types are supported."
     );
     expect(formatSchemaHelp("manifest")).toContain(
+      "task id string, non-empty, must not contain '#'"
+    );
+    expect(formatSchemaHelp("manifest")).toContain(
+      "block id string, non-empty, must not contain '#'"
+    );
+    expect(formatSchemaHelp("manifest")).toContain(
       "Agent identity and runner transport are separate."
     );
     expect(formatSchemaHelp("manifest")).toContain("does not require a PlanWeave API key");

@@ -95,9 +95,21 @@ describe("compileTaskGraph", () => {
     );
   });
 
-  it("parses block refs explicitly", () => {
-    expect(parseBlockRef("T-001#B-001")).toEqual({ taskId: "T-001", blockId: "B-001" });
-    expect(() => parseBlockRef("T-001")).toThrow("Invalid block ref");
+  it.each([
+    ["T-001", "B-001"],
+    [" 任务:实作.+[] ", " "],
+    ["a".repeat(257), "乙".repeat(257)]
+  ])("parses '%s#%s' without changing either segment", (taskId, blockId) => {
+    expect(parseBlockRef(`${taskId}#${blockId}`)).toEqual({ taskId, blockId });
+  });
+
+  it.each([
+    "T-001",
+    "#B-001",
+    "T-001#",
+    "T-001#B-001#R-001"
+  ])("rejects malformed block ref %j", (ref) => {
+    expect(() => parseBlockRef(ref)).toThrow("Invalid block ref");
   });
 });
 

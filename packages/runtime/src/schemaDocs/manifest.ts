@@ -97,6 +97,7 @@ const reviewTriggerConditionSchema = Object.fromEntries(
   reviewTriggerConditions.map((condition) => [condition, condition])
 ) as Record<ReviewTriggerCondition, ReviewTriggerCondition>;
 const edgeTypeSchema = edgeTypes.map((type) => `"${type}"`).join(" | ");
+const idSegmentDescription = "id string, non-empty, must not contain '#'";
 
 export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
   name: "manifest",
@@ -120,7 +121,7 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
     },
     nodes: [
       {
-        id: "task id string, non-empty",
+        id: `task ${idSegmentDescription}`,
         type: "task",
         title: "string, non-empty",
         prompt: "string, non-empty; package-relative prompt source path",
@@ -128,7 +129,7 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
         acceptance: "string[], at least one item",
         blocks: [
           {
-            id: "block id string, non-empty",
+            id: `block ${idSegmentDescription}`,
             type: "implementation",
             title: "string, non-empty",
             prompt: "string, non-empty; package-relative prompt source path",
@@ -144,7 +145,7 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
             }
           },
           {
-            id: "block id string, non-empty",
+            id: `block ${idSegmentDescription}`,
             type: "review",
             title: "string, non-empty",
             prompt: "string, non-empty; package-relative prompt source path",

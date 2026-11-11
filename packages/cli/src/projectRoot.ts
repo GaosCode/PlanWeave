@@ -1,5 +1,6 @@
 import { InvalidArgumentError, type Command } from "commander";
 import {
+  hasProjectRegistration,
   listSourceDefaultProjectCandidates,
   readProject,
   resolveSourceDefaultProjectRoot
@@ -46,8 +47,11 @@ export function resolveRawCliProjectRoot(): string {
   return process.cwd();
 }
 
-export async function resolveCliProjectRootFromRaw(rawRoot: string): Promise<string> {
-  if (await readProject(rawRoot)) {
+async function resolveRegisteredCliProjectRoot(
+  rawRoot: string,
+  isRegistered: (root: string) => Promise<boolean>
+): Promise<string> {
+  if (await isRegistered(rawRoot)) {
     return rawRoot;
   }
   const defaultProjectRoot = await resolveSourceDefaultProjectRoot(rawRoot);
@@ -69,16 +73,22 @@ export async function resolveCliProjectRootFromRaw(rawRoot: string): Promise<str
   return rawRoot;
 }
 
+export async function resolveCliProjectRootFromRaw(rawRoot: string): Promise<string> {
+  return resolveRegisteredCliProjectRoot(
+    rawRoot,
+    async (root) => (await readProject(root)) !== null
+  );
+}
+
 export async function resolveCliProjectRoot(): Promise<string> {
-  if (projectRootOverride !== undefined) {
-    return resolveCliProjectRootFromRaw(trimProjectRoot(projectRootOverride, "--project-root"));
-  }
-  if (process.env.PLANWEAVE_PROJECT_ROOT !== undefined) {
-    return resolveCliProjectRootFromRaw(
-      trimProjectRoot(process.env.PLANWEAVE_PROJECT_ROOT, "PLANWEAVE_PROJECT_ROOT")
-    );
-  }
-  return resolveCliProjectRootFromRaw(resolveRawCliProjectRoot());
+  return resolveCliProjectRootFromRaw(explicitCliProjectRoot() ?? resolveRawCliProjectRoot());
+}
+
+export async function resolveCliValidationProjectRoot(): Promise<string> {
+  return resolveRegisteredCliProjectRoot(
+    explicitCliProjectRoot() ?? resolveRawCliProjectRoot(),
+    hasProjectRegistration
+  );
 }
 
 export function explicitCliProjectRoot(): string | null {

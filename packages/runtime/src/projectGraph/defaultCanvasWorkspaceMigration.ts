@@ -21,7 +21,11 @@ import { manifestSchema } from "../schema/manifest.js";
 import { canonicalCanvasWorkspacePaths, canonicalProjectCanvasNode } from "./canonicalWorkspace.js";
 import { projectGraphFromLegacyRegistry } from "./migration.js";
 import { projectGraphManifestSchema } from "./schema.js";
-import { supportedProjectGraphVersion, type ProjectGraphManifest } from "./types.js";
+import {
+  supportedProjectGraphVersion,
+  type LoadedProjectGraph,
+  type ProjectGraphManifest
+} from "./types.js";
 
 const defaultCanvasId = "default";
 const ignoredFileNames = new Set([".DS_Store", "Thumbs.db"]);
@@ -214,13 +218,15 @@ function detectDiagnostics(input: {
 }
 
 export async function detectDefaultCanvasWorkspaceMigration(
-  projectWorkspace: ProjectWorkspace
+  projectWorkspace: ProjectWorkspace,
+  graph?: LoadedProjectGraph
 ): Promise<DefaultCanvasWorkspaceMigrationPlan> {
   const canonicalPaths = canonicalDefaultCanvasWorkspacePaths(projectWorkspace);
   const storage = await resolveDefaultCanvasMigrationStorage(
     projectWorkspace,
     legacyDefaultCanvasWorkspacePaths(projectWorkspace),
-    canonicalPaths
+    canonicalPaths,
+    graph
   );
   return detectMigrationForStorage(projectWorkspace, storage, canonicalPaths);
 }

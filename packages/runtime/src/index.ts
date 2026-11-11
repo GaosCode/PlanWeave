@@ -145,6 +145,7 @@ export {
 export {
   normalizeProjectMetadata,
   projectWorkspacePaths,
+  hasProjectRegistration,
   readProject,
   requireInitializedProjectWorkspace,
   resolveProjectWorkspace

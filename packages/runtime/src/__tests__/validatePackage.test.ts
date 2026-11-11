@@ -1,5 +1,5 @@
-import { cp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/index.js";
 import { writeJsonFile } from "../json.js";
@@ -148,6 +148,179 @@ describe("validatePackage", () => {
         path: `canvases/${canvas.canvasId}/package/manifest.json`
       })
     ]);
+  });
+
+  it("reports independent canvas failures and leaves historical package and execution files intact", async () => {
+    const { root, init } = await createTestWorkspace();
+    const missing = canonicalProjectCanvasNode({ id: "missing-prompt", title: "Missing prompt" });
+    const valid = canonicalProjectCanvasNode({ id: "valid", title: "Valid" });
+    const missingPackageDir = join(init.workspace.workspaceRoot, missing.packageDir);
+    const validPackageDir = join(init.workspace.workspaceRoot, valid.packageDir);
+    const historical = basicManifest();
+    historical.nodes[0].id = "T-001#old";
+    await writeJsonFile(init.workspace.manifestFile, historical);
+    const missingManifest = basicManifest();
+    await writePromptFiles(missingPackageDir, missingManifest);
+    missingManifest.nodes[0].prompt = "prompts/missing.md";
+    await writeJsonFile(join(missingPackageDir, "manifest.json"), missingManifest);
+    const validManifest = basicManifest();
+    await writeJsonFile(join(validPackageDir, "manifest.json"), validManifest);
+    await writePromptFiles(validPackageDir, validManifest);
+    await writeFile(join(validPackageDir, "nodes", "stale.md"), "Unreferenced prompt\n");
+    const resultFile = join(init.workspace.resultsDir, "T-001", "report.md");
+    await mkdir(join(init.workspace.resultsDir, "T-001"), { recursive: true });
+    await writeFile(resultFile, "Historical result\n");
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        canonicalProjectCanvasNode({ id: "default", title: "Historical" }),
+        missing,
+        valid
+      ],
+      edges: [],
+      crossTaskEdges: []
+    });
+    const files = [init.workspace.manifestFile, init.workspace.stateFile, resultFile];
+    const bytes = await Promise.all(files.map((file) => readFile(file)));
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "manifest_schema",
+          path: "canvases/default/package/manifest.json:nodes.0.id"
+        }),
+        expect.objectContaining({
+          code: "prompt_missing",
+          path: "canvases/missing-prompt/package/prompts/missing.md"
+        })
+      ])
+    );
+    expect(report.errors.filter((error) => error.path?.startsWith("project-graph.json"))).toEqual(
+      []
+    );
+    expect(report.warnings).toContainEqual(
+      expect.objectContaining({
+        code: "stale_prompt_reference",
+        path: "canvases/valid/package/nodes/stale.md"
+      })
+    );
+    expect(await Promise.all(files.map((file) => readFile(file)))).toEqual(bytes);
+  });
+
+  it("continues validation after a canvas workspace path fails containment", async () => {
+    const { root, init } = await createTestWorkspace();
+    const broken = {
+      ...canonicalProjectCanvasNode({ id: "outside", title: "Outside" }),
+      stateFile: "../state.json"
+    };
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [broken, canonicalProjectCanvasNode({ id: "default", title: "Default" })],
+      edges: [],
+      crossTaskEdges: []
+    });
+    await rm(join(init.workspace.packageDir, "nodes", "T-001", "prompt.md"));
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "project_canvas_workspace_invalid",
+          message: expect.stringMatching(/outside.*state\.json/),
+          path: "project-graph.json:canvases.0"
+        }),
+        expect.objectContaining({
+          code: "prompt_missing",
+          path: "canvases/default/package/nodes/T-001/prompt.md"
+        })
+      ])
+    );
+    expect(report.errors.map((error) => error.code)).not.toContain("project_graph_read_failed");
+  });
+
+  it.each([
+    ["{ invalid json", "project_graph_read_failed", "project-graph.json"],
+    [
+      '{"version":"plan-project/v1","canvases":[]}',
+      "project_graph_schema",
+      "project-graph.json:canvases"
+    ]
+  ])("attributes project graph failures to the graph file (%s)", async (content, code, path) => {
+    const { root, init } = await createTestWorkspace();
+    await writeFile(projectGraphPath(init.workspace), content);
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual([expect.objectContaining({ code, path })]);
+  });
+
+  it("locates a failed manifest on the correct canvas when two canvases share an ID", async () => {
+    const { root, init } = await createTestWorkspace();
+    const first = canonicalProjectCanvasNode({ id: "first", title: "Broken package" });
+    const second = canonicalProjectCanvasNode({ id: "second", title: "Healthy package" });
+    const firstPackageDir = join(init.workspace.workspaceRoot, first.packageDir);
+    await mkdir(firstPackageDir, { recursive: true });
+    await writeFile(join(firstPackageDir, "manifest.json"), "{ invalid json");
+    await cp(init.workspace.packageDir, join(init.workspace.workspaceRoot, second.packageDir), {
+      recursive: true
+    });
+    await writeProjectGraph(init.workspace, {
+      version: "plan-project/v1",
+      canvases: [
+        { ...first, id: "dup" },
+        { ...second, id: "dup" }
+      ],
+      edges: [],
+      crossTaskEdges: []
+    });
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors.filter((error) => error.code === "project_canvas_id_duplicate")).toEqual([
+      expect.objectContaining({ path: "project-graph.json:canvases" })
+    ]);
+    expect(report.errors).toContainEqual(
+      expect.objectContaining({
+        code: "manifest_read_failed",
+        path: `${first.packageDir}/manifest.json`
+      })
+    );
+    expect(
+      report.errors.every((error) => error.path !== `${second.packageDir}/manifest.json`)
+    ).toBe(true);
+  });
+
+  it.each([
+    ["canvases/default/package/manifest.json", "manifest_read_failed", "{ invalid json"],
+    ["desktop/canvases.json", "project_graph_read_failed", "{ invalid json"],
+    [
+      "desktop/canvases.json",
+      "project_graph_read_failed",
+      '{"version":"unsupported","canvases":[]}'
+    ],
+    [
+      "desktop/canvases.json",
+      "project_graph_read_failed",
+      '{"version":"desktop-canvases/v1","canvases":[{}]}'
+    ]
+  ])("attributes legacy fallback failures to %s (%s from %s)", async (path, code, contents) => {
+    const { root, init } = await createTestWorkspace();
+    await rm(projectGraphPath(init.workspace));
+    const source = join(init.workspace.workspaceRoot, path);
+    await mkdir(dirname(source), { recursive: true });
+    await writeFile(source, contents);
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual([expect.objectContaining({ code, path })]);
   });
 
   it("reports workspace stat failures as workspace_read_failed instead of workspace_missing", async () => {

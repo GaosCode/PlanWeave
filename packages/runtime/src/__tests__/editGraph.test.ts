@@ -6,6 +6,7 @@ import {
   addEdge,
   addNode,
   commitPlanPackageGraphMutation,
+  updateNode,
   updatePromptSurface
 } from "../graph/editGraph.js";
 import {
@@ -288,6 +289,39 @@ describe("editGraph", () => {
     await expect(
       readFile(`${init.workspace.packageDir}/nodes/T-002/prompt.md`, "utf8")
     ).resolves.toContain("# New task");
+  });
+
+  it.each([
+    "add",
+    "update"
+  ])("reports an invalid %s ID before writing package files", async (operation) => {
+    const { root, init } = await createTestWorkspace();
+    const manifestFile = init.workspace.manifestFile;
+    const before = await readFile(manifestFile);
+    const node = basicManifest().nodes[0];
+    const newPrompt = "nodes/new-task/prompt.md";
+
+    let result: Awaited<ReturnType<typeof addNode>>;
+    let path: string;
+    if (operation === "add") {
+      node.id = "T-002#suffix";
+      node.prompt = newPrompt;
+      result = await addNode({ projectRoot: root, node, promptMarkdown: "New task prompt" });
+      path = "nodes.1.id";
+    } else {
+      node.blocks[0].id = "B-001#suffix";
+      result = await updateNode({ projectRoot: root, node });
+      path = "nodes.0.blocks.0.id";
+    }
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ code: "manifest_schema_invalid", path })
+    ]);
+    expect(await readFile(manifestFile)).toEqual(before);
+    await expect(readFile(`${init.workspace.packageDir}/${newPrompt}`)).rejects.toMatchObject({
+      code: "ENOENT"
+    });
   });
 
   it("uses the shared affected task rules for graph mutation edge changes", () => {

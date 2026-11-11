@@ -14,6 +14,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname } from "node:path";
+import type { ZodError } from "zod";
 import { affectedTaskIdsForManifestChange } from "./affectedTasks.js";
 import { compileTaskGraph } from "./compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
@@ -26,7 +27,7 @@ import { assertNoPendingImportTransactionWrite } from "../package/importTransact
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
 import { stableJson } from "../plangraph/hash.js";
 import { preparePromptReferenceSideEffects } from "./promptRemoval.js";
-import { manifestSchema } from "../schema/manifest.js";
+import { manifestNodeSchema, manifestSchema } from "../schema/manifest.js";
 import {
   buildPlanPackageGraphMutation,
   type PlanPackageGraphMutation,
@@ -59,6 +60,27 @@ function issue(code: string, message: string, path?: string): ValidationIssue {
   return { code, message, path };
 }
 
+function manifestSchemaDiagnostics(error: ZodError, prefix: PropertyKey[] = []): ValidationIssue[] {
+  return error.issues.map((item) =>
+    issue(
+      "manifest_schema_invalid",
+      item.message,
+      [...prefix, ...item.path].join(".") || "manifest.json"
+    )
+  );
+}
+
+function rejectInvalidNodeEdit(node: ManifestNode, index: number): GraphEditResult | null {
+  const parsed = manifestNodeSchema.safeParse(node);
+  return parsed.success
+    ? null
+    : {
+        ok: false,
+        affectedTasks: [],
+        diagnostics: manifestSchemaDiagnostics(parsed.error, ["nodes", index])
+      };
+}
+
 type PreparedManifestWrite = {
   manifest: PlanPackageManifest;
   graph: CompiledTaskGraph;
@@ -71,13 +93,7 @@ function prepareManifestForWrite(
   if (!parsed.success) {
     return {
       ok: false,
-      diagnostics: parsed.error.issues.map((item) =>
-        issue(
-          "manifest_schema_invalid",
-          item.message,
-          item.path.length > 0 ? item.path.join(".") : "manifest.json"
-        )
-      )
+      diagnostics: manifestSchemaDiagnostics(parsed.error)
     };
   }
   const graph = compileTaskGraph(parsed.data);
@@ -304,6 +320,8 @@ export async function addNode(options: {
       [issue("node_id_duplicate", `Node '${options.node.id}' already exists.`, "nodes")]
     );
   }
+  const invalid = rejectInvalidNodeEdit(options.node, manifest.nodes.length);
+  if (invalid) return invalid;
   return commitPlanPackageGraphMutation({
     projectRoot: workspace,
     mutation: buildPlanPackageGraphMutation(manifest, {
@@ -319,13 +337,16 @@ export async function updateNode(options: {
   node: ManifestNode;
 }): Promise<GraphEditResult> {
   const { workspace, manifest } = await loadPackage(options.projectRoot);
-  if (!manifest.nodes.some((node) => node.id === options.node.id)) {
+  const index = manifest.nodes.findIndex((node) => node.id === options.node.id);
+  if (index === -1) {
     return result(
       manifest,
       [],
       [issue("node_missing", `Node '${options.node.id}' does not exist.`, "nodes")]
     );
   }
+  const invalid = rejectInvalidNodeEdit(options.node, index);
+  if (invalid) return invalid;
   return commitPlanPackageGraphMutation({
     projectRoot: workspace,
     mutation: buildPlanPackageGraphMutation(manifest, { kind: "updateNode", node: options.node })

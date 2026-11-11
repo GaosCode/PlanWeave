@@ -10,7 +10,7 @@ import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 import { isNodeFileNotFoundError, optionalReadFile } from "../fs/optionalFile.js";
 import { writeJsonFile } from "../json.js";
-import type { ProjectWorkspace } from "../types.js";
+import type { ProjectWorkspace, ValidationIssue } from "../types.js";
 
 const canvasInstanceSchema = z
   .object({ version: z.literal(1), id: z.string().uuid(), createdAt: z.string().datetime() })
@@ -37,9 +37,8 @@ export async function writeNewCanvasStorageIdentity(workspace: ProjectWorkspace)
 }
 
 async function currentCanvasIdentity(workspace: ProjectWorkspace): Promise<string | null> {
-  const raw = await optionalReadFile(canvasStorageIdentityFile(workspace), "utf8");
-  if (raw !== null) {
-    const instance = canvasInstanceSchema.parse(JSON.parse(raw));
+  const instance = await readCanvasInstance(canvasStorageIdentityFile(workspace));
+  if (instance !== null) {
     return `instance:${instance.id}:${Date.parse(instance.createdAt)}`;
   }
   // Pre-instance canvases keep their directory identity until an explicit retirement.
@@ -50,6 +49,41 @@ async function currentCanvasIdentity(workspace: ProjectWorkspace): Promise<strin
     if (isNodeFileNotFoundError(error)) return null;
     throw error;
   }
+}
+
+async function readCanvasInstance(path: string) {
+  const raw = await optionalReadFile(path, "utf8");
+  return raw === null ? null : canvasInstanceSchema.parse(JSON.parse(raw));
+}
+
+async function readResultsInstance(path: string): Promise<string | null> {
+  const raw = await optionalReadFile(path, "utf8");
+  return raw === null ? null : resultsStorageIdentitySchema.parse(JSON.parse(raw));
+}
+
+export async function validatePackageStorageIdentityFiles(
+  workspace: ProjectWorkspace
+): Promise<ValidationIssue[]> {
+  const errors: ValidationIssue[] = [];
+  for (const { path, read, code } of [
+    {
+      path: canvasStorageIdentityFile(workspace),
+      read: readCanvasInstance,
+      code: "canvas_storage_identity_read_failed"
+    },
+    {
+      path: resultsStorageIdentityFile(workspace),
+      read: readResultsInstance,
+      code: "results_storage_identity_read_failed"
+    }
+  ]) {
+    try {
+      await read(path);
+    } catch (error) {
+      errors.push({ code, path, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return errors;
 }
 
 /** Capture only while resolving a fresh workspace, never when admitting a saved request. */
@@ -86,9 +120,8 @@ export function resultsStorageIdentityFile(workspace: ProjectWorkspace): string 
 }
 
 async function currentResultsIdentity(workspace: ProjectWorkspace): Promise<string> {
-  const raw = await optionalReadFile(resultsStorageIdentityFile(workspace), "utf8");
   // Results predating explicit reset generations retain their original generation.
-  return raw === null ? "initial" : resultsStorageIdentitySchema.parse(JSON.parse(raw));
+  return (await readResultsInstance(resultsStorageIdentityFile(workspace))) ?? "initial";
 }
 
 /** Caller owns the results replacement lane and the parent project lock. */
