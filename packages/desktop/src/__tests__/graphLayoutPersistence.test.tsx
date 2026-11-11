@@ -78,14 +78,11 @@ describe("layout intent persistence order", () => {
         t: createTranslator("en")
       })
     );
-    const invoke = (kind: "save" | "reset", x: number) =>
-      kind === "reset"
-        ? hook.result.current.resetLayout()
-        : hook.result.current.handleNodeDragStop({} as React.MouseEvent, {
-            id: "T-001",
-            position: { x, y: 180 },
-            data: {}
-          });
+    const invoke = (kind: "save" | "reset", x: number) => {
+      if (kind === "reset") return hook.result.current.resetLayout();
+      const node = { id: "T-001", position: { x, y: 180 }, data: {} };
+      return hook.result.current.handleNodeDragStop({} as React.MouseEvent, node, [node]);
+    };
     let firstWrite!: Promise<void>;
     let lastWrite!: Promise<void>;
     act(() => {

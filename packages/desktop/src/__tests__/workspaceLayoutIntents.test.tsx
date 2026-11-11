@@ -5,6 +5,21 @@ import { describe, expect, it } from "vitest";
 import { selection, workspaceLayoutHarness } from "./helpers/workspaceLayoutIntentsHarness";
 
 describe("Workspace layout intent ownership", () => {
+  it("persists every dragged node when the current graph no longer marks them selected", async () => {
+    const h = await workspaceLayoutHarness();
+    const save = h.drag(1, 600, [{ task: 2, x: 600 }]);
+    expect(h.pending).toHaveLength(1);
+    expect(h.payload(0, 1)).toBe(600);
+    expect(h.payload(0, 2)).toBe(600);
+    expect(h.payload(0, 3)).toBe(80);
+    await h.finish(0);
+    await save;
+    expect(h.position(1)).toBe(600);
+    expect(h.position(2)).toBe(600);
+    expect(h.position(3)).toBe(80);
+    h.unmount();
+  });
+
   it("resets a Workspace graph without a local project through real layout submission and confirmation", async () => {
     const h = await workspaceLayoutHarness();
     h.drag(1, 600);

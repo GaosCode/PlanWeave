@@ -1,9 +1,9 @@
-import type { Dispatch, DragEvent, MouseEvent, SetStateAction } from "react";
+import type { Dispatch, DragEvent, SetStateAction } from "react";
 import type {
   Connection,
   Edge,
-  Node,
   OnEdgesChange,
+  OnNodeDrag,
   OnNodesChange,
   ReactFlowInstance
 } from "@xyflow/react";
@@ -105,7 +105,7 @@ export function useGraphWorkspaceController({
   nodeTypes: AppNodeTypes;
   nodes: AppFlowNode[];
   onEdgesChange: OnEdgesChange<Edge>;
-  onNodeDragStop: (event: MouseEvent, node: Node) => Promise<void>;
+  onNodeDragStop: OnNodeDrag;
   onNodesChange: OnNodesChange<AppFlowNode>;
   searchQuery: string;
   selectedBlock: DesktopBlockDetail | null;

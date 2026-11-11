@@ -7,7 +7,6 @@ import {
   type CSSProperties,
   type Dispatch,
   type DragEvent,
-  type MouseEvent,
   type PointerEvent,
   type Ref,
   type SetStateAction
@@ -15,8 +14,8 @@ import {
 import type {
   Connection,
   Edge,
-  Node,
   OnEdgesChange,
+  OnNodeDrag,
   OnNodesChange,
   ReactFlowInstance
 } from "@xyflow/react";
@@ -137,7 +136,7 @@ export type WorkspaceTabsGraphWorkspaceProps = {
   nodes: AppFlowNode[];
   onAgentPromptCopied: () => void;
   onEdgesChange: OnEdgesChange<Edge>;
-  onNodeDragStop: (event: MouseEvent, node: Node) => Promise<void>;
+  onNodeDragStop: OnNodeDrag;
   onNodesChange: OnNodesChange<AppFlowNode>;
   onTaskPanelSelect: (taskId: string | null) => void;
   selectedBlockPresent: boolean;

@@ -152,12 +152,6 @@ export function ProjectWorkspaceProvider({
   const { flowInstance, getFlowInstance, setFlowInstance } = useGraphFlowOwner();
   const [nodes, setNodes, onNodesChange] = useNodesState<AppFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const lerpedNodeDrag = useLerpedNodeDrag({
-    nodes,
-    setNodes,
-    onNodesChange,
-    enabled: !settings.reducedMotion
-  });
 
   const {
     activeCanvasId,
@@ -183,6 +177,16 @@ export function ProjectWorkspaceProvider({
     setSuccessMessage,
     t,
     updateSettings
+  });
+  const lerpedNodeDrag = useLerpedNodeDrag({
+    nodes,
+    setNodes,
+    onNodesChange,
+    enabled: !settings.reducedMotion,
+    scopeKey: JSON.stringify([
+      settings.planweaveHome,
+      activeView === "graph" && graphNotificationScope
+    ])
   });
   const {
     expandedProjectId,

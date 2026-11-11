@@ -111,21 +111,14 @@ export function useGraphLayoutActions({
   );
 
   const handleNodeDragStop = useCallback(
-    async (_event: React.MouseEvent, node: Node) => {
-      const layoutNodes = (getLayoutNodes?.(node) ?? nodes).map((item) => ({
-        nodeId: item.id,
-        x: item.id === node.id && !getLayoutNodes ? node.position.x : item.position.x,
-        y: item.id === node.id && !getLayoutNodes ? node.position.y : item.position.y
-      }));
+    async (_event: React.MouseEvent, node: Node, draggedNodes: Node[]) => {
+      const currentNodes = getLayoutNodes?.(node) ?? nodes;
       if (workspaceCanvas?.enabled) {
+        if (draggedNodes.length === 0) return;
         const updatedAt = new Date().toISOString();
         const positions = graph ? defaultTaskNodePositions(graph, nodes) : new Map();
-        const changedIds = new Set([
-          node.id,
-          ...nodes.filter((item) => item.selected).map((item) => item.id)
-        ]);
         const intent = workspaceCanvas.stageLayout({
-          nodes: layoutNodes.filter((item) => changedIds.has(item.nodeId)),
+          nodes: draggedNodes.map(({ id, position }) => ({ nodeId: id, ...position })),
           defaults: [...positions].map(([nodeId, position]) => ({ nodeId, ...position })),
           updatedAt
         });
@@ -137,6 +130,10 @@ export function useGraphLayoutActions({
         }, intent.discard);
       }
       if (!bridge || !selectedProject) return;
+      const layoutNodes = currentNodes.map((item) => {
+        const position = item.id === node.id && !getLayoutNodes ? node.position : item.position;
+        return { nodeId: item.id, ...position };
+      });
       const api = bridge;
       const canvas = desktopCanvasReference(selectedProject, selectedCanvasId);
       return persistLayout(async (isSelectionCurrent) => {

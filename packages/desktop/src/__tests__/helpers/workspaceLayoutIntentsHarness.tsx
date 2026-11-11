@@ -142,7 +142,13 @@ export async function workspaceLayoutHarness() {
       const [nodes, setNodes, onNodesChange] = useNodesState<AppFlowNode>([]);
       const [, setEdges] = useEdgesState([]);
       const layout = commands.layout ?? commands.projection?.content.layout ?? null;
-      const drag = useLerpedNodeDrag({ nodes, setNodes, onNodesChange, enabled: false });
+      const drag = useLerpedNodeDrag({
+        nodes,
+        setNodes,
+        onNodesChange,
+        enabled: false,
+        scopeKey: props.authority
+      });
       const actions = useGraphPaletteActions({
         captureProjectSelection: () => ({ isCurrent: () => true }),
         canvasLocator: locator,
@@ -188,14 +194,19 @@ export async function workspaceLayoutHarness() {
         throw Error("Session not ready");
     });
   await ready();
-  const drag = (task: number, x: number) => {
+  const drag = (task: number, x: number, peers: { task: number; x: number }[] = []) => {
+    const draggedNodes = [{ task, x }, ...peers].map(({ task, x }) => ({
+      id: `T-00${task}`,
+      position: { x, y: 80 + (task - 1) * 360 },
+      data: {}
+    }));
     let result!: Promise<void>;
     act(() => {
-      result = hook.result.current.actions.handleNodeDragStop({} as React.MouseEvent, {
-        id: `T-00${task}`,
-        position: { x, y: 80 + (task - 1) * 360 },
-        data: {}
-      });
+      result = hook.result.current.actions.handleNodeDragStop(
+        {} as React.MouseEvent,
+        draggedNodes[0],
+        draggedNodes
+      );
     });
     return result;
   };

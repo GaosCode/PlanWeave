@@ -18,10 +18,10 @@ import {
   Controls,
   type Edge,
   MiniMap,
-  type Node,
   ReactFlow,
   type ReactFlowInstance,
   type OnEdgesChange,
+  type OnNodeDrag,
   type OnNodesChange
 } from "@xyflow/react";
 import type {
@@ -120,7 +120,7 @@ type GraphViewProps = {
   t: ReturnType<typeof createTranslator>;
   visibleTaskIds: Set<string>;
   visibleTasks: DesktopGraphViewModel["tasks"] | undefined;
-  onNodeDragStop: (event: MouseEvent, node: Node) => Promise<void>;
+  onNodeDragStop: OnNodeDrag;
   pinnedResource: string | null;
   onResourceHover: (name: string | null) => void;
   onResourcePin: (name: string | null) => void;
@@ -467,7 +467,7 @@ export function GraphView({
             setMiniRunPanelOpen(false);
           }}
           onSelectionChange={presence?.onSelectionChange}
-          onNodeDragStop={(event, node) => void onNodeDragStop(event, node)}
+          onNodeDragStop={onNodeDragStop}
           onInit={handleFlowInit}
           proOptions={{ hideAttribution: true }}
           minZoom={0.1}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { applyNodeChanges } from "@xyflow/react";
 import type {
@@ -18,12 +18,18 @@ type UseLerpedNodeDragOptions<NodeType extends Node> = {
   setNodes: Dispatch<SetStateAction<NodeType[]>>;
   onNodesChange: OnNodesChange<NodeType>;
   enabled: boolean;
+  scopeKey: string;
   alpha?: number;
   epsilon?: number;
 };
 
 type DragTarget = {
   position: XYPosition;
+};
+
+type PendingDragFrame = {
+  id: number;
+  targets: ReadonlyMap<string, DragTarget>;
 };
 
 type DragStopFallback = {
@@ -104,16 +110,20 @@ export function useLerpedNodeDrag<NodeType extends Node>({
   setNodes,
   onNodesChange,
   enabled,
+  scopeKey,
   alpha = DEFAULT_DRAG_LERP_ALPHA,
   epsilon = DEFAULT_DRAG_LERP_EPSILON
 }: UseLerpedNodeDragOptions<NodeType>) {
   const targetsRef = useRef(new Map<string, DragTarget>());
   const latestNodesRef = useRef(nodes);
   const frameRef = useRef<number | null>(null);
+  const pendingFrameRef = useRef<PendingDragFrame | null>(null);
+  const scope = useMemo(() => ({ key: scopeKey }), [scopeKey]);
+  const activeScopeRef = useRef<typeof scope | null>(null);
   const [systemReducedMotion, setSystemReducedMotion] = useState(supportsReducedMotion);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [appliedFrameId, setAppliedFrameId] = useState<number | null>(null);
   const shouldAnimate = enabled && !systemReducedMotion;
-  latestNodesRef.current = nodes;
 
   const cancelFrame = useCallback(() => {
     if (frameRef.current === null) {
@@ -123,76 +133,113 @@ export function useLerpedNodeDrag<NodeType extends Node>({
     frameRef.current = null;
   }, []);
 
-  const stopAnimation = useCallback(() => {
+  const clearTargets = useCallback(() => {
+    targetsRef.current.clear();
+    pendingFrameRef.current = null;
     cancelFrame();
     setIsAnimating(false);
   }, [cancelFrame]);
 
-  const tick = useCallback(() => {
-    frameRef.current = null;
-    if (targetsRef.current.size === 0) {
-      setIsAnimating(false);
+  useLayoutEffect(() => {
+    activeScopeRef.current = scope;
+    setIsAnimating(false);
+    return () => {
+      activeScopeRef.current = null;
+      targetsRef.current.clear();
+      pendingFrameRef.current = null;
+      cancelFrame();
+    };
+  }, [cancelFrame, scope]);
+
+  const tick = useCallback(
+    (frameId: number) => {
+      if (activeScopeRef.current !== scope || frameRef.current !== frameId) {
+        return;
+      }
+      frameRef.current = null;
+      const targets = new Map(targetsRef.current);
+      pendingFrameRef.current = { id: frameId, targets };
+
+      setNodes((currentNodes) => {
+        if (activeScopeRef.current !== scope) {
+          return currentNodes;
+        }
+        let moved = false;
+        const nextNodes = currentNodes.map((node) => {
+          const target = targets.get(node.id);
+          if (!target) {
+            return node;
+          }
+          moved = true;
+          return {
+            ...node,
+            position: isNearPosition(node.position, target.position, epsilon)
+              ? target.position
+              : lerpPosition(node.position, target.position, alpha)
+          };
+        });
+        return moved ? nextNodes : currentNodes;
+      });
+      setAppliedFrameId(frameId);
+    },
+    [alpha, epsilon, scope, setNodes]
+  );
+
+  const scheduleFrame = useCallback(() => {
+    if (frameRef.current !== null || pendingFrameRef.current !== null) {
       return;
     }
+    setIsAnimating(true);
+    const frameId = window.requestAnimationFrame(() => tick(frameId));
+    frameRef.current = frameId;
+  }, [tick]);
 
-    const activeTargets = new Map(targetsRef.current);
+  useLayoutEffect(() => {
+    latestNodesRef.current = nodes;
+  }, [nodes]);
+
+  useLayoutEffect(() => {
+    if (!shouldAnimate) {
+      clearTargets();
+    }
+  }, [clearTargets, shouldAnimate]);
+
+  useLayoutEffect(() => {
+    const pendingFrame = pendingFrameRef.current;
+    if (!pendingFrame || pendingFrame.id !== appliedFrameId) {
+      return;
+    }
+    pendingFrameRef.current = null;
+
+    const { targets } = pendingFrame;
     const nextTargets = new Map<string, DragTarget>();
-    for (const [nodeId, target] of activeTargets) {
-      const node = latestNodesRef.current.find((currentNode) => currentNode.id === nodeId);
-      if (node && !isNearPosition(node.position, target.position, epsilon)) {
-        nextTargets.set(nodeId, target);
+    let remainingTargets = targets.size;
+    for (const node of nodes) {
+      const target = targets.get(node.id);
+      if (!target) {
+        continue;
+      }
+      if (node.position.x !== target.position.x || node.position.y !== target.position.y) {
+        nextTargets.set(node.id, target);
+      }
+      remainingTargets -= 1;
+      if (remainingTargets === 0) {
+        break;
+      }
+    }
+    for (const [id, target] of targetsRef.current) {
+      if (targets.get(id) !== target) {
+        nextTargets.set(id, target);
       }
     }
     targetsRef.current = nextTargets;
 
-    setNodes((currentNodes) => {
-      let moved = false;
-      const nextNodes = currentNodes.map((node) => {
-        const target = activeTargets.get(node.id);
-        if (!target) {
-          return node;
-        }
-
-        if (isNearPosition(node.position, target.position, epsilon)) {
-          moved = true;
-          return {
-            ...node,
-            position: target.position
-          };
-        }
-
-        moved = true;
-        return {
-          ...node,
-          position: lerpPosition(node.position, target.position, alpha)
-        };
-      });
-
-      if (moved) {
-        latestNodesRef.current = nextNodes;
-      }
-      return moved ? nextNodes : currentNodes;
-    });
-
-    if (targetsRef.current.size > 0) {
-      frameRef.current = window.requestAnimationFrame(tick);
-      return;
+    if (nextTargets.size > 0) {
+      scheduleFrame();
+    } else {
+      setIsAnimating(false);
     }
-    setIsAnimating(false);
-  }, [alpha, epsilon, setNodes]);
-
-  const scheduleFrame = useCallback(() => {
-    if (frameRef.current !== null) {
-      return;
-    }
-    setIsAnimating(true);
-    frameRef.current = window.requestAnimationFrame(tick);
-  }, [tick]);
-
-  const clearTargets = useCallback(() => {
-    targetsRef.current.clear();
-    stopAnimation();
-  }, [stopAnimation]);
+  }, [appliedFrameId, nodes, scheduleFrame]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -207,22 +254,11 @@ export function useLerpedNodeDrag<NodeType extends Node>({
     return () => mediaQuery.removeEventListener("change", handleChange);
   }, []);
 
-  useEffect(() => {
-    if (!shouldAnimate) {
-      clearTargets();
-    }
-  }, [clearTargets, shouldAnimate]);
-
-  useEffect(
-    () => () => {
-      targetsRef.current.clear();
-      cancelFrame();
-    },
-    [cancelFrame]
-  );
-
   const handleNodesChange = useCallback<OnNodesChange<NodeType>>(
     (changes) => {
+      if (activeScopeRef.current !== scope) {
+        return;
+      }
       if (!shouldAnimate) {
         latestNodesRef.current = applyNodeChanges(changes, latestNodesRef.current);
         onNodesChange(changes);
@@ -250,25 +286,28 @@ export function useLerpedNodeDrag<NodeType extends Node>({
         scheduleFrame();
       }
     },
-    [onNodesChange, scheduleFrame, shouldAnimate]
+    [onNodesChange, scheduleFrame, scope, shouldAnimate]
   );
 
   const commitDragTargets = useCallback(
     (fallbackNode?: DragStopFallback) => {
+      if (activeScopeRef.current !== scope) {
+        return latestNodesRef.current;
+      }
       const targets = new Map(targetsRef.current);
-      targetsRef.current.clear();
-      stopAnimation();
+      clearTargets();
 
       const committedNodes = commitPositions(latestNodesRef.current, targets, fallbackNode);
       latestNodesRef.current = committedNodes;
       setNodes((currentNodes) => {
-        const nextNodes = commitPositions(currentNodes, targets, fallbackNode);
-        latestNodesRef.current = nextNodes;
-        return nextNodes;
+        if (activeScopeRef.current !== scope) {
+          return currentNodes;
+        }
+        return commitPositions(currentNodes, targets, fallbackNode);
       });
       return committedNodes;
     },
-    [setNodes, stopAnimation]
+    [clearTargets, scope, setNodes]
   );
 
   return useMemo(

@@ -184,14 +184,11 @@ export async function layoutOwnerHarness(shared: boolean) {
       });
   };
   await ready();
-  const invoke = (kind: "save" | "reset", x = 240) =>
-    kind === "reset"
-      ? hook.result.current.actions.resetLayout()
-      : hook.result.current.actions.handleNodeDragStop({} as React.MouseEvent, {
-          id: "T-ALPHA",
-          position: { x, y: 180 },
-          data: {}
-        });
+  const invoke = (kind: "save" | "reset", x = 240) => {
+    if (kind === "reset") return hook.result.current.actions.resetLayout();
+    const node = { id: "T-ALPHA", position: { x, y: 180 }, data: {} };
+    return hook.result.current.actions.handleNodeDragStop({} as React.MouseEvent, node, [node]);
+  };
   const finish = async (index: number, failure = false) => {
     await act(async () => {
       const pending = writes[index];

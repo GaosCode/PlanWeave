@@ -144,7 +144,7 @@ describe("useGraphPaletteActions layout snapshots", () => {
     const stoppedNode: Node = { id: "T-ALPHA", position: { x: 48, y: 32 }, data: {} };
 
     await act(async () => {
-      await result.current.handleNodeDragStop({} as React.MouseEvent, stoppedNode);
+      await result.current.handleNodeDragStop({} as React.MouseEvent, stoppedNode, [stoppedNode]);
     });
 
     expect(getLayoutNodes).toHaveBeenCalledTimes(1);

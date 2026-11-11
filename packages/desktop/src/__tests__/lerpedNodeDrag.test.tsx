@@ -119,19 +119,21 @@ function stubAnimationFrame() {
   };
 }
 
-function useHarness(initialNodes: TestNode[], enabled: boolean) {
+function useHarness(initialNodes: TestNode[], enabled: boolean, scopeKey = "canvas-a") {
   const [nodes, setNodes] = useState(initialNodes);
   const onNodesChange = useCallback<OnNodesChange<TestNode>>((changes) => {
     setNodes((currentNodes) => applyNodeChanges(changes, currentNodes));
   }, []);
-  const lerpedDrag = useLerpedNodeDrag({
+  const options = {
     nodes,
     setNodes,
     onNodesChange,
     enabled,
+    scopeKey,
     alpha: 0.5,
     epsilon: 0.01
-  });
+  };
+  const lerpedDrag = useLerpedNodeDrag(options);
 
   return {
     ...lerpedDrag,
@@ -208,12 +210,18 @@ describe("useLerpedNodeDrag", () => {
     expect(result.current.nodes[0].position).toEqual({ x: 75, y: 60 });
   });
 
-  it("settles on exact active targets and stops scheduling frames", () => {
+  it("settles all selected nodes on exact targets and leaves unselected nodes in place", () => {
     const animationFrame = stubAnimationFrame();
-    const { result } = renderHook(() => useHarness([createNode("T-001", 0, 0)], true));
+    const unselected = createNode("T-003", 24, 50);
+    const { result } = renderHook(() =>
+      useHarness([createNode("T-001", 0, 0), createNode("T-002", 40, 60), unselected], true)
+    );
 
     act(() => {
-      result.current.onNodesChange([dragPositionChange("T-001", 100, 80)]);
+      result.current.onNodesChange([
+        dragPositionChange("T-001", 100, 80),
+        dragPositionChange("T-002", 140, 140)
+      ]);
     });
 
     for (let frame = 0; frame < 15; frame += 1) {
@@ -223,31 +231,131 @@ describe("useLerpedNodeDrag", () => {
     }
 
     expect(result.current.nodes[0].position).toEqual({ x: 100, y: 80 });
+    expect(result.current.nodes[1].position).toEqual({ x: 140, y: 140 });
+    expect(result.current.nodes[2]).toBe(unselected);
     expect(result.current.isAnimating).toBe(false);
     expect(animationFrame.pendingFrameCount).toBe(0);
   });
 
-  it("drops active targets for externally removed nodes on the next frame", () => {
+  it("drops deleted targets and interpolates surviving targets from externally updated positions", () => {
     const animationFrame = stubAnimationFrame();
-    const { result } = renderHook(() => useHarness([createNode("T-001", 0, 0)], true));
+    const { result } = renderHook(() =>
+      useHarness([createNode("T-001", 0, 0), createNode("T-002", 40, 60)], true)
+    );
+
+    act(() => {
+      result.current.onNodesChange([
+        dragPositionChange("T-001", 100, 80),
+        dragPositionChange("T-002", 140, 140)
+      ]);
+    });
+    act(() => {
+      animationFrame.runNextFrame();
+    });
+    expect(animationFrame.pendingFrameCount).toBe(1);
+
+    act(() => {
+      result.current.setNodes([createNode("T-002", 120, 130)]);
+      animationFrame.runNextFrame(32);
+    });
+
+    expect(result.current.nodes).toEqual([createNode("T-002", 130, 135)]);
+    for (let frame = 3; frame <= 13; frame += 1) {
+      act(() => {
+        animationFrame.runNextFrame(16 * frame);
+      });
+    }
+    expect(result.current.nodes).toEqual([createNode("T-002", 140, 140)]);
+    expect(result.current.isAnimating).toBe(false);
+    expect(animationFrame.pendingFrameCount).toBe(0);
+  });
+
+  it("keeps converging when a queued position update moves a nearly settled node away", () => {
+    const animationFrame = stubAnimationFrame();
+    const { result } = renderHook(() => useHarness([createNode("T-001", 99.995, 0)], true), {
+      reactStrictMode: true
+    });
+
+    act(() => {
+      result.current.onNodesChange([dragPositionChange("T-001", 100, 0)]);
+    });
+    act(() => {
+      result.current.setNodes([createNode("T-001", 0, 0)]);
+      animationFrame.runNextFrame();
+    });
+
+    expect(result.current.nodes[0].position).toEqual({ x: 50, y: 0 });
+    expect(result.current.isAnimating).toBe(true);
+    expect(animationFrame.pendingFrameCount).toBe(1);
+
+    for (let frame = 0; frame < 15 && animationFrame.pendingFrameCount > 0; frame += 1) {
+      act(() => animationFrame.runNextFrame(16 * (frame + 2)));
+    }
+
+    expect(result.current.nodes[0].position).toEqual({ x: 100, y: 0 });
+    expect(result.current.isAnimating).toBe(false);
+    expect(animationFrame.pendingFrameCount).toBe(0);
+  });
+
+  it("retires queued frames and callbacks when a different canvas reuses the node ID", () => {
+    const animationFrame = stubAnimationFrame();
+    const { result, rerender } = renderHook(
+      ({ scopeKey }) => useHarness([createNode("T-001", 0, 0)], true, scopeKey),
+      { initialProps: { scopeKey: "canvas-a" } }
+    );
+    const oldDrag = result.current;
+
+    act(() => {
+      oldDrag.onNodesChange([dragPositionChange("T-001", 100, 80)]);
+    });
+    expect(animationFrame.pendingFrameCount).toBe(1);
+
+    const replacement = createNode("T-001", 500, 600);
+    act(() => {
+      result.current.setNodes([replacement]);
+      rerender({ scopeKey: "canvas-b" });
+    });
+
+    expect(animationFrame.pendingFrameCount).toBe(0);
+    expect(result.current.isAnimating).toBe(false);
+
+    act(() => {
+      oldDrag.onNodesChange([dragPositionChange("T-001", 200, 180)]);
+      oldDrag.commitDragTargets({ id: "T-001", position: { x: 200, y: 180 } });
+    });
+    expect(result.current.nodes).toEqual([replacement]);
+    expect(animationFrame.pendingFrameCount).toBe(0);
+  });
+
+  it.each([
+    "app",
+    "system"
+  ])("cancels an active frame when %s reduced motion turns on", (source) => {
+    const media = stubReducedMotion(false);
+    const animationFrame = stubAnimationFrame();
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useHarness([createNode("T-001", 0, 0)], enabled),
+      { initialProps: { enabled: true } }
+    );
 
     act(() => {
       result.current.onNodesChange([dragPositionChange("T-001", 100, 80)]);
     });
     expect(animationFrame.pendingFrameCount).toBe(1);
 
-    act(() => {
-      result.current.setNodes([]);
-    });
+    if (source === "app") {
+      rerender({ enabled: false });
+    } else {
+      act(() => media.setMatches(true));
+    }
 
-    act(() => {
-      animationFrame.runNextFrame();
-    });
-
-    expect(result.current.nodes).toEqual([]);
-    expect(result.current.isAnimating).toBe(false);
     expect(animationFrame.pendingFrameCount).toBe(0);
-    expect(animationFrame.requestAnimationFrame).toHaveBeenCalledTimes(1);
+    expect(result.current.isAnimating).toBe(false);
+    act(() => {
+      result.current.onNodesChange([dragPositionChange("T-001", 200, 180)]);
+    });
+    expect(result.current.nodes[0].position).toEqual({ x: 200, y: 180 });
+    expect(animationFrame.pendingFrameCount).toBe(0);
   });
 
   it("commits exact active targets and clears animation state", () => {
