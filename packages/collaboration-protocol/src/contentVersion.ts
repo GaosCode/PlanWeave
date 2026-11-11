@@ -15,7 +15,10 @@ import {
   timestampSchema
 } from "./primitives.js";
 import { packageSnapshotDigestSchema } from "./packageSnapshot.js";
-import { packageFileNamespaceConflict } from "./packageFileNamespace.js";
+import {
+  hasPortablePackageFileSegmentLengths,
+  packageFileNamespaceConflict
+} from "./packageFileNamespace.js";
 export { packageFileAddressKey, packageFileNamespaceConflict } from "./packageFileNamespace.js";
 import { aclRevisionSchema, canvasVisibilitySchema } from "./projectAccess.js";
 export {
@@ -45,7 +48,8 @@ export const contentVersionMemberPathSchema = z
     const segments = value.split("/");
     return !segments.some((segment) => segment === "" || segment === "." || segment === "..");
   }, "path_traversal_forbidden")
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/, "invalid_content_version_member_path");
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/, "invalid_content_version_member_path")
+  .refine(hasPortablePackageFileSegmentLengths, "package_path_segment_too_long");
 export type ContentVersionMemberPath = z.infer<typeof contentVersionMemberPathSchema>;
 
 export const contentVersionMemberKindSchema = z.enum([

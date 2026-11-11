@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { contentVersionMemberPathSchema } from "../contentVersion.js";
 import {
   packageSnapshotDigestManifestSchema,
   packageSnapshotRelativePathSchema,
@@ -31,6 +32,25 @@ const manifest = {
 };
 
 describe("Plan Package snapshot contracts", () => {
+  it.each([
+    ["255-byte leaf", `${"a".repeat(252)}.md`, null],
+    ["256-byte leaf", `${"a".repeat(253)}.md`, "package_path_segment_too_long"],
+    ["256-byte directory", `${"a".repeat(256)}/prompt.md`, "package_path_segment_too_long"],
+    ["512-byte path", `${"a".repeat(255)}/d/${"b".repeat(251)}.md`, null],
+    ["513-byte path", `${"a".repeat(255)}/d/${"b".repeat(252)}.md`, "too_big"]
+  ] as const)("enforces the shared segment and total limits for a %s", (_name, path, error) => {
+    for (const schema of [contentVersionMemberPathSchema, packageSnapshotRelativePathSchema]) {
+      const result = schema.safeParse(path);
+      if (error === null) {
+        expect(result).toMatchObject({ success: true, data: path });
+      } else if (error === "too_big") {
+        expect(result).toMatchObject({ success: false, error: { issues: [{ code: error }] } });
+      } else {
+        expect(result).toMatchObject({ success: false, error: { issues: [{ message: error }] } });
+      }
+    }
+  });
+
   it("binds immutable digest metadata to a source revision and creator", () => {
     expect(examplePackageSnapshot.immutable.snapshotId).toBe("snapshot-demo-001");
     const snapshot = packageSnapshotSchema.parse({

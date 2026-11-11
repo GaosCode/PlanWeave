@@ -1,3 +1,7 @@
+export function hasPortablePackageFileSegmentLengths(path: string): boolean {
+  return path.split("/").every((segment) => segment.length <= 255);
+}
+
 export function packageFileAddressKey(path: string): string {
   return path.toLowerCase();
 }

@@ -17,7 +17,10 @@ import {
   workspaceIdSchema
 } from "./primitives.js";
 import { canvasVisibilitySchema, projectVisibilitySchema } from "./projectAccess.js";
-import { packageFileNamespaceConflict } from "./packageFileNamespace.js";
+import {
+  hasPortablePackageFileSegmentLengths,
+  packageFileNamespaceConflict
+} from "./packageFileNamespace.js";
 
 export const packageSnapshotSchemaVersion = "package-snapshot/v1" as const;
 export const packageSnapshotSchemaVersionSchema = z.literal(packageSnapshotSchemaVersion);
@@ -79,7 +82,8 @@ export const packageSnapshotRelativePathSchema = z
     const segments = value.split("/");
     return !segments.some((part) => part === ".." || part === "." || part.length === 0);
   }, "path_traversal_forbidden")
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/, "invalid_package_relative_path");
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/, "invalid_package_relative_path")
+  .refine(hasPortablePackageFileSegmentLengths, "package_path_segment_too_long");
 export type PackageSnapshotRelativePath = z.infer<typeof packageSnapshotRelativePathSchema>;
 
 export const packageSnapshotSizeSchema = z

@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   completeContentVersionSchema,
   compareContentVersionMemberPaths,
+  isContentVersionPromptKind,
   normalizeContentVersionPromptPath,
   type CompleteContentVersion,
   type ContentVersionMember
@@ -19,7 +20,10 @@ import {
   restorePackageSnapshot
 } from "@planweave-ai/runtime";
 import { validateAuthoritativeCanvasContent } from "../../../runtime/src/desktop/contentVersionValidation.js";
-import { layoutPathForWorkspace } from "../../../runtime/src/desktop/layoutStore.js";
+import {
+  layoutPathForWorkspace,
+  saveDesktopLayoutDirect
+} from "../../../runtime/src/desktop/layoutStore.js";
 import { basicManifest } from "../../../runtime/src/__tests__/promptTestHelpers.js";
 import { ContentVersionService } from "../canvas/contentVersionService.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
@@ -46,7 +50,8 @@ function member(
 function explicitContent(
   fixture: Fixture,
   firstPath: string,
-  secondPath: string
+  secondPath: string,
+  firstMemberPath = normalizeContentVersionPromptPath(firstPath)
 ): CompleteContentVersion {
   const initial = fixture.contentVersions.readVersion(
     scope,
@@ -59,11 +64,7 @@ function explicitContent(
   const members = [
     ...initial.members.filter((item) => item.kind !== "manifest" && item.kind !== "task_prompt"),
     member("manifest", "manifest.json", `${JSON.stringify(manifest, null, 2)}\n`),
-    member(
-      "task_prompt",
-      normalizeContentVersionPromptPath(firstPath),
-      "# First explicit Prompt\r\n"
-    ),
+    member("task_prompt", firstMemberPath, "# First explicit Prompt\r\n"),
     member(
       "task_prompt",
       normalizeContentVersionPromptPath(secondPath),
@@ -119,6 +120,75 @@ const collisions = [
 ] as const;
 
 describe("physical package file namespace publication", () => {
+  it.each([
+    ["leaf", `shared/${"a".repeat(253)}.md`],
+    ["directory", `${"a".repeat(256)}/prompt.md`]
+  ] as const)("rejects a 256-byte %s at encoding, persistence and materialization", async (name, path) => {
+    const fixture = await canvasCommandServiceFixture({
+      manifest: basicManifest({ includeSecondTask: true })
+    });
+    const content = explicitContent(fixture, path, "shared/valid.md", path);
+    const initial = fixture.contentVersions.readVersion(
+      scope,
+      fixture.contentVersions.head(scope)!.content
+    ).content;
+    const document = decodeCanvasReplicaDocument(initial);
+    const before = persistedRows(fixture);
+    expect
+      .soft(() =>
+        encodeCanvasReplicaDocument({
+          ...document,
+          manifest: JSON.parse(content.members.find((item) => item.kind === "manifest")!.content),
+          promptMarkdownByPath: Object.fromEntries(
+            content.members
+              .filter((item) => isContentVersionPromptKind(item.kind))
+              .map((item) => [item.path, item.content])
+          )
+        })
+      )
+      .toThrow("package_path_segment_too_long");
+    expect
+      .soft(() =>
+        fixture.contentVersions.persistImmutable({
+          scope,
+          content,
+          createdBy: { kind: "human", id: "owner" }
+        })
+      )
+      .toThrow("content_version_semantic_validation_failed");
+    expect.soft(persistedRows(fixture)).toEqual(before);
+    expect
+      .soft(
+        publisher(fixture).publishWorkspaceCanvas(actor("owner"), "p", {
+          operationId: `long-${name}`,
+          localSource: { localProjectId: "local-long", localCanvasId: name },
+          content
+        })
+      )
+      .toMatchObject({ outcome: "rejected", reason: "content_verification_failed", scope: null });
+    expect.soft(persistedRows(fixture)).toEqual(before);
+
+    const workspace = fixture.workspace.init.workspace;
+    await saveDesktopLayoutDirect(workspace, document.layout);
+    const resultPath = join(workspace.resultsDir, "preserved.json");
+    await writeFile(resultPath, '{"preserved":true}\n');
+    const paths = [
+      workspace.manifestFile,
+      layoutPathForWorkspace(workspace),
+      workspace.stateFile,
+      resultPath
+    ];
+    const bytes = await Promise.all(paths.map((file) => readFile(file)));
+    const captured = await captureAuthorizedCanvasContent({ projectRoot: workspace });
+    await expect
+      .soft(
+        materializeAuthoritativeCanvasWorkspace({ workspace, authorityProjectId: "p", content })
+      )
+      .rejects.toThrow("package_path_segment_too_long");
+    expect(await Promise.all(paths.map((file) => readFile(file)))).toEqual(bytes);
+    expect(await captureAuthorizedCanvasContent({ projectRoot: workspace })).toEqual(captured);
+  });
+
   it.each(
     collisions
   )("rejects %s before creating any durable publication", async (name, first, second) => {
@@ -225,6 +295,12 @@ describe("physical package file namespace publication", () => {
   it.each([
     ["sibling-prefix", "nodes/custom/prompt.md", "nodes/custom/prompt.md-sibling/child.md"],
     ["directory-case", "SHARED/first.md", "shared/second.md"],
+    [
+      "segment-and-total-limits",
+      `${"a".repeat(255)}/d/${"b".repeat(251)}.md`,
+      `shared/${"b".repeat(252)}.md`
+    ],
+    ["collapsed-long-segment", `${"a".repeat(256)}/../shared/first.md`, "shared/second.md"],
     ["layout-label-parent", "desktop/layout.json/child.md", "desktop/layout.json-sibling.md"],
     ["layout-label-descendant", "desktop.md", "desktop/layout.json/child.md"]
   ])("publishes and materializes legal %s without treating the external layout label as a package file", async (name, first, second) => {
@@ -232,6 +308,7 @@ describe("physical package file namespace publication", () => {
       manifest: basicManifest({ includeSecondTask: true })
     });
     const content = explicitContent(fixture, first!, second!);
+    expect(encodeCanvasReplicaDocument(decodeCanvasReplicaDocument(content))).toEqual(content);
     const result = publisher(fixture).publishWorkspaceCanvas(actor("owner"), "p", {
       operationId: `namespace-valid-${name}`,
       localSource: { localProjectId: "local-namespace", localCanvasId: name },
