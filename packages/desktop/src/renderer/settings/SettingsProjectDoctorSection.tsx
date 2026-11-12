@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type {
   DesktopProjectSummary,
   ProjectDoctorIssue,
@@ -72,13 +72,15 @@ export function SettingsProjectDoctorSection({
   const currentOperation = operation?.projectId === selectedProjectId ? operation.kind : null;
   const unavailable = !projectReference || !bridge;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (currentProjectIdRef.current !== selectedProjectId) return;
-    requestSequence.current += 1;
     setOperation(null);
     setReportForProject(null);
     setFailure(null);
     setError(null);
+    return () => {
+      requestSequence.current += 1;
+    };
   }, [selectedProjectId, setError]);
 
   const requestIsCurrent = (requestId: number, projectId: string) =>
