@@ -1,14 +1,31 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, writeFileSync } from "node:fs";
+import { closeSync, fchmodSync, openSync, writeFileSync } from "node:fs";
+import { redactCiText } from "./redact-ci-test-artifacts.mjs";
+
+const maxCommandOutputBytes = 1024 * 1024;
+const maxEvidenceFieldLength = 256;
+const fingerprintPattern = /^[a-f0-9]{64}$/;
+const credentialAssignment =
+  /((?<![\w-])(?:[A-Z0-9]+_)*(?:API_?KEY|ACCESS_KEY(?:_ID)?|TOKEN|SECRET(?:_KEY)?|PASSWORD|PASSPHRASE|PRIVATE_KEY|CREDENTIALS?)(?:\\?["'])?[ \t]*[:=][ \t]*)(?:"(?:\\.|[^"\\])*(?:"|\\?$)|'(?:\\.|[^'\\])*(?:'|\\?$)|\\["'].*|(?:\\.|[^\s\\])+\\?)/gi;
 
 const profiles = {
-  "codex-acp": { versionCommand: { command: "codex-acp", args: ["--version"] } },
+  "codex-acp": {
+    agentId: "codex",
+    versionCommand: { command: "codex-acp", args: ["--version"] }
+  },
   "claude-code-acp": {
+    agentId: "claude-code",
     versionCommand: { command: "claude-agent-acp", args: ["--version"] }
   },
-  "opencode-acp": { versionCommand: { command: "opencode", args: ["--version"] } },
-  "codebuddy-acp": { versionCommand: { command: "codebuddy-code", args: ["--version"] } },
-  "pi-acp": { versionCommand: null }
+  "opencode-acp": {
+    agentId: "opencode",
+    versionCommand: { command: "opencode", args: ["--version"] }
+  },
+  "codebuddy-acp": {
+    agentId: "codebuddy",
+    versionCommand: { command: "codebuddy-code", args: ["--version"] }
+  },
+  "pi-acp": { agentId: "pi", versionCommand: null }
 };
 
 function option(name) {
@@ -16,62 +33,165 @@ function option(name) {
   return index < 0 ? null : (process.argv[index + 1] ?? null);
 }
 
-function run(command, args) {
-  const result = spawnSync(command, args, { cwd: process.cwd(), encoding: "utf8" });
-  return {
-    ok: result.status === 0,
-    stdout: result.stdout.trim(),
-    diagnostic:
-      result.status === 0
-        ? null
-        : `${command} ${args.join(" ")} exited ${result.status ?? "without status"}`
-  };
-}
-
-function json(text) {
+function run(label, command, args) {
+  let result;
   try {
-    return JSON.parse(text);
-  } catch {
-    return null;
+    result = spawnSync(command, args, {
+      encoding: "utf8",
+      maxBuffer: maxCommandOutputBytes
+    });
+  } catch (error) {
+    result = { error };
   }
-}
-
-function versionFromPreflight(profile, preflight) {
-  const value = json(preflight.stdout);
-  const name = value?.agentInfo?.name;
-  const version = value?.agentInfo?.version;
-  const preflightMessage =
-    typeof value?.message === "string" && value.message.trim().length > 0
-      ? value.message.trim()
-      : null;
-  const valid =
-    typeof name === "string" &&
-    name.trim().length > 0 &&
-    typeof version === "string" &&
-    version.trim().length > 0;
+  const stdout = typeof result.stdout === "string" ? result.stdout.trim() : "";
+  const status = result.error || result.signal ? null : result.status;
+  let diagnostic = null;
+  if (result.error) {
+    diagnostic = `${label} spawn failed (${result.error.code ?? "unknown error"}).`;
+  } else if (result.signal) {
+    diagnostic = `${label} terminated by ${result.signal}.`;
+  } else if (status !== 0) {
+    diagnostic = `${label} exited ${status ?? "without status"}.`;
+  } else if (!stdout) {
+    diagnostic = `${label} returned no output.`;
+  }
   return {
-    ok: preflight.ok && valid,
-    stdout: valid ? version.trim() : "",
-    diagnostic: !preflight.ok
-      ? (preflightMessage ?? preflight.diagnostic)
-      : !valid
-        ? `${profile} preflight returned invalid agentInfo; name and version must be non-empty strings.`
-        : null
+    ok: diagnostic === null,
+    status,
+    stdout,
+    diagnostic
   };
 }
 
-function sessionId(value) {
-  return value?.session?.sessionId ?? value?.sessionId ?? null;
+function runJson(label, command, args) {
+  const { stdout, ...result } = run(label, command, args);
+  if (result.status === null || !stdout) return { ...result, value: null };
+
+  let value;
+  try {
+    value = JSON.parse(stdout);
+  } catch {
+    value = null;
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) return { ...result, value };
+
+  return {
+    ...result,
+    ok: false,
+    value: null,
+    diagnostic: [result.diagnostic, `${label} returned invalid JSON object output.`]
+      .filter(Boolean)
+      .join(" ")
+  };
 }
 
-function readSession(planweave, id) {
-  return id
-    ? run(planweave, ["run-session", id, "--json"])
-    : { ok: false, stdout: "", diagnostic: "Run output did not contain a session id." };
+function evidenceText(text) {
+  if (typeof text !== "string") return null;
+  const firstLine = text.trim().split(/[\r\n]/, 1)[0];
+  return firstLine
+    ? redactCiText(firstLine.replace(credentialAssignment, "$1[REDACTED]")).slice(
+        0,
+        maxEvidenceFieldLength
+      )
+    : null;
 }
 
-function runnerFrom(result) {
-  return json(result.stdout)?.runnerReadModel ?? null;
+function isAcpTrustReceipt(receipt, profile, agentId) {
+  const entry = receipt?.entry;
+  return (
+    receipt?.executorName === profile &&
+    receipt.agentId === agentId &&
+    receipt.runnerKind === "acp" &&
+    (receipt.ok === undefined || receipt.ok === true) &&
+    typeof entry?.id === "string" &&
+    fingerprintPattern.test(entry.id) &&
+    typeof entry.command === "string" &&
+    Boolean(entry.command.trim()) &&
+    Array.isArray(entry.args) &&
+    entry.args.every((arg) => typeof arg === "string") &&
+    typeof entry.profileFingerprint === "string" &&
+    fingerprintPattern.test(entry.profileFingerprint) &&
+    typeof entry.approvedAt === "string" &&
+    Boolean(entry.approvedAt.trim())
+  );
+}
+
+function checkPrerequisites(planweave, profile, { agentId, versionCommand }) {
+  const readiness = {
+    planweaveVersion: "unavailable",
+    agentVersion: "unavailable",
+    trusted: false,
+    preflight: false
+  };
+  const planweaveVersion = run("PlanWeave version command", planweave, ["--version"]);
+  if (!planweaveVersion.ok) return { ...readiness, diagnostic: planweaveVersion.diagnostic };
+  readiness.planweaveVersion = evidenceText(planweaveVersion.stdout);
+
+  if (versionCommand) {
+    const { command, args } = versionCommand;
+    const version = run(`${command} version command`, command, args);
+    if (!version.ok) return { ...readiness, diagnostic: version.diagnostic };
+    readiness.agentVersion = evidenceText(version.stdout);
+  }
+
+  const trust = runJson("Trust", planweave, ["trust", "executor", profile, "--json"]);
+  if (!trust.ok) return { ...readiness, diagnostic: trust.diagnostic };
+  if (!isAcpTrustReceipt(trust.value, profile, agentId)) {
+    return { ...readiness, diagnostic: "Trust returned an invalid ACP approval receipt." };
+  }
+  readiness.trusted = true;
+
+  const preflight = runJson("Preflight", planweave, ["executors", "test", profile, "--json"]);
+  if (!versionCommand && preflight.value) {
+    const { name, version } = preflight.value.agentInfo ?? {};
+    if (
+      typeof name !== "string" ||
+      !name.trim() ||
+      typeof version !== "string" ||
+      !version.trim()
+    ) {
+      const invalidAgentInfo =
+        "Preflight returned invalid agentInfo. The name and version must be non-empty strings.";
+      return {
+        ...readiness,
+        diagnostic: [preflight.diagnostic, invalidAgentInfo].filter(Boolean).join(" ")
+      };
+    }
+    if (preflight.ok && preflight.value.ok === true) readiness.agentVersion = evidenceText(version);
+  }
+  if (!preflight.ok || preflight.value.ok !== true) {
+    return { ...readiness, diagnostic: preflight.diagnostic ?? "Preflight reported failure." };
+  }
+  return { ...readiness, preflight: true, diagnostic: null };
+}
+
+function readSession(label, planweave, id) {
+  return runJson(label, planweave, ["run-session", id, "--json"]);
+}
+
+function runStage(label, planweave, profile, timeout) {
+  const execution = runJson(label, planweave, [
+    "run",
+    "--once",
+    "--executor",
+    profile,
+    "--timeout",
+    timeout,
+    "--json"
+  ]);
+  const id = execution.value?.session?.sessionId ?? execution.value?.sessionId;
+  const sessionId = typeof id === "string" && id.trim() ? id : null;
+  const session = sessionId ? readSession(`${label} session`, planweave, sessionId) : null;
+  const runner = session?.value?.runnerReadModel ?? null;
+  return {
+    execution,
+    sessionId,
+    session,
+    runner,
+    terminal: terminalOutcome(runner),
+    diagnostic:
+      session?.diagnostic ?? (sessionId ? null : `${label} output did not contain a session id.`)
+  };
 }
 
 function events(runner) {
@@ -122,12 +242,30 @@ function terminalOutcome(runner) {
     : null;
 }
 
+function stageEvidence(stage) {
+  return {
+    sessionId: evidenceText(stage?.sessionId),
+    reason: evidenceText(stage?.terminal?.reason),
+    cleanupStatus: evidenceText(stage?.terminal?.cleanup?.status)
+  };
+}
+
+function writeEvidence(path, evidence) {
+  const fd = openSync(path, "w", 0o600);
+  try {
+    if (process.platform !== "win32") fchmodSync(fd, 0o600);
+    writeFileSync(fd, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 const profile = option("--profile");
 const evidencePath = option("--evidence");
 const cancellationTimeout = option("--cancellation-timeout") ?? "3000";
 if (
   !profile ||
-  !(profile in profiles) ||
+  !Object.hasOwn(profiles, profile) ||
   !evidencePath ||
   !/^\d+$/.test(cancellationTimeout) ||
   Number(cancellationTimeout) < 1
@@ -141,128 +279,87 @@ if (
 
 const startedAt = new Date().toISOString();
 const planweave = process.env.PLANWEAVE_BIN ?? "planweave";
-const definition = profiles[profile];
-const planweaveVersion = run(planweave, ["--version"]);
-const trust = run(planweave, ["trust", "executor", profile, "--json"]);
-const preflight = run(planweave, ["executors", "test", profile, "--json"]);
-const agentVersion = definition.versionCommand
-  ? run(definition.versionCommand.command, definition.versionCommand.args)
-  : versionFromPreflight(profile, preflight);
-
-const successfulExecution = run(planweave, [
-  "run",
-  "--once",
-  "--executor",
-  profile,
-  "--timeout",
-  "120000",
-  "--json"
-]);
-const successfulValue = json(successfulExecution.stdout);
-const successfulSessionId = sessionId(successfulValue);
-const successfulSession = readSession(planweave, successfulSessionId);
-const successfulRunner = runnerFrom(successfulSession);
-const successfulEvents = events(successfulRunner);
-const successfulTerminal = terminalOutcome(successfulRunner);
-
-const cancelledExecution = run(planweave, [
-  "run",
-  "--once",
-  "--executor",
-  profile,
-  "--timeout",
-  cancellationTimeout,
-  "--json"
-]);
-const cancelledValue = json(cancelledExecution.stdout);
-const cancelledSessionId = sessionId(cancelledValue);
-const cancelledSession = readSession(planweave, cancelledSessionId);
-const cancelledReplay = readSession(planweave, cancelledSessionId);
-const cancelledRunner = runnerFrom(cancelledSession);
-const replayedCancelledRunner = runnerFrom(cancelledReplay);
-const cancellationTerminal = terminalOutcome(cancelledRunner);
-const cancelledRunTerminal =
-  cancelledValue?.ok === false && ["blocked", "cancelled"].includes(cancelledValue?.terminalReason);
-const hasAgentVersion = agentVersion.ok && agentVersion.stdout.length > 0;
-const hasPlanweaveVersion = planweaveVersion.ok && planweaveVersion.stdout.length > 0;
+const readiness = checkPrerequisites(planweave, profile, profiles[profile]);
+const artifact = readiness.preflight
+  ? runStage("Artifact run", planweave, profile, "120000")
+  : null;
+const cancellation = readiness.preflight
+  ? runStage("Cancellation run", planweave, profile, cancellationTimeout)
+  : null;
+const replay = cancellation?.sessionId
+  ? readSession("Cancellation replay", planweave, cancellation.sessionId)
+  : null;
+const artifactEvents = events(artifact?.runner);
+const artifactSteps = artifact?.execution.value?.steps;
+const cancelledValue = cancellation?.execution.value;
+const expectedCancellationExit =
+  cancellation?.execution.status > 0 &&
+  cancelledValue?.ok === false &&
+  ["blocked", "cancelled"].includes(cancelledValue.terminalReason);
 
 const checks = {
-  trusted: trust.ok,
-  preflight: preflight.ok && json(preflight.stdout)?.ok === true,
+  trusted: readiness.trusted,
+  preflight: readiness.preflight,
   session:
-    successfulExecution.ok &&
-    successfulSession.ok &&
-    cancelledSession.ok &&
-    typeof successfulSessionId === "string" &&
-    typeof cancelledSessionId === "string" &&
-    successfulSessionId !== cancelledSessionId &&
-    stageIdentityMatches(successfulRunner, successfulSessionId) &&
-    stageIdentityMatches(cancelledRunner, cancelledSessionId),
-  streaming: successfulEvents.some(
+    artifact?.execution.ok === true &&
+    artifact.session?.ok === true &&
+    cancellation?.session?.ok === true &&
+    artifact.sessionId !== cancellation.sessionId &&
+    stageIdentityMatches(artifact.runner, artifact.sessionId) &&
+    stageIdentityMatches(cancellation.runner, cancellation.sessionId),
+  streaming: artifactEvents.some(
     (event) => event?.body?.kind === "message" || event?.body?.kind === "tool_call"
   ),
   cancellation:
-    !cancelledExecution.ok &&
-    cancelledRunTerminal &&
-    boundedLifecycle(cancelledRunner) &&
-    ["timed_out", "cancelled"].includes(cancellationTerminal?.reason),
+    expectedCancellationExit &&
+    boundedLifecycle(cancellation.runner) &&
+    ["timed_out", "cancelled"].includes(cancellation.terminal?.reason),
   artifact:
-    successfulValue?.steps?.some((step) => step?.kind === "submitted") === true &&
-    successfulEvents.some((event) => event?.body?.kind === "artifact") &&
-    successfulTerminal?.state === "succeeded" &&
-    successfulTerminal?.reason === "completed" &&
-    successfulTerminal?.cleanup?.status === "succeeded",
+    Array.isArray(artifactSteps) &&
+    artifactSteps.some((step) => step?.kind === "submitted") &&
+    artifactEvents.some((event) => event?.body?.kind === "artifact") &&
+    artifact.terminal?.state === "succeeded" &&
+    artifact.terminal.reason === "completed" &&
+    artifact.terminal.cleanup?.status === "succeeded",
   cleanup:
-    successfulRunner?.terminal === true &&
-    cancelledRunner?.terminal === true &&
-    successfulTerminal?.cleanup?.status === "succeeded" &&
-    cancellationTerminal?.cleanup?.status === "succeeded",
-  replay: cancelledReplay.ok && stableReplay(cancelledRunner, replayedCancelledRunner)
+    artifact?.runner?.terminal === true &&
+    cancellation?.runner?.terminal === true &&
+    artifact.terminal?.cleanup?.status === "succeeded" &&
+    cancellation.terminal?.cleanup?.status === "succeeded",
+  replay: replay?.ok === true && stableReplay(cancellation.runner, replay.value?.runnerReadModel)
 };
-const passed = hasAgentVersion && hasPlanweaveVersion && Object.values(checks).every(Boolean);
+const passed = Object.values(checks).every(Boolean);
 const diagnostic =
-  [
-    agentVersion,
-    planweaveVersion,
-    trust,
-    preflight,
-    successfulExecution,
-    successfulSession,
-    cancelledSession,
-    cancelledReplay
-  ].find((result) => !result.ok && result !== cancelledExecution)?.diagnostic ??
-  (!hasAgentVersion && definition.versionCommand
-    ? `${definition.versionCommand.command} version command returned no output.`
-    : null) ??
-  (!hasPlanweaveVersion ? "PlanWeave version command returned no output." : null) ??
+  readiness.diagnostic ??
+  artifact?.execution.diagnostic ??
+  artifact?.diagnostic ??
+  (expectedCancellationExit ? null : cancellation?.execution.diagnostic) ??
+  cancellation?.diagnostic ??
+  replay?.diagnostic ??
   (passed ? null : "One or more required two-stage ACP-GATE checks did not pass.");
 const evidence = {
   version: "planweave.acp-live-smoke/v2",
   profile,
-  agentVersion: agentVersion.stdout || "unavailable",
-  planweaveVersion: planweaveVersion.stdout || "unavailable",
+  agentVersion: readiness.agentVersion,
+  planweaveVersion: readiness.planweaveVersion,
   startedAt,
   finishedAt: new Date().toISOString(),
   stages: {
-    artifact: {
-      sessionId: successfulSessionId,
-      reason: successfulTerminal?.reason ?? null,
-      cleanupStatus: successfulTerminal?.cleanup?.status ?? null
-    },
-    cancellation: {
-      sessionId: cancelledSessionId,
-      reason: cancellationTerminal?.reason ?? null,
-      cleanupStatus: cancellationTerminal?.cleanup?.status ?? null
-    }
+    artifact: stageEvidence(artifact),
+    cancellation: stageEvidence(cancellation)
   },
   checks,
   result: passed ? "passed" : "failed",
   diagnostic
 };
-writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, {
-  encoding: "utf8",
-  mode: 0o600
-});
-chmodSync(evidencePath, 0o600);
+try {
+  writeEvidence(evidencePath, evidence);
+} catch (error) {
+  if (diagnostic) console.error(`ACP-GATE ${profile}: ${diagnostic}`);
+  console.error(
+    `ACP-GATE ${profile}: could not write evidence (${error.code ?? "unknown error"}).`
+  );
+  process.exit(1);
+}
 console.log(`ACP-GATE ${profile}: ${evidence.result}; evidence=${evidencePath}`);
 process.exit(passed ? 0 : 1);
