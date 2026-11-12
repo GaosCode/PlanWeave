@@ -1,13 +1,18 @@
 import type { CanvasExecutionRuntimeLease } from "./canvas/executionRuntimePort.js";
 import type { RemoteOperationRepository } from "./remoteOperations.js";
-import { classifyReenterFailure, diagnosticFromReenterFailure } from "./remoteReenterRecovery.js";
+import {
+  classifyReenterFailure,
+  diagnosticFromReenterFailure,
+  isRemoteRuntimeRouteUnavailable
+} from "./remoteReenterRecovery.js";
 
 /** Release one acquired lease without replacing a fatal primary failure with a transient cleanup failure. */
 export async function withRemoteRuntimeLease<T>(
   operations: RemoteOperationRepository,
   operationId: string,
   lease: CanvasExecutionRuntimeLease,
-  execute: () => Promise<T>
+  execute: () => Promise<T>,
+  admissionDenied = false
 ): Promise<T> {
   let outcome: { kind: "success"; value: T } | { kind: "failure"; error: unknown };
   try {
@@ -19,6 +24,14 @@ export async function withRemoteRuntimeLease<T>(
   try {
     await lease.release();
   } catch (cleanupError) {
+    if (
+      (admissionDenied ||
+        (primary && classifyReenterFailure(primary.error) === "admission_denied")) &&
+      isRemoteRuntimeRouteUnavailable(cleanupError)
+    ) {
+      if (outcome.kind === "failure") throw outcome.error;
+      return outcome.value;
+    }
     const cleanup = diagnosticFromReenterFailure(cleanupError);
     const preferredError =
       primary && classifyReenterFailure(primary.error) === "fatal"

@@ -312,9 +312,10 @@ export function createRemoteBlockRuntimePort(options: {
       const input = remoteBlockInterruptionInputSchema.parse(rawInput);
       return withLock(async (context) => {
         const blockType = remoteExecutableBlockType(context, input.ref);
+        const current = context.state.blocks[input.ref];
         assertActiveRemoteBlockOwnership({
           blockType,
-          blockState: context.state.blocks[input.ref],
+          blockState: current,
           ownership: identityFromInput(input)
         });
         const source = await remoteBlockSourceEvidence(context, input.ref);
@@ -331,6 +332,22 @@ export function createRemoteBlockRuntimePort(options: {
             "remote_block_source_changed",
             `Remote source changed before interruption of '${input.ref}'.`
           );
+        }
+        const interrupted = interruptRemoteBlockOwnership({
+          blockType,
+          blockState: current,
+          ownership: identityFromInput(input),
+          interruption: input.interruption,
+          reason: `Remote execution interrupted: ${input.interruption.reason}.`
+        });
+        const retryDecision = input.interruption.resumable
+          ? "resume_exact_attempt"
+          : "manual_retry_required";
+        if (interrupted === current) {
+          return remoteBlockMutationResultSchema.parse({
+            binding: bindingView(context, input.ref),
+            retryDecision
+          });
         }
         let runId: string | undefined;
         // Non-resumable interruptions (e.g. lease_lost) never create a local run unless we
@@ -363,21 +380,14 @@ export function createRemoteBlockRuntimePort(options: {
             }
           }));
         }
-        context.state.blocks[input.ref] = interruptRemoteBlockOwnership({
-          blockType,
-          blockState: context.state.blocks[input.ref],
-          ownership: identityFromInput(input),
-          interruption: input.interruption,
-          reason: `Remote execution interrupted: ${input.interruption.reason}.`,
-          runId
-        });
+        context.state.blocks[input.ref] = runId
+          ? { ...interrupted, lastRunId: runId }
+          : interrupted;
         releaseCurrentBlockPointers(context.state, input.ref);
         await writeLockedState(context);
         return remoteBlockMutationResultSchema.parse({
           binding: bindingView(context, input.ref),
-          retryDecision: input.interruption.resumable
-            ? "resume_exact_attempt"
-            : "manual_retry_required"
+          retryDecision
         });
       });
     },

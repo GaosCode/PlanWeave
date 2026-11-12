@@ -5,6 +5,7 @@ import {
   ownerPackageLocatorForRun
 } from "@planweave-ai/agent-host-protocol";
 import { describe, expect, it } from "vitest";
+import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
 import {
   RemoteCoordinatorCheckpointCrash,
   type RemoteCoordinatorCheckpoint,
@@ -56,7 +57,10 @@ describe("RemoteBlockCoordinator owner Canvas restart", () => {
     expect(harness.requireCoordination().mailbox.listAfter(hostId, 0)).toEqual([]);
   });
 
-  it("rebuilds a leased envelope from Runtime materialization", async () => {
+  it.each([
+    false,
+    true
+  ])("rebuilds a leased envelope from Runtime materialization (Host reconnect: %s)", async (requiresReconnect) => {
     const harness = await OwnerCanvasRestartHarness.create();
     await harness.start(new CrashOnce("after_dispatch_persistence"));
     const hostId = harness.registerHost();
@@ -75,10 +79,26 @@ describe("RemoteBlockCoordinator owner Canvas restart", () => {
       endpointSelection: { authority: { kind: "owner_canvas" } },
       envelopeDigest: expect.any(String)
     });
-    const originalDigest = operation?.envelopeDigest;
+    const leaseId = operation?.attempt.leaseId;
+    if (!operation || !leaseId) throw new Error("expected_leased_operation");
+    const originalDigest = operation.envelopeDigest;
 
-    const restarted = await harness.start();
-    expect(restarted.operations.getRequired(operation!.id)).toMatchObject({
+    if (requiresReconnect) harness.requireCoordination().hosts.requireProtocolReauthentication();
+    let waitingForHost = requiresReconnect;
+    const restarted = await harness.start(undefined, (targetHostId) => {
+      if (waitingForHost && targetHostId === hostId) {
+        throw new CanvasRuntimeUnavailableError("host_offline");
+      }
+    });
+    if (requiresReconnect) {
+      expect(restarted.operations.getRequired(operation.id).state).toBe("reserved");
+      expect(restarted.reservations.getRequired(leaseId).status).toBe("active");
+      expect(restarted.mailbox.listAfter(hostId, 0)).toEqual([]);
+      harness.reportHostOnline(hostId);
+      waitingForHost = false;
+      await restarted.reconcile();
+    }
+    expect(restarted.operations.getRequired(operation.id)).toMatchObject({
       state: "activated",
       envelopeDigest: originalDigest
     });

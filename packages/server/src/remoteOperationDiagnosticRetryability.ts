@@ -1,3 +1,5 @@
+import { remoteAgentAuthorizationErrorCodeSchema } from "./remoteAgent/errors.js";
+
 const RETRYABLE_DIAGNOSTIC_CODES = [
   "agent_endpoint_unavailable",
   "canvas_runtime_host_offline",
@@ -65,7 +67,8 @@ const NON_RETRYABLE_DIAGNOSTIC_CODES = [
   "work_not_agent_assigned",
   "work_revision_conflict",
   "work_role_insufficient",
-  "work_runtime_unavailable"
+  "work_runtime_unavailable",
+  ...remoteAgentAuthorizationErrorCodeSchema.options
 ] as const;
 
 const retryableCodes = new Set<string>(RETRYABLE_DIAGNOSTIC_CODES);

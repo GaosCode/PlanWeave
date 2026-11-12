@@ -21,6 +21,8 @@ import { AgentHostRepository, type AgentHost } from "../hosts.js";
 import { WorkspaceIdentityRepository } from "../identity/workspaceRepository.js";
 import { applyMigrations } from "../migrations.js";
 import { RemoteBlockCoordinator } from "../remoteBlockCoordinator.js";
+import { RemoteAgentRepository } from "../remoteAgent/repository.js";
+import { syncRemoteAgentsFromHost } from "../remoteAgent/sync.js";
 import { openServerDatabase, type SqliteDatabase } from "../sqlite.js";
 
 const now = new Date("2026-08-03T08:00:00.000Z");
@@ -72,6 +74,15 @@ function activeHosts(hosts: AgentHost[]): AgentHost[] {
 
 function catalogFixture(hostsInput: AgentHost[] = [readyHost()]) {
   const hosts = hostsInput;
+  const identities = new Map(
+    hosts.flatMap((host) =>
+      (host.readinessObservation?.acpProfiles ?? []).map(({ profileId, agentId }) => {
+        const identity = { hostId: host.id, profileId, agentId };
+        const endpointId = endpointIdFor(identity);
+        return [endpointId, { endpointId, ...identity }] as const;
+      })
+    )
+  );
   let counts = new Map<string, number>();
   const hostPort: AgentEndpointHostPort = {
     listActiveHosts: (limit, offset) => activeHosts(hosts).slice(offset, offset + limit)
@@ -83,6 +94,8 @@ function catalogFixture(hostsInput: AgentHost[] = [readyHost()]) {
   return {
     catalog: new AgentEndpointCatalog({
       hosts: hostPort,
+      hostReader: { get: (hostId) => activeHosts(hosts).find((host) => host.id === hostId) },
+      identities: { getByEndpointId: (endpointId) => identities.get(endpointId) },
       capacities: capacityPort,
       hostOfflineAfterMs: 60_000,
       clock: () => now
@@ -100,12 +113,20 @@ async function sqliteCatalogFixture() {
   const identity = new WorkspaceIdentityRepository(database);
   const workspaceA = identity.ensureWorkspaceForLegacyProject("project-a");
   const workspaceB = identity.ensureWorkspaceForLegacyProject("project-b");
-  const hosts = new AgentHostRepository(database, () => now);
+  const hosts = new AgentHostRepository(
+    database,
+    () => now,
+    (host) => {
+      syncRemoteAgentsFromHost({ database, host, clock: () => now });
+    }
+  );
   const capacities: AgentEndpointCapacityPort = {
     activeCountsForHosts: (hostIds) => new Map(hostIds.map((hostId) => [hostId, 0]))
   };
   const catalog = new AgentEndpointCatalog({
     hosts,
+    hostReader: { get: (hostId) => hosts.getActiveHost(hostId) },
+    identities: new RemoteAgentRepository(database, () => now),
     capacities,
     hostOfflineAfterMs: 60_000,
     clock: () => now

@@ -92,6 +92,8 @@ export function createRemoteDispatchFixture(
   const delivery = persistence.activate({
     operation,
     reservation,
+    reservations,
+    authorize: () => undefined,
     command: mailboxCommandSchema.parse({
       type: "execute_block",
       protocolVersion: agentHostProtocolVersion,
@@ -103,6 +105,7 @@ export function createRemoteDispatchFixture(
       envelope
     })
   });
+  if ("denial" in delivery) throw delivery.denial.error;
   if (!delivery.message.publishedAt) {
     coordination.mailbox.publish(delivery.message);
     persistence.markMailboxPublished(delivery.message.messageId);

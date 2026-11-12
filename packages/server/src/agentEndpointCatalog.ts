@@ -30,6 +30,19 @@ export interface AgentEndpointHostPort {
   listActiveHosts(limit: number, offset: number): AgentHost[];
 }
 
+export interface AgentEndpointHostReader {
+  get(hostId: string): AgentHost | undefined;
+}
+
+export type EndpointIdentity = Pick<
+  ResolvedAgentEndpoint,
+  "endpointId" | "hostId" | "profileId" | "agentId"
+>;
+
+export interface EndpointIdentityReader {
+  getByEndpointId(endpointId: string): EndpointIdentity | undefined;
+}
+
 /** Runtime availability overlay. Not an Agent class or grant switch. */
 export type AgentEndpointRuntimeScope = "owner_canvas" | "workspace_canvas";
 
@@ -54,7 +67,10 @@ type CatalogErrorCode = Extract<
 >;
 
 export class AgentEndpointCatalogError extends Error {
-  constructor(readonly code: CatalogErrorCode) {
+  constructor(
+    readonly code: CatalogErrorCode,
+    readonly unavailableReason?: AgentEndpointUnavailableReason
+  ) {
     super(code);
     this.name = "AgentEndpointCatalogError";
   }
@@ -66,15 +82,18 @@ export function agentEndpointCatalogErrorCode(error: unknown): CatalogErrorCode 
 
 export type AgentEndpointCatalogOptions = {
   hosts: AgentEndpointHostPort;
+  hostReader: AgentEndpointHostReader;
+  identities: EndpointIdentityReader;
   capacities: AgentEndpointCapacityPort;
   hostOfflineAfterMs: number;
   clock?: () => Date;
 };
 
 type InternalCandidate = {
-  endpoint: RemoteAgentEndpoint;
+  endpointId: string;
   host: AgentHost;
   profile: NonNullable<AgentHost["readinessObservation"]>["acpProfiles"][number];
+  duplicateProfile: boolean;
 };
 
 function supportsRequiredCapability(candidate: InternalCandidate, capability: string): boolean {
@@ -185,27 +204,7 @@ export class AgentEndpointCatalog {
     } else if (workspaceIdInput !== undefined) {
       workspaceIdSchema.parse(workspaceIdInput);
     }
-    const snapshot = this.currentFleetSnapshot(false);
-    const now = this.clock();
-    const items = snapshot.candidates.map((candidate) => {
-      const reason = unavailableReason(
-        candidate.host,
-        candidate.profile,
-        snapshot.activeCounts.get(candidate.host.id) ?? 0,
-        now,
-        this.options.hostOfflineAfterMs,
-        this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
-        occupyHostCapacity,
-        policy.kind !== "owner_fleet"
-      );
-      const endpoint = remoteAgentEndpointSchema.parse({
-        ...candidate.endpoint,
-        status: reason === undefined ? "available" : "unavailable",
-        ...(reason === undefined ? {} : { unavailableReason: reason })
-      });
-      assertRemoteAgentEndpointRedacted(endpoint);
-      return endpoint;
-    });
+    const items = this.projectFleet(occupyHostCapacity, policy.kind !== "owner_fleet");
     return remoteAgentEndpointListSchema.parse({
       schemaVersion: "agent-endpoint-list/v1",
       items
@@ -240,7 +239,10 @@ export class AgentEndpointCatalog {
     const requiredCapabilities = agentEndpointCapabilitiesSchema.parse(requiredCapabilitiesInput);
     const candidate = this.findCandidateForResolve(endpointId);
     if (!candidate) throw new AgentEndpointCatalogError("agent_endpoint_unknown");
-    if (this.unavailableReasonForResolve(candidate, policy) !== undefined) {
+    if (
+      this.unavailableReasonForResolve(candidate, policy, endpointOccupiesHostCapacity(policy)) !==
+      undefined
+    ) {
       throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
     }
     if (
@@ -280,13 +282,13 @@ export class AgentEndpointCatalog {
     workspaceIdSchema.parse(workspaceIdInput);
     const expectedHostId = opaqueIdentifierSchema.parse(expectedHostIdInput);
     const requiredCapabilities = agentEndpointCapabilitiesSchema.parse(requiredCapabilitiesInput);
-    const candidate = this.findCandidateForResolve(endpointId);
-    if (!candidate || candidate.host.id !== expectedHostId) {
+    const candidate = this.findCandidateForResolve(endpointId, expectedHostId);
+    if (!candidate) {
       throw new AgentEndpointCatalogError("agent_endpoint_unknown");
     }
-    const reason = this.unavailableReasonForResolve(candidate, policy);
-    if (reason !== undefined && reason !== "at_capacity") {
-      throw new AgentEndpointCatalogError("agent_endpoint_unavailable");
+    const unavailable = this.unavailableReasonForResolve(candidate, policy, false);
+    if (unavailable !== undefined) {
+      throw new AgentEndpointCatalogError("agent_endpoint_unavailable", unavailable);
     }
     if (
       !requiredCapabilities.every((capability) => supportsRequiredCapability(candidate, capability))
@@ -298,29 +300,60 @@ export class AgentEndpointCatalog {
 
   private unavailableReasonForResolve(
     candidate: InternalCandidate,
-    policy: EndpointAvailabilityPolicy
+    policy: EndpointAvailabilityPolicy,
+    enforceCapacity: boolean
   ): AgentEndpointUnavailableReason | undefined {
+    const activeReservations = enforceCapacity
+      ? (this.options.capacities.activeCountsForHosts([candidate.host.id]).get(candidate.host.id) ??
+        0)
+      : 0;
     return unavailableReason(
       candidate.host,
       candidate.profile,
-      this.options.capacities.activeCountsForHosts([candidate.host.id]).get(candidate.host.id) ?? 0,
+      activeReservations,
       this.clock(),
       this.options.hostOfflineAfterMs,
-      this.profileIdentityCount(candidate.host, candidate.profile) !== 1,
-      endpointOccupiesHostCapacity(policy),
+      candidate.duplicateProfile,
+      enforceCapacity,
       policy.kind !== "owner_fleet"
     );
   }
 
-  private findCandidateForResolve(endpointId: string): InternalCandidate | undefined {
-    return this.currentFleetCandidates(false).find(
-      (current) => current.endpoint.endpointId === endpointId
-    );
+  private findCandidateForResolve(
+    endpointId: string,
+    expectedHostId?: string
+  ): InternalCandidate | undefined {
+    const identity = this.options.identities.getByEndpointId(endpointId);
+    if (
+      !identity ||
+      identity.endpointId !== endpointId ||
+      endpointIdFor(identity) !== endpointId ||
+      (expectedHostId !== undefined && identity.hostId !== expectedHostId)
+    ) {
+      return undefined;
+    }
+    const host = this.options.hostReader.get(identity.hostId);
+    if (!host || host.id !== identity.hostId) return undefined;
+    if (!host.readinessObservation) {
+      if (expectedHostId !== undefined) {
+        throw new AgentEndpointCatalogError("agent_endpoint_unknown", "host_offline");
+      }
+      return undefined;
+    }
+
+    let profile: InternalCandidate["profile"] | undefined;
+    for (const observed of host.readinessObservation.acpProfiles) {
+      if (observed.profileId !== identity.profileId || observed.agentId !== identity.agentId)
+        continue;
+      if (profile) return { endpointId, host, profile, duplicateProfile: true };
+      profile = observed;
+    }
+    return profile ? { endpointId, host, profile, duplicateProfile: false } : undefined;
   }
 
   private toResolved(candidate: InternalCandidate): ResolvedAgentEndpoint {
     return {
-      endpointId: candidate.endpoint.endpointId,
+      endpointId: candidate.endpointId,
       hostId: candidate.host.id,
       profileId: candidate.profile.profileId,
       agentId: candidate.profile.agentId,
@@ -331,27 +364,14 @@ export class AgentEndpointCatalog {
     };
   }
 
-  private profileIdentityCount(host: AgentHost, profile: InternalCandidate["profile"]): number {
-    const identity = `${profile.profileId}\u0000${profile.agentId}`;
-    let count = 0;
-    for (const observed of host.readinessObservation?.acpProfiles ?? []) {
-      if (`${observed.profileId}\u0000${observed.agentId}` === identity) count += 1;
-    }
-    return count;
-  }
-
-  private currentFleetCandidates(enforceCapacity: boolean): InternalCandidate[] {
-    return this.currentFleetSnapshot(enforceCapacity).candidates;
-  }
-
-  private currentFleetSnapshot(enforceCapacity: boolean): {
-    candidates: InternalCandidate[];
-    activeCounts: ReadonlyMap<string, number>;
-  } {
-    const now = this.clock();
+  private projectFleet(
+    enforceCapacity: boolean,
+    requireWorkspaceCanvasExecution: boolean
+  ): RemoteAgentEndpoint[] {
     const hosts = this.listAllActiveHosts();
     const activeCounts = this.options.capacities.activeCountsForHosts(hosts.map((host) => host.id));
-    const candidates: InternalCandidate[] = [];
+    const now = this.clock();
+    const items: RemoteAgentEndpoint[] = [];
     for (const host of hosts) {
       const profiles = host.readinessObservation?.acpProfiles ?? [];
       const identityCounts = new Map<string, number>();
@@ -372,7 +392,7 @@ export class AgentEndpointCatalog {
           this.options.hostOfflineAfterMs,
           identityCounts.get(identity) !== 1,
           enforceCapacity,
-          false
+          requireWorkspaceCanvasExecution
         );
         const endpoint = remoteAgentEndpointSchema.parse({
           schemaVersion: "agent-endpoint/v1",
@@ -390,13 +410,13 @@ export class AgentEndpointCatalog {
           capabilities: profile.capabilities
         });
         assertRemoteAgentEndpointRedacted(endpoint);
-        candidates.push({ endpoint, host, profile });
-        if (candidates.length > MAX_ENDPOINTS_PER_SNAPSHOT) {
+        items.push(endpoint);
+        if (items.length > MAX_ENDPOINTS_PER_SNAPSHOT) {
           throw new Error("agent_endpoint_snapshot_limit_exceeded");
         }
       }
     }
-    return { candidates, activeCounts };
+    return items;
   }
 
   private listAllActiveHosts(): AgentHost[] {

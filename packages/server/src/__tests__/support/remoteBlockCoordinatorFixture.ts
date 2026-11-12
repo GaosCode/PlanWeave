@@ -81,7 +81,10 @@ export class OwnerCanvasRestartHarness {
     return harness;
   }
 
-  async start(checkpoints?: RemoteCoordinatorCheckpointPort) {
+  async start(
+    checkpoints?: RemoteCoordinatorCheckpointPort,
+    observeRuntimeRoute?: (hostId: string) => void
+  ) {
     this.close();
     const runtime = createRemoteBlockRuntimePort({ projectRoot: this.workspace.root });
     const capturedContent = await captureAuthorizedCanvasContent({
@@ -143,7 +146,7 @@ export class OwnerCanvasRestartHarness {
         return {
           leaseDurationMs: 60_000,
           hostOfflineAfterMs: 60_000,
-          runtimeLeases: exactHostRuntimeRouteFixture(registry),
+          runtimeLeases: exactHostRuntimeRouteFixture(registry, observeRuntimeRoute),
           runtimeContentTargets: {
             read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
           },
@@ -206,7 +209,7 @@ export class OwnerCanvasRestartHarness {
     );
   }
 
-  request(idempotencyKey: string) {
+  request(idempotencyKey: string, agentEndpointId?: string) {
     const evidence = readStableCanvasRuntimeEvidence(
       new ContentVersionRepository(this.requireServer().database),
       this.locator
@@ -221,6 +224,7 @@ export class OwnerCanvasRestartHarness {
       },
       blockRef: "T-001#B-001",
       idempotencyKey,
+      agentEndpointId,
       targetKind: "owner_canvas"
     });
   }
@@ -244,7 +248,9 @@ export function remoteManifest(includeSecondTask = false): PlanPackageManifest {
 export async function setup(
   withHost: boolean,
   manifest: PlanPackageManifest = remoteManifest(),
-  hostCapacity = 1
+  hostCapacity = 1,
+  checkpoints?: RemoteCoordinatorCheckpointPort,
+  observeRuntimeRoute?: (hostId: string) => void
 ) {
   const workspace = await createTestWorkspace(manifest);
   directories.push(workspace.home, workspace.root);
@@ -308,7 +314,8 @@ export async function setup(
     {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
-      runtimeLeases: exactHostRuntimeRouteFixture(registry),
+      checkpoints,
+      runtimeLeases: exactHostRuntimeRouteFixture(registry, observeRuntimeRoute),
       runtimeContentTargets: {
         read: (scope) => readStableCanvasRuntimeContentTarget(contentVersions, scope)
       },
@@ -380,6 +387,7 @@ export async function setup(
     agentEndpoints: coordination.agentEndpoints,
     remoteAgents: coordination.remoteAgents,
     remoteAgentAccess: coordination.remoteAgentAccess,
+    reconcile: coordination.reconcile,
     interactions: coordination.interactions,
     artifactAuthorization: coordination.artifactAuthorization,
     callerHumanPrincipalId

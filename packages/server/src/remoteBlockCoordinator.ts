@@ -1,12 +1,7 @@
 import { inspectLegacyRemoteRuntime } from "./remoteLegacyRuntimePreflight.js";
 import { withRemoteRuntimeLease } from "./remoteRuntimeLeaseCleanup.js";
 import { restoredTaskDispatchRequest } from "./remoteTaskRestoration.js";
-import {
-  agentHostProtocolVersion,
-  hashExecutionEnvelope,
-  mailboxCommandSchema,
-  type OwnerPackageLocator
-} from "@planweave-ai/agent-host-protocol";
+import { hashExecutionEnvelope, type OwnerPackageLocator } from "@planweave-ai/agent-host-protocol";
 import {
   RemoteOwnershipConflictError,
   type RemoteBlockDispatchCandidate,
@@ -47,7 +42,6 @@ import {
   type RemoteExecutionActionRecord
 } from "./remoteExecutionActions.js";
 import { RemoteBlockActionCoordinator } from "./remoteBlockActionCoordinator.js";
-import { remoteBlockIdentity } from "./remoteBlockIdentity.js";
 import {
   DispatchAssignmentError,
   type AssignmentDispatchGate,
@@ -55,7 +49,10 @@ import {
 } from "./work/dispatchIntegration.js";
 import { AgentEndpointCatalogError, type AgentEndpointCatalog } from "./agentEndpointCatalog.js";
 import { runtimeControlPlane } from "./endpointSelection.js";
-import type { AuthorizeRemoteAgentUseInput } from "./remoteAgent/accessPolicy.js";
+import type {
+  AuthorizeRemoteAgentUseInput,
+  EvaluateRemoteAgentAccessInput
+} from "./remoteAgent/accessPolicy.js";
 import {
   type AuthorizedRemoteAgentUse,
   type PersistedRemoteAgentAccessSnapshot
@@ -73,6 +70,11 @@ import {
 } from "./remoteBlockCoordinatorEndpoint.js";
 import type { HumanPrincipalIdentity } from "./identity/humanPrincipalIdentity.js";
 import { buildRemoteBlockExecutionEnvelope } from "./remoteBlockDispatchPreparation.js";
+import {
+  isUnpublishedRemoteDispatch,
+  RemoteDispatchActivationCoordinator
+} from "./remoteDispatchActivationCoordinator.js";
+import { throwRemoteDispatchAdmissionError } from "./remoteDispatchAdmissionDenial.js";
 import { RemoteDispatchPreparationCoordinator } from "./remoteDispatchPreparationCoordinator.js";
 import { RemoteEndpointExecutionAuthority } from "./remoteEndpointExecutionAuthority.js";
 import {
@@ -99,6 +101,7 @@ export type RemoteBlockCoordinatorOptions = {
   checkpoints?: RemoteCoordinatorCheckpointPort;
   assignmentGate?: AssignmentDispatchGate;
   agentEndpoints?: AgentEndpointCatalog;
+  assertRemoteAgentAccess: (input: EvaluateRemoteAgentAccessInput) => void;
   authorizeRemoteAgentUse?: (input: AuthorizeRemoteAgentUseInput) => AuthorizedRemoteAgentUse;
   authorizeRemoteAgentUseForSnapshot?: (
     input: AuthorizeRemoteAgentUseInput
@@ -139,6 +142,7 @@ export class RemoteBlockCoordinator {
   private actionsCoordinator: RemoteBlockActionCoordinator | undefined;
   private terminalWriteback: RemoteBlockWritebackCoordinator | undefined;
   private dispatchPreparation: RemoteDispatchPreparationCoordinator | undefined;
+  private dispatchActivation: RemoteDispatchActivationCoordinator | undefined;
   private endpointAuthority: RemoteEndpointExecutionAuthority | undefined;
 
   constructor(private readonly options: RemoteBlockCoordinatorOptions) {}
@@ -194,7 +198,11 @@ export class RemoteBlockCoordinator {
     return this.reenter(operation.id);
   }
 
-  async reenter(operationId: string): Promise<RemoteDispatchOutcome> {
+  reenter(operationId: string): Promise<RemoteDispatchOutcome> {
+    return this.reenterOperation(operationId).catch(throwRemoteDispatchAdmissionError);
+  }
+
+  private async reenterOperation(operationId: string): Promise<RemoteDispatchOutcome> {
     const operation = this.options.operations.getRequired(operationId);
     const persisted = this.options.dispatches.inspect(operation);
     if (["completed", "failed", "cancelled"].includes(operation.state)) {
@@ -222,7 +230,9 @@ export class RemoteBlockCoordinator {
       }
       if (!operation.attempt.leaseId) throw new Error("remote_attempt_reservation_missing");
       const reservation = this.options.reservations.getRequired(operation.attempt.leaseId);
+      const unpublished = isUnpublishedRemoteDispatch(operation, persisted);
       if (
+        !unpublished &&
         ["leased", "running", "cancelling"].includes(persisted.dispatch.status) &&
         (!operation.attempt.hostId ||
           !this.options.reservations.isActiveForAttempt({
@@ -233,20 +243,19 @@ export class RemoteBlockCoordinator {
       ) {
         throw new CanvasRuntimeUnavailableError("host_offline");
       }
-      if (["leased", "running", "cancelling"].includes(persisted.dispatch.status)) {
+      if (!unpublished && ["leased", "running", "cancelling"].includes(persisted.dispatch.status)) {
         if (operation.endpointSelection) {
           this.authorizeReservedEndpoint(operation, candidate, reservation);
         } else {
           this.options.finalAuthorize?.({ operation, reservation });
         }
       }
-      const lease = await acquireRemoteRuntimeLease(
-        this.options.runtimeLeases,
+      return this.activationCoordinator().recover(
         operation,
-        reservation.hostId
-      );
-      return withRemoteRuntimeLease(this.options.operations, operation.id, lease, () =>
-        this.reenterWithLease(operation.id, lease, undefined, true)
+        reservation,
+        persisted,
+        (lease, admissionDenied) =>
+          this.reenterWithLease(operation.id, lease, undefined, true, admissionDenied)
       );
     }
     const managedRuntimeExecution = usesManagedCanvasRuntime(operation);
@@ -285,7 +294,8 @@ export class RemoteBlockCoordinator {
     operationId: string,
     runtimeLease: CanvasExecutionRuntimeLease,
     runtimeAttachment?: RuntimeAttachmentRequest,
-    reusePersistedDispatch = false
+    reusePersistedDispatch = false,
+    admissionDenied = false
   ): Promise<RemoteDispatchOutcome> {
     let operation = this.options.operations.getRequired(operationId);
     if (["completed", "failed", "cancelled"].includes(operation.state)) {
@@ -340,11 +350,13 @@ export class RemoteBlockCoordinator {
       } catch (error) {
         const recovered = this.recoverRuntimeBindingReset(operation, error);
         if (recovered) return recovered;
-        this.options.operations.recordDiagnostic(
-          operation.id,
-          "runtime_reconciliation_conflict",
-          error instanceof Error ? error.message : "Runtime reconciliation failed."
-        );
+        if (!admissionDenied) {
+          this.options.operations.recordDiagnostic(
+            operation.id,
+            "runtime_reconciliation_conflict",
+            error instanceof Error ? error.message : "Runtime reconciliation failed."
+          );
+        }
         throw error;
       }
     }
@@ -375,7 +387,8 @@ export class RemoteBlockCoordinator {
         candidate,
         runtimeLease,
         operation.envelopeDigest,
-        reconciledBinding
+        reconciledBinding,
+        admissionDenied
       );
       if (!persistedOutcome) throw new Error("remote_dispatch_persistence_missing");
       return persistedOutcome;
@@ -544,36 +557,13 @@ export class RemoteBlockCoordinator {
     });
     await this.checkpoint("after_dispatch_persistence");
 
-    try {
-      await runtimeLease.runtime.activate(remoteBlockIdentity(operation));
-      await this.checkpoint("after_runtime_binding");
-    } catch (error) {
-      this.options.operations.recordDiagnostic(
-        operation.id,
-        "runtime_activation_conflict",
-        error instanceof Error ? error.message : "Runtime activation failed."
-      );
-      throw error;
-    }
-    const command = mailboxCommandSchema.parse({
-      type: "execute_block",
-      protocolVersion: agentHostProtocolVersion,
-      dispatchId: operation.dispatchId,
-      leaseId: reservation.leaseId,
-      executionAttemptId: operation.executionAttemptId,
-      leaseExpiresAt: reservation.leaseExpiresAt,
+    return this.activationCoordinator().bindAndPublish({
+      operation,
+      reservation,
+      envelope,
       envelopeDigest,
-      envelope
+      lease: runtimeLease
     });
-    const delivery = this.options.dispatches.activate({ operation, reservation, command });
-    await this.checkpoint("after_mailbox_enqueue");
-    if (!delivery.message.publishedAt) {
-      this.options.mailbox.publish(delivery.message);
-      await this.checkpoint("after_mailbox_publish");
-      this.options.dispatches.markMailboxPublished(delivery.message.messageId);
-    }
-    this.options.operations.clearDiagnostic(operation.id);
-    return { operation: this.options.operations.getRequired(operation.id), status: "activated" };
   }
 
   async reenterPending(): Promise<RemoteDispatchOutcome[]> {
@@ -588,9 +578,10 @@ export class RemoteBlockCoordinator {
         ) {
           await inspectLegacyRemoteRuntime(this.options, operation);
         }
-        outcomes.push(await this.reenter(operation.id));
+        outcomes.push(await this.reenterOperation(operation.id));
       } catch (error) {
         const decision = classifyReenterFailure(error);
+        if (decision === "admission_denied") continue;
         if (decision === "fatal") throw error;
         const current = this.options.operations.getRequired(operation.id);
         if (
@@ -603,6 +594,7 @@ export class RemoteBlockCoordinator {
         }
         const diagnostic = diagnosticFromReenterFailure(error);
         this.options.operations.recordDiagnostic(operation.id, diagnostic.code, diagnostic.message);
+        if (decision === "defer_authorization") continue;
         if (decision === "defer_host") {
           outcomes.push({
             operation: this.options.operations.getRequired(operation.id),
@@ -623,7 +615,8 @@ export class RemoteBlockCoordinator {
     candidate: RemoteBlockDispatchCandidate,
     runtimeLease: CanvasExecutionRuntimeLease,
     envelopeDigest = operation.envelopeDigest,
-    reconciledBinding?: Awaited<ReturnType<RemoteBlockRuntimePort["reconcile"]>>
+    reconciledBinding?: Awaited<ReturnType<RemoteBlockRuntimePort["reconcile"]>>,
+    admissionDenied = false
   ): Promise<RemoteDispatchOutcome | undefined> {
     if (!envelopeDigest) throw new Error("remote_operation_envelope_missing");
     const persisted = this.inspectPersistence(
@@ -650,52 +643,26 @@ export class RemoteBlockCoordinator {
       if (hashExecutionEnvelope(envelope) !== envelopeDigest) {
         this.recordInconsistency(operation, "The persisted dispatch envelope digest changed.");
       }
-      const ownership = reconciledBinding?.ownership;
-      if (
-        ownership?.phase !== "active" ||
-        ownership.operationId !== operation.id ||
-        ownership.dispatchId !== operation.dispatchId ||
-        ownership.executionAttemptId !== operation.executionAttemptId ||
-        ownership.sourceRevision !== operation.ownershipGeneration ||
-        ownership.graphFingerprint !== operation.sourceFingerprint ||
-        ownership.controlPlane !== runtimeControlPlane(operation.endpointSelection?.authority)
-      ) {
-        await runtimeLease.runtime.activate(remoteBlockIdentity(operation));
-      }
-      await this.checkpoint("after_runtime_binding");
-      const command = mailboxCommandSchema.parse({
-        type: "execute_block",
-        protocolVersion: agentHostProtocolVersion,
-        dispatchId: operation.dispatchId,
-        leaseId: reservation.leaseId,
-        executionAttemptId: operation.executionAttemptId,
-        leaseExpiresAt: reservation.leaseExpiresAt,
+      return this.activationCoordinator().bindAndPublish({
+        operation,
+        reservation,
+        envelope,
         envelopeDigest,
-        envelope
+        lease: runtimeLease,
+        binding: reconciledBinding
       });
-      const delivery = this.options.dispatches.activate({ operation, reservation, command });
-      await this.checkpoint("after_mailbox_enqueue");
-      if (!delivery.message.publishedAt) {
-        this.options.mailbox.publish(delivery.message);
-        await this.checkpoint("after_mailbox_publish");
-        this.options.dispatches.markMailboxPublished(delivery.message.messageId);
-      }
-      this.options.operations.recordDiagnosticStage(operation.id, "dispatching");
-      this.options.operations.clearDiagnostic(operation.id);
-      return { operation: this.options.operations.getRequired(operation.id), status: "activated" };
     }
     if (persisted.dispatch.status === "interrupted") {
       const interruption = persisted.dispatch.interruption;
       if (!interruption) {
         this.recordInconsistency(operation, "An interrupted dispatch has no interruption payload.");
       }
-      await runtimeLease.runtime.markInterrupted({
-        ...remoteBlockIdentity(operation),
+      await this.activationCoordinator().interruptRuntime(
+        operation,
+        runtimeLease.runtime,
         interruption,
-        ...(operation.endpointSelection?.agentId
-          ? { agentId: operation.endpointSelection.agentId }
-          : {})
-      });
+        admissionDenied ? reconciledBinding : undefined
+      );
       return {
         operation: this.options.operations.getRequired(operation.id),
         status: "wait_for_action"
@@ -798,13 +765,14 @@ export class RemoteBlockCoordinator {
     const outcomes: RemoteDispatchOutcome[] = [];
     for (const operation of waiting) {
       try {
-        outcomes.push(await this.reenter(operation.id));
+        outcomes.push(await this.reenterOperation(operation.id));
       } catch (error) {
+        if (classifyReenterFailure(error) === "admission_denied") continue;
         if (
           !(error instanceof AgentEndpointCatalogError) ||
           error.code !== "agent_endpoint_unavailable"
         ) {
-          throw error;
+          throwRemoteDispatchAdmissionError(error);
         }
         this.options.operations.recordDiagnostic(operation.id, error.code, error.message);
         outcomes.push({
@@ -846,13 +814,12 @@ export class RemoteBlockCoordinator {
 
   private actionCoordinator(): RemoteBlockActionCoordinator {
     this.actionsCoordinator ??= new RemoteBlockActionCoordinator(this.options, {
-      reenter: (operationId) => this.reenter(operationId),
+      reenter: (operationId) => this.reenterOperation(operationId),
       fail: (operationId) => this.fail(operationId),
       sealOperationLocalFailure: async (operation, error) => {
         await this.writebackCoordinator().sealOperationLocalFailure(operation, error);
       },
-      authorizeEndpointOperation: (operation, reservation) =>
-        this.authorizeEndpointOperation(operation, reservation),
+      authorizeEndpointOperation: (operation) => this.authorizeEndpointOperation(operation),
       reauthorizeAgentAccessForRetry: (operation) => this.reauthorizeAgentAccessForRetry(operation),
       checkpoint: () => this.checkpoint("after_action_side_effect")
     });
@@ -898,6 +865,18 @@ export class RemoteBlockCoordinator {
     return this.dispatchPreparation;
   }
 
+  private activationCoordinator(): RemoteDispatchActivationCoordinator {
+    this.dispatchActivation ??= new RemoteDispatchActivationCoordinator(
+      this.options,
+      (operation, reservation) => {
+        if (operation.endpointSelection) this.authorizeEndpointOperation(operation, reservation);
+        else this.options.finalAuthorize?.({ operation, reservation });
+      },
+      (point) => this.checkpoint(point)
+    );
+    return this.dispatchActivation;
+  }
+
   private authority(): RemoteEndpointExecutionAuthority {
     this.endpointAuthority ??= new RemoteEndpointExecutionAuthority({
       operations: this.options.operations,
@@ -905,6 +884,7 @@ export class RemoteBlockCoordinator {
       reservations: this.options.reservations,
       assignmentGate: this.options.assignmentGate,
       agentEndpoints: this.options.agentEndpoints,
+      assertRemoteAgentAccess: this.options.assertRemoteAgentAccess,
       authorizeRemoteAgentUse: this.options.authorizeRemoteAgentUse,
       endpointAuthorize: this.options.endpointAuthorize,
       recordInconsistency: (operation, message) => this.recordInconsistency(operation, message)

@@ -9,7 +9,8 @@ import {
   endpointIdFor,
   legacyEndpointIdFor,
   type AgentEndpointCapacityPort,
-  type AgentEndpointHostPort
+  type AgentEndpointHostPort,
+  type EndpointIdentity
 } from "../agentEndpointCatalog.js";
 import type { AgentHost } from "../hosts.js";
 
@@ -58,7 +59,20 @@ function activeHosts(hosts: AgentHost[]): AgentHost[] {
 function fixture(hostsInput: AgentHost[] = [readyHost()]) {
   let hosts = hostsInput;
   let counts = new Map<string, number>();
+  const identities = new Map<string, EndpointIdentity>();
+  function register(hosts: AgentHost[]) {
+    for (const host of hosts) {
+      for (const { profileId, agentId } of host.readinessObservation?.acpProfiles ?? []) {
+        const identity = { hostId: host.id, profileId, agentId };
+        const endpointId = endpointIdFor(identity);
+        identities.set(endpointId, { endpointId, ...identity });
+      }
+    }
+  }
+  register(hostsInput);
   const hostPageCalls: Array<{ limit: number; offset: number }> = [];
+  const hostReadCalls: string[] = [];
+  const identityReadCalls: string[] = [];
   const capacityHostIdCalls: string[][] = [];
   const hostPort: AgentEndpointHostPort = {
     listActiveHosts: (limit, offset) => {
@@ -74,6 +88,19 @@ function fixture(hostsInput: AgentHost[] = [readyHost()]) {
   };
   const catalog = new AgentEndpointCatalog({
     hosts: hostPort,
+    hostReader: {
+      get: (hostId) => {
+        hostReadCalls.push(hostId);
+        const host = hosts.find((candidate) => candidate.id === hostId);
+        return host ? activeHosts([host])[0] : undefined;
+      }
+    },
+    identities: {
+      getByEndpointId: (endpointId) => {
+        identityReadCalls.push(endpointId);
+        return identities.get(endpointId);
+      }
+    },
     capacities: capacityPort,
     hostOfflineAfterMs: 60_000,
     clock: () => now
@@ -81,9 +108,12 @@ function fixture(hostsInput: AgentHost[] = [readyHost()]) {
   return {
     catalog,
     hostPageCalls,
+    hostReadCalls,
+    identityReadCalls,
     capacityHostIdCalls,
     setHosts(next: AgentHost[]) {
       hosts = next;
+      register(next);
     },
     setActive(hostId: string, count: number) {
       counts = new Map(counts).set(hostId, count);
@@ -186,6 +216,8 @@ describe("AgentEndpointCatalog", () => {
             readyHost({ id: `host-${offset + index}` })
           )
       },
+      hostReader: { get: () => undefined },
+      identities: { getByEndpointId: () => undefined },
       capacities: {
         activeCountsForHosts: () => {
           capacityCalls += 1;
@@ -373,15 +405,7 @@ describe("AgentEndpointCatalog", () => {
         acpProfiles: readyHost().readinessObservation!.acpProfiles
       }
     });
-    const hostPort: AgentEndpointHostPort = {
-      listActiveHosts: (limit, offset) => activeHosts([host]).slice(offset, offset + limit)
-    };
-    const catalog = new AgentEndpointCatalog({
-      hosts: hostPort,
-      capacities: { activeCountsForHosts: () => new Map() },
-      hostOfflineAfterMs: 60_000,
-      clock: () => now
-    });
+    const { catalog } = fixture([host]);
     const endpoint = catalog.listVisibleFleet().items[0]!;
     expect(
       catalog.resolveForRun(endpoint.endpointId, "workspace-a", ["acp.codex"], {
@@ -482,7 +506,26 @@ describe("AgentEndpointCatalog", () => {
     expect(state.capacityHostIdCalls).toEqual([["host-alpha", "host-beta"]]);
   });
 
-  it("resolves from a fresh snapshot and checks Host and profile capabilities separately", () => {
+  it("resolves the selected Endpoint without listing the fleet or reading unrelated capacity", () => {
+    const state = fixture([readyHost({ id: "host-unrelated" }), readyHost()]);
+    const endpointId = endpointIdFor({
+      hostId: "host-primary",
+      profileId: "profile-main",
+      agentId: "codex"
+    });
+
+    expect(
+      state.catalog.resolveForRun(endpointId, "workspace-a", ["acp.codex"], {
+        kind: "workspace"
+      })
+    ).toMatchObject({ endpointId, hostId: "host-primary" });
+    expect.soft(state.hostPageCalls).toEqual([]);
+    expect.soft(state.identityReadCalls).toEqual([endpointId]);
+    expect.soft(state.hostReadCalls).toEqual(["host-primary"]);
+    expect.soft(state.capacityHostIdCalls).toEqual([["host-primary"]]);
+  });
+
+  it("resolves from current Host readiness and checks Host and profile capabilities separately", () => {
     const state = fixture();
     const endpoint = state.catalog.listVisibleFleet().items[0]!;
     expect(

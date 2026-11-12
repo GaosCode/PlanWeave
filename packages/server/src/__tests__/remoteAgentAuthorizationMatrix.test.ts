@@ -45,6 +45,8 @@ function catalogFixture(hostsInput: AgentHost[] = [readyHost()]) {
   return {
     catalog: new AgentEndpointCatalog({
       hosts: hostPort,
+      hostReader: { get: () => undefined },
+      identities: { getByEndpointId: () => undefined },
       capacities: capacityPort,
       hostOfflineAfterMs: 60_000,
       clock: () => now

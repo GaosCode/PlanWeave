@@ -2,7 +2,10 @@ import type { RemoteBlockDispatchCandidate } from "@planweave-ai/runtime";
 import type { AgentEndpointCatalog } from "./agentEndpointCatalog.js";
 import { runtimeControlPlane, mapEndpointAuthorityToRuntimeSnapshot } from "./endpointSelection.js";
 import type { HostCapacityReservation, HostReservationRepository } from "./hostReservations.js";
-import type { AuthorizeRemoteAgentUseInput } from "./remoteAgent/accessPolicy.js";
+import type {
+  AuthorizeRemoteAgentUseInput,
+  EvaluateRemoteAgentAccessInput
+} from "./remoteAgent/accessPolicy.js";
 import { retryTarget } from "./remoteAgent/dispatchTarget.js";
 import { RemoteAgentAuthorizationError } from "./remoteAgent/errors.js";
 import {
@@ -25,6 +28,7 @@ type AuthorityPorts = {
   reservations: HostReservationRepository;
   assignmentGate?: AssignmentDispatchGate;
   agentEndpoints?: AgentEndpointCatalog;
+  assertRemoteAgentAccess: (input: EvaluateRemoteAgentAccessInput) => void;
   authorizeRemoteAgentUse?: (input: AuthorizeRemoteAgentUseInput) => AuthorizedRemoteAgentUse;
   endpointAuthorize?: (input: {
     workspaceId: string;
@@ -132,6 +136,17 @@ export class RemoteEndpointExecutionAuthority {
     const selection = operation.endpointSelection;
     if (!selection || !this.ports.endpointAuthorize || !this.ports.agentEndpoints) {
       throw new Error("agent_endpoint_dispatch_not_configured");
+    }
+    const access = operation.agentAccess;
+    if (
+      access &&
+      (operation.attempt.status === "prepared" || operation.attempt.status === "reserved")
+    ) {
+      this.ports.assertRemoteAgentAccess({
+        principal: { humanPrincipalId: access.callerHumanPrincipalId },
+        endpointId: selection.endpointId,
+        target: retryTarget(operation, access.authorized)
+      });
     }
     const authority = mapEndpointAuthorityToRuntimeSnapshot(
       selection.authority,

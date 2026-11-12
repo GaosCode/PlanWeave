@@ -436,6 +436,7 @@ export interface RemoteExecutionActionApplicationPort {
   recover?(
     request: RemoteExecutionActionRequest
   ): "delivered" | "settled" | undefined | Promise<"delivered" | "settled" | undefined>;
+  isAppliedDespiteFailure?(request: RemoteExecutionActionRequest): boolean;
   snapshot(
     request: RemoteExecutionActionRequest
   ): RemoteExecutionLifecycleSnapshot | Promise<RemoteExecutionLifecycleSnapshot>;
@@ -505,7 +506,13 @@ export class RemoteExecutionActionService {
     );
     // Recovery may perform idempotent side effects; a failure retains the durable claim so
     // only a later startup owner can inspect and resume it.
-    const recovered = await this.application.recover?.(action.request);
+    let recovered: "delivered" | "settled" | undefined;
+    try {
+      recovered = await this.application.recover?.(action.request);
+    } catch (error) {
+      this.settleAppliedFailure(action.request);
+      throw error;
+    }
     if (recovered) {
       return this.actions.completeApplication(
         action.request.actionId,
@@ -548,6 +555,7 @@ export class RemoteExecutionActionService {
     try {
       next = await this.application.apply(action.request, decision, context);
     } catch (error) {
+      if (this.settleAppliedFailure(action.request)) throw error;
       if (error instanceof RemoteExecutionActionRejectedError) {
         this.actions.rejectApplication(
           action.request.actionId,
@@ -568,6 +576,12 @@ export class RemoteExecutionActionService {
       this.serverInstanceOwnerToken,
       next
     );
+  }
+
+  private settleAppliedFailure(request: RemoteExecutionActionRequest): boolean {
+    if (!this.application.isAppliedDespiteFailure?.(request)) return false;
+    this.actions.completeApplication(request.actionId, this.serverInstanceOwnerToken, "settled");
+    return true;
   }
 
   acknowledge(actionId: string): RemoteExecutionActionRecord {

@@ -17,7 +17,7 @@ import { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
 import { HostInstallationRepository } from "./hostInstallationRepository.js";
 import { toAgentHost, type AgentHost, type HostRow } from "./hostRecord.js";
 import { capabilitiesSchema } from "./protocol.js";
-import type { SqliteDatabase } from "./sqlite.js";
+import { inWriteTransaction, type SqliteDatabase } from "./sqlite.js";
 import { CanvasRuntimeHostBindingRepository } from "./canvas/runtimeHostLocator.js";
 
 export type { AgentHost } from "./hostRecord.js";
@@ -32,6 +32,10 @@ export type RegisteredAgentHostGeneration = RegisteredAgentHost & {
 };
 
 export const DEFAULT_HOST_OFFLINE_AFTER_MS = 60_000;
+
+const activeHostWhere = `revoked_at IS NULL
+  AND superseded_at IS NULL
+  AND (credential_expires_at IS NULL OR credential_expires_at > ?)`;
 
 /** Server-authoritative readiness derived from liveness and redacted Host observations. */
 export function operatorHostAvailability(
@@ -342,6 +346,13 @@ export class AgentHostRepository {
     return row ? toAgentHost(row) : undefined;
   }
 
+  getActiveHost(hostId: string): AgentHost | undefined {
+    const row = this.database
+      .prepare(`SELECT * FROM agent_hosts WHERE ${activeHostWhere} AND id=?`)
+      .get(this.clock().toISOString(), hostId) as HostRow | undefined;
+    return row ? toAgentHost(row) : undefined;
+  }
+
   getRequired(hostId: string): AgentHost {
     const host = this.get(hostId);
     if (!host) throw new Error("agent_host_not_found");
@@ -381,10 +392,7 @@ export class AgentHostRepository {
     return (
       this.database
         .prepare(
-          `SELECT * FROM agent_hosts
-           WHERE revoked_at IS NULL
-             AND superseded_at IS NULL
-             AND (credential_expires_at IS NULL OR credential_expires_at > ?)
+          `SELECT * FROM agent_hosts WHERE ${activeHostWhere}
            ORDER BY created_at ASC, id ASC
            LIMIT ? OFFSET ?`
         )
@@ -454,28 +462,25 @@ export class AgentHostRepository {
   ): AgentHost {
     const parsedCapabilities = capabilitiesSchema.parse(capabilities);
     const now = this.clock().toISOString();
-    const updated = this.database
-      .prepare(
-        `UPDATE agent_hosts SET capabilities_json=?,capacity=?,last_seen_at=?,readiness_json=?
-         WHERE id=? AND revoked_at IS NULL
-           AND (credential_expires_at IS NULL OR credential_expires_at>?)`
-      )
-      .run(
-        JSON.stringify(parsedCapabilities),
-        capacity,
-        now,
-        readiness === undefined
-          ? null
-          : JSON.stringify(hostReadinessObservationSchema.parse(readiness)),
-        hostId,
-        now
-      );
-    if (updated.changes !== 1) throw new Error("agent_host_not_found_or_revoked");
-    const host = this.getRequired(hostId);
-    this.runtimeBindings.synchronizeReadiness(hostId, readiness?.runtimeProjects);
-    this.syncWorkspaceHost(hostId);
-    if (readiness !== undefined) this.onHostReadinessCommitted?.(host);
-    return host;
+    const readinessJson =
+      readiness === undefined
+        ? null
+        : JSON.stringify(hostReadinessObservationSchema.parse(readiness));
+    return inWriteTransaction(this.database, () => {
+      const updated = this.database
+        .prepare(
+          `UPDATE agent_hosts SET capabilities_json=?,capacity=?,last_seen_at=?,readiness_json=?
+           WHERE id=? AND revoked_at IS NULL
+             AND (credential_expires_at IS NULL OR credential_expires_at>?)`
+        )
+        .run(JSON.stringify(parsedCapabilities), capacity, now, readinessJson, hostId, now);
+      if (updated.changes !== 1) throw new Error("agent_host_not_found_or_revoked");
+      const host = this.getRequired(hostId);
+      this.runtimeBindings.synchronizeReadiness(hostId, readiness?.runtimeProjects);
+      this.syncWorkspaceHost(hostId);
+      if (readiness !== undefined) this.onHostReadinessCommitted?.(host);
+      return host;
+    });
   }
 
   reportProtocolIncompatible(hostId: string): void {

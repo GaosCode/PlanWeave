@@ -102,6 +102,8 @@ async function fixture() {
   });
   const catalog = new AgentEndpointCatalog({
     hosts,
+    hostReader: { get: (hostId) => hosts.getActiveHost(hostId) },
+    identities: new RemoteAgentRepository(database, () => now),
     capacities,
     hostOfflineAfterMs: 60_000,
     clock: () => now
@@ -247,6 +249,8 @@ describe("Agent Endpoint HTTP", () => {
     const endpointUrl = `${origin}/api/v1/projects/${projectId}/agent-endpoints`;
     const directCatalog = new AgentEndpointCatalog({
       hosts,
+      hostReader: { get: (hostId) => hosts.getActiveHost(hostId) },
+      identities: new RemoteAgentRepository(database),
       capacities: new HostReservationRepository(database, {
         hostOfflineAfterMs: 60_000,
         leaseDurationMs: 60_000

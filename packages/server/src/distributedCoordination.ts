@@ -111,6 +111,7 @@ export function createRemoteBlockCoordination(
   startupContext: StartupContext
 ) {
   const clock = options.clock ?? (() => new Date());
+  const remoteAgents = new RemoteAgentRepository(database, clock);
   const hosts = new AgentHostRepository(database, clock, (host) => {
     syncRemoteAgentsFromHost({ database, host, clock });
   });
@@ -132,11 +133,19 @@ export function createRemoteBlockCoordination(
   });
   const agentEndpoints = new AgentEndpointCatalog({
     hosts,
+    hostReader: { get: (hostId) => hosts.getActiveHost(hostId) },
+    identities: {
+      getByEndpointId: (endpointId) => {
+        const identity = remoteAgents.getByEndpointId(endpointId);
+        if (!identity) return undefined;
+        const { hostId, profileId, agentId } = identity;
+        return { endpointId: identity.endpointId, hostId, profileId, agentId };
+      }
+    },
     capacities: reservations,
     hostOfflineAfterMs: options.hostOfflineAfterMs,
     clock: options.clock
   });
-  const remoteAgents = new RemoteAgentRepository(database, clock);
   const acpEvents = new RemoteAcpEventRepository(database, {
     clock: options.clock,
     maxEvents: options.eventRetentionMaxEvents,
@@ -462,6 +471,9 @@ export function createRemoteBlockCoordination(
     assignmentGate,
     agentEndpoints,
     authorizeRemoteAgentUse: (input) => remoteAgentAccess.authorizeRemoteAgentUse(input),
+    assertRemoteAgentAccess: (input) => {
+      remoteAgentAccess.evaluateAccess(input);
+    },
     authorizeRemoteAgentUseForSnapshot: (input) =>
       remoteAgentAccess.authorizeRemoteAgentUseForSnapshot(input),
     endpointAuthorize,

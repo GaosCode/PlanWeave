@@ -1245,6 +1245,7 @@
         "remoteAgentRepository.test.ts",
         "remoteAgentSync.test.ts",
         "remoteDispatchCandidateReader.test.ts",
+        "remoteEndpointSqliteDispatch.test.ts",
         "remoteBlockCoordinator.test.ts",
         "remoteBlockCoordinatorAuthority.test.ts",
         "remoteBlockCoordinatorCrash.test.ts",

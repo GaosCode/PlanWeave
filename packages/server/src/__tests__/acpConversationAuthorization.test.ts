@@ -77,13 +77,16 @@ async function setup() {
   const authorizeTarget = vi.fn(() => {
     throw new Error("block_revision_changed");
   });
+  const hosts = new AgentHostRepository(database, f.clock);
   const policy = new RemoteAgentAccessPolicy({
     database,
     agents,
     clock: f.clock,
     authorizeTarget,
     catalog: new AgentEndpointCatalog({
-      hosts: new AgentHostRepository(database, f.clock),
+      hosts,
+      hostReader: { get: (hostId) => hosts.getActiveHost(hostId) },
+      identities: agents,
       capacities: { activeCountsForHosts: () => new Map() },
       hostOfflineAfterMs: 60_000
     })

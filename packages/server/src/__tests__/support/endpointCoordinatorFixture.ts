@@ -46,13 +46,12 @@ export function endpointDispatchRequest(input: {
   targetKind?: "owner_canvas" | "workspace_canvas";
 }): RemoteEndpointDispatchRequest {
   const targetKind = input.targetKind ?? "workspace_canvas";
-  const listed =
-    targetKind === "owner_canvas"
-      ? input.agentEndpoints.listVisibleFleet()
-      : input.agentEndpoints.listVisible(input.locator.workspaceId);
   const endpointId =
     input.agentEndpointId ??
-    listed.items.find((item) => item.status === "available")?.endpointId ??
+    (targetKind === "owner_canvas"
+      ? input.agentEndpoints.listVisibleFleet()
+      : input.agentEndpoints.listVisible(input.locator.workspaceId)
+    ).items.find((item) => item.status === "available")?.endpointId ??
     input.agentEndpoints.listVisibleFleet().items.find((item) => item.status === "available")
       ?.endpointId;
   if (!endpointId) throw new Error("expected_available_test_endpoint");

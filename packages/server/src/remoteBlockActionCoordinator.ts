@@ -17,13 +17,13 @@ import {
   remoteExecutionActionRequestSchema
 } from "./remoteExecutionLifecycle.js";
 import { remoteBlockIdentity } from "./remoteBlockIdentity.js";
+import { throwRemoteDispatchAdmissionError } from "./remoteDispatchAdmissionDenial.js";
 import type {
   RemoteBlockCoordinatorOptions,
   RemoteDispatchOutcome
 } from "./remoteBlockCoordinator.js";
 import { RemoteOwnershipConflictError, type RemoteBlockRuntimePort } from "@planweave-ai/runtime";
 import type { MailboxMessage } from "./mailbox.js";
-import type { HostCapacityReservation } from "./hostReservations.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 import type { PersistedRemoteAgentAccessSnapshot } from "./remoteAgent/schema.js";
 import {
@@ -51,10 +51,7 @@ export class RemoteBlockActionCoordinator {
       reenter(operationId: string): Promise<RemoteDispatchOutcome>;
       fail(operationId: string): Promise<void>;
       sealOperationLocalFailure(operation: RemoteOperation, error: unknown): Promise<void>;
-      authorizeEndpointOperation(
-        operation: RemoteOperation,
-        reservation?: HostCapacityReservation
-      ): void;
+      authorizeEndpointOperation(operation: RemoteOperation): void;
       reauthorizeAgentAccessForRetry(
         operation: RemoteOperation
       ): PersistedRemoteAgentAccessSnapshot;
@@ -69,6 +66,7 @@ export class RemoteBlockActionCoordinator {
           return this.options.dispatches.actionSnapshot(operation);
         },
         recover: (action) => this.recover(action),
+        isAppliedDespiteFailure: (action) => this.retryAdmissionError(action) !== undefined,
         prepare: (action, decision) => this.prepare(action, decision),
         apply: (action, decision, context) => this.apply(action, decision, context),
         afterApply: () => this.lifecycle.checkpoint()
@@ -77,9 +75,14 @@ export class RemoteBlockActionCoordinator {
     );
   }
 
-  execute(rawAction: unknown): Promise<RemoteExecutionActionRecord> {
+  async execute(rawAction: unknown): Promise<RemoteExecutionActionRecord> {
     const action = remoteExecutionActionRequestSchema.parse(rawAction);
-    return this.actionService.execute(action);
+    const record = await this.actionService
+      .execute(action)
+      .catch(throwRemoteDispatchAdmissionError);
+    const denial = this.retryAdmissionError(record.request);
+    if (denial) throw denial;
+    return record;
   }
 
   executeHuman(rawCommand: unknown): Promise<RemoteExecutionActionRecord> {
@@ -87,7 +90,7 @@ export class RemoteBlockActionCoordinator {
     const existing = this.options.actions.get(command.actionId);
     if (existing) {
       assertHumanActionMatches(command, existing.request);
-      return this.actionService.execute(existing.request);
+      return this.execute(existing.request);
     }
     if (command.kind !== "resume_same_session") return this.execute(command);
     return this.execute(this.materializeResumeAction(command));
@@ -97,7 +100,9 @@ export class RemoteBlockActionCoordinator {
     serverInstanceOwnerToken: string;
   }): Promise<RemoteExecutionActionRecord[]> {
     return this.actionService.reconcile(startupContext, (action, error) => {
-      if (classifyReenterFailure(error) !== "defer_host") return false;
+      const decision = classifyReenterFailure(error);
+      if (decision === "admission_denied") return true;
+      if (decision !== "defer_host" && decision !== "defer_authorization") return false;
       const diagnostic = diagnosticFromReenterFailure(error);
       this.options.operations.recordDiagnostic(
         action.request.operationId,
@@ -127,6 +132,7 @@ export class RemoteBlockActionCoordinator {
     action: RemoteExecutionActionRequest
   ): Promise<"delivered" | "settled" | undefined> {
     if (action.kind === "retry_new_attempt") {
+      if (this.retryAdmissionError(action)) return "settled";
       if (
         !this.options.operations.isRetryApplied({
           operationId: action.operationId,
@@ -137,13 +143,6 @@ export class RemoteBlockActionCoordinator {
         })
       ) {
         return undefined;
-      }
-      const operation = this.options.operations.getRequired(action.operationId);
-      if (operation.endpointSelection) {
-        const reservation = operation.attempt.leaseId
-          ? this.options.reservations.get(operation.attempt.leaseId)
-          : undefined;
-        this.lifecycle.authorizeEndpointOperation(operation, reservation);
       }
       await this.lifecycle.reenter(action.operationId);
       return "settled";
@@ -199,6 +198,15 @@ export class RemoteBlockActionCoordinator {
       return "settled";
     }
     return undefined;
+  }
+
+  private retryAdmissionError(action: RemoteExecutionActionRequest): Error | undefined {
+    if (action.kind !== "retry_new_attempt") return undefined;
+    return this.options.dispatches.readAdmissionError({
+      operationId: action.operationId,
+      dispatchId: action.newDispatchId,
+      executionAttemptId: action.newExecutionAttemptId
+    });
   }
 
   private failActionApplied(
@@ -350,6 +358,16 @@ export class RemoteBlockActionCoordinator {
       }
       case "retry": {
         if (action.kind !== "retry_new_attempt") throw new Error("remote_action_decision_mismatch");
+        if (
+          operation.dispatchId !== action.dispatchId ||
+          operation.executionAttemptId !== action.executionAttemptId ||
+          operation.attempt.leaseId !== action.priorLeaseId
+        ) {
+          throw new Error("remote_action_identity_mismatch");
+        }
+        if (operation.attempt.stateVersion !== action.expectedAttemptVersion) {
+          throw new Error("remote_action_attempt_version_conflict");
+        }
         const hostSelection =
           context === undefined ? undefined : dispatchHostSelectionSnapshotSchema.parse(context);
         if (operation.endpointSelection) this.lifecycle.authorizeEndpointOperation(operation);
@@ -378,7 +396,7 @@ export class RemoteBlockActionCoordinator {
         }
         this.options.operations.retryAttempt({
           operationId: operation.id,
-          priorExecutionAttemptId: operation.executionAttemptId,
+          priorExecutionAttemptId: action.executionAttemptId,
           newDispatchId: action.newDispatchId,
           newExecutionAttemptId: action.newExecutionAttemptId,
           expectedAttemptVersion: action.expectedAttemptVersion,

@@ -206,6 +206,11 @@ describe("remote agent enrollment", () => {
       profileId: "profile-main",
       agentId: "codex"
     });
+    expect(
+      coordination.agentEndpoints.resolveForRun(endpointId, workspaceA, ["acp.codex"], {
+        kind: "owner_fleet"
+      })
+    ).toMatchObject({ endpointId, hostId: completed.hostId, profileId: "profile-main" });
     const agent = repo.getByEndpointId(endpointId);
     expect(agent).toMatchObject({
       endpointId,

@@ -2,7 +2,9 @@ import { RemoteBlockRuntimeError, RemoteOwnershipConflictError } from "@planweav
 import { AgentEndpointCatalogError } from "./agentEndpointCatalog.js";
 import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
 import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
+import { RemoteAgentAuthorizationError } from "./remoteAgent/errors.js";
 import { RemoteCoordinatorCheckpointCrash } from "./remoteBlockCoordinatorPorts.js";
+import { PersistedRemoteDispatchAdmissionDenial } from "./remoteDispatchAdmissionDenial.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 
 export type RemoteDispatchOutcome = {
@@ -20,7 +22,12 @@ export type RemoteDispatchOutcome = {
  * Startup / batch reenter policy for a single remote operation.
  * Infrastructure failures stay fatal; op-local failures must not abort the whole server.
  */
-export type ReenterFailureDecision = "defer_host" | "seal_failed" | "fatal";
+export type ReenterFailureDecision =
+  | "admission_denied"
+  | "defer_host"
+  | "defer_authorization"
+  | "seal_failed"
+  | "fatal";
 
 const OP_LOCAL_ERROR_NAMES = new Set(["RemoteBlockRuntimeError", "RemoteOwnershipConflictError"]);
 
@@ -52,6 +59,14 @@ function isRecoverableRuntimeRpcFailure(error: CanvasRuntimeRpcError): boolean {
     : TRANSIENT_RPC_READ_CODES.has(error.code);
 }
 
+export function isRemoteRuntimeRouteUnavailable(error: unknown): boolean {
+  return (
+    error instanceof CanvasRuntimeUnavailableError ||
+    (error instanceof CanvasRuntimeRpcError &&
+      (error.code === "canvas_runtime_host_revoked" || isRecoverableRuntimeRpcFailure(error)))
+  );
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -81,6 +96,9 @@ export function isReplacedActiveOwnership(error: unknown): boolean {
 }
 
 export function diagnosticFromReenterFailure(error: unknown): { code: string; message: string } {
+  if (error instanceof PersistedRemoteDispatchAdmissionDenial) {
+    return diagnosticFromReenterFailure(error.originalError);
+  }
   if (error instanceof CanvasRuntimeRpcError) {
     return isRecoverableRuntimeRpcFailure(error)
       ? { code: error.code, message: error.message }
@@ -89,7 +107,10 @@ export function diagnosticFromReenterFailure(error: unknown): { code: string; me
           message: `${error.code} (retryable=${error.retryable}, reconcileRequired=${error.reconcileRequired})`
         };
   }
-  if (error instanceof AgentEndpointCatalogError) {
+  if (
+    error instanceof AgentEndpointCatalogError ||
+    error instanceof RemoteAgentAuthorizationError
+  ) {
     return { code: error.code, message: error.message };
   }
   if (error instanceof CanvasRuntimeUnavailableError) {
@@ -113,6 +134,8 @@ export function diagnosticFromReenterFailure(error: unknown): { code: string; me
  * Checkpoint / crash-injection failures remain fatal so restart can continue from a consistent cut.
  */
 export function classifyReenterFailure(error: unknown): ReenterFailureDecision {
+  if (error instanceof PersistedRemoteDispatchAdmissionDenial) return "admission_denied";
+  if (error instanceof RemoteAgentAuthorizationError) return "defer_authorization";
   if (error instanceof CanvasRuntimeRpcError) {
     return isRecoverableRuntimeRpcFailure(error) ? "defer_host" : "fatal";
   }

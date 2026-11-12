@@ -8,9 +8,10 @@ import type {
   RemoteBlockArtifactSource,
   RemoteBlockDispatchCandidate
 } from "@planweave-ai/runtime";
-import type { HostCapacityReservation } from "./hostReservations.js";
+import type { HostCapacityReservation, HostReservationRepository } from "./hostReservations.js";
 import type { MailboxMessage } from "./mailbox.js";
 import type { RemoteOperation } from "./remoteOperations.js";
+import type { RemoteDispatchActivationDenial } from "./remoteDispatchAdmissionDenial.js";
 import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeLeasePort,
@@ -150,6 +151,21 @@ export type RemoteDispatchReconciliationState = {
   };
 };
 
+export type RemoteDispatchAdmissionTarget = {
+  operation: RemoteOperation;
+  reservation: HostCapacityReservation;
+  reservations: Pick<HostReservationRepository, "getRequired" | "isActiveForAttempt" | "release">;
+  authorize: (
+    operation: RemoteOperation,
+    reservation: HostCapacityReservation
+  ) => RemoteDispatchActivationDenial | undefined;
+};
+
+export type DeniedRemoteDispatchAdmission = {
+  denial: RemoteDispatchActivationDenial;
+  interruption: { reason: InterruptionReason; resumable: false };
+};
+
 export interface RemoteDispatchPersistencePort {
   inspect(operation: RemoteOperation): RemoteDispatchReconciliationState;
   readEnvelope(operation: RemoteOperation): ExecutionEnvelope;
@@ -160,11 +176,15 @@ export interface RemoteDispatchPersistencePort {
     envelopeDigest: string;
     validateBeforeCommit?: () => void;
   }): void;
-  activate(input: {
-    operation: RemoteOperation;
-    reservation: HostCapacityReservation;
-    command: MailboxCommand;
-  }): ActivatedMailboxDelivery;
+  checkAdmission(input: RemoteDispatchAdmissionTarget): DeniedRemoteDispatchAdmission | undefined;
+  activate(
+    input: RemoteDispatchAdmissionTarget & { command: MailboxCommand }
+  ): ActivatedMailboxDelivery | DeniedRemoteDispatchAdmission;
+  readAdmissionError(input: {
+    operationId: string;
+    dispatchId: string;
+    executionAttemptId: string;
+  }): Error | undefined;
   actionSnapshot(operation: RemoteOperation): RemoteExecutionLifecycleSnapshot;
   enqueueCancel(input: {
     operation: RemoteOperation;

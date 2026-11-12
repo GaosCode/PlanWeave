@@ -286,7 +286,6 @@ export function interruptRemoteBlockOwnership(options: {
   ownership: ActiveRemoteOperationIdentity;
   interruption: RemoteInterruption;
   reason: string;
-  runId?: string;
 }): BlockState {
   assertActiveRemoteBlockOwnership(options);
   const interruption = remoteInterruptionSchema.parse(options.interruption);
@@ -303,9 +302,7 @@ export function interruptRemoteBlockOwnership(options: {
       options.blockState.remoteInterruption.resumable === interruption.resumable &&
       options.blockState.divergenceReason === reason
     ) {
-      return options.runId && options.blockState.lastRunId !== options.runId
-        ? { ...options.blockState, lastRunId: options.runId }
-        : options.blockState;
+      return options.blockState;
     }
     throw new RemoteOwnershipConflictError(
       "remote_ownership_terminal_conflict",
@@ -322,8 +319,7 @@ export function interruptRemoteBlockOwnership(options: {
     ...options.blockState,
     status: "diverged",
     divergenceReason: reason,
-    remoteInterruption: interruption,
-    ...(options.runId ? { lastRunId: options.runId } : {})
+    remoteInterruption: interruption
   };
 }
 

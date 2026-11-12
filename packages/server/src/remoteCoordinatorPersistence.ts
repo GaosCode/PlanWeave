@@ -18,12 +18,18 @@ import {
 import { remoteBlockDispatchCandidateSchema } from "@planweave-ai/runtime";
 import { z } from "zod";
 import { ArtifactAuthorizationRepository } from "./artifactAuthorization.js";
+import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
 import type {
-  ActivatedMailboxDelivery,
+  RemoteDispatchAdmissionTarget,
   RemoteDispatchPersistencePort,
   RemoteOperationCandidatePort,
   RemoteDispatchReconciliationState
 } from "./remoteBlockCoordinatorPorts.js";
+import {
+  remoteDispatchAdmissionDenialSchema,
+  restoreRemoteDispatchAdmissionError,
+  type RemoteDispatchActivationDenial
+} from "./remoteDispatchAdmissionDenial.js";
 import type { HostCapacityReservation } from "./hostReservations.js";
 import { DurableMailbox } from "./mailbox.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
@@ -296,20 +302,33 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
     });
   }
 
-  activate(input: {
-    operation: RemoteOperation;
-    reservation: HostCapacityReservation;
-    command: unknown;
-  }): ActivatedMailboxDelivery {
+  checkAdmission(input: RemoteDispatchAdmissionTarget) {
+    return inWriteTransaction(this.database, () => {
+      const { operation, reservation } = this.readActivationTarget(input);
+      return this.checkUnpublishedAdmission(input, operation, reservation);
+    });
+  }
+
+  activate(
+    input: Parameters<RemoteDispatchPersistencePort["activate"]>[0]
+  ): ReturnType<RemoteDispatchPersistencePort["activate"]> {
     const command = mailboxCommandSchema.parse(input.command);
     return inWriteTransaction(this.database, () => {
-      const operation = this.operations.getRequired(input.operation.id);
-      const delivery = this.mailbox.enqueueOnce(
-        executeMailboxMessageId(operation.dispatchId),
-        input.reservation.hostId,
-        command
-      );
+      const { operation, reservation } = this.readActivationTarget(input);
+      if (
+        command.type !== "execute_block" ||
+        command.dispatchId !== operation.dispatchId ||
+        command.executionAttemptId !== operation.executionAttemptId ||
+        command.leaseId !== reservation.leaseId ||
+        command.leaseExpiresAt !== reservation.leaseExpiresAt ||
+        command.envelopeDigest !== operation.envelopeDigest
+      ) {
+        throw new Error("remote_attempt_activation_conflict");
+      }
+      const messageId = executeMailboxMessageId(operation.dispatchId);
       if (operation.attempt.status === "reserved") {
+        const rejected = this.checkUnpublishedAdmission(input, operation, reservation);
+        if (rejected) return rejected;
         const now = new Date().toISOString();
         const updated = this.database
           .prepare(
@@ -334,11 +353,130 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
           "remote.attempt.activated",
           now
         );
-      } else if (operation.attempt.status !== "activated") {
+      } else if (operation.attempt.status !== "activated" || !this.mailbox.get(messageId)) {
         throw new Error("remote_attempt_activation_conflict");
       }
+      const delivery = this.mailbox.enqueueOnce(messageId, reservation.hostId, command);
       return { operation: this.operations.getRequired(operation.id), message: delivery.message };
     });
+  }
+
+  private readActivationTarget(input: RemoteDispatchAdmissionTarget) {
+    const operation = this.operations.getRequired(input.operation.id);
+    const { attempt } = operation;
+    const reservation = input.reservations.getRequired(input.reservation.leaseId);
+    if (
+      operation.dispatchId !== input.operation.dispatchId ||
+      operation.executionAttemptId !== input.operation.executionAttemptId ||
+      attempt.leaseId !== reservation.leaseId ||
+      attempt.leaseFencingToken !== reservation.fencingToken ||
+      attempt.hostId !== reservation.hostId ||
+      reservation.executionAttemptId !== operation.executionAttemptId ||
+      reservation.fencingToken !== input.reservation.fencingToken ||
+      reservation.version !== input.reservation.version
+    ) {
+      throw new Error("remote_attempt_activation_conflict");
+    }
+    return { operation, reservation };
+  }
+
+  private checkUnpublishedAdmission(
+    input: RemoteDispatchAdmissionTarget,
+    operation: RemoteOperation,
+    reservation: HostCapacityReservation
+  ) {
+    const dispatch = this.database
+      .prepare(
+        `SELECT status FROM dispatches
+         WHERE id=? AND execution_attempt_id=? AND host_id=? AND lease_id=?
+           AND workspace_id=? AND project_id=? AND block_ref=?`
+      )
+      .get(
+        operation.dispatchId,
+        operation.executionAttemptId,
+        reservation.hostId,
+        reservation.leaseId,
+        operation.workspaceId,
+        operation.projectId,
+        operation.blockRef
+      );
+    if (
+      operation.state !== "reserved" ||
+      operation.attempt.status !== "reserved" ||
+      dispatch?.status !== "leased" ||
+      this.mailbox.get(executeMailboxMessageId(operation.dispatchId))
+    ) {
+      throw new Error("remote_attempt_activation_conflict");
+    }
+    const denial = input.reservations.isActiveForAttempt(reservation)
+      ? input.authorize(operation, reservation)
+      : {
+          error: new CanvasRuntimeUnavailableError("host_offline"),
+          evidence: { kind: "host" as const, code: "host_offline" as const }
+        };
+    if (!denial) return undefined;
+    const interruption = this.interruptUnpublishedDispatch(operation, reservation, denial);
+    input.reservations.release({
+      leaseId: reservation.leaseId,
+      fencingToken: reservation.fencingToken,
+      expectedVersion: reservation.version,
+      reason: "expired"
+    });
+    return { denial, interruption };
+  }
+
+  readAdmissionError(
+    input: Parameters<RemoteDispatchPersistencePort["readAdmissionError"]>[0]
+  ): Error | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT event.payload_json FROM dispatch_events event
+         JOIN remote_execution_attempts attempt ON attempt.dispatch_id=event.dispatch_id
+         WHERE event.dispatch_id=? AND event.type='dispatch.admission_denied'
+           AND attempt.operation_id=? AND attempt.execution_attempt_id=?`
+      )
+      .get(input.dispatchId, input.operationId, input.executionAttemptId);
+    if (!row) return undefined;
+    return restoreRemoteDispatchAdmissionError(
+      remoteDispatchAdmissionDenialSchema.parse(JSON.parse(z.string().parse(row.payload_json)))
+    );
+  }
+
+  private interruptUnpublishedDispatch(
+    operation: RemoteOperation,
+    reservation: HostCapacityReservation,
+    denial: RemoteDispatchActivationDenial
+  ) {
+    const interruption = { reason: "lease_lost", resumable: false } as const;
+    const updated = this.database
+      .prepare(
+        `UPDATE dispatches SET status='interrupted',interruption_reason=?,interruption_resumable=0
+         WHERE id=? AND execution_attempt_id=? AND host_id=? AND lease_id=? AND status='leased'`
+      )
+      .run(
+        interruption.reason,
+        operation.dispatchId,
+        operation.executionAttemptId,
+        reservation.hostId,
+        reservation.leaseId
+      );
+    if (updated.changes !== 1) throw new Error("remote_attempt_activation_conflict");
+    this.database
+      .prepare(
+        `INSERT INTO dispatch_events(dispatch_id,type,payload_json,occurred_at)
+         VALUES (?,'dispatch.interrupted',?,?),(?,'dispatch.admission_denied',?,?)`
+      )
+      .run(
+        operation.dispatchId,
+        JSON.stringify(interruption),
+        new Date().toISOString(),
+        operation.dispatchId,
+        JSON.stringify(denial.evidence),
+        new Date().toISOString()
+      );
+    this.operations.recordDiagnosticStage(operation.id, "authorizing");
+    this.operations.recordDiagnostic(operation.id, denial.evidence.code, denial.error.message);
+    return interruption;
   }
 
   actionSnapshot(operation: RemoteOperation) {
