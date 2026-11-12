@@ -1,7 +1,10 @@
 import type { TaskWorkspace } from "@planweave-ai/runtime";
 import {
+  isWorkspaceTaskWorkspaceNavigation,
   taskWorkspaceNavigationAuthorityKey,
-  type TaskWorkspaceNavigationIdentity
+  taskWorkspaceNavigationTargetSchema,
+  type TaskWorkspaceNavigationIdentity,
+  type TaskWorkspaceNavigationTarget
 } from "../taskWorkspaceNavigation";
 import type { TaskWorkspaceSelectedRun } from "./contracts";
 import { isRemoteLiveRecordId, remoteLiveRecordId } from "./remoteLiveRun";
@@ -59,7 +62,7 @@ export function initialTaskWorkspaceRun(
   return null;
 }
 
-export function preferredRemoteLiveSelection(
+function preferredRemoteLiveSelection(
   workspace: TaskWorkspace,
   preferredBlockRef: string | null | undefined
 ): { blockRef: string; recordId: string } | null {
@@ -78,4 +81,52 @@ export function preferredRemoteLiveSelection(
     };
   }
   return null;
+}
+
+export function navigationTargetWithSelection(
+  navigation: TaskWorkspaceNavigationIdentity,
+  selection: { blockRef?: string; recordId?: string }
+): TaskWorkspaceNavigationTarget {
+  return taskWorkspaceNavigationTargetSchema.parse(
+    isWorkspaceTaskWorkspaceNavigation(navigation)
+      ? {
+          authority: "workspace",
+          connectionProfileId: navigation.connectionProfileId,
+          workspaceId: navigation.workspaceId,
+          projectId: navigation.projectId,
+          canvasId: navigation.canvasId,
+          taskId: navigation.taskId,
+          ...selection
+        }
+      : {
+          projectRoot: navigation.projectRoot,
+          canvasId: navigation.canvasId,
+          taskId: navigation.taskId,
+          ...selection
+        }
+  );
+}
+
+export function localTaskWorkspaceSelectionAfterLoad(
+  workspace: TaskWorkspace,
+  navigation: TaskWorkspaceNavigationIdentity,
+  overviewSelected: boolean
+): { blockRef?: string; recordId?: string } | null {
+  if (overviewSelected) return null;
+  const liveSelection = preferredRemoteLiveSelection(workspace, navigation.blockRef);
+  if (liveSelection && navigation.recordId !== liveSelection.recordId) return liveSelection;
+  if (!liveSelection && isRemoteLiveRecordId(navigation.recordId)) {
+    const block = workspace.blocks.find((candidate) => candidate.ref === navigation.blockRef);
+    const latestReal = block?.runs
+      .filter((item) => !isRemoteLiveRecordId(item.run.record.recordId))
+      .at(-1);
+    return {
+      blockRef: latestReal?.run.record.ref ?? navigation.blockRef ?? undefined,
+      recordId: latestReal?.run.record.recordId
+    };
+  }
+  const selected = navigation.recordId ? null : initialTaskWorkspaceRun(workspace, navigation);
+  return selected
+    ? { blockRef: selected.block.ref, recordId: selected.item.run.record.recordId }
+    : null;
 }

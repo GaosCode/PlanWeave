@@ -1,5 +1,14 @@
 /* @vitest-environment jsdom */
-import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor
+} from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import type {
   CanvasCommandIntent,
@@ -27,6 +36,7 @@ import {
   useWorkspaceCanvasCommands,
   type WorkspaceCanvasCommandBridge
 } from "../renderer/hooks/useWorkspaceCanvasCommands";
+import { projectSharedTaskWorkspace } from "../renderer/task-workspace/taskWorkspaceSharedProjection";
 import { useTaskWorkspacePromptActions } from "../renderer/task-workspace/useTaskWorkspacePromptActions";
 import { createTranslator } from "../renderer/i18n";
 import {
@@ -102,15 +112,15 @@ function snapshot(
   };
 }
 
-async function harness(kind: Kind, publication: Publication) {
+function replicaDocument(markdown: string) {
   const manifest = basicManifest();
-  let document = parseCanvasReplicaDocument({
+  return parseCanvasReplicaDocument({
     schemaVersion: "canvas-replica-document/v1",
     manifest,
     promptMarkdownByPath: Object.fromEntries(
       manifest.nodes.flatMap((task) => [
-        [task.prompt, "initial"],
-        ...task.blocks.map((block) => [block.prompt, "initial"])
+        [task.prompt, markdown],
+        ...task.blocks.map((block) => [block.prompt, markdown])
       ])
     ),
     layout: {
@@ -120,6 +130,44 @@ async function harness(kind: Kind, publication: Publication) {
       updatedAt: "2026-08-02T00:00:00.000Z"
     }
   });
+}
+
+function workspaceProjection(
+  store: CanvasReplicaStore,
+  status: WorkspaceCanvasProjection["status"] = "accepted",
+  rejectCode: WorkspaceCanvasProjection["rejectCode"] = null
+): WorkspaceCanvasProjection {
+  const replica = store.projection(scope);
+  if (!replica) throw new Error("Missing replica");
+  return {
+    locator,
+    status,
+    authorityMode: "server_authoritative",
+    readOnly: false,
+    cachedAt: null,
+    initialRuntimeAvailability: null,
+    conflict: null,
+    rejectCode,
+    replica
+  };
+}
+
+function workspaceFixture() {
+  const fixture = taskWorkspaceInspectorFixture();
+  const workspace = {
+    ...fixture.workspace,
+    project: {
+      authority: "workspace" as const,
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      canvasId: scope.canvasId
+    }
+  };
+  return { fixture, workspace };
+}
+
+async function harness(kind: Kind, publication: Publication) {
+  let document = replicaDocument("initial");
   let content = encodeCanvasReplicaDocument(document);
   let revision = 5;
   const initialDigest = content.canonicalDigest;
@@ -184,24 +232,6 @@ async function harness(kind: Kind, publication: Publication) {
   const worker = new CanvasReplicaCommandWorker(store, transport);
   workers.push(worker);
   await worker.bind(scope);
-  function projection(
-    status: WorkspaceCanvasProjection["status"] = "accepted",
-    rejectCode: WorkspaceCanvasProjection["rejectCode"] = null
-  ): WorkspaceCanvasProjection {
-    const replica = store.projection(scope);
-    if (!replica) throw new Error("Missing replica");
-    return {
-      locator,
-      status,
-      authorityMode: "server_authoritative",
-      readOnly: false,
-      cachedAt: null,
-      initialRuntimeAvailability: null,
-      conflict: null,
-      rejectCode,
-      replica
-    };
-  }
   function installExternal() {
     document = applyCanvasReplicaIntent(document, intentFor(kind, "C"));
     content = encodeCanvasReplicaDocument(document);
@@ -213,8 +243,8 @@ async function harness(kind: Kind, publication: Publication) {
     | null = null;
   let commandCount = 0;
   const bridge: WorkspaceCanvasCommandBridge = {
-    openWorkspaceCanvasSession: async () => projection(),
-    reconnectWorkspaceCanvasSession: async () => projection(),
+    openWorkspaceCanvasSession: async () => workspaceProjection(store),
+    reconnectWorkspaceCanvasSession: async () => workspaceProjection(store),
     closeWorkspaceCanvasSession: async () => undefined,
     onWorkspaceCanvasProjectionSignal: (callback) => {
       signal = callback;
@@ -228,23 +258,14 @@ async function harness(kind: Kind, publication: Publication) {
       const result = await worker.submit(scope, intent, { retryStale: false });
       if (commandCount === 1 && publication === "renderer-first") {
         installExternal();
-        signal?.({ type: "workspace.canvas.projection", projection: projection() });
+        signal?.({ type: "workspace.canvas.projection", projection: workspaceProjection(store) });
       }
       return result.type === "canvas.command.accepted"
-        ? projection()
-        : projection("rejected", result.code);
+        ? workspaceProjection(store)
+        : workspaceProjection(store, "rejected", result.code);
     }
   };
-  const fixture = taskWorkspaceInspectorFixture();
-  const workspace = {
-    ...fixture.workspace,
-    project: {
-      authority: "workspace" as const,
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      canvasId: scope.canvasId
-    }
-  };
+  const { fixture, workspace } = workspaceFixture();
   const api = controllerApi({ readModel: () => null }).api;
   const hook = renderHook(() => {
     const gate = useWorkspaceCanvasCommands({
@@ -379,4 +400,118 @@ it.each([
     status: "saved",
     error: null
   });
+});
+
+it.each([
+  "task",
+  "block"
+] as const)("reconciles the clean shared %s editor after same-head rejection while preserving the other draft in composition", async (cleanKind) => {
+  const content = encodeCanvasReplicaDocument(replicaDocument("committed"));
+  const store = new CanvasReplicaStore(() => undefined);
+  store.bind(scope);
+  store.installBaseline(scope, { content, revision: 5, contentDigest: content.canonicalDigest });
+  store.setCanEdit(scope, true);
+  store.enqueue(scope, { operationId: "task-edit", intent: intentFor("task", "optimistic Task") });
+  store.enqueue(scope, {
+    operationId: "block-edit",
+    intent: intentFor("block", "optimistic Block")
+  });
+  const before = workspaceProjection(store, "pending");
+  let publish:
+    | Parameters<WorkspaceCanvasCommandBridge["onWorkspaceCanvasProjectionSignal"]>[0]
+    | undefined;
+  const bridge: WorkspaceCanvasCommandBridge = {
+    openWorkspaceCanvasSession: async () => before,
+    reconnectWorkspaceCanvasSession: async () => workspaceProjection(store),
+    closeWorkspaceCanvasSession: async () => undefined,
+    onWorkspaceCanvasProjectionSignal: (callback) => {
+      publish = callback;
+      return () => {
+        publish = undefined;
+      };
+    },
+    submitWorkspaceCanvasCommand: async () => {
+      throw new Error("Conflicted draft should not send a shared command.");
+    }
+  };
+  const { workspace } = workspaceFixture();
+  const labels = taskWorkspaceLabels(t).promptLabels;
+  const api = controllerApi({ readModel: () => null }).api;
+  function App() {
+    const gate = useWorkspaceCanvasCommands({
+      api: bridge,
+      locator,
+      authorityKey: "shared-pending",
+      sessionConnected: true,
+      t
+    });
+    const projected = projectSharedTaskWorkspace(workspace, gate.projection);
+    const actions = useTaskWorkspacePromptActions({
+      api,
+      authority: { canvasLocator: locator, projectRoot: null, workspaceRoot: null },
+      navigation: {
+        authority: "workspace",
+        ...locator,
+        taskId: "T-001",
+        source: { view: "graph" }
+      },
+      workspace: projected,
+      workspaceCanvas: gate,
+      onLocalSaved: () => undefined
+    });
+    const block = projected.blocks[0];
+    if (!gate.projection || !block) return null;
+    return (
+      <>
+        <TaskWorkspaceTaskPrompt
+          labels={labels}
+          task={projected.task}
+          owner={actions.getPromptDraft(
+            null,
+            projected.task.promptMarkdown,
+            actions.saveTaskPrompt
+          )}
+        />
+        <TaskWorkspaceBlockPrompts
+          labels={labels}
+          block={block}
+          owner={actions.getPromptDraft(block.ref, block.promptMarkdown, (input) =>
+            actions.saveBlockPrompt(block.ref, input)
+          )}
+        />
+      </>
+    );
+  }
+  render(<App />);
+  const taskEditor = await screen.findByRole("textbox", { name: labels.taskPrompt });
+  const blockEditor = screen.getByRole("textbox", { name: labels.blockPrompt });
+  expect(taskEditor).toHaveValue("optimistic Task");
+  expect(blockEditor).toHaveValue("optimistic Block");
+  const [clean, editing, optimistic] =
+    cleanKind === "task"
+      ? [taskEditor, blockEditor, "optimistic Block"]
+      : [blockEditor, taskEditor, "optimistic Task"];
+  fireEvent.compositionStart(editing);
+
+  act(() => {
+    store.reject(scope, "task-edit", "operation_conflict");
+    store.reject(scope, "block-edit", "operation_conflict");
+    const after = workspaceProjection(store, "rejected", "operation_conflict");
+    expect(after.replica.revision).toBe(before.replica.revision);
+    expect(after.replica.contentDigest).toBe(before.replica.contentDigest);
+    expect(after.replica.optimisticOperationIds).toEqual([]);
+    if (!publish) throw new Error("Missing Workspace Canvas projection subscription.");
+    publish({ type: "workspace.canvas.projection", projection: after });
+  });
+
+  expect(clean).toHaveValue("committed");
+  expect(editing).toHaveValue(optimistic);
+  fireEvent.change(editing, { target: { value: "Composed 中文" } });
+  fireEvent.compositionEnd(editing);
+  expect(editing).toHaveValue("Composed 中文");
+  fireEvent.blur(editing);
+  expect(await screen.findByRole("alert")).toHaveTextContent("changed outside this editor");
+  expect(editing).toHaveValue("Composed 中文");
+  expect(api.updateTaskPrompt).not.toHaveBeenCalled();
+  expect(api.updateBlockPrompt).not.toHaveBeenCalled();
 });

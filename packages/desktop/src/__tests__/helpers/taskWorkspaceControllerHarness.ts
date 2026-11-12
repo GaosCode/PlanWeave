@@ -73,7 +73,7 @@ function controllerApi(options: { readModel: (recordId: string) => RunnerRecordR
     getTaskWorkspace: vi.fn(async (input: { selectedRecordId?: string | null }) =>
       workspaceHeader(input.selectedRecordId ?? "T-001#B-001::RUN-001")
     ),
-    listTaskWorkspaceRuns: vi.fn(async () => ({
+    listTaskWorkspaceRuns: vi.fn<DesktopBridgeApi["listTaskWorkspaceRuns"]>(async () => ({
       version: "planweave.task-workspace-runs-page/v1" as const,
       projectRoot: "/projects/demo",
       canvasId: "canvas-main",

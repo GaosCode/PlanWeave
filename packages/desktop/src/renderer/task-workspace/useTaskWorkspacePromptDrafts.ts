@@ -1,5 +1,4 @@
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import type { TaskWorkspace } from "@planweave-ai/runtime";
 import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc";
 import type { CanvasLocator } from "../../shared/canvasLocator";
 import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasCommands";
@@ -9,6 +8,11 @@ import {
   type TaskWorkspaceNavigationIdentity
 } from "../taskWorkspaceNavigation";
 import type { TaskWorkspaceController } from "./contracts";
+import type { TaskWorkspacePromptWorkspace } from "./taskWorkspaceHeaderProjection";
+import {
+  sharedBlockPromptMarkdown,
+  sharedTaskPromptMarkdown
+} from "./taskWorkspaceSharedProjection";
 import {
   type TaskWorkspacePromptSourceReader,
   TaskWorkspacePromptDraft
@@ -29,7 +33,7 @@ export function useTaskWorkspacePromptDrafts({
   authority: TaskWorkspacePromptAuthority;
   navigation: TaskWorkspaceNavigationIdentity | null;
   workspaceCanvas: WorkspaceCanvasCommandsResult | null;
-  workspace: TaskWorkspace | null;
+  workspace: TaskWorkspacePromptWorkspace | null;
 }) {
   const locator = authority.canvasLocator;
   const authorityKey = JSON.stringify([
@@ -46,8 +50,9 @@ export function useTaskWorkspacePromptDrafts({
     key: string;
     sessionAuthority: object | null | undefined;
     confirmedProjection: CollaborationCanvasBindingReplicaProjection | null;
+    sharedSource: { key: string; generation: number } | null;
   }>(
-    () => ({ key: authorityKey, sessionAuthority, confirmedProjection: null }),
+    () => ({ key: authorityKey, sessionAuthority, confirmedProjection: null, sharedSource: null }),
     [authorityKey, sessionAuthority]
   );
   const context = useRef({ scope, workspaceCanvas, mounted: true });
@@ -58,6 +63,7 @@ export function useTaskWorkspacePromptDrafts({
         scope: typeof scope;
         writer: TaskWorkspaceController["saveTaskPrompt"];
         readSource: TaskWorkspacePromptSourceReader;
+        blockRef: string | null;
         navigationKey: string;
         draft: TaskWorkspacePromptDraft;
       }
@@ -117,6 +123,7 @@ export function useTaskWorkspacePromptDrafts({
           scope,
           writer,
           readSource,
+          blockRef,
           navigationKey,
           draft: new TaskWorkspacePromptDraft(markdown, writer, readSource)
         };
@@ -130,13 +137,6 @@ export function useTaskWorkspacePromptDrafts({
     },
     [authorityKey, getWriteContext, navigationKey, scope]
   );
-  useLayoutEffect(() => {
-    if (!workspace || !getWriteContext()) return;
-    for (const entry of drafts.current.values()) {
-      if (entry.scope === scope && entry.navigationKey === navigationKey)
-        void entry.draft.refreshSource();
-    }
-  }, [getWriteContext, navigationKey, scope, workspace]);
   const confirmProjection = useCallback(
     (projection: CollaborationCanvasBindingReplicaProjection) => {
       const current = getWriteContext();
@@ -172,5 +172,51 @@ export function useTaskWorkspacePromptDrafts({
       return confirmed;
     return projection;
   }, [getWriteContext, scope]);
-  return { confirmProjection, getProjection, getPromptDraft, getWriteContext };
+
+  const getSharedSource = useCallback(() => {
+    const projection = getProjection();
+    if (!projection) return null;
+    const key = JSON.stringify([
+      projection.authorityId,
+      projection.revision,
+      projection.contentDigest,
+      projection.optimisticOperationIds
+    ]);
+    if (scope.sharedSource?.key !== key) {
+      scope.sharedSource = { key, generation: (scope.sharedSource?.generation ?? 0) + 1 };
+    }
+    return { projection, generation: scope.sharedSource.generation };
+  }, [getProjection, scope]);
+
+  const shared = workspaceCanvas?.enabled === true;
+  const visibleProjection = workspaceCanvas?.projection;
+  const taskId = navigation?.taskId;
+  useLayoutEffect(() => {
+    if (!workspace || !taskId || !getWriteContext()) return;
+    const local = shared ? undefined : workspace.local;
+    const sharedSource = shared && visibleProjection ? getSharedSource() : null;
+    const projection = sharedSource?.projection ?? null;
+    const generation = sharedSource?.generation ?? local?.generation;
+    if (generation === undefined) return;
+    for (const entry of drafts.current.values()) {
+      if (entry.scope !== scope || entry.navigationKey !== navigationKey) continue;
+      const { blockRef } = entry;
+      const markdown = local
+        ? (blockRef ? local.blocks.get(blockRef) : local.task)?.promptMarkdown
+        : blockRef
+          ? sharedBlockPromptMarkdown(projection, workspace, blockRef)
+          : sharedTaskPromptMarkdown(projection, workspace, taskId);
+      if (markdown != null) entry.draft.acceptSource(scope, generation, markdown);
+    }
+  }, [
+    getSharedSource,
+    getWriteContext,
+    navigationKey,
+    scope,
+    shared,
+    taskId,
+    visibleProjection,
+    workspace
+  ]);
+  return { confirmProjection, getProjection, getSharedSource, getPromptDraft, getWriteContext };
 }

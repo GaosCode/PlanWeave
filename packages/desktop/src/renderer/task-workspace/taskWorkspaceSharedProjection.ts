@@ -2,7 +2,7 @@ import type { TaskWorkspace } from "@planweave-ai/runtime";
 import type { CollaborationCanvasBindingReplicaProjection } from "../../shared/canvasReplicaIpc";
 
 function matchesWorkspace(
-  workspace: TaskWorkspace,
+  workspace: Pick<TaskWorkspace, "project">,
   projection: CollaborationCanvasBindingReplicaProjection
 ): boolean {
   if ("authority" in workspace.project) {
@@ -22,7 +22,7 @@ function matchesWorkspace(
 
 export function sharedTaskPromptMarkdown(
   projection: CollaborationCanvasBindingReplicaProjection | null,
-  workspace: TaskWorkspace,
+  workspace: Pick<TaskWorkspace, "project">,
   taskId: string
 ): string | null {
   if (!projection || !matchesWorkspace(workspace, projection)) {
@@ -33,7 +33,7 @@ export function sharedTaskPromptMarkdown(
 
 export function sharedBlockPromptMarkdown(
   projection: CollaborationCanvasBindingReplicaProjection | null,
-  workspace: TaskWorkspace,
+  workspace: Pick<TaskWorkspace, "project">,
   blockRef: string
 ): string | null {
   if (!projection || !matchesWorkspace(workspace, projection)) {

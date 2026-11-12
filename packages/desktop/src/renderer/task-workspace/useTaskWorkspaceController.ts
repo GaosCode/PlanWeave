@@ -34,15 +34,14 @@ import { changeAgentEndpointSelection } from "../collaboration/changeAgentEndpoi
 import type { AppViewHistoryController } from "../hooks/useAppViewHistory";
 import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasCommands";
 import { useRunnerRecordMonitor } from "../hooks/useRunnerRecordMonitor";
-import {
-  isWorkspaceTaskWorkspaceNavigation,
-  taskWorkspaceNavigationTargetSchema,
-  type TaskWorkspaceNavigationIdentity,
-  type TaskWorkspaceNavigationTarget
-} from "../taskWorkspaceNavigation";
+import { isWorkspaceTaskWorkspaceNavigation } from "../taskWorkspaceNavigation";
 import type { TaskWorkspaceController, TaskWorkspaceLiveStatus } from "./contracts";
 import { projectSharedTaskWorkspace } from "./taskWorkspaceSharedProjection";
 import { useTaskWorkspaceExecutorActions } from "./useTaskWorkspaceExecutorActions";
+import {
+  projectLocalTaskWorkspaceHeader,
+  type TaskWorkspacePromptWorkspace
+} from "./taskWorkspaceHeaderProjection";
 import type { TaskWorkspacePromptAuthority } from "./useTaskWorkspacePromptDrafts";
 import { useTaskWorkspacePromptActions } from "./useTaskWorkspacePromptActions";
 import {
@@ -52,17 +51,16 @@ import {
 import { useTaskWorkspaceRunFreshness } from "./useTaskWorkspaceRunFreshness";
 import { useTaskWorkspaceConversationSource } from "./useTaskWorkspaceConversationSource";
 import {
-  agentFamilyFromExecutorName,
   diskSelectedRecordId,
   isRemoteLiveRecordId,
   remoteLiveRecordId,
-  withRemoteLiveTimelineRuns,
-  type RemoteLiveAgentHint
+  withRemoteLiveTimelineRuns
 } from "./remoteLiveRun";
 import {
   findTaskWorkspaceRun,
   initialTaskWorkspaceRun,
-  preferredRemoteLiveSelection,
+  localTaskWorkspaceSelectionAfterLoad,
+  navigationTargetWithSelection,
   taskWorkspaceAuthorityKey
 } from "./taskWorkspaceRunSelection";
 
@@ -91,6 +89,7 @@ type WorkspaceLoad = {
   taskRequiredCapabilities: string[];
   status: "idle" | "loading" | "ready" | "error";
   workspace: TaskWorkspace | null;
+  promptWorkspace?: TaskWorkspacePromptWorkspace;
 };
 
 const idleWorkspaceLoad: WorkspaceLoad = {
@@ -104,30 +103,6 @@ const idleWorkspaceLoad: WorkspaceLoad = {
 };
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function navigationTargetWithSelection(
-  navigation: TaskWorkspaceNavigationIdentity,
-  selection: { blockRef?: string; recordId?: string }
-): TaskWorkspaceNavigationTarget {
-  return taskWorkspaceNavigationTargetSchema.parse(
-    isWorkspaceTaskWorkspaceNavigation(navigation)
-      ? {
-          authority: "workspace",
-          connectionProfileId: navigation.connectionProfileId,
-          workspaceId: navigation.workspaceId,
-          projectId: navigation.projectId,
-          canvasId: navigation.canvasId,
-          taskId: navigation.taskId,
-          ...selection
-        }
-      : {
-          projectRoot: navigation.projectRoot,
-          canvasId: navigation.canvasId,
-          taskId: navigation.taskId,
-          ...selection
-        }
-  );
 }
 
 export function useTaskWorkspaceController(options: {
@@ -191,6 +166,8 @@ export function useTaskWorkspaceController(options: {
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
   const [loadMoreRunsError, setLoadMoreRunsError] = useState<string | null>(null);
   const workspaceRequest = useRef(0);
+  const promptSourceGeneration = useRef(0);
+  const nextLocalSourceGeneration = useCallback(() => ++promptSourceGeneration.current, []);
   const overviewSelectedRef = useRef(false);
   const runItemsRef = useRef<TaskWorkspaceRunListItem[]>([]);
   const nextCursorRef = useRef<TaskWorkspaceRunsCursor | null>(null);
@@ -320,7 +297,8 @@ export function useTaskWorkspaceController(options: {
             requiredCapabilitiesByBlockRef: loaded.requiredCapabilitiesByBlockRef,
             taskRequiredCapabilities: loaded.taskRequiredCapabilities,
             status: "ready",
-            workspace: loaded.workspace
+            workspace: loaded.workspace,
+            promptWorkspace: { project: loaded.workspace.project }
           });
         })
         .catch((error: unknown) => {
@@ -346,6 +324,7 @@ export function useTaskWorkspaceController(options: {
       projectRoot: requestedNavigation.projectRoot,
       canvasId: requestedNavigation.canvasId
     };
+    const promptGeneration = nextLocalSourceGeneration();
     void Promise.all([
       api.getTaskWorkspace({
         ...canvasRef,
@@ -402,11 +381,20 @@ export function useTaskWorkspaceController(options: {
         }
         const selectedHint =
           diskSelectedRecordId(currentNavigation.recordId) ?? header.selectedRecordId;
-        const pageItems: TaskWorkspaceRunListItem[] = runsPage.items.map((item) => ({
-          ...item,
-          selected: selectedHint !== null && item.run.record.recordId === selectedHint
-        }));
-        const pageIds = new Set(pageItems.map((item) => item.run.record.recordId));
+        const {
+          workspace,
+          pageItems,
+          pageIds,
+          promptWorkspace,
+          requiredCapabilitiesByBlockRef,
+          taskRequiredCapabilities
+        } = projectLocalTaskWorkspaceHeader({
+          header,
+          graphTask,
+          items: runsPage.items,
+          selectedRecordId: selectedHint,
+          promptGeneration
+        });
         if (
           runFreshness.shouldRefreshSelectedOffPage({
             authorityKey: key,
@@ -418,28 +406,6 @@ export function useTaskWorkspaceController(options: {
         ) {
           setDetailVersion((current) => current + 1);
         }
-        const composed = composeTaskWorkspaceRuns(
-          {
-            ...header,
-            activeRecordIds: header.activeRecordIds.filter((recordId) => pageIds.has(recordId))
-          },
-          pageItems
-        );
-        const agentHints = new Map<string, RemoteLiveAgentHint>();
-        for (const block of composed.blocks) {
-          const graphBlock = graphTask.blocks.find((candidate) => candidate.ref === block.ref);
-          const executorName =
-            block.executor ??
-            graphBlock?.executor ??
-            composed.task.executor ??
-            graphTask.executorLabel ??
-            null;
-          agentHints.set(block.ref, {
-            executorName,
-            agentId: agentFamilyFromExecutorName(executorName)
-          });
-        }
-        const workspace = withRemoteLiveTimelineRuns(composed, agentHints);
         runItemsRef.current = pageItems;
         runFreshness.replace(pageItems);
         nextCursorRef.current = runsPage.nextCursor;
@@ -447,68 +413,15 @@ export function useTaskWorkspaceController(options: {
         setLoadMoreRunsError(null);
         setLoadingMoreRuns(false);
         loadingMoreRef.current = false;
-        const selected = initialTaskWorkspaceRun(workspace, currentNavigation);
-        const liveSelection = preferredRemoteLiveSelection(workspace, currentNavigation.blockRef);
-        // Prefer the live remote attempt over a stale historical record while remote is active.
-        if (
-          liveSelection &&
-          !overviewSelectedRef.current &&
-          currentNavigation.recordId !== liveSelection.recordId
-        ) {
-          history.replaceTaskWorkspaceTarget(
-            taskWorkspaceNavigationTargetSchema.parse({
-              projectRoot: currentNavigation.projectRoot,
-              canvasId: currentNavigation.canvasId,
-              taskId: currentNavigation.taskId,
-              blockRef: liveSelection.blockRef,
-              recordId: liveSelection.recordId
-            })
-          );
-        } else if (
-          isRemoteLiveRecordId(currentNavigation.recordId) &&
-          !liveSelection &&
-          !overviewSelectedRef.current
-        ) {
-          // Remote finished: leave the synthetic id so reload does not hit disk index.
-          const blockRef = currentNavigation.blockRef;
-          const block = blockRef
-            ? workspace.blocks.find((candidate) => candidate.ref === blockRef)
-            : null;
-          const latestReal = block?.runs
-            .filter((item) => !isRemoteLiveRecordId(item.run.record.recordId))
-            .at(-1);
-          history.replaceTaskWorkspaceTarget(
-            taskWorkspaceNavigationTargetSchema.parse({
-              projectRoot: currentNavigation.projectRoot,
-              canvasId: currentNavigation.canvasId,
-              taskId: currentNavigation.taskId,
-              blockRef: latestReal?.run.record.ref ?? blockRef ?? undefined,
-              recordId: latestReal?.run.record.recordId ?? undefined
-            })
-          );
-        } else if (!currentNavigation.recordId && selected && !overviewSelectedRef.current) {
-          // Missing selection on the first page is OK when navigating to an older record;
-          // getTaskWorkspaceRunDetail validates ownership when the record is selected.
-          history.replaceTaskWorkspaceTarget(
-            taskWorkspaceNavigationTargetSchema.parse({
-              projectRoot: currentNavigation.projectRoot,
-              canvasId: currentNavigation.canvasId,
-              taskId: currentNavigation.taskId,
-              blockRef: selected.block.ref,
-              recordId: selected.item.run.record.recordId
-            })
-          );
-        }
-        const requiredCapabilitiesByBlockRef = Object.fromEntries(
-          graphTask.blocks.map((block) => [block.ref, [...block.requiredCapabilities]])
+        const selection = localTaskWorkspaceSelectionAfterLoad(
+          workspace,
+          currentNavigation,
+          overviewSelectedRef.current
         );
-        const taskRequiredCapabilities = [
-          ...new Set(
-            graphTask.blocks
-              .filter((block) => block.executor === null)
-              .flatMap((block) => block.requiredCapabilities)
-          )
-        ];
+        if (selection)
+          history.replaceTaskWorkspaceTarget(
+            navigationTargetWithSelection(currentNavigation, selection)
+          );
         setWorkspaceLoad({
           error: null,
           key,
@@ -516,7 +429,8 @@ export function useTaskWorkspaceController(options: {
           requiredCapabilitiesByBlockRef,
           taskRequiredCapabilities,
           status: "ready",
-          workspace
+          workspace,
+          promptWorkspace
         });
       })
       .catch((error: unknown) => {
@@ -541,6 +455,7 @@ export function useTaskWorkspaceController(options: {
     collaborationApi,
     history.replaceTaskWorkspaceTarget,
     key,
+    nextLocalSourceGeneration,
     refreshVersion,
     runFreshness.replace,
     runFreshness.shouldRefreshSelectedOffPage,
@@ -927,12 +842,18 @@ export function useTaskWorkspaceController(options: {
     }
   }, [api, key, localNavigation, runFreshness.append]);
 
+  const promptWorkspace = workspaceLoad.key === key ? workspaceLoad.promptWorkspace : null;
   const { getPromptDraft, saveBlockPrompt, saveTaskPrompt } = useTaskWorkspacePromptActions({
     authority: options.promptAuthority,
     api,
     navigation,
+    nextLocalSourceGeneration,
     onLocalSaved: refresh,
-    workspace,
+    workspace:
+      promptWorkspace &&
+      promptWorkspace.project.projectId === options.promptAuthority.canvasLocator?.projectId
+        ? promptWorkspace
+        : null,
     workspaceCanvas
   });
 

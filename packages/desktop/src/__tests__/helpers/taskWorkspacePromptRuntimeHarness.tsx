@@ -127,6 +127,10 @@ export async function runtimePromptHarness(
     kind === "task"
       ? (await getTaskDetail(workspace, "T-001")).promptMarkdown
       : (await getBlockDetail(workspace, "T-001#B-001")).promptMarkdown;
+  const writeSource = (markdown: string) =>
+    kind === "task"
+      ? updateTaskPrompt(workspace, "T-001", markdown)
+      : updateBlockPrompt(workspace, "T-001#B-001", markdown);
   return {
     ...original,
     api,
@@ -134,9 +138,12 @@ export async function runtimePromptHarness(
     pending,
     writes,
     initialMarkdown,
+    writeSource,
+    get controller() {
+      return current;
+    },
     async externalWrite(markdown: string) {
-      if (kind === "task") await updateTaskPrompt(workspace, "T-001", markdown);
-      else await updateBlockPrompt(workspace, "T-001#B-001", markdown);
+      expect(await writeSource(markdown)).toMatchObject({ ok: true });
       act(() => current.refresh());
       await waitFor(() =>
         expect(

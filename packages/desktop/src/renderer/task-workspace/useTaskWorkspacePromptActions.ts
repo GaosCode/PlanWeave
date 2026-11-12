@@ -3,7 +3,8 @@ import {
   useTaskWorkspacePromptDrafts,
   type TaskWorkspacePromptAuthority
 } from "./useTaskWorkspacePromptDrafts";
-import type { DesktopBridgeApi, TaskWorkspace } from "@planweave-ai/runtime";
+import type { TaskWorkspacePromptWorkspace } from "./taskWorkspaceHeaderProjection";
+import type { DesktopBridgeApi } from "@planweave-ai/runtime";
 import { runDurablePackageWrite } from "../collaboration/packageWriteAdapter";
 import type { WorkspaceCanvasCommandsResult } from "../hooks/useWorkspaceCanvasCommands";
 import {
@@ -32,14 +33,23 @@ export function useTaskWorkspacePromptActions(options: {
   api: TaskWorkspacePromptApi | null | undefined;
   authority: TaskWorkspacePromptAuthority;
   navigation: TaskWorkspaceNavigationIdentity | null;
+  nextLocalSourceGeneration?: () => number;
   onLocalSaved: () => void;
-  workspace: TaskWorkspace | null;
+  workspace: TaskWorkspacePromptWorkspace | null;
   workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
 }): Pick<TaskWorkspaceController, "saveBlockPrompt" | "saveTaskPrompt" | "getPromptDraft"> {
-  const { api, navigation, onLocalSaved, workspace, workspaceCanvas = null } = options;
+  const {
+    api,
+    navigation,
+    nextLocalSourceGeneration,
+    onLocalSaved,
+    workspace,
+    workspaceCanvas = null
+  } = options;
   const {
     confirmProjection,
     getProjection,
+    getSharedSource,
     getPromptDraft: getOwnedDraft,
     getWriteContext
   } = useTaskWorkspacePromptDrafts({
@@ -222,30 +232,48 @@ export function useTaskWorkspacePromptActions(options: {
 
   const getPromptDraft = useCallback<TaskWorkspaceController["getPromptDraft"]>(
     (blockRef, markdown, writer) =>
-      getOwnedDraft(blockRef, markdown, writer, async () => {
+      getOwnedDraft(blockRef, markdown, writer, () => {
         const context = getWriteContext();
         if (!context || !navigation || !workspace) return null;
         if (context.workspaceCanvas?.enabled) {
-          const projection = getProjection();
+          const sharedSource = getSharedSource();
+          if (!sharedSource) throw new Error("The shared prompt authority is unavailable.");
+          const { projection, generation } = sharedSource;
           const source = blockRef
             ? sharedBlockPromptMarkdown(projection, workspace, blockRef)
             : sharedTaskPromptMarkdown(projection, workspace, navigation.taskId);
           if (source === null) throw new Error("The shared prompt authority is unavailable.");
-          return source;
+          return { generation, markdown: source };
         }
-        if (!api || !localCanvasRef) throw new Error("The local prompt source is unavailable.");
+        if (!api || !localCanvasRef || !nextLocalSourceGeneration)
+          throw new Error("The local prompt source is unavailable.");
+        const generation = nextLocalSourceGeneration();
         const detail = blockRef
-          ? await api.getBlockDetail(localCanvasRef, blockRef)
-          : await api.getTaskDetail(localCanvasRef, navigation.taskId);
-        if (!getWriteContext()) return null;
-        if (
-          detail.taskId !== navigation.taskId ||
-          (blockRef && !("ref" in detail && detail.ref === blockRef))
-        )
-          throw new Error("The loaded prompt source does not match this Task Workspace.");
-        return detail.promptMarkdown;
+          ? api.getBlockDetail(localCanvasRef, blockRef)
+          : api.getTaskDetail(localCanvasRef, navigation.taskId);
+        return {
+          generation,
+          markdown: detail.then((source) => {
+            if (!getWriteContext()) return null;
+            if (
+              source.taskId !== navigation.taskId ||
+              (blockRef && !("ref" in source && source.ref === blockRef))
+            )
+              throw new Error("The loaded prompt source does not match this Task Workspace.");
+            return source.promptMarkdown;
+          })
+        };
       }),
-    [api, getOwnedDraft, getProjection, getWriteContext, localCanvasRef, navigation, workspace]
+    [
+      api,
+      getOwnedDraft,
+      getSharedSource,
+      getWriteContext,
+      localCanvasRef,
+      navigation,
+      nextLocalSourceGeneration,
+      workspace
+    ]
   );
   return { getPromptDraft, saveBlockPrompt, saveTaskPrompt };
 }
