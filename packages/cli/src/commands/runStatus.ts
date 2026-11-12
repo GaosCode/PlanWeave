@@ -7,9 +7,11 @@ import {
   readRunnerRecordReadModelForArtifact,
   tailAutoRunEvents,
   workspaceExecutionEventSchema,
+  type AcpRunnerRecordFollowReader,
   type AutoRunEventTailItem,
   type RunnerRecordReadModel,
-  type PackageWorkspaceRef
+  type PackageWorkspaceRef,
+  type TerminalOutcome
 } from "@planweave-ai/runtime";
 import {
   addCanvasOption,
@@ -66,15 +68,28 @@ function printTailItem(item: AutoRunEventTailItem, asJson: boolean): void {
   console.log(formatAutoRunEventTailItem(item));
 }
 
+type RunnerFollowResult = TerminalOutcome["state"] | "interrupted";
+
+const runnerFollowExitCodes = {
+  succeeded: 0,
+  failed: 1,
+  cancelled: 130,
+  interrupted: 130
+} as const satisfies Record<RunnerFollowResult, number>;
+
 async function followLatestRunnerRecord(
-  metadataPath: string,
+  target: { identity: string; read: AcpRunnerRecordFollowReader },
   asJson: boolean,
   signal: AbortSignal
-): Promise<void> {
+): Promise<RunnerFollowResult> {
   const deduplicator = new RunnerFollowDeduplicator();
   while (!signal.aborted) {
-    const model = await readRunnerRecordReadModelForArtifact(metadataPath);
-    if (!model) return;
+    const snapshot = await target.read().catch((error: unknown) => {
+      if (signal.aborted) return null;
+      throw error;
+    });
+    if (!snapshot || signal.aborted) return "interrupted";
+    const { model, finished } = snapshot;
     const fresh = deduplicator.take(model);
     for (const event of fresh.events) {
       console.log(
@@ -98,9 +113,17 @@ async function followLatestRunnerRecord(
           : `runner_interaction persisted=${interaction.persisted} active=${interaction.active} stale=${interaction.stale}`
       );
     }
-    if (model.terminal) return;
+    if (model.terminal || finished) {
+      const terminalEvents = model.events.filter((event) => event.body.kind === "terminal");
+      const [terminal] = terminalEvents;
+      if (terminalEvents.length !== 1 || terminal?.body.kind !== "terminal") {
+        throw new Error(`ACP runner record '${target.identity}' has no unique terminal outcome.`);
+      }
+      return terminal.body.outcome.state;
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+  return "interrupted";
 }
 
 export class RunnerFollowDeduplicator {
@@ -133,7 +156,11 @@ export class RunnerFollowDeduplicator {
 }
 
 type FollowSelection =
-  | { kind: "runner_record"; metadataPath: string; timestamp: number; identity: string }
+  | {
+      kind: "runner_record";
+      timestamp: number;
+      identity: string;
+    }
   | { kind: "desktop_run"; runId: string; timestamp: number; identity: string }
   | null;
 
@@ -166,7 +193,6 @@ export function selectRunStatusFollowTarget(
     exactPath && exactRun?.runnerKind === "acp"
       ? {
           kind: "runner_record" as const,
-          metadataPath: exactPath,
           timestamp: timestamp(exactRun.finishedAt ?? exactRun.startedAt),
           identity: status.explanation.latestRecordId ?? exactPath
         }
@@ -196,6 +222,10 @@ export function registerRunStatusCommand(program: Command): void {
       .option(
         "--follow",
         "after the status snapshot, stream Auto Run events until terminal state or Ctrl-C"
+      )
+      .addHelpText(
+        "after",
+        "\nLocal ACP --follow exits with 0 for success, 1 for failure or timeout, and 130 for cancellation or Ctrl-C."
       )
       .option("--session <sessionId>", "show or follow one persisted Workspace execution session")
       .option("--event-format <format>", "remote event format: legacy or execution-v1")
@@ -267,7 +297,15 @@ export function registerRunStatusCommand(program: Command): void {
         }
         return;
       }
-      const status = await getAutoRunStatus({ projectRoot: workspace });
+      let readSelectedAcpRecord: AcpRunnerRecordFollowReader | undefined;
+      const status = await getAutoRunStatus({
+        projectRoot: workspace,
+        ...(options.follow && {
+          onSelectedAcpRecord: (read) => {
+            readSelectedAcpRecord = read;
+          }
+        })
+      });
       if (options.json) {
         console.log(JSON.stringify(status, null, 2));
       } else {
@@ -285,15 +323,19 @@ export function registerRunStatusCommand(program: Command): void {
       const latest = await getLatestAutoRunSummary(rootPath, canvasId);
       const followTarget = selectRunStatusFollowTarget(status, latest);
       if (followTarget?.kind === "runner_record") {
+        if (!readSelectedAcpRecord) {
+          throw new Error(`Selected ACP runner record '${followTarget.identity}' is unavailable.`);
+        }
         const abort = new AbortController();
         const onSigInt = (): void => abort.abort();
         process.on("SIGINT", onSigInt);
         try {
-          await followLatestRunnerRecord(
-            followTarget.metadataPath,
+          const result = await followLatestRunnerRecord(
+            { identity: followTarget.identity, read: readSelectedAcpRecord },
             options.json === true,
             abort.signal
           );
+          process.exitCode = runnerFollowExitCodes[result];
         } finally {
           process.off("SIGINT", onSigInt);
         }

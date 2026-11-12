@@ -116,7 +116,7 @@ function splitRunnerEventStream(content: string): {
   };
 }
 
-function sameCanonicalIdentity(
+export function sameCanonicalIdentity(
   left: CanonicalRunnerEventIdentity,
   right: CanonicalRunnerEventIdentity
 ): boolean {

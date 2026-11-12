@@ -69,9 +69,7 @@ export type ManagedTestCommandOptions = {
   graceMs?: number;
 };
 
-export async function runManagedTestCommand(
-  options: ManagedTestCommandOptions
-): Promise<{ stdout: string; stderr: string }> {
+export function startManagedTestCommand(options: ManagedTestCommandOptions) {
   const hardTimeoutMs = resolveCliHardTimeoutMs(options.hardTimeoutMs);
   const managed = spawnManagedProcess({
     command: options.command,
@@ -93,48 +91,48 @@ export async function runManagedTestCommand(
   });
   child.stdin.end();
 
-  const completion = new Promise<
-    | { kind: "close"; code: number | null; signal: NodeJS.Signals | null }
-    | { kind: "error"; error: Error }
-  >((resolveCompletion) => {
-    child.once("error", (error) => resolveCompletion({ kind: "error", error }));
-    child.once("close", (code, signal) => resolveCompletion({ kind: "close", code, signal }));
-  });
-  let timeout: NodeJS.Timeout | undefined;
-  let cleanupAttempted = false;
+  const completion = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+    (resolveCompletion, reject) => {
+      child.once("error", reject);
+      child.once("close", (code, signal) => resolveCompletion({ code, signal }));
+    }
+  );
+  const completed = (async () => {
+    let timeout: NodeJS.Timeout | undefined;
+    let cleanupAttempted = false;
+    try {
+      const outcome = await Promise.race([
+        completion,
+        new Promise<"timeout">((resolveTimeout) => {
+          timeout = setTimeout(() => resolveTimeout("timeout"), hardTimeoutMs);
+        })
+      ]);
+      if (outcome === "timeout") {
+        cleanupAttempted = true;
+        return terminateTimedOutCliProcess({ tree, hardTimeoutMs, stdout, stderr });
+      }
+      return { ...outcome, stdout, stderr };
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (!cleanupAttempted && tree.isAlive()) {
+        await tree.terminate("CLI test harness cleanup");
+      }
+    }
+  })();
+  return { child, tree, completed, stdout: () => stdout };
+}
 
-  try {
-    const outcome = await Promise.race([
-      completion,
-      new Promise<{ kind: "timeout" }>((resolveTimeout) => {
-        timeout = setTimeout(() => resolveTimeout({ kind: "timeout" }), hardTimeoutMs);
-      })
-    ]);
-
-    if (outcome.kind === "timeout") {
-      cleanupAttempted = true;
-      return terminateTimedOutCliProcess({ tree, hardTimeoutMs, stdout, stderr });
-    }
-    if (outcome.kind === "error") {
-      throw outcome.error;
-    }
-    if (outcome.code !== 0) {
-      throw Object.assign(
-        new Error(
-          `PlanWeave CLI exited with code ${String(outcome.code)}${outcome.signal ? ` (${outcome.signal})` : ""}.`
-        ),
-        { code: outcome.code, stdout, stderr }
-      );
-    }
-    return { stdout, stderr };
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-    if (!cleanupAttempted && tree.isAlive()) {
-      await tree.terminate("CLI test harness cleanup");
-    }
+export async function runManagedTestCommand(
+  options: ManagedTestCommandOptions
+): Promise<{ stdout: string; stderr: string }> {
+  const { code, signal, stdout, stderr } = await startManagedTestCommand(options).completed;
+  if (code !== 0) {
+    throw Object.assign(
+      new Error(`PlanWeave CLI exited with code ${String(code)}${signal ? ` (${signal})` : ""}.`),
+      { code, stdout, stderr }
+    );
   }
+  return { stdout, stderr };
 }
 
 export async function runCli(

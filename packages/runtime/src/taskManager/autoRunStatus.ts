@@ -1,5 +1,9 @@
 import { join } from "node:path";
 import { finalArtifactRelativePath } from "../autoRun/finalArtifactContract.js";
+import {
+  createAcpRunnerRecordFollowReader,
+  type AcpRunnerRecordFollowReader
+} from "../autoRun/runnerRecordReadModel.js";
 import { optionalReadFile, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { compileTaskGraph, parseBlockRef } from "../graph/compileTaskGraph.js";
 import { readJsonFile } from "../json.js";
@@ -445,6 +449,7 @@ async function latestFeedbackRunSummary(options: {
   resultsDir: string;
   state: RuntimeState;
   currentFeedbackId: string | null;
+  acpMetadata?: Map<string, Record<string, unknown>>;
 }): Promise<AutoRunLatestRunSummary | null> {
   const runRoot = join(options.resultsDir, "feedback-runs");
   const runId = await latestRunId(runRoot);
@@ -475,6 +480,7 @@ async function latestFeedbackRunSummary(options: {
   const metadataFailureReason = stringField(metadata.failureReason);
   const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
   const identity = runnerIdentity(metadata);
+  if (identity.runnerKind === "acp") options.acpMetadata?.set(metadataPath, metadata);
   return {
     kind: "feedback",
     ref: feedbackId ?? "feedback",
@@ -516,6 +522,7 @@ export async function getAutoRunStatus(options: {
   projectRoot: PackageWorkspaceRef;
   session?: ExecutionGraphSession;
   executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
+  onSelectedAcpRecord?: (read: AcpRunnerRecordFollowReader) => void;
 }): Promise<AutoRunStatus> {
   const { manifest, workspace } =
     options.executionSnapshot ?? (await loadPackage(options.projectRoot));
@@ -527,6 +534,9 @@ export async function getAutoRunStatus(options: {
   });
   const state = await readState(workspace.stateFile);
   const latestRuns: AutoRunLatestRunSummary[] = [];
+  const acpMetadata = options.onSelectedAcpRecord
+    ? new Map<string, Record<string, unknown>>()
+    : undefined;
 
   for (const block of executionStatus.blocks) {
     const runRoot = join(workspace.resultsDir, block.taskId, "blocks", block.blockId, "runs");
@@ -545,6 +555,7 @@ export async function getAutoRunStatus(options: {
     const metadataFailureReason = stringField(metadata.failureReason);
     const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
     const identity = runnerIdentity(metadata);
+    if (identity.runnerKind === "acp") acpMetadata?.set(metadataPath, metadata);
     latestRuns.push({
       kind: "block",
       ref: block.ref,
@@ -578,7 +589,8 @@ export async function getAutoRunStatus(options: {
   const feedbackRun = await latestFeedbackRunSummary({
     resultsDir: workspace.resultsDir,
     state,
-    currentFeedbackId: executionStatus.currentFeedbackId
+    currentFeedbackId: executionStatus.currentFeedbackId,
+    acpMetadata
   });
   if (feedbackRun) {
     latestRuns.push(feedbackRun);
@@ -588,6 +600,12 @@ export async function getAutoRunStatus(options: {
     executionStatus.currentRefs,
     executionStatus.currentFeedbackId
   );
+  const selectedMetadata = latestRun && acpMetadata?.get(latestRun.metadataPath);
+  if (latestRun && selectedMetadata) {
+    options.onSelectedAcpRecord?.(
+      createAcpRunnerRecordFollowReader({ run: latestRun, metadata: selectedMetadata })
+    );
+  }
   const currentRef =
     executionStatus.currentRefs[0] ??
     executionStatus.currentFeedbackId ??

@@ -23,7 +23,6 @@
         "commandsRunOutput.test.ts",
         "commandsSchemaHelp.test.ts",
         "recoverAcpRunCommand.test.ts",
-        "runStatusFollow.test.ts",
         "workspaceExecutionPermission.test.ts"
       ],
       "integration": [
@@ -58,6 +57,7 @@
         "runIndexCli.test.ts",
         "runInteractionEventStream.test.ts",
         "runSessionCli.test.ts",
+        "runStatusFollow.test.ts",
         "runStatusObservability.test.ts",
         "skillContract.test.ts",
         "sourceImportCasing.test.ts",

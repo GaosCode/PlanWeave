@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import type {
+  AutoRunLatestBlockRunSummary,
+  AutoRunLatestFeedbackRunSummary,
+  AutoRunLatestRunSummary
+} from "../types.js";
 import { acpConversationTurns } from "./acpConversationTurn.js";
 import type { AcpConversationTurnAdmission } from "./acpConversationTurnContract.js";
 import { activeAgentRunRegistry } from "./activeAgentRunRegistry.js";
@@ -14,6 +19,8 @@ import { projectPersistedRetentionDiagnostics } from "./acpEventRetentionPolicy.
 import { redactRunnerEventText } from "./runnerEventRedaction.js";
 import {
   replayNormalizedRunnerEvents,
+  sameCanonicalIdentity,
+  type CanonicalRunnerEventIdentity,
   type RunnerEventCursor,
   type RunnerEventReplayDiagnostic
 } from "./runnerEventReplay.js";
@@ -27,6 +34,7 @@ import {
   projectIdSchema,
   runnerRequestActionIdentitySchema,
   runnerRunIdSchema,
+  runnerRunIdentitySchema,
   runnerSessionActionIdentitySchema,
   runSessionIdSchema,
   taskIdSchema
@@ -907,9 +915,109 @@ export async function readRunnerRecordReadModelForArtifact(
 ): Promise<RunnerRecordReadModel | null> {
   if (!artifactPath) return null;
   const runDir = dirname(artifactPath);
-  const metadata = JSON.parse(await readFile(join(runDir, "metadata.json"), "utf8")) as unknown;
+  return readRunnerRecordReadModel({ runDir, metadata: await readRunnerArtifactMetadata(runDir) });
+}
+
+async function readRunnerArtifactMetadata(runDir: string): Promise<Record<string, unknown>> {
+  const path = join(runDir, "metadata.json");
+  const metadata = JSON.parse(await readFile(path, "utf8")) as unknown;
   if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
-    throw new Error(`Runner metadata at '${join(runDir, "metadata.json")}' must be an object.`);
+    throw new Error(`Runner metadata at '${path}' must be an object.`);
   }
-  return readRunnerRecordReadModel({ runDir, metadata: metadata as Record<string, unknown> });
+  return metadata as Record<string, unknown>;
+}
+
+export type AcpRunnerRecordFollowReader = () => Promise<{
+  model: RunnerRecordReadModel;
+  finished: boolean;
+}>;
+
+type AcpRunSelection = Pick<
+  AutoRunLatestRunSummary,
+  "metadataPath" | "runId" | "ref" | "taskId" | "agentId"
+> &
+  (
+    | Pick<AutoRunLatestBlockRunSummary, "kind" | "blockId">
+    | Pick<AutoRunLatestFeedbackRunSummary, "kind" | "sourceReviewBlockRef" | "feedbackId">
+  );
+
+const selectedRunnerIdentityKeys = [
+  ...Object.keys(runnerRunIdentitySchema.shape),
+  "runnerKind",
+  "agentId",
+  "feedbackId",
+  "sourceReviewBlockRef"
+];
+
+function conflictingRunnerIdentity(
+  expected: Record<string, unknown>,
+  actual: Record<string, unknown>
+): boolean {
+  return selectedRunnerIdentityKeys.some(
+    (key) =>
+      expected[key] !== undefined && actual[key] !== undefined && expected[key] !== actual[key]
+  );
+}
+
+export function createAcpRunnerRecordFollowReader(options: {
+  run: AcpRunSelection;
+  metadata: Record<string, unknown>;
+}): AcpRunnerRecordFollowReader {
+  const { run } = options;
+  const runDir = dirname(run.metadataPath);
+  const recordIdentity = {
+    taskId: run.taskId ?? undefined,
+    claimRef: run.kind === "block" ? run.ref : (run.sourceReviewBlockRef ?? undefined),
+    runId: run.runId,
+    runnerKind: "acp",
+    agentId: run.agentId ?? undefined,
+    ...(run.kind === "feedback"
+      ? {
+          feedbackId: run.feedbackId ?? undefined,
+          sourceReviewBlockRef: run.sourceReviewBlockRef ?? undefined
+        }
+      : { blockId: run.blockId })
+  };
+  const recordId = `${run.ref}::${run.runId}`;
+  const identityError = () =>
+    new Error(`Runner event identity does not match selected ACP record '${recordId}'.`);
+  let initial: SelectedRecordIdentity | undefined;
+  let confirmed: CanonicalRunnerEventIdentity | null = null;
+  return async () => {
+    initial ??= selectedRecordIdentity(options.metadata);
+    const selectedAtStart = initial;
+    const metadata = await readRunnerArtifactMetadata(runDir);
+    const selected = selectedRecordIdentity(metadata);
+    if (
+      conflictingRunnerIdentity(recordIdentity, selectedAtStart) ||
+      conflictingRunnerIdentity(recordIdentity, selected) ||
+      selectedRunnerIdentityKeys.some(
+        (key) => selectedAtStart[key] !== undefined && selectedAtStart[key] !== selected[key]
+      )
+    ) {
+      throw identityError();
+    }
+    const model = await readRunnerRecordReadModel({ runDir, metadata });
+    if (!model) throw new Error(`Selected ACP runner record '${recordId}' is unavailable.`);
+    const mismatch = model.diagnostics.find((item) => item.code === "identity_mismatch");
+    if (mismatch) throw new Error(mismatch.message);
+    const canonical = model.cursor.canonicalIdentity;
+    if (canonical) {
+      const eventIdentity = { ...canonical.identity, ...canonical.runner };
+      if (
+        conflictingRunnerIdentity(recordIdentity, eventIdentity) ||
+        conflictingRunnerIdentity(selected, eventIdentity) ||
+        (confirmed && !sameCanonicalIdentity(confirmed, canonical))
+      ) {
+        throw identityError();
+      }
+      confirmed ??= canonical;
+    }
+    return {
+      model,
+      finished:
+        (selected.status !== undefined && selected.status !== "running") ||
+        (typeof selected.finishedAt === "string" && selected.finishedAt.length > 0)
+    };
+  };
 }
