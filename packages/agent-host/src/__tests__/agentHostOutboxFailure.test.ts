@@ -6,6 +6,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { outboxFailureHarness } from "./support/agentHostOutboxFailureHarness.js";
+import { seedReceiptHistory } from "./support/agentHostTerminalCompactionFixture.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -15,10 +16,14 @@ afterEach(async () => {
 
 describe("Agent Host durable outbox failures", () => {
   it("replays unacknowledged text chunks after a real WebSocket disconnect with stable identities", async () => {
+    const observedSql: string[] = [];
     const f = await outboxFailureHarness(cleanups, {
       serverMaxPayloadBytes: 64 * 1024,
-      limits: { maxOutboundBatch: 1 }
+      limits: { maxOutboundBatch: 1 },
+      observeSql: (sql) => observedSql.push(sql)
     });
+    seedReceiptHistory(f.database, new Date().toISOString());
+    f.setAcknowledgedMailboxSequence(f.state.lastAcknowledgedSequence());
     f.setAutoAck(false);
     const content = "\u0000😀".repeat(10000);
     f.state.conversations.append(f.command.turnId, {
@@ -37,6 +42,7 @@ describe("Agent Host durable outbox failures", () => {
     expect(original.length).toBeGreaterThan(1);
     await vi.waitFor(() => expect(f.received).toHaveLength(1));
     const acknowledged = f.received[0]!;
+    observedSql.length = 0;
     f.peer().send(
       JSON.stringify({
         type: "host.event_ack",
@@ -48,6 +54,11 @@ describe("Agent Host durable outbox failures", () => {
     expect(f.state.pendingEvents().map((event) => event.messageId)).not.toContain(
       acknowledged.messageId
     );
+    expect(
+      observedSql.filter((sql) =>
+        /agent_host_(terminal_execution_receipts|compacted_mailbox_receipts)/.test(sql)
+      )
+    ).toEqual([]);
     f.peer().terminate();
     await vi.waitFor(() => expect(f.client.status().state).toBe("backing-off"));
     f.setAutoAck(true);

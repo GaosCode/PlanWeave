@@ -26,6 +26,12 @@ export type AgentHostResumption = {
   sessionId: string;
 };
 
+export type AgentHostMailboxReceipt = {
+  stored: boolean;
+  acknowledgement: HostEvent;
+  terminalReplay?: true;
+};
+
 export type AgentHostStateLimits = {
   readonly maxPendingCommands: number;
   readonly maxPendingEvents: number;
@@ -52,7 +58,7 @@ export interface AgentHostStateRepository {
   close(): void;
   subscribeOutboxReady(listener: () => void): () => void;
   // deadlineNow uses the same clock domain as persisted interaction action deadlines.
-  receive(input: ServerEvent, deadlineNow?: Date): { stored: boolean; acknowledgement: HostEvent };
+  receive(input: ServerEvent, deadlineNow?: Date): AgentHostMailboxReceipt;
   lastAcknowledgedSequence(): number;
   lastReceivedSequence(): number;
   mailboxAcknowledgementRecoverySequence(): number;

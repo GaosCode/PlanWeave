@@ -5,8 +5,19 @@ import { parseHistoricalAgentHostMailboxCommand } from "../protocol.js";
 import { historicalMailboxCommandSchema } from "@planweave-ai/agent-host-protocol";
 import { storedCanvasRuntimeCommandIdentitySchema } from "./storedCanvasRuntimeCommandIdentity.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
+import {
+  acknowledgedReplayAckSql,
+  acknowledgedTerminalExecutionSql,
+  inboxAttemptIdSql,
+  inboxDispatchIdSql,
+  initializeTerminalMaintenanceIndexes,
+  outboxAttemptIdSql,
+  outboxDispatchIdSql,
+  outboxMailboxSequenceSql,
+  outboxOriginalMailboxAckSql
+} from "./agentHostTerminalMaintenanceSchema.js";
 
-const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 13;
+const CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION = 14;
 const PRE_REMOTE_RUNNER_EVENT_PROTOCOL_SCHEMA_VERSION = 8;
 const PRE_RESET_RESULT_SCHEMA_VERSION = 7;
 const PRE_RESET_OPERATION_SCHEMA_VERSION = 6;
@@ -164,6 +175,25 @@ CREATE TABLE IF NOT EXISTS agent_host_compacted_mailbox_receipts (
   compacted_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS agent_host_terminal_retirement (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  inbox_sequence INTEGER NOT NULL REFERENCES agent_host_executions(inbox_sequence),
+  compacted_at TEXT NOT NULL,
+  retained_mailbox INTEGER NOT NULL DEFAULT 0 CHECK(retained_mailbox>=0)
+);
+
+CREATE TABLE IF NOT EXISTS agent_host_pending_mailbox_acks (
+  outbox_sequence INTEGER PRIMARY KEY,
+  mailbox_sequence INTEGER NOT NULL,
+  dispatch_id TEXT,
+  execution_attempt_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS agent_host_receipt_counts (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  mailbox_count INTEGER NOT NULL CHECK(mailbox_count>=0)
+);
+
 CREATE TABLE IF NOT EXISTS canvas_runtime_rpc_receipts (
   request_id TEXT PRIMARY KEY,
   inbox_sequence INTEGER NOT NULL UNIQUE,
@@ -218,6 +248,8 @@ CREATE INDEX IF NOT EXISTS idx_agent_host_execution_transitions
   ON agent_host_execution_transitions(inbox_sequence,sequence);
 CREATE INDEX IF NOT EXISTS idx_agent_host_execution_actions
   ON agent_host_execution_actions(inbox_sequence,sequence);
+CREATE INDEX IF NOT EXISTS idx_agent_host_execution_actions_unsettled
+  ON agent_host_execution_actions(inbox_sequence) WHERE settled_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_host_execution_artifacts
   ON agent_host_execution_artifacts(inbox_sequence,sequence);
 CREATE INDEX IF NOT EXISTS idx_agent_host_remote_execution_identity
@@ -228,6 +260,39 @@ CREATE INDEX IF NOT EXISTS idx_agent_host_compacted_mailbox_receipts_age
   ON agent_host_compacted_mailbox_receipts(compacted_at,sequence);
 CREATE INDEX IF NOT EXISTS idx_agent_host_compacted_mailbox_receipts_identity
   ON agent_host_compacted_mailbox_receipts(dispatch_id,execution_attempt_id,command_type);
+CREATE INDEX IF NOT EXISTS idx_agent_host_compacted_mailbox_attempt_sequence
+  ON agent_host_compacted_mailbox_receipts(dispatch_id,execution_attempt_id,sequence);
+CREATE INDEX IF NOT EXISTS idx_agent_host_pending_mailbox_ack_attempt
+  ON agent_host_pending_mailbox_acks(dispatch_id,execution_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_agent_host_pending_mailbox_ack_sequence
+  ON agent_host_pending_mailbox_acks(mailbox_sequence);
+CREATE INDEX IF NOT EXISTS idx_agent_host_terminal_event_message
+  ON agent_host_executions(terminal_event_message_id) WHERE terminal_event_message_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_host_terminal_maintenance
+  ON agent_host_executions(terminal_acknowledged_at,inbox_sequence)
+  WHERE ${acknowledgedTerminalExecutionSql};
+CREATE INDEX IF NOT EXISTS idx_agent_host_inbox_attempt
+  ON agent_host_inbox(${inboxDispatchIdSql},${inboxAttemptIdSql},sequence);
+CREATE INDEX IF NOT EXISTS idx_agent_host_inbox_attempt_unacknowledged
+  ON agent_host_inbox(${inboxDispatchIdSql},${inboxAttemptIdSql})
+  WHERE acknowledged_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_host_inbox_attempt_unprocessed
+  ON agent_host_inbox(${inboxDispatchIdSql},${inboxAttemptIdSql},sequence)
+  WHERE processed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_host_outbox_attempt
+  ON agent_host_outbox(${outboxDispatchIdSql},${outboxAttemptIdSql},acknowledged_at,sequence);
+CREATE INDEX IF NOT EXISTS idx_agent_host_outbox_original_mailbox_ack
+  ON agent_host_outbox(${outboxMailboxSequenceSql},acknowledged_at,sequence)
+  WHERE ${outboxOriginalMailboxAckSql};
+CREATE INDEX IF NOT EXISTS idx_agent_host_acknowledged_replay_ack
+  ON agent_host_outbox(sequence) WHERE ${acknowledgedReplayAckSql};
+CREATE INDEX IF NOT EXISTS idx_agent_host_remote_execution_attempt
+  ON agent_host_remote_execution_outbox(dispatch_id,execution_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_agent_host_cancellation_attempt
+  ON agent_host_execution_cancellation_history(dispatch_id,execution_attempt_id);
+CREATE INDEX IF NOT EXISTS idx_agent_host_execution_authentication_action
+  ON agent_host_execution_actions(inbox_sequence,action_id)
+  WHERE action_kind='authentication' AND settled_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_canvas_runtime_rpc_receipts_status
   ON canvas_runtime_rpc_receipts(status,received_at);
 CREATE INDEX IF NOT EXISTS idx_canvas_runtime_leases_scope
@@ -551,11 +616,27 @@ const versionTwelveRequiredTables: Readonly<Record<string, RequiredTableShape>> 
   )
 };
 
-const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+const versionThirteenRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
   ...versionTwelveRequiredTables,
   agent_host_execution_cancellation_history: {
     columns: ["inbox_sequence", "dispatch_id", "lease_id", "execution_attempt_id", "intent_json"],
     uniqueKeys: [["dispatch_id", "lease_id", "execution_attempt_id"]]
+  }
+};
+
+const currentRequiredTables: Readonly<Record<string, RequiredTableShape>> = {
+  ...versionThirteenRequiredTables,
+  agent_host_terminal_retirement: {
+    columns: ["singleton", "inbox_sequence", "compacted_at", "retained_mailbox"],
+    uniqueKeys: [["singleton"]]
+  },
+  agent_host_pending_mailbox_acks: {
+    columns: ["outbox_sequence", "mailbox_sequence", "dispatch_id", "execution_attempt_id"],
+    uniqueKeys: [["outbox_sequence"]]
+  },
+  agent_host_receipt_counts: {
+    columns: ["singleton", "mailbox_count"],
+    uniqueKeys: [["singleton"]]
   }
 };
 
@@ -902,6 +983,9 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     const priorVersion = storedSchemaVersion(database);
     if (priorVersion === CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
       assertCurrentSchemaComplete(database);
+    } else if (priorVersion === 13) {
+      assertRequiredTablesAndVersion(database, versionThirteenRequiredTables, 13);
+      assertCheckpointIntegrity(database);
     } else if (priorVersion === 12) {
       assertRequiredTablesAndVersion(database, versionTwelveRequiredTables, 12);
     } else if (priorVersion === 11) {
@@ -973,9 +1057,13 @@ export function initializeAgentHostStateSchema(database: SqliteDatabase): void {
     backfillCommandDigests(database);
     migratePrototypeExecutions(database);
     initializeMailboxCheckpoint(database);
-    if (priorVersion !== CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION) {
+    if (priorVersion !== CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION && priorVersion !== 13) {
       migrateAgentHostProtocolArchives(database);
     }
+    initializeTerminalMaintenanceIndexes(
+      database,
+      priorVersion !== CURRENT_AGENT_HOST_STATE_SCHEMA_VERSION
+    );
     database
       .prepare(
         `INSERT INTO agent_host_state_schema(singleton,version,migrated_at) VALUES(1,?,?)

@@ -326,7 +326,7 @@ it("reconnects and accepts current work after confirming and compacting an origi
     await connection.client.start();
     await vi.waitFor(() => expect(connection.client.status().state).toBe("connected"));
     expect(state.lastAcknowledgedSequence()).toBe(queued.sequence);
-    expect(state.executionEvidence(queued.sequence)).toBeUndefined();
+    await vi.waitFor(() => expect(state.executionEvidence(queued.sequence)).toBeUndefined());
     expect(
       database
         .prepare(

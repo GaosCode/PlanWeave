@@ -637,8 +637,8 @@ export class AgentHostClient implements HostTransport {
         this.options.state.receive(event, this.serverClock.now());
         this.pump();
         return;
-      case "mailbox.message":
-        this.options.state.receive(event, this.serverClock.now());
+      case "mailbox.message": {
+        const receipt = this.options.state.receive(event, this.serverClock.now());
         if (
           event.command.type === "acp_conversation.prompt" ||
           event.command.type === "acp_conversation.cancel" ||
@@ -663,7 +663,7 @@ export class AgentHostClient implements HostTransport {
             this.failCanvasRuntimePersistence();
           });
         }
-        {
+        if (!receipt.terminalReplay) {
           const cancelled = this.options.interactionRelay?.accept(event.command);
           if (cancelled) {
             for (const active of this.active.values()) {
@@ -681,6 +681,7 @@ export class AgentHostClient implements HostTransport {
         this.outbox.request();
         this.pump();
         return;
+      }
       case "host.event_ack":
         this.options.state.acknowledgeEvent(event.messageId);
         this.outbox.acknowledge(event.messageId);

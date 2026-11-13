@@ -5,7 +5,7 @@ import {
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
 import { AgentHostTerminalCompactionRepository } from "../state/agentHostTerminalCompaction.js";
 import { openAgentHostDatabase } from "../state/sqliteDatabase.js";
@@ -138,7 +138,7 @@ async function verifyAuditRetention(
   expected: Array<{ leaseId: string; intent: unknown }>
 ) {
   for (const event of state.pendingEvents()) state.acknowledgeEvent(event.messageId);
-  expect(state.executionEvidence(1)).toBeUndefined();
+  await vi.waitFor(() => expect(state.executionEvidence(1)).toBeUndefined());
   expect(state.pendingExecutions(1)).toEqual([]);
   expect(state.receive({ ...exampleExecuteDelivery, command }).stored).toBe(false);
   state.close();

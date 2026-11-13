@@ -1,14 +1,18 @@
 import { z } from "zod";
-import { normalizedAcpEventBatchSchema } from "@planweave-ai/agent-host-protocol";
+import { type ServerEvent, type HistoricalMailboxCommand } from "../protocol.js";
 import {
-  parseHistoricalAgentHostEvent,
-  parseHistoricalAgentHostMailboxCommand,
-  type ServerEvent,
-  type HistoricalMailboxCommand
-} from "../protocol.js";
-import { digestJson } from "./agentHostStateMigrations.js";
-import { AgentHostCancellationRepository } from "./agentHostCancellationRepository.js";
-import { toExecutionEvidence } from "./agentHostStateRecords.js";
+  acknowledgedReplayAckSql,
+  acknowledgedTerminalExecutionSql,
+  inboxAttemptIdSql,
+  inboxDispatchIdSql
+} from "./agentHostTerminalMaintenanceSchema.js";
+import {
+  AgentHostTerminalRetirementRepository,
+  candidateSchema,
+  commandIdentity,
+  inboxIdentitySql,
+  outboxIdentitySql
+} from "./agentHostTerminalRetirement.js";
 import { inWriteTransaction, type SqliteDatabase } from "./sqliteDatabase.js";
 
 type MailboxMessage = Pick<
@@ -34,33 +38,15 @@ export const DEFAULT_AGENT_HOST_TERMINAL_COMPACTION_POLICY: AgentHostTerminalCom
   mailboxReceiptPruneBatchSize: 256
 };
 
-const candidateSchema = z.object({
-  inbox_sequence: z.number().int().positive(),
-  dispatch_id: z.string().min(1),
-  lease_id: z.string().min(1),
-  execution_attempt_id: z.string().min(1),
-  protocol_version: z.number().int().positive(),
-  envelope_digest: z.string().min(1),
-  envelope_version: z.number().int().positive(),
-  workspace_id: z.string().min(1),
-  agent_profile_id: z.string().min(1),
-  source_revision: z.string().min(1),
-  status: z.enum(["completed", "failed", "cancelled"]),
-  terminal_kind: z.enum(["completed", "failed", "cancelled"]),
-  terminal_payload_digest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-  terminal_event_message_id: z.string().min(1),
-  terminal_acknowledged_at: z.string().datetime()
-});
+export const TERMINAL_MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
-const inboxRowSchema = z.object({
-  sequence: z.number().int().positive(),
-  previous_sequence: z.number().int().nonnegative(),
-  message_id: z.string().min(1),
-  command_json: z.string(),
-  command_digest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-  acknowledged_at: z.string().datetime().nullable(),
-  processed_at: z.string().datetime().nullable()
-});
+export type TerminalCompactionCursor = { acknowledgedAt: string; sequence: number };
+type TerminalCompactionBatch = {
+  compacted: number;
+  prunedReceipts: number;
+  needsPruning: boolean;
+  nextCandidate?: TerminalCompactionCursor;
+};
 
 const receiptRowSchema = z.object({
   dispatch_id: z.string().min(1),
@@ -93,88 +79,193 @@ function parsePolicy(
   return policy;
 }
 
-function commandIdentity(
-  command: ReturnType<typeof parseHistoricalAgentHostMailboxCommand>
-): { dispatchId: string; executionAttemptId: string } | undefined {
-  return "dispatchId" in command && "executionAttemptId" in command
-    ? {
-        dispatchId: command.dispatchId,
-        executionAttemptId: command.executionAttemptId
-      }
-    : undefined;
-}
-
 export class AgentHostTerminalCompactionRepository {
   private readonly policy: AgentHostTerminalCompactionPolicy;
+  private readonly retirement: AgentHostTerminalRetirementRepository;
 
   constructor(
     private readonly database: SqliteDatabase,
     policy: Partial<AgentHostTerminalCompactionPolicy> = {}
   ) {
     this.policy = parsePolicy(policy);
+    this.retirement = new AgentHostTerminalRetirementRepository(database);
   }
 
-  compact(now = new Date()): { compacted: number; prunedReceipts: number } {
-    return inWriteTransaction(this.database, () => this.compactInCurrentTransaction(now));
+  compact(now = new Date(), after?: TerminalCompactionCursor): TerminalCompactionBatch {
+    return inWriteTransaction(this.database, () => {
+      const active = this.retirement.active();
+      const pruning = this.pruneReceipts(now, active?.inbox_sequence);
+      if (pruning.needsPruning && !active) {
+        return { compacted: 0, ...pruning, nextCandidate: after };
+      }
+      const candidates = active
+        ? [
+            this.database
+              .prepare(`SELECT * FROM agent_host_executions WHERE inbox_sequence=?`)
+              .get(active.inbox_sequence)
+          ]
+        : this.terminalCandidates(after);
+      let nextCandidate = after;
+      let visited = 0;
+      const rowBudget = Math.min(64, this.policy.mailboxReceiptPruneBatchSize);
+      for (const row of candidates.slice(0, this.policy.compactionBatchSize)) {
+        const candidate = candidateSchema.parse(row);
+        const cursor = {
+          acknowledgedAt: candidate.terminal_acknowledged_at,
+          sequence: candidate.inbox_sequence
+        };
+        const attempt = [candidate.dispatch_id, candidate.execution_attempt_id] as const;
+        visited += 1;
+        if (active || this.hasNoPendingDependencies(candidate.inbox_sequence, ...attempt)) {
+          const compactedAt = active?.compacted_at ?? now.toISOString();
+          if (!active) this.retirement.start(candidate, compactedAt);
+          const result = this.retirement.advance(
+            candidate,
+            compactedAt,
+            rowBudget,
+            active?.retained_mailbox ?? 0,
+            this.policy.maxMailboxReceipts
+          );
+          return {
+            compacted: result.complete ? 1 : 0,
+            prunedReceipts: pruning.prunedReceipts + result.prunedReceipts,
+            needsPruning: true,
+            nextCandidate: result.complete ? cursor : nextCandidate
+          };
+        }
+        nextCandidate = cursor;
+      }
+      return {
+        compacted: 0,
+        ...pruning,
+        ...(candidates.length > visited ? { nextCandidate } : {})
+      };
+    });
   }
 
-  compactInCurrentTransaction(now = new Date()): {
-    compacted: number;
-    prunedReceipts: number;
-  } {
-    const candidates = this.database
+  private terminalCandidates(after?: TerminalCompactionCursor) {
+    const query = `SELECT inbox_sequence,dispatch_id,lease_id,execution_attempt_id,protocol_version,
+                          envelope_digest,envelope_version,workspace_id,agent_profile_id,
+                          source_revision,status,terminal_kind,terminal_payload_digest,
+                          terminal_event_message_id,terminal_acknowledged_at
+                   FROM agent_host_executions INDEXED BY idx_agent_host_terminal_maintenance
+                   WHERE ${acknowledgedTerminalExecutionSql}`;
+    const order = "ORDER BY terminal_acknowledged_at,inbox_sequence LIMIT ?";
+    const limit = this.policy.compactionBatchSize + 1;
+    if (!after) return this.database.prepare(`${query} ${order}`).all(limit);
+    const tied = this.database
+      .prepare(`${query} AND terminal_acknowledged_at=? AND inbox_sequence>? ${order}`)
+      .all(after.acknowledgedAt, after.sequence, limit);
+    if (tied.length === limit) return tied;
+    const later = this.database
+      .prepare(`${query} AND terminal_acknowledged_at>? ${order}`)
+      .all(after.acknowledgedAt, limit - tied.length);
+    return tied.concat(later);
+  }
+
+  nextReceiptExpiryMs(): number | undefined {
+    const terminal = this.database
       .prepare(
-        `SELECT e.inbox_sequence,e.dispatch_id,e.lease_id,e.execution_attempt_id,e.protocol_version,
-                e.envelope_digest,e.envelope_version,e.workspace_id,e.agent_profile_id,
-                e.source_revision,e.status,e.terminal_kind,e.terminal_payload_digest,
-                e.terminal_event_message_id,e.terminal_acknowledged_at
-         FROM agent_host_executions e
-         WHERE e.status IN ('completed','failed','cancelled')
-           AND e.terminal_acknowledged_at IS NOT NULL
-           AND NOT EXISTS(
-             SELECT 1 FROM agent_host_execution_actions a
-             WHERE a.inbox_sequence=e.inbox_sequence AND a.settled_at IS NULL
-           )
-           AND NOT EXISTS(
-             SELECT 1 FROM agent_host_inbox i
-             WHERE (
-               i.sequence=e.inbox_sequence OR (
-                 json_extract(i.command_json,'$.dispatchId')=e.dispatch_id AND
-                 json_extract(i.command_json,'$.executionAttemptId')=e.execution_attempt_id
-               )
-             ) AND (
-               i.acknowledged_at IS NULL OR
-               (i.sequence<>e.inbox_sequence AND i.processed_at IS NULL)
-             )
-           )
-           AND NOT EXISTS(
-             SELECT 1 FROM agent_host_outbox o
-             WHERE o.acknowledged_at IS NULL AND (
-               (
-                 json_extract(o.event_json,'$.dispatchId')=e.dispatch_id AND
-                 json_extract(o.event_json,'$.executionAttemptId')=e.execution_attempt_id
-               ) OR (
-                 json_extract(o.event_json,'$.type')='mailbox.ack' AND
-                 json_extract(o.event_json,'$.sequence') IN (
-                   SELECT i.sequence FROM agent_host_inbox i
-                   WHERE i.sequence=e.inbox_sequence OR (
-                     json_extract(i.command_json,'$.dispatchId')=e.dispatch_id AND
-                     json_extract(i.command_json,'$.executionAttemptId')=e.execution_attempt_id
-                   )
-                 )
-               )
-             )
-           )
-         ORDER BY e.terminal_acknowledged_at,e.inbox_sequence
-         LIMIT ?`
+        `SELECT compacted_at FROM agent_host_terminal_execution_receipts
+         ORDER BY compacted_at,inbox_sequence LIMIT 1`
       )
-      .all(this.policy.compactionBatchSize)
-      .map((row) => candidateSchema.parse(row));
-    let compacted = 0;
-    for (const candidate of candidates) {
-      if (this.compactCandidate(candidate, now.toISOString())) compacted += 1;
-    }
-    return { compacted, prunedReceipts: this.pruneReceipts(now) };
+      .get();
+    const mailbox = this.database
+      .prepare(
+        `SELECT compacted_at FROM agent_host_compacted_mailbox_receipts
+         ORDER BY compacted_at,sequence LIMIT 1`
+      )
+      .get();
+    const oldest = Math.min(
+      terminal
+        ? z.string().datetime().transform(Date.parse).parse(terminal.compacted_at)
+        : Infinity,
+      mailbox ? z.string().datetime().transform(Date.parse).parse(mailbox.compacted_at) : Infinity
+    );
+    return Number.isFinite(oldest)
+      ? oldest + this.policy.maxReceiptAgeDays * TERMINAL_MAINTENANCE_INTERVAL_MS + 1
+      : undefined;
+  }
+
+  hasAcknowledgedTerminalAttempt(dispatchId: string, executionAttemptId: string): boolean {
+    return this.acknowledgedTerminalAttempt(dispatchId, executionAttemptId) !== undefined;
+  }
+
+  hasAcknowledgedTerminalForMailbox(sequence: number): boolean {
+    const row = this.database
+      .prepare(
+        `SELECT ${inboxDispatchIdSql} AS dispatchId,${inboxAttemptIdSql} AS attemptId
+         FROM agent_host_inbox WHERE sequence=?`
+      )
+      .get(sequence);
+    return (
+      typeof row?.dispatchId === "string" &&
+      typeof row.attemptId === "string" &&
+      this.hasAcknowledgedTerminalAttempt(row.dispatchId, row.attemptId)
+    );
+  }
+
+  isRetiringAttempt(dispatchId: string, executionAttemptId: string): boolean {
+    const attempt = this.acknowledgedTerminalAttempt(dispatchId, executionAttemptId);
+    return attempt !== undefined && this.retirement.includes(Number(attempt.inbox_sequence));
+  }
+
+  isRetiringSequence(sequence: number): boolean {
+    return this.retirement.includes(sequence);
+  }
+
+  isReadyToCompact(dispatchId: string, executionAttemptId: string): boolean {
+    const attempt = this.acknowledgedTerminalAttempt(dispatchId, executionAttemptId);
+    return (
+      attempt !== undefined &&
+      (this.retirement.includes(Number(attempt.inbox_sequence)) ||
+        this.hasNoPendingDependencies(
+          Number(attempt.inbox_sequence),
+          dispatchId,
+          executionAttemptId
+        ))
+    );
+  }
+
+  private acknowledgedTerminalAttempt(dispatchId: string, executionAttemptId: string) {
+    return this.database
+      .prepare(
+        `SELECT inbox_sequence FROM agent_host_executions
+         WHERE dispatch_id=? AND execution_attempt_id=? AND ${acknowledgedTerminalExecutionSql}`
+      )
+      .get(dispatchId, executionAttemptId);
+  }
+
+  private hasNoPendingDependencies(
+    sequence: number,
+    dispatchId: string,
+    executionAttemptId: string
+  ): boolean {
+    const attempt = [dispatchId, executionAttemptId] as const;
+    return !this.database
+      .prepare(
+        `SELECT 1 WHERE
+         EXISTS(
+           SELECT 1 FROM agent_host_execution_actions
+           WHERE inbox_sequence=? AND settled_at IS NULL
+         ) OR EXISTS(
+           SELECT 1 FROM agent_host_inbox WHERE sequence=? AND acknowledged_at IS NULL
+         ) OR EXISTS(
+           SELECT 1 FROM agent_host_inbox INDEXED BY idx_agent_host_inbox_attempt_unacknowledged
+           WHERE ${inboxIdentitySql} AND acknowledged_at IS NULL
+         ) OR EXISTS(
+           SELECT 1 FROM agent_host_inbox INDEXED BY idx_agent_host_inbox_attempt_unprocessed
+           WHERE ${inboxIdentitySql} AND processed_at IS NULL AND sequence<>?
+         ) OR EXISTS(
+           SELECT 1 FROM agent_host_outbox INDEXED BY idx_agent_host_outbox_attempt
+           WHERE ${outboxIdentitySql} AND acknowledged_at IS NULL
+         ) OR EXISTS(
+           SELECT 1 FROM agent_host_pending_mailbox_acks WHERE mailbox_sequence=?
+         ) OR EXISTS(
+           SELECT 1 FROM agent_host_pending_mailbox_acks WHERE dispatch_id=? AND execution_attempt_id=?
+         )`
+      )
+      .get(sequence, sequence, ...attempt, ...attempt, sequence, ...attempt, sequence, ...attempt);
   }
 
   inspectMailboxReplay(event: MailboxMessage, commandDigest: string): "new" | "compacted" {
@@ -217,6 +308,20 @@ export class AgentHostTerminalCompactionRepository {
       throw new Error("mailbox_message_retention_horizon_exceeded");
     }
     if (!identity) return "new";
+    const pending = this.acknowledgedTerminalAttempt(
+      identity.dispatchId,
+      identity.executionAttemptId
+    );
+    if (pending && this.isReadyToCompact(identity.dispatchId, identity.executionAttemptId)) {
+      const primary = this.database
+        .prepare("SELECT command_digest FROM agent_host_inbox WHERE sequence=?")
+        .get(Number(pending.inbox_sequence));
+      if (!primary) throw new Error("agent_host_terminal_compaction_inbox_missing");
+      if (event.command.type === "execute_block" && primary.command_digest !== commandDigest) {
+        throw new Error("execution_identity_conflict");
+      }
+      throw new Error("mailbox_message_conflict");
+    }
     const terminalReceiptRaw = this.database
       .prepare(
         `SELECT dispatch_id,execution_attempt_id,inbox_sequence,previous_sequence,message_id,
@@ -286,260 +391,135 @@ export class AgentHostTerminalCompactionRepository {
     return z.number().int().nonnegative().parse(row.acknowledged_high_water_sequence);
   }
 
-  private compactCandidate(
-    candidate: z.infer<typeof candidateSchema>,
-    compactedAt: string
-  ): boolean {
-    if (candidate.status !== candidate.terminal_kind) {
-      throw new Error("agent_host_terminal_compaction_evidence_invalid");
-    }
-    const inboxRows = this.database
-      .prepare(
-        `SELECT sequence,previous_sequence,message_id,command_json,command_digest,
-                acknowledged_at,processed_at
-         FROM agent_host_inbox
-         WHERE sequence=? OR (
-           json_extract(command_json,'$.dispatchId')=? AND
-           json_extract(command_json,'$.executionAttemptId')=?
-         ) ORDER BY sequence`
-      )
-      .all(candidate.inbox_sequence, candidate.dispatch_id, candidate.execution_attempt_id)
-      .map((row) => inboxRowSchema.parse(row));
-    const primary = inboxRows.find((row) => row.sequence === candidate.inbox_sequence);
-    if (!primary) throw new Error("agent_host_terminal_compaction_inbox_missing");
-    const primaryCommand = parseHistoricalAgentHostMailboxCommand(JSON.parse(primary.command_json));
-    if (
-      primaryCommand.type !== "execute_block" ||
-      primary.command_digest !== digestJson(primaryCommand) ||
-      primaryCommand.dispatchId !== candidate.dispatch_id ||
-      primaryCommand.executionAttemptId !== candidate.execution_attempt_id ||
-      primaryCommand.protocolVersion !== candidate.protocol_version ||
-      primaryCommand.envelopeDigest !== candidate.envelope_digest ||
-      primaryCommand.envelope.protocolVersion !== candidate.envelope_version ||
-      primaryCommand.envelope.workspaceId !== candidate.workspace_id ||
-      primaryCommand.envelope.agentProfileId !== candidate.agent_profile_id ||
-      primaryCommand.envelope.sourceRevision !== candidate.source_revision
-    ) {
-      throw new Error("agent_host_terminal_compaction_identity_invalid");
-    }
-    for (const row of inboxRows) {
-      const command = parseHistoricalAgentHostMailboxCommand(JSON.parse(row.command_json));
-      if (row.command_digest !== digestJson(command)) {
-        throw new Error("agent_host_terminal_compaction_command_digest_invalid");
-      }
-      const identity = commandIdentity(command);
-      if (
-        !identity ||
-        identity.dispatchId !== candidate.dispatch_id ||
-        identity.executionAttemptId !== candidate.execution_attempt_id
-      ) {
-        throw new Error("agent_host_terminal_compaction_dependency_identity_invalid");
-      }
-      if (!row.acknowledged_at || (row.sequence !== primary.sequence && !row.processed_at)) {
-        return false;
-      }
-    }
-    const unsettled = this.database
-      .prepare(
-        `SELECT 1 AS present FROM agent_host_execution_actions
-         WHERE inbox_sequence=? AND settled_at IS NULL LIMIT 1`
-      )
-      .get(candidate.inbox_sequence);
-    if (unsettled) return false;
-
-    const inboxSequences = inboxRows.map((row) => row.sequence);
-    const placeholders = inboxSequences.map(() => "?").join(",");
-    const outboxRows = this.database
-      .prepare(
-        `SELECT sequence,message_id,event_json,acknowledged_at FROM agent_host_outbox
-         WHERE (
-           json_extract(event_json,'$.dispatchId')=? AND
-           json_extract(event_json,'$.executionAttemptId')=?
-         ) OR (
-           json_extract(event_json,'$.type')='mailbox.ack' AND
-           json_extract(event_json,'$.sequence') IN (${placeholders})
-         ) ORDER BY sequence`
-      )
-      .all(candidate.dispatch_id, candidate.execution_attempt_id, ...inboxSequences);
-    let terminalEventFound = false;
-    for (const row of outboxRows) {
-      const input = JSON.parse(String(row.event_json)) as unknown;
-      if (
-        typeof input === "object" &&
-        input !== null &&
-        "type" in input &&
-        input.type === "acp.events" &&
-        (!("eventProtocolVersion" in input) || input.eventProtocolVersion === 1)
-      ) {
-        normalizedAcpEventBatchSchema.parse({
-          type: "acp.events",
-          dispatchId: "dispatchId" in input ? input.dispatchId : undefined,
-          leaseId: "leaseId" in input ? input.leaseId : undefined,
-          executionAttemptId: "executionAttemptId" in input ? input.executionAttemptId : undefined,
-          acpSessionId: "acpSessionId" in input ? input.acpSessionId : undefined,
-          afterCursor: "afterCursor" in input ? input.afterCursor : undefined,
-          cursor: "cursor" in input ? input.cursor : undefined,
-          events: "events" in input ? input.events : undefined
-        });
-        if (!row.acknowledged_at) return false;
-        if (String(row.message_id) === candidate.terminal_event_message_id) {
-          terminalEventFound = true;
-        }
-        continue;
-      }
-      const event = parseHistoricalAgentHostEvent(input);
-      if (!row.acknowledged_at) return false;
-      if (String(row.message_id) === candidate.terminal_event_message_id) {
-        terminalEventFound = true;
-      }
-      if (event.type === "mailbox.ack" && !inboxSequences.includes(event.sequence)) {
-        throw new Error("agent_host_terminal_compaction_outbox_identity_invalid");
-      }
-    }
-    if (!terminalEventFound)
-      throw new Error("agent_host_terminal_compaction_terminal_event_missing");
-
-    const execution = this.database
-      .prepare("SELECT * FROM agent_host_executions WHERE inbox_sequence=?")
-      .get(candidate.inbox_sequence);
-    if (!execution) throw new Error("execution_evidence_not_found");
-    new AgentHostCancellationRepository(this.database).archive(toExecutionEvidence(execution));
-
-    this.database
-      .prepare(
-        `INSERT INTO agent_host_terminal_execution_receipts(
-          dispatch_id,execution_attempt_id,inbox_sequence,previous_sequence,message_id,
-          command_digest,lease_id,protocol_version,envelope_digest,envelope_version,workspace_id,
-          agent_profile_id,source_revision,terminal_kind,terminal_payload_digest,
-          terminal_event_message_id,terminal_acknowledged_at,compacted_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      )
-      .run(
-        candidate.dispatch_id,
-        candidate.execution_attempt_id,
-        primary.sequence,
-        primary.previous_sequence,
-        primary.message_id,
-        primary.command_digest,
-        candidate.lease_id,
-        candidate.protocol_version,
-        candidate.envelope_digest,
-        candidate.envelope_version,
-        candidate.workspace_id,
-        candidate.agent_profile_id,
-        candidate.source_revision,
-        candidate.terminal_kind,
-        candidate.terminal_payload_digest,
-        candidate.terminal_event_message_id,
-        candidate.terminal_acknowledged_at,
-        compactedAt
-      );
-    for (const row of inboxRows) {
-      const command = parseHistoricalAgentHostMailboxCommand(JSON.parse(row.command_json));
-      const identity = commandIdentity(command);
-      if (!identity) throw new Error("agent_host_terminal_compaction_dependency_identity_invalid");
-      this.database
-        .prepare(
-          `INSERT INTO agent_host_compacted_mailbox_receipts(
-            sequence,previous_sequence,message_id,command_type,command_digest,
-            dispatch_id,execution_attempt_id,compacted_at
-          ) VALUES(?,?,?,?,?,?,?,?)`
-        )
-        .run(
-          row.sequence,
-          row.previous_sequence,
-          row.message_id,
-          command.type,
-          row.command_digest,
-          identity.dispatchId,
-          identity.executionAttemptId,
-          compactedAt
-        );
-    }
-    const outboxSequences = outboxRows.map((row) => Number(row.sequence));
-    if (outboxSequences.length > 0) {
-      this.database
-        .prepare(
-          `DELETE FROM agent_host_outbox WHERE sequence IN (${outboxSequences.map(() => "?").join(",")})`
-        )
-        .run(...outboxSequences);
-    }
-    this.database
-      .prepare(
-        `DELETE FROM agent_host_remote_execution_outbox
-         WHERE dispatch_id=? AND execution_attempt_id=?`
-      )
-      .run(candidate.dispatch_id, candidate.execution_attempt_id);
-    this.database
-      .prepare("DELETE FROM agent_host_execution_actions WHERE inbox_sequence=?")
-      .run(candidate.inbox_sequence);
-    this.database
-      .prepare("DELETE FROM agent_host_execution_artifacts WHERE inbox_sequence=?")
-      .run(candidate.inbox_sequence);
-    this.database
-      .prepare("DELETE FROM agent_host_execution_transitions WHERE inbox_sequence=?")
-      .run(candidate.inbox_sequence);
-    this.database
-      .prepare("DELETE FROM agent_host_executions WHERE inbox_sequence=?")
-      .run(candidate.inbox_sequence);
-    this.database
-      .prepare(`DELETE FROM agent_host_inbox WHERE sequence IN (${placeholders})`)
-      .run(...inboxSequences);
-    return true;
-  }
-
-  private pruneReceipts(now: Date): number {
+  private pruneReceipts(
+    now: Date,
+    retiringSequence?: number
+  ): { prunedReceipts: number; needsPruning: boolean } {
     const cutoff = new Date(
-      now.getTime() - this.policy.maxReceiptAgeDays * 24 * 60 * 60 * 1_000
+      now.getTime() - this.policy.maxReceiptAgeDays * TERMINAL_MAINTENANCE_INTERVAL_MS
     ).toISOString();
-    const rows = this.database
-      .prepare(
-        `SELECT dispatch_id,execution_attempt_id FROM agent_host_terminal_execution_receipts
-         WHERE compacted_at<?
-            OR inbox_sequence NOT IN (
-              SELECT inbox_sequence FROM agent_host_terminal_execution_receipts
-              ORDER BY compacted_at DESC,inbox_sequence DESC LIMIT ?
-            )
-         ORDER BY compacted_at,inbox_sequence LIMIT ?`
+    const rows = this.receiptPruneCandidates(
+      "terminal_execution",
+      cutoff,
+      this.policy.maxReceipts,
+      this.policy.receiptPruneBatchSize
+    );
+    let terminalPruned = 0;
+    let cascadeBudget = this.policy.mailboxReceiptPruneBatchSize;
+    for (const row of rows.slice(0, this.policy.receiptPruneBatchSize)) {
+      const attempt = [row.dispatch_id, row.execution_attempt_id] as const;
+      const cancellation = this.database
+        .prepare(
+          `DELETE FROM agent_host_execution_cancellation_history WHERE rowid IN (
+             SELECT rowid FROM agent_host_execution_cancellation_history INDEXED BY idx_agent_host_cancellation_attempt
+             WHERE dispatch_id=? AND execution_attempt_id=? LIMIT ?
+           )`
+        )
+        .run(...attempt, cascadeBudget);
+      cascadeBudget -= cancellation.changes;
+      const mailbox = this.database
+        .prepare(
+          `DELETE FROM agent_host_compacted_mailbox_receipts WHERE sequence IN (
+             SELECT sequence FROM agent_host_compacted_mailbox_receipts
+             INDEXED BY idx_agent_host_compacted_mailbox_attempt_sequence
+             WHERE dispatch_id=? AND execution_attempt_id=? ORDER BY sequence LIMIT ?
+           )`
+        )
+        .run(...attempt, cascadeBudget);
+      cascadeBudget -= mailbox.changes;
+      if (
+        cascadeBudget === 0 &&
+        this.database
+          .prepare(
+            `SELECT 1 WHERE EXISTS (
+             SELECT 1 FROM agent_host_execution_cancellation_history WHERE dispatch_id=? AND execution_attempt_id=?
+           ) OR EXISTS (
+             SELECT 1 FROM agent_host_compacted_mailbox_receipts WHERE dispatch_id=? AND execution_attempt_id=?
+           )`
+          )
+          .get(...attempt, ...attempt)
       )
-      .all(cutoff, this.policy.maxReceipts, this.policy.receiptPruneBatchSize);
-    for (const row of rows) {
+        break;
       this.database
         .prepare(
-          `DELETE FROM agent_host_execution_cancellation_history
-           WHERE dispatch_id=? AND execution_attempt_id=?`
+          `DELETE FROM agent_host_terminal_execution_receipts WHERE dispatch_id=? AND execution_attempt_id=?`
         )
-        .run(String(row.dispatch_id), String(row.execution_attempt_id));
-      this.database
-        .prepare(
-          `DELETE FROM agent_host_compacted_mailbox_receipts
-           WHERE dispatch_id=? AND execution_attempt_id=?`
-        )
-        .run(String(row.dispatch_id), String(row.execution_attempt_id));
-      this.database
-        .prepare(
-          `DELETE FROM agent_host_terminal_execution_receipts
-           WHERE dispatch_id=? AND execution_attempt_id=?`
-        )
-        .run(String(row.dispatch_id), String(row.execution_attempt_id));
+        .run(...attempt);
+      terminalPruned += 1;
+      if (cascadeBudget === 0) break;
     }
-    const terminalPruned = rows.length;
-    const mailboxRows = this.database
+    const mailboxRows =
+      retiringSequence === undefined
+        ? this.receiptPruneCandidates(
+            "compacted_mailbox",
+            cutoff,
+            this.policy.maxMailboxReceipts,
+            cascadeBudget
+          )
+        : [];
+    const mailboxPruned = Math.min(mailboxRows.length, cascadeBudget);
+    const deleteMailboxReceipt = this.database.prepare(
+      "DELETE FROM agent_host_compacted_mailbox_receipts WHERE sequence=?"
+    );
+    for (const row of mailboxRows.slice(0, mailboxPruned)) {
+      deleteMailboxReceipt.run(row.sequence);
+    }
+    const replayPruneBudget = cascadeBudget - mailboxPruned;
+    const replayAcks = this.database
       .prepare(
-        `SELECT sequence FROM agent_host_compacted_mailbox_receipts
-         WHERE compacted_at<?
-            OR sequence NOT IN (
-              SELECT sequence FROM agent_host_compacted_mailbox_receipts
-              ORDER BY compacted_at DESC,sequence DESC LIMIT ?
-            )
-         ORDER BY compacted_at,sequence LIMIT ?`
+        `SELECT sequence FROM agent_host_outbox INDEXED BY idx_agent_host_acknowledged_replay_ack
+         WHERE ${acknowledgedReplayAckSql} ORDER BY sequence LIMIT ?`
       )
-      .all(cutoff, this.policy.maxMailboxReceipts, this.policy.mailboxReceiptPruneBatchSize);
-    for (const row of mailboxRows) {
-      this.database
-        .prepare("DELETE FROM agent_host_compacted_mailbox_receipts WHERE sequence=?")
-        .run(Number(row.sequence));
-    }
-    return terminalPruned + mailboxRows.length;
+      .all(replayPruneBudget + 1);
+    const replayPruned = Math.min(replayAcks.length, replayPruneBudget);
+    const deleteReplayAck = this.database.prepare("DELETE FROM agent_host_outbox WHERE sequence=?");
+    for (const row of replayAcks.slice(0, replayPruned)) deleteReplayAck.run(row.sequence);
+    return {
+      prunedReceipts: terminalPruned + mailboxPruned,
+      needsPruning:
+        rows.length > terminalPruned ||
+        mailboxRows.length > mailboxPruned ||
+        replayAcks.length > replayPruned
+    };
+  }
+  private receiptPruneCandidates(
+    type: "terminal_execution" | "compacted_mailbox",
+    cutoff: string,
+    retained: number,
+    batchSize: number
+  ) {
+    const terminal = type === "terminal_execution";
+    const table = `agent_host_${type}_receipts`;
+    const sequence = terminal ? "inbox_sequence" : "sequence";
+    const fields = terminal ? "dispatch_id,execution_attempt_id" : sequence;
+    const order = `compacted_at,${sequence}`;
+    const index = terminal
+      ? "idx_agent_host_terminal_receipts_age"
+      : "idx_agent_host_compacted_mailbox_receipts_age";
+    const threshold = this.database
+      .prepare(
+        `SELECT compacted_at,${sequence} AS sequence FROM ${table} INDEXED BY ${index}
+         ORDER BY compacted_at DESC,${sequence} DESC LIMIT 1 OFFSET ?`
+      )
+      .get(retained - 1);
+    const thresholdAt =
+      typeof threshold?.compacted_at === "string" ? threshold.compacted_at : cutoff;
+    const upperTime = thresholdAt > cutoff ? thresholdAt : cutoff;
+    const limit = batchSize + 1;
+    const older = this.database
+      .prepare(
+        `SELECT ${fields} FROM ${table} INDEXED BY ${index}
+         WHERE compacted_at<? ORDER BY ${order} LIMIT ?`
+      )
+      .all(upperTime, limit);
+    if (older.length === limit || !threshold || thresholdAt < cutoff) return older;
+    const tied = this.database
+      .prepare(
+        `SELECT ${fields} FROM ${table} INDEXED BY ${index}
+         WHERE compacted_at=? AND ${sequence}<?
+         ORDER BY ${sequence} LIMIT ?`
+      )
+      .all(thresholdAt, threshold.sequence, limit - older.length);
+    return older.concat(tied);
   }
 }

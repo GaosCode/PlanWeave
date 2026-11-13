@@ -16,7 +16,7 @@ import {
 } from "@planweave-ai/agent-host-protocol";
 import { expect, vi } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
-import { openAgentHostState } from "../../state/agentHostState.js";
+import { AgentHostState, openAgentHostState } from "../../state/agentHostState.js";
 import { openAgentHostDatabase } from "../../state/sqliteDatabase.js";
 import type { RemoteAcpExecutor } from "../../execution/remoteAcpExecutor.js";
 import { RemoteAcpConversationService } from "../../execution/remoteAcpConversationService.js";
@@ -34,12 +34,15 @@ export async function outboxFailureHarness(
     conversationCapability?: boolean;
     connected?: boolean;
     converse?: RemoteAcpExecutor["converse"];
+    observeSql?: (sql: string) => void;
   } = {}
 ) {
   const directory = await mkdtemp(join(tmpdir(), "planweave-outbox-failure-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const path = join(directory, "host.sqlite");
-  const state = await openAgentHostState(path);
+  const state = options.observeSql
+    ? new AgentHostState(await observeHostDatabase(path, options.observeSql))
+    : await openAgentHostState(path);
   cleanups.push(() => state.close());
   const database = await openAgentHostDatabase(path, 5_000);
   cleanups.push(() => database.close());
@@ -84,6 +87,7 @@ export async function outboxFailureHarness(
   });
   cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
   const received: HostEvent[] = [];
+  let acknowledgedMailboxSequence = 0;
   let connections = 0;
   let hellos = 0;
   let peer: WebSocket | undefined;
@@ -101,7 +105,7 @@ export async function outboxFailureHarness(
             serverEventSchema.parse({
               type: "host.welcome",
               protocolVersion: agentHostProtocolVersion,
-              lastAcknowledgedSequence: 0,
+              lastAcknowledgedSequence: acknowledgedMailboxSequence,
               exactPermissionOptionsVersion: 1,
               serverTime: new Date().toISOString(),
               heartbeatIntervalMs: 60_000,
@@ -190,6 +194,9 @@ export async function outboxFailureHarness(
     setAutoAck: (value: boolean) => {
       autoAck = value;
     },
+    setAcknowledgedMailboxSequence: (sequence: number) => {
+      acknowledgedMailboxSequence = sequence;
+    },
     peer: () => {
       if (!peer) throw new Error("peer_not_connected");
       return peer;
@@ -205,5 +212,17 @@ export async function outboxFailureHarness(
           requestedSchema: { type: "object", description: "x".repeat(size) }
         }
       })
+  };
+}
+
+async function observeHostDatabase(path: string, observeSql: (sql: string) => void) {
+  const database = await openAgentHostDatabase(path, 5_000);
+  return {
+    exec: (sql: string) => database.exec(sql),
+    close: () => database.close(),
+    prepare(sql: string) {
+      observeSql(sql);
+      return database.prepare(sql);
+    }
   };
 }

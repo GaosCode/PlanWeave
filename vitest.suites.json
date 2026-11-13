@@ -1001,6 +1001,7 @@
         "agentHostHandoffProvenance.test.ts",
         "agentHostExecutionState.test.ts",
         "agentHostTerminalCompaction.test.ts",
+        "agentHostTerminalMaintenance.test.ts",
         "agentHostPortableSetup.test.ts",
         "agentHostRecovery.test.ts",
         "agentHostSessionCapabilities.test.ts",

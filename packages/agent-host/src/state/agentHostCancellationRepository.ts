@@ -107,7 +107,8 @@ export class AgentHostCancellationRepository {
       const rows = this.database
         .prepare(
           `SELECT lease_id,session_id,response_json,response_digest FROM agent_host_execution_actions
-         WHERE inbox_sequence=? AND action_id=? AND action_kind='authentication' AND settled_at IS NOT NULL`
+         WHERE inbox_sequence=? AND action_id=? AND action_kind='authentication' AND settled_at IS NOT NULL
+         LIMIT 2`
         )
         .all(evidence.sequence, intent.actionId);
       if (rows.length !== 1) throw new Error("execution_cancellation_action_not_found");

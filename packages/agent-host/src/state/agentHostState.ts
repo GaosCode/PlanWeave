@@ -31,6 +31,7 @@ import {
 } from "../protocol.js";
 import { AgentHostExecutionRepository } from "./agentHostExecutionRepository.js";
 import { digestJson, initializeAgentHostStateSchema } from "./agentHostStateMigrations.js";
+import { MAILBOX_REPLAY_ACK_KEY_PREFIX } from "./agentHostTerminalMaintenanceSchema.js";
 import {
   type AgentHostExecution,
   type AgentHostExecutionEvidence,
@@ -39,6 +40,7 @@ import {
 import {
   type AgentHostCancellation,
   type AgentHostExecutionSettlement,
+  type AgentHostMailboxReceipt,
   type AgentHostResumption,
   type AgentHostStateLimits,
   type AgentHostStateRepository,
@@ -55,6 +57,7 @@ import {
   type AgentHostInteractionIdentity
 } from "./agentHostInteractionSettlements.js";
 import { AgentHostTerminalCompactionRepository } from "./agentHostTerminalCompaction.js";
+import { AgentHostTerminalMaintenance } from "./agentHostTerminalMaintenance.js";
 import { AgentHostRemoteRecordRelay } from "./agentHostRemoteRecordRelay.js";
 import { CanvasRuntimeRpcRepository } from "./canvasRuntimeRpcRepository.js";
 import {
@@ -111,6 +114,7 @@ export class AgentHostState implements AgentHostStateRepository {
   private readonly remoteRelay: AgentHostRemoteRecordRelay;
   private readonly interactions: AgentHostInteractionSettlements;
   private readonly terminalCompaction: AgentHostTerminalCompactionRepository;
+  private readonly terminalMaintenance: AgentHostTerminalMaintenance;
   readonly conversations: AcpConversationRepository;
   readonly canvasRuntime: CanvasRuntimeRpcRepository;
 
@@ -147,7 +151,8 @@ export class AgentHostState implements AgentHostStateRepository {
     );
     this.interactions = new AgentHostInteractionSettlements(this.executions, this.events);
     this.terminalCompaction = new AgentHostTerminalCompactionRepository(database);
-    this.terminalCompaction.compact();
+    this.terminalMaintenance = new AgentHostTerminalMaintenance(this.terminalCompaction);
+    this.terminalMaintenance.start();
   }
 
   subscribeOutboxReady(listener: () => void): () => void {
@@ -155,11 +160,12 @@ export class AgentHostState implements AgentHostStateRepository {
   }
 
   close(): void {
+    this.terminalMaintenance.close();
     this.events.close();
     this.database.close();
   }
 
-  receive(input: ServerEvent, deadlineNow?: Date): { stored: boolean; acknowledgement: HostEvent } {
+  receive(input: ServerEvent, deadlineNow?: Date): AgentHostMailboxReceipt {
     const event = messageEvent(input);
     switch (event.command.type) {
       case "execute_block":
@@ -185,6 +191,7 @@ export class AgentHostState implements AgentHostStateRepository {
         )
         .get(event.sequence, event.messageId);
       let stored = false;
+      let replayOfTerminal = false;
       if (existing) {
         if (
           Number(existing.sequence) !== event.sequence ||
@@ -194,7 +201,14 @@ export class AgentHostState implements AgentHostStateRepository {
         ) {
           throw new Error("mailbox_message_conflict");
         }
-        if (event.type === "mailbox.permission_history") {
+        replayOfTerminal =
+          "dispatchId" in event.command &&
+          "executionAttemptId" in event.command &&
+          this.terminalCompaction.isReadyToCompact(
+            event.command.dispatchId,
+            event.command.executionAttemptId
+          );
+        if (event.type === "mailbox.permission_history" && !replayOfTerminal) {
           // An old Host may have processed this decision as a grant. Reconcile it
           // through cancellation even when the immutable delivery already exists.
           this.database
@@ -204,7 +218,7 @@ export class AgentHostState implements AgentHostStateRepository {
       } else if (
         this.terminalCompaction.inspectMailboxReplay(event, commandDigest) === "compacted"
       ) {
-        stored = false;
+        replayOfTerminal = true;
       } else {
         if (event.previousSequence !== this.terminalCompaction.receivedHighWater()) {
           throw new Error("mailbox_message_out_of_order");
@@ -292,8 +306,18 @@ export class AgentHostState implements AgentHostStateRepository {
         }
         stored = true;
       }
+      const eventKey = replayOfTerminal
+        ? `${MAILBOX_REPLAY_ACK_KEY_PREFIX}${event.sequence}`
+        : `mailbox.ack:${event.sequence}`;
+      if (replayOfTerminal) {
+        this.database
+          .prepare(
+            "DELETE FROM agent_host_outbox WHERE event_key IN (?,?) AND acknowledged_at IS NOT NULL"
+          )
+          .run(eventKey, `mailbox.ack:${event.sequence}`);
+      }
       const acknowledgement = this.events.queue(
-        `mailbox.ack:${event.sequence}`,
+        eventKey,
         parseAgentHostEvent({
           type: "mailbox.ack",
           protocolVersion: agentHostProtocolVersion,
@@ -301,7 +325,11 @@ export class AgentHostState implements AgentHostStateRepository {
           sequence: event.sequence
         })
       );
-      return { stored, acknowledgement };
+      return {
+        stored,
+        acknowledgement,
+        ...(replayOfTerminal ? { terminalReplay: true } : {})
+      };
     });
   }
 
@@ -322,9 +350,9 @@ export class AgentHostState implements AgentHostStateRepository {
 
   synchronizeMailboxAcknowledgement(input: number): void {
     const sequence = mailboxSequenceSchema.parse(input);
-    inWriteTransaction(this.database, () => {
+    const synchronized = inWriteTransaction(this.database, () => {
       const acknowledged = this.lastAcknowledgedSequence();
-      if (sequence === acknowledged) return;
+      if (sequence === acknowledged) return false;
       if (
         sequence < acknowledged ||
         sequence > this.lastReceivedSequence() ||
@@ -349,8 +377,9 @@ export class AgentHostState implements AgentHostStateRepository {
         .run(acknowledgedAt, sequence);
       this.events.acknowledgeMailboxThrough(sequence, acknowledgedAt);
       this.terminalCompaction.recordAcknowledged(sequence);
-      this.terminalCompaction.compactInCurrentTransaction();
+      return true;
     });
+    if (synchronized) this.terminalMaintenance.request();
   }
 
   pendingEvents(limit = this.limits.maxPendingEvents): HistoricalHostEvent[] {
@@ -375,22 +404,38 @@ export class AgentHostState implements AgentHostStateRepository {
   }
 
   acknowledgeEvent(messageId: string): boolean {
-    return inWriteTransaction(this.database, () => {
+    const result = inWriteTransaction(this.database, () => {
       const acknowledgement = this.events.acknowledge(messageId);
-      if (!acknowledgement.found) return false;
-      if (acknowledgement.alreadyAcknowledged) return true;
-      if (acknowledgement.event.type === "mailbox.ack") {
+      if (!acknowledgement.found) return { found: false, requestMaintenance: false };
+      if (acknowledgement.alreadyAcknowledged) return { found: true, requestMaintenance: false };
+      const { event } = acknowledgement;
+      let requestMaintenance = false;
+      if (event.type === "mailbox.ack") {
         this.database
           .prepare(
             "UPDATE agent_host_inbox SET acknowledged_at=COALESCE(acknowledged_at,?) WHERE sequence=?"
           )
-          .run(acknowledgement.acknowledgedAt, acknowledgement.event.sequence);
-        this.terminalCompaction.recordAcknowledged(acknowledgement.event.sequence);
+          .run(acknowledgement.acknowledgedAt, event.sequence);
+        this.terminalCompaction.recordAcknowledged(event.sequence);
+        requestMaintenance = this.terminalCompaction.hasAcknowledgedTerminalForMailbox(
+          event.sequence
+        );
+        this.database
+          .prepare("DELETE FROM agent_host_outbox WHERE message_id=? AND event_key=?")
+          .run(messageId, `${MAILBOX_REPLAY_ACK_KEY_PREFIX}${event.sequence}`);
+      } else if (event.type === "dispatch.completed" || event.type === "dispatch.failed") {
+        this.executions.acknowledgeTerminalEvent(messageId, acknowledgement.acknowledgedAt);
+        requestMaintenance = true;
+      } else if ("dispatchId" in event && "executionAttemptId" in event) {
+        requestMaintenance = this.terminalCompaction.hasAcknowledgedTerminalAttempt(
+          event.dispatchId,
+          event.executionAttemptId
+        );
       }
-      this.executions.acknowledgeTerminalEvent(messageId, acknowledgement.acknowledgedAt);
-      this.terminalCompaction.compactInCurrentTransaction();
-      return true;
+      return { found: true, requestMaintenance };
     });
+    if (result.requestMaintenance) this.terminalMaintenance.request();
+    return result.found;
   }
 
   recoverInterruptedExecutions(): number {
@@ -432,6 +477,7 @@ export class AgentHostState implements AgentHostStateRepository {
     sequence: number,
     expected: AgentHostRemoteExecutionIdentity
   ): boolean {
+    if (this.terminalCompaction.isRetiringSequence(sequence)) return false;
     return this.executions.cancellationMatches(sequence, expected);
   }
 
@@ -505,7 +551,7 @@ export class AgentHostState implements AgentHostStateRepository {
   }
 
   applyCancellation(sequence: number): { shouldAbort: boolean } {
-    return inWriteTransaction(this.database, () => {
+    const result = inWriteTransaction(this.database, () => {
       const raw = this.database
         .prepare("SELECT command_json,processed_at FROM agent_host_inbox WHERE sequence=?")
         .get(sequence);
@@ -563,6 +609,10 @@ export class AgentHostState implements AgentHostStateRepository {
         shouldAbort: new Set(["preparing", "running", "interaction_wait"]).has(execution.status)
       };
     });
+    if (this.terminalCompaction.hasAcknowledgedTerminalForMailbox(sequence)) {
+      this.terminalMaintenance.request();
+    }
+    return result;
   }
 
   pendingResumptions(limit: number): AgentHostExecution[] {
@@ -734,7 +784,13 @@ export class AgentHostState implements AgentHostStateRepository {
     sequence: number,
     input: { leaseId: string; sessionId: string; actionId: string; response: unknown }
   ): boolean {
-    return inWriteTransaction(this.database, () => this.executions.settleAction(sequence, input));
+    const settled = inWriteTransaction(this.database, () =>
+      this.executions.settleAction(sequence, input)
+    );
+    if (settled && this.terminalCompaction.hasAcknowledgedTerminalForMailbox(sequence)) {
+      this.terminalMaintenance.request();
+    }
+    return settled;
   }
 
   recordArtifactTransfer(sequence: number, leaseId: string, input: unknown): boolean {
@@ -748,6 +804,14 @@ export class AgentHostState implements AgentHostStateRepository {
 
   append(record: AgentHostRemoteExecutionRecord): void {
     inWriteTransaction(this.database, () => {
+      if (
+        this.terminalCompaction.isRetiringAttempt(
+          record.identity.dispatchId,
+          record.identity.executionAttemptId
+        )
+      ) {
+        throw new Error("remote_execution_not_authoritative");
+      }
       if (!this.remoteRecords.appendInCurrentTransaction(record)) return;
       this.remoteRelay.relay(record);
     });
@@ -933,5 +997,11 @@ export async function openAgentHostState(
   busyTimeoutMs = 5_000,
   limits: Partial<AgentHostStateLimits> = {}
 ): Promise<AgentHostState> {
-  return new AgentHostState(await openAgentHostDatabase(path, busyTimeoutMs), limits);
+  const database = await openAgentHostDatabase(path, busyTimeoutMs);
+  try {
+    return new AgentHostState(database, limits);
+  } catch (error) {
+    database.close();
+    throw error;
+  }
 }

@@ -1,124 +1,26 @@
-import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  exampleExecuteDelivery,
-  exampleLegacyAcpEventBatchV1,
-  executeBlockCommandSchema,
-  hashExecutionEnvelope
-} from "@planweave-ai/agent-host-protocol";
-import { afterEach, describe, expect, it } from "vitest";
-import { openAgentHostState, type AgentHostState } from "../state/agentHostState.js";
+import { exampleLegacyAcpEventBatchV1 } from "@planweave-ai/agent-host-protocol";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { openAgentHostState } from "../state/agentHostState.js";
 import { AgentHostTerminalCompactionRepository } from "../state/agentHostTerminalCompaction.js";
 import { openAgentHostDatabase } from "../state/sqliteDatabase.js";
 import { acpCapabilitySnapshotTestValue } from "./support/acpCapabilitySnapshotTestValues.js";
-
-const directories: string[] = [];
-const states: AgentHostState[] = [];
+import {
+  acknowledgeByType,
+  cancelDelivery,
+  cleanup,
+  commandFor,
+  count,
+  delivery,
+  permissionDelivery,
+  result,
+  setup,
+  states
+} from "./support/agentHostTerminalCompactionFixture.js";
 
 afterEach(async () => {
-  for (const state of states.splice(0)) state.close();
-  await Promise.all(
-    directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))
-  );
+  await cleanup();
+  vi.useRealTimers();
 });
-
-async function setup() {
-  const directory = await mkdtemp(join(tmpdir(), "planweave-agent-host-compaction-"));
-  directories.push(directory);
-  const path = join(directory, "state.sqlite");
-  const state = await openAgentHostState(path);
-  states.push(state);
-  return { path, state };
-}
-
-function commandFor(index: number) {
-  const dispatchId = `dispatch-compaction-${index}`;
-  const executionAttemptId = `attempt-compaction-${index}`;
-  const envelope = {
-    ...exampleExecuteDelivery.command.envelope,
-    execution: {
-      ...exampleExecuteDelivery.command.envelope.execution,
-      dispatchId,
-      attemptId: executionAttemptId
-    }
-  };
-  return executeBlockCommandSchema.parse({
-    ...exampleExecuteDelivery.command,
-    dispatchId,
-    leaseId: `lease-compaction-${index}`,
-    executionAttemptId,
-    envelope,
-    envelopeDigest: hashExecutionEnvelope(envelope)
-  });
-}
-
-function delivery(sequence: number, index = sequence) {
-  return {
-    type: "mailbox.message" as const,
-    protocolVersion: agentHostProtocolVersion,
-    sequence,
-    previousSequence: sequence - 1,
-    messageId: `mailbox-compaction-${sequence}`,
-    command: commandFor(index)
-  };
-}
-
-function cancelDelivery(sequence: number, index = 1) {
-  const command = commandFor(index);
-  return {
-    type: "mailbox.message" as const,
-    protocolVersion: agentHostProtocolVersion,
-    sequence,
-    previousSequence: sequence - 1,
-    messageId: `mailbox-cancel-compaction-${sequence}`,
-    command: {
-      type: "cancel_execution" as const,
-      protocolVersion: agentHostProtocolVersion,
-      dispatchId: command.dispatchId,
-      leaseId: command.leaseId,
-      executionAttemptId: command.executionAttemptId,
-      reason: "Compaction replay cancellation."
-    }
-  };
-}
-
-function permissionDelivery(sequence: number, index = 1) {
-  const command = commandFor(index);
-  return {
-    type: "mailbox.message" as const,
-    protocolVersion: agentHostProtocolVersion,
-    sequence,
-    previousSequence: sequence - 1,
-    messageId: `mailbox-permission-compaction-${sequence}`,
-    command: {
-      type: "interaction.permission_response" as const,
-      dispatchId: command.dispatchId,
-      leaseId: command.leaseId,
-      executionAttemptId: command.executionAttemptId,
-      acpSessionId: "acp-compaction",
-      actionId: "permission-compaction",
-      decision: "deny" as const
-    }
-  };
-}
-
-const result = {
-  summary: "terminal compaction complete",
-  reportArtifactRef: `artifact:sha256:${"a".repeat(64)}` as const,
-  artifactRefs: []
-};
-
-function acknowledgeByType(state: AgentHostState, type: string): void {
-  const event = state.pendingEvents().find((candidate) => candidate.type === type);
-  if (!event) throw new Error(`missing_test_event:${type}`);
-  expect(state.acknowledgeEvent(event.messageId)).toBe(true);
-}
-
-function count(database: Awaited<ReturnType<typeof openAgentHostDatabase>>, table: string): number {
-  return Number(database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count ?? 0);
-}
 
 describe("Agent Host terminal state compaction", () => {
   it("compacts acknowledged historical v1 runner events without reopening live v1", async () => {
@@ -157,6 +59,7 @@ describe("Agent Host terminal state compaction", () => {
     const reopened = await openAgentHostState(path);
     states.push(reopened);
     acknowledgeByType(reopened, "dispatch.completed");
+    await vi.waitFor(() => expect(reopened.executionEvidence(1)).toBeUndefined());
 
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(count(inspected, "agent_host_executions")).toBe(0);
@@ -185,12 +88,14 @@ describe("Agent Host terminal state compaction", () => {
   });
 
   it("retains acknowledged terminal work with a pending event or interaction settlement", async () => {
+    vi.useFakeTimers();
     const pendingEvent = await setup();
     const received = pendingEvent.state.receive(delivery(1));
     pendingEvent.state.acknowledgeEvent(received.acknowledgement.messageId);
     pendingEvent.state.startExecution(1);
     pendingEvent.state.completeExecution(1, commandFor(1), result);
     acknowledgeByType(pendingEvent.state, "dispatch.completed");
+    vi.advanceTimersByTime(1);
     expect(pendingEvent.state.executionEvidence(1)?.status).toBe("completed");
 
     const pendingAction = await setup();
@@ -214,6 +119,7 @@ describe("Agent Host terminal state compaction", () => {
     });
     pendingAction.state.completeExecution(1, commandFor(1), result);
     acknowledgeByType(pendingAction.state, "dispatch.completed");
+    vi.advanceTimersByTime(1);
     expect(pendingAction.state.executionEvidence(1)?.status).toBe("completed");
   });
 
@@ -249,7 +155,7 @@ describe("Agent Host terminal state compaction", () => {
     });
     state.completeExecution(1, commandFor(1), result);
     acknowledgeByType(state, "dispatch.completed");
-    expect(state.executionEvidence(1)).toBeUndefined();
+    await vi.waitFor(() => expect(state.executionEvidence(1)).toBeUndefined());
     expect(state.lastAcknowledgedSequence()).toBe(1);
 
     state.close();
@@ -421,11 +327,9 @@ describe("Agent Host terminal state compaction", () => {
     });
     expect(compaction.compact(new Date("2026-08-16T01:00:00.000Z")).compacted).toBe(1);
     expect(count(database, "agent_host_executions")).toBe(1);
-    expect(compaction.compact(new Date("2026-08-16T01:00:00.000Z"))).toEqual({
-      compacted: 1,
-      prunedReceipts: 1
-    });
+    expect(compaction.compact(new Date("2026-08-16T01:00:00.000Z")).compacted).toBe(1);
     expect(count(database, "agent_host_executions")).toBe(0);
+    expect(compaction.compact(new Date("2026-08-16T01:00:00.000Z")).prunedReceipts).toBe(1);
     expect(count(database, "agent_host_terminal_execution_receipts")).toBe(1);
     expect(count(database, "agent_host_compacted_mailbox_receipts")).toBe(1);
     database
@@ -471,7 +375,7 @@ describe("Agent Host terminal state compaction", () => {
     expect(reopened.receive(delivery(1)).stored).toBe(false);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 13
+      version: 14
     });
     inspected.close();
   });
@@ -495,7 +399,7 @@ describe("Agent Host terminal state compaction", () => {
     expect(migrated.receive(delivery(1)).stored).toBe(false);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 13
+      version: 14
     });
     expect(
       inspected
@@ -525,7 +429,7 @@ describe("Agent Host terminal state compaction", () => {
     states.push(migrated);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 13
+      version: 14
     });
     expect(
       inspected
@@ -551,7 +455,7 @@ describe("Agent Host terminal state compaction", () => {
     states.push(migrated);
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 13
+      version: 14
     });
     expect(
       inspected
@@ -582,7 +486,7 @@ describe("Agent Host terminal state compaction", () => {
     expect(migrated.executionEvidence(2)?.eventProtocolVersion).toBeUndefined();
     const inspected = await openAgentHostDatabase(path, 5_000);
     expect(inspected.prepare("SELECT version FROM agent_host_state_schema").get()).toMatchObject({
-      version: 13
+      version: 14
     });
     expect(
       inspected
@@ -680,6 +584,7 @@ describe("Agent Host terminal state compaction", () => {
         acknowledgeByType(compacted.state, "dispatch.accepted");
         compacted.state.completeExecution(1, commandFor(1), result);
         acknowledgeByType(compacted.state, "dispatch.completed");
+        await vi.waitFor(() => expect(compacted.state.executionEvidence(1)).toBeUndefined());
       }
       compacted.state.close();
       states.pop();
