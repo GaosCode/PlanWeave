@@ -180,6 +180,7 @@ export const zhCnCatalog = {
   resetLayout: "重置布局",
   remoteCanvases: "Workspace 画布",
   downloadWorkspaceFork: "下载为本地 fork",
+  downloadingWorkspaceFork: "正在下载本地 fork…",
   downloadWorkspaceForkDescription: "将此 Workspace 画布下载为独立的本地画布，不会回写 Workspace。",
   downloadWorkspaceForkSuccess: "已下载独立的本地 fork。",
   downloadWorkspaceForkUnavailable: "重新连接后可将此 Workspace 画布下载为独立的本地 fork。",

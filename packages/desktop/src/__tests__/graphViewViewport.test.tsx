@@ -196,6 +196,7 @@ function defaultProps(
     stopAutoRunControlDrag: vi.fn(),
     workspaceCanvasOffline: false,
     workspaceCanvasRevision: null,
+    workspaceForkDownloadPending: false,
     t: createTranslator("en"),
     visibleTaskIds: new Set(["T-001"]),
     visibleTasks: undefined,

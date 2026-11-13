@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
-import { act, render, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import "@testing-library/jest-dom/vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopProjectSnapshot, DesktopProjectSummary } from "@planweave-ai/runtime";
 import type { ProjectWorkspaceValue } from "../renderer/ProjectWorkspaceProvider";
 import type { ProjectWorkspaceShellInput } from "../renderer/projectWorkspaceShell";
@@ -18,8 +20,23 @@ import {
   connectedWorkspaceStatus,
   installProviderHarness
 } from "./helpers/projectWorkspaceProviderHarness";
+import { WorkspaceTabs } from "../renderer/views/WorkspaceTabs";
 
 installProviderHarness();
+beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
+});
+afterEach(() => vi.unstubAllGlobals());
+
+const nextCanvas = { ...locator, canvasId: "canvas-next" };
+const nextWorkspace = { ...locator, workspaceId: "workspace-next" };
 
 function downloadResult(): WorkspaceCanvasDownloadResult {
   return {
@@ -47,15 +64,17 @@ function downloadResult(): WorkspaceCanvasDownloadResult {
   };
 }
 
-async function mountDownloadingProvider() {
-  bridges.status.current = null;
+async function mountDownloadingProvider({ connected = false, start = true } = {}) {
+  bridges.status.current = connected ? connectedWorkspaceStatus() : null;
   bridges.collaboration.target.listCollaborationAuthorizedProjects = vi
     .fn()
     .mockResolvedValue({ items: [], nextCursor: null });
-  bridges.collaboration.target.listCollaborationAuthorizedCanvases = vi
-    .fn()
-    .mockResolvedValue({ items: [], nextCursor: null });
+  bridges.collaboration.target.listCollaborationAuthorizedCanvases = vi.fn().mockResolvedValue({
+    items: [locator, nextCanvas, nextWorkspace].map((registry) => ({ registry })),
+    nextCursor: null
+  });
   const pending = deferred<WorkspaceCanvasDownloadResult>();
+  const download = vi.fn(() => pending.promise);
   const onError = vi.fn();
   const onSuccess = vi.fn();
   let current: ProjectWorkspaceValue | null = null;
@@ -68,14 +87,15 @@ async function mountDownloadingProvider() {
   bridges.collaboration.target.openWorkspaceCanvasSession = vi.fn(async (opened) => ({
     locator: opened,
     status: "accepted",
-    authorityMode: "offline_cache_readonly",
-    readOnly: true,
-    cachedAt: "2026-08-22T00:00:00.000Z",
+    authorityMode: connected ? "server_authoritative" : "offline_cache_readonly",
+    readOnly: !connected,
+    cachedAt: connected ? null : "2026-08-22T00:00:00.000Z",
+    initialRuntimeAvailability: null,
     conflict: null,
     rejectCode: null,
-    replica: { ...cachedProjection(), canvasId: opened.canvasId }
+    replica: { ...cachedProjection(), workspaceId: opened.workspaceId, canvasId: opened.canvasId }
   }));
-  bridges.collaboration.target.downloadWorkspaceCanvasFork = vi.fn(() => pending.promise);
+  bridges.collaboration.target.downloadWorkspaceCanvasFork = download;
   bridges.desktop.target.listProjects = vi.fn(async () => [
     {
       ...project,
@@ -97,17 +117,22 @@ async function mountDownloadingProvider() {
       onUpdateSettings={(next) => {
         update = next;
       }}
-    />
+    >
+      {start ? null : <WorkspaceTabs />}
+    </ProviderHarness>
   );
   await waitFor(() => expect(value().graphWorkspace.graph?.projectTitle).toBe("Cached Workspace"));
   expect(value().graphWorkspace.onDownloadWorkspaceFork).toBeTypeOf("function");
   let downloading: Promise<void> | undefined;
-  act(() => {
-    downloading = value().graphWorkspace.onDownloadWorkspaceFork!();
-  });
-  expect(bridges.collaboration.target.downloadWorkspaceCanvasFork).toHaveBeenCalledOnce();
+  if (start) {
+    act(() => {
+      downloading = value().graphWorkspace.onDownloadWorkspaceFork!();
+    });
+    expect(download).toHaveBeenCalledOnce();
+  }
   return {
     mounted,
+    download,
     pending,
     onError,
     onSuccess,
@@ -122,6 +147,127 @@ async function mountDownloadingProvider() {
 }
 
 describe("Workspace download consumer ownership", () => {
+  it("admits one same-tick download and shows progress through the Local Canvas handoff", async () => {
+    const f = await mountDownloadingProvider({ connected: true, start: false });
+    const button = await screen.findByRole("button", { name: "Download Local fork" });
+    expect(button).toBeEnabled();
+    const onDownload = f.value().graphWorkspace.onDownloadWorkspaceFork!;
+    let downloading: Promise<void> | undefined;
+    act(() => {
+      downloading = onDownload();
+      void onDownload();
+    });
+    expect(f.download).toHaveBeenCalledExactlyOnceWith({
+      workspaceId: locator.workspaceId,
+      projectId: locator.projectId,
+      canvasId: locator.canvasId,
+      projectName: "Cached Workspace"
+    });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleName("Downloading Local fork…");
+
+    const list = deferred<DesktopProjectSummary[]>();
+    const snapshot = deferred<DesktopProjectSnapshot>();
+    const downloaded = {
+      ...project,
+      rootPath: `/home-a/projects/${project.projectId}`,
+      workspaceRoot: `/home-a/projects/${project.projectId}`
+    };
+    vi.mocked(bridges.desktop.target.listProjects).mockReturnValueOnce(list.promise);
+    vi.mocked(bridges.desktop.target.getDesktopProjectSnapshot).mockReturnValueOnce(
+      snapshot.promise
+    );
+    await act(async () => f.pending.resolve(downloadResult()));
+    expect(f.settings().lastOpenedWorkspaceLocator).toBeNull();
+    expect(f.value().shell.selectedProject).toBeNull();
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleName("Downloading Local fork…");
+    await act(async () => list.resolve([downloaded]));
+    expect(f.value().shell.selectedProject?.projectId).toBe(downloadResult().localProjectId);
+    expect(f.value().shell.selectedCanvasId).toBe(downloadResult().localCanvasId);
+    expect(button).toBeDisabled();
+    expect(f.onSuccess).not.toHaveBeenCalled();
+
+    await act(async () => {
+      snapshot.resolve(projectSnapshot());
+      await downloading;
+    });
+    expect(f.settings().runtimePath).toBe(downloaded.workspaceRoot);
+    expect(f.onSuccess).toHaveBeenCalledExactlyOnceWith(
+      createTranslator("en")("downloadWorkspaceForkSuccess")
+    );
+    expect(button).not.toBeInTheDocument();
+  });
+
+  it("accepts keyboard activation, disables repeat activation, and allows a click retry after failure", async () => {
+    const f = await mountDownloadingProvider({ connected: true, start: false });
+    const user = userEvent.setup();
+    const button = await screen.findByRole("button", { name: "Download Local fork" });
+    button.focus();
+    expect(button).toHaveFocus();
+    await user.keyboard("{Enter}{Enter} ");
+    expect(f.download).toHaveBeenCalledOnce();
+    expect(button).toBeDisabled();
+    await act(async () => f.pending.reject(new Error("network unavailable")));
+    expect(f.onError).toHaveBeenCalledExactlyOnceWith("network unavailable");
+    expect(f.onSuccess).not.toHaveBeenCalled();
+    expect(f.settings().lastOpenedWorkspaceLocator).toEqual(locator);
+    expect(button).toBeEnabled();
+    expect(button).toHaveAccessibleName("Download Local fork");
+
+    const retry = deferred<WorkspaceCanvasDownloadResult>();
+    f.download.mockReturnValueOnce(retry.promise);
+    await user.dblClick(button);
+    expect(f.download).toHaveBeenCalledTimes(2);
+    expect(button).toBeDisabled();
+    await act(async () => retry.resolve(downloadResult()));
+    expect(f.onSuccess).toHaveBeenCalledOnce();
+    expect(button).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "canvas",
+    "workspace",
+    "home"
+  ])("retires pending after %s changes and keeps the next download pending when the old one settles", async (change) => {
+    const f = await mountDownloadingProvider({ connected: true, start: false });
+    const user = userEvent.setup();
+    const button = await screen.findByRole("button", { name: "Download Local fork" });
+    await user.click(button);
+    expect(button).toBeDisabled();
+
+    const next =
+      change === "canvas" ? nextCanvas : change === "workspace" ? nextWorkspace : locator;
+    if (change === "home") act(() => f.update({ planweaveHome: "/home-b" }));
+    else act(() => f.value().shell.openWorkspaceCanvasLocator(next));
+    expect(button).toBeEnabled();
+    const pending = deferred<WorkspaceCanvasDownloadResult>();
+    f.download.mockReturnValueOnce(pending.promise);
+    await user.click(button);
+    expect(f.download).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        workspaceId: next.workspaceId,
+        canvasId: next.canvasId
+      })
+    );
+    expect(button).toBeDisabled();
+
+    await act(async () => f.pending.resolve(downloadResult()));
+    expect(button).toBeDisabled();
+    expect(f.onSuccess).not.toHaveBeenCalled();
+    expect(f.settings().lastOpenedWorkspaceLocator).toEqual(next);
+    await act(async () => pending.reject(new Error("new download unavailable")));
+    expect(button).toBeEnabled();
+    expect(f.onError).toHaveBeenLastCalledWith("new download unavailable");
+  });
+
+  it("keeps the download unavailable on the offline Workspace Canvas", async () => {
+    const f = await mountDownloadingProvider({ start: false });
+    const button = await screen.findByRole("button", { name: "Download Local fork" });
+    expect(button).toBeDisabled();
+    expect(f.download).not.toHaveBeenCalled();
+  });
+
   it.each(
     ["list", "snapshot"].flatMap((stage) =>
       ["home", "canvas", "credential", "unmount"].flatMap((change) =>
@@ -198,8 +344,8 @@ describe("Workspace download consumer ownership", () => {
   });
 
   it.each(
-    ["home", "canvas", "profile", "home ABA", "canvas ABA", "unmount"].flatMap((change) =>
-      [false, true].map((failed) => ({ change, failed }))
+    ["home", "canvas", "workspace", "profile", "home ABA", "canvas ABA", "unmount"].flatMap(
+      (change) => [false, true].map((failed) => ({ change, failed }))
     )
   )("retires the download after $change changes (failed=$failed)", async ({ change, failed }) => {
     const f = await mountDownloadingProvider();
@@ -211,6 +357,8 @@ describe("Workspace download consumer ownership", () => {
         f.value().shell.openWorkspaceCanvasLocator({ ...locator, canvasId: "canvas-next" })
       );
       if (change === "canvas ABA") act(() => f.value().shell.openWorkspaceCanvasLocator(locator));
+    } else if (change === "workspace") {
+      act(() => f.value().shell.openWorkspaceCanvasLocator(nextWorkspace));
     } else if (change === "profile") {
       const next = connectedWorkspaceStatus();
       next.activeProfileId = "profile-next";

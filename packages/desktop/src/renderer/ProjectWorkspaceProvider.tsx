@@ -346,19 +346,20 @@ export function ProjectWorkspaceProvider({
       remoteWorkspace.clear();
     }
   }, [handleOpenProject, remoteWorkspace.clear]);
-  const downloadWorkspaceFork = useWorkspaceCanvasDownload({
-    api: collaborationBridge,
-    planweaveHome: settings.planweaveHome,
-    locator: canvasLocator,
-    localProjectRoot: selectedProject?.rootPath ?? null,
-    status: collaborationSurface.status,
-    projectTitle: graph?.projectTitle,
-    clearWorkspace: remoteWorkspace.clear,
-    refreshProjects,
-    setError,
-    setSuccessMessage,
-    t
-  });
+  const { download: downloadWorkspaceFork, pending: workspaceForkDownloadPending } =
+    useWorkspaceCanvasDownload({
+      api: collaborationBridge,
+      planweaveHome: settings.planweaveHome,
+      locator: canvasLocator,
+      localProjectRoot: selectedProject?.rootPath ?? null,
+      status: collaborationSurface.status,
+      projectTitle: graph?.projectTitle,
+      clearWorkspace: remoteWorkspace.clear,
+      refreshProjects,
+      setError,
+      setSuccessMessage,
+      t
+    });
 
   const createLocalProjectFromTaskCanvas = useCallback(
     (project: DesktopProjectSummary, canvasId: string) =>
@@ -1075,6 +1076,7 @@ export function ProjectWorkspaceProvider({
     workspaceCanvasRevision: workspaceCanvasCommands.projection?.revision ?? null,
     onDownloadWorkspaceFork:
       canvasLocator?.kind === "workspace" ? downloadWorkspaceFork : undefined,
+    workspaceForkDownloadPending,
     runtimeAvailability: collaborationRuntime.availability
   });
   const review = useMemo<WorkspaceTabsReviewProps>(

@@ -154,6 +154,7 @@ export type WorkspaceTabsGraphWorkspaceProps = {
   onRefreshWorkspaceCanvas?: () => Promise<boolean>;
   workspaceCanvasRevision: number | null;
   onDownloadWorkspaceFork?: () => Promise<void>;
+  workspaceForkDownloadPending: boolean;
 };
 
 export type WorkspaceTabsAutoRunProps = {

@@ -131,6 +131,7 @@ type GraphViewProps = {
   onRefreshWorkspaceCanvas?: () => Promise<boolean>;
   workspaceCanvasRevision: number | null;
   onDownloadWorkspaceFork?: () => Promise<void>;
+  workspaceForkDownloadPending: boolean;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
 };
 
@@ -233,6 +234,7 @@ export function GraphView({
   onRefreshWorkspaceCanvas,
   workspaceCanvasRevision,
   onDownloadWorkspaceFork,
+  workspaceForkDownloadPending,
   runtimeAvailability
 }: GraphViewProps) {
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
@@ -240,6 +242,7 @@ export function GraphView({
   const dirtyPromptRefs = graph?.dirtyPromptRefs ?? [];
   const dirtyPromptCount = dirtyPromptRefs.length;
   const runtimeBanner = runtimeAvailabilityBanner(runtimeAvailability, t);
+  const downloadPendingLabel = workspaceForkDownloadPending ? t("downloadingWorkspaceFork") : "";
   const visibleNodes = visibleTasks
     ? nodes.filter((node) => node.type !== "task" || visibleTaskIds.has(node.id))
     : nodes;
@@ -390,23 +393,28 @@ export function GraphView({
               )}
         </div>
       ) : null}
-      {onDownloadWorkspaceFork ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="absolute right-3 top-3 z-20 h-8 bg-surface/95 text-xs shadow-sm"
-          disabled={workspaceCanvasOffline}
-          title={
-            workspaceCanvasOffline
-              ? t("downloadWorkspaceForkUnavailable")
-              : t("downloadWorkspaceForkDescription")
-          }
-          data-testid="download-workspace-local-fork"
-          onClick={() => void onDownloadWorkspaceFork()}
-        >
-          {t("downloadWorkspaceFork")}
-        </Button>
+      {onDownloadWorkspaceFork || workspaceForkDownloadPending ? (
+        <div className="absolute right-3 top-3 z-20">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 bg-surface/95 text-xs shadow-sm"
+            disabled={workspaceCanvasOffline || workspaceForkDownloadPending}
+            title={
+              workspaceCanvasOffline
+                ? t("downloadWorkspaceForkUnavailable")
+                : t("downloadWorkspaceForkDescription")
+            }
+            data-testid="download-workspace-local-fork"
+            onClick={onDownloadWorkspaceFork ? () => void onDownloadWorkspaceFork() : undefined}
+          >
+            {workspaceForkDownloadPending ? downloadPendingLabel : t("downloadWorkspaceFork")}
+          </Button>
+          <span className="sr-only" role="status">
+            {downloadPendingLabel}
+          </span>
+        </div>
       ) : null}
       {!graph ? (
         <div className="flex h-full items-center justify-center p-6">

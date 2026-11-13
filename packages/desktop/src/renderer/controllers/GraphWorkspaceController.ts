@@ -81,6 +81,7 @@ export function useGraphWorkspaceController({
   onRefreshWorkspaceCanvas,
   workspaceCanvasRevision,
   onDownloadWorkspaceFork,
+  workspaceForkDownloadPending,
   runtimeAvailability
 }: {
   edges: Edge[];
@@ -122,6 +123,7 @@ export function useGraphWorkspaceController({
   onRefreshWorkspaceCanvas?: () => Promise<boolean>;
   workspaceCanvasRevision: number | null;
   onDownloadWorkspaceFork?: () => Promise<void>;
+  workspaceForkDownloadPending: boolean;
   runtimeAvailability: CollaborationRuntimeAvailabilityView;
 }): GraphWorkspaceController {
   const { visibleTaskIds, visibleTasks } = useVisibleGraphTasks(graph, searchQuery);
@@ -164,6 +166,7 @@ export function useGraphWorkspaceController({
     onRefreshWorkspaceCanvas,
     workspaceCanvasRevision,
     onDownloadWorkspaceFork,
+    workspaceForkDownloadPending,
     runtimeAvailability
   });
 }

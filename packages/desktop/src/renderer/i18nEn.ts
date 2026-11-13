@@ -188,6 +188,7 @@ export const enCatalog = {
   resetLayout: "Reset layout",
   remoteCanvases: "Workspace canvases",
   downloadWorkspaceFork: "Download Local fork",
+  downloadingWorkspaceFork: "Downloading Local fork…",
   downloadWorkspaceForkDescription:
     "Download this Workspace Canvas as an independent Local Canvas with no writeback.",
   downloadWorkspaceForkSuccess: "Independent Local fork downloaded.",

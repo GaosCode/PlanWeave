@@ -5,9 +5,8 @@ import type { CollaborationStatus } from "../../shared/collaboration";
 import { activeWorkspaceConnectionViewSchema } from "@planweave-ai/collaboration-protocol/connection";
 import { ReactFlowProvider } from "@xyflow/react";
 import { TaskNodeCard } from "../../renderer/graph/TaskNodeCard";
-import type { AppFlowNode } from "../../renderer/types";
 import { cleanup } from "@testing-library/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { afterEach, beforeEach, vi } from "vitest";
 import { project, projectSnapshot } from "./desktopProjectFixtures";
 import {
@@ -177,6 +176,7 @@ vi.mock("../../renderer/controllers/AutoRunController", () => ({
   useAutoRunController: () => ({ startAutoRunWithScope: stubs.asyncCall }),
   useFileSyncController: () => ({
     fileSyncDiagnostics: [],
+    projectDiagnostics: [],
     lastFileChange: null
   })
 }));
@@ -191,7 +191,12 @@ vi.mock("../../renderer/controllers/SearchController", () => ({
   })
 }));
 vi.mock("../../renderer/hooks/useCollaborationCanvasPresence", () => ({
-  useCollaborationCanvasPresence: () => ({})
+  useCollaborationCanvasPresence: () => ({
+    remoteSessions: [],
+    onPointerMove: stubs.sync,
+    onPointerLeave: stubs.sync,
+    onSelectionChange: stubs.sync
+  })
 }));
 vi.mock("../../renderer/task-workspace/useRecordWorkspaceNavigation", () => ({
   useRecordWorkspaceNavigation: () => stubs.asyncCall
@@ -293,25 +298,6 @@ vi.mock("../../renderer/hooks/useGraphPaletteActions", () => ({
   })
 }));
 vi.mock("../../renderer/AppSettingsRouteProps", () => ({ buildAppSettingsRouteProps: () => ({}) }));
-vi.mock("../../renderer/controllers/GraphWorkspaceController", () => ({
-  useGraphWorkspaceController: (input: {
-    graph: unknown;
-    nodes: AppFlowNode[];
-    runtimeAvailability: unknown;
-    workspaceCanvasOffline: boolean;
-    workspaceCanvasRevision: number | null;
-    onRefreshWorkspaceCanvas?: () => Promise<boolean>;
-    onDownloadWorkspaceFork?: () => Promise<void>;
-  }) => ({
-    graph: input.graph,
-    nodes: input.nodes,
-    runtimeAvailability: input.runtimeAvailability,
-    workspaceCanvasOffline: input.workspaceCanvasOffline,
-    workspaceCanvasRevision: input.workspaceCanvasRevision,
-    onRefreshWorkspaceCanvas: input.onRefreshWorkspaceCanvas,
-    onDownloadWorkspaceFork: input.onDownloadWorkspaceFork
-  })
-}));
 
 export const locator: WorkspaceCanvasLocator = {
   kind: "workspace",
@@ -453,6 +439,7 @@ function Probe({
 }
 
 export function ProviderHarness({
+  children,
   initialSettings,
   onError,
   onSettings,
@@ -461,6 +448,7 @@ export function ProviderHarness({
   onSuccess,
   showGraph
 }: {
+  children?: ReactNode;
   showGraph?: boolean;
   initialSettings: DesktopUiSettings;
   onError?: ProjectWorkspaceShellInput["setError"];
@@ -515,6 +503,7 @@ export function ProviderHarness({
   return (
     <ProjectWorkspaceProvider shell={shell}>
       <Probe onValue={onValue} showGraph={showGraph} />
+      {children}
     </ProjectWorkspaceProvider>
   );
 }

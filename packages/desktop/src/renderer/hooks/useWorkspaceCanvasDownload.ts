@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { CanvasLocator } from "../../shared/canvasLocator";
 import type { CollaborationStatus } from "../../shared/collaboration";
 import type { WorkspaceCanvasSharingApi } from "../../shared/workspaceCanvasSharing";
@@ -41,6 +41,7 @@ export function useWorkspaceCanvasDownload(input: {
         input.locator.kind === "local" ? input.localProjectRoot : null
       ])
     : null;
+  const [pending, setPending] = useState(false);
   const lifecycle = useRef<{
     mounted: boolean;
     scope: DownloadScope;
@@ -54,15 +55,17 @@ export function useWorkspaceCanvasDownload(input: {
     const current = lifecycle.current;
     const previous = current.scope;
     const operation = current.operation;
-    if (previous.context !== context) current.operation = null;
-    else if (previous.canvas !== canvas && operation) {
+    if (operation && (previous.context !== context || previous.canvas !== canvas)) {
       const ownClear = previous.locator?.kind === "workspace" && input.locator === null;
       const ownSelect =
         (previous.locator === null || previous.locator.kind === "workspace") &&
         input.locator?.kind === "local" &&
         input.locator.projectId === operation.destination?.projectId &&
         input.locator.canvasId === operation.destination?.canvasId;
-      if (!operation.selecting || (!ownClear && !ownSelect)) current.operation = null;
+      if (previous.context !== context || !operation.selecting || (!ownClear && !ownSelect)) {
+        current.operation = null;
+        setPending(false);
+      }
     }
     current.scope = { context, canvas, locator: input.locator };
   }, [canvas, context, input.locator]);
@@ -74,12 +77,20 @@ export function useWorkspaceCanvasDownload(input: {
     };
   }, []);
 
-  return useCallback(async () => {
+  const download = useCallback(async () => {
     if (!input.api || input.locator?.kind !== "workspace") return;
-    if (lifecycle.current.scope.context !== context || lifecycle.current.scope.canvas !== canvas)
+    const current = lifecycle.current;
+    if (
+      !current.mounted ||
+      current.operation ||
+      current.scope.context !== context ||
+      current.scope.canvas !== canvas
+    ) {
       return;
+    }
     const operation: DownloadOperation = { selecting: false, destination: null };
-    lifecycle.current.operation = operation;
+    current.operation = operation;
+    setPending(true);
     const isCurrent = () => lifecycle.current.mounted && lifecycle.current.operation === operation;
     try {
       const result = await input.api.downloadWorkspaceCanvasFork({
@@ -101,7 +112,10 @@ export function useWorkspaceCanvasDownload(input: {
     } catch (caught) {
       if (isCurrent()) input.setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      if (lifecycle.current.operation === operation) lifecycle.current.operation = null;
+      if (isCurrent()) {
+        current.operation = null;
+        setPending(false);
+      }
     }
   }, [
     canvas,
@@ -115,4 +129,5 @@ export function useWorkspaceCanvasDownload(input: {
     input.setSuccessMessage,
     input.t
   ]);
+  return { download, pending };
 }
