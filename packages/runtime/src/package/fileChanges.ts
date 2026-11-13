@@ -304,7 +304,9 @@ export async function createPackageFileSnapshotFromPackageRoot(input: {
     includeOrphans: true,
     manifestPaths: originalPromptPaths(owners)
   });
-  const captured = await capturePackagePrompts(targets, mode, owners);
+  const captured = await capturePackagePrompts(targets, mode, owners, {
+    includeOrphanFingerprints: true
+  });
   const graph =
     input.graph ??
     compilePackageGraphFromPrompts(

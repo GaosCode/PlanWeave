@@ -105,7 +105,7 @@ async function measureWorkspaceRequest(blockCount: number): Promise<ExpensiveCal
   const stateRead = vi.spyOn(stateStore, "readState");
   const packageLoad = vi.spyOn(packageLoader, "loadPackage");
   const compileTaskGraph = vi.spyOn(taskGraphCompiler, "compileTaskGraph");
-  const compilePackageGraph = vi.spyOn(taskGraphCompiler, "compilePackageGraph");
+  const compilePackageGraph = vi.spyOn(taskGraphCompiler, "compilePackageGraphFromPrompts");
   const status = vi.spyOn(executionStatus, "buildExecutionStatus");
   const planGraph = vi.spyOn(planGraphRepository, "loadPlanGraphPackage");
   const projectAggregation = vi.spyOn(
@@ -173,7 +173,7 @@ describe("Task Workspace read-context scaling", () => {
       taskCompile: 1,
       status: 1,
       planGraph: 1,
-      manifestReads: 2,
+      manifestReads: 1,
       // Canvas resolution, registration identity validation before queue drain, and runtime aggregation.
       projectGraphReads: 3,
       projectAggregation: 1,
@@ -205,7 +205,7 @@ describe("Task Workspace read-context scaling", () => {
     const stateRead = vi.spyOn(stateStore, "readState");
     const packageLoad = vi.spyOn(packageLoader, "loadPackage");
     const compileTaskGraph = vi.spyOn(taskGraphCompiler, "compileTaskGraph");
-    const compilePackageGraph = vi.spyOn(taskGraphCompiler, "compilePackageGraph");
+    const compilePackageGraph = vi.spyOn(taskGraphCompiler, "compilePackageGraphFromPrompts");
     const projectAggregation = vi.spyOn(
       projectGraphAggregation,
       "loadProjectCanvasRuntimeAggregation"

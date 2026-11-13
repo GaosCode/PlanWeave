@@ -83,11 +83,12 @@ function accessIssue(path: string, error: unknown, reading = false): ValidationI
   if (error instanceof PackagePathError) {
     return { code: error.code, message: error.message, path };
   }
-  const action = reading ? "read" : "checked";
   const reason = error instanceof Error && "code" in error ? error.code : String(error);
   return {
     code: reading ? "prompt_read_failed" : "prompt_access_failed",
-    message: `Prompt file '${path}' could not be ${action}: ${reason}.`,
+    message: reading
+      ? `Prompt '${path}' could not be read: ${reason}.`
+      : `Prompt file '${path}' could not be checked: ${reason}.`,
     path
   };
 }
@@ -204,7 +205,8 @@ export function promptWatchAliases(targets: PackagePromptTargets): Map<string, s
 export async function capturePackagePrompts(
   targets: PackagePromptTargets,
   mode: "content" | "stat",
-  referencedPaths: ReadonlyMap<string, PromptOwner[]>
+  referencedPaths: ReadonlyMap<string, PromptOwner[]>,
+  options: { includeOrphanFingerprints?: boolean } = {}
 ): Promise<{
   fingerprints: Record<string, FileFingerprint>;
   markdown: ReadonlyMap<string, string>;
@@ -216,32 +218,33 @@ export async function capturePackagePrompts(
   const diagnostics = [...targets.diagnostics];
   const failures = new Map(targets.failures);
   for (const [target, paths] of promptTargetPaths(targets)) {
+    const references = paths.filter((path) => referencedPaths.has(path));
+    if (references.length === 0 && !options.includeOrphanFingerprints) continue;
     let metadata: Stats | null;
     try {
       metadata = await optionalStat(target);
     } catch (error) {
-      diagnostics.push(...paths.map((path) => accessIssue(path, error)));
-      for (const path of paths) failures.set(path, promptReadError(path, error));
+      if (references.length === 0) throw error;
+      diagnostics.push(...references.map((path) => accessIssue(path, error)));
+      for (const path of references) failures.set(path, promptReadError(path, error));
       continue;
     }
     if (!metadata?.isFile()) {
-      for (const path of paths) {
-        if (referencedPaths.has(path)) {
-          const diagnostic = {
-            code: metadata ? "prompt_not_file" : "prompt_missing",
-            message: metadata
-              ? `Prompt file '${path}' is not a regular file.`
-              : `Prompt file '${path}' does not exist.`,
-            path
-          };
-          diagnostics.push(diagnostic);
-          failures.set(
-            path,
-            metadata
-              ? promptReadError(path, new Error(diagnostic.message))
-              : { kind: "missing", path }
-          );
-        }
+      for (const path of references) {
+        const diagnostic = {
+          code: metadata ? "prompt_not_file" : "prompt_missing",
+          message: metadata
+            ? `Prompt file '${path}' is not a regular file.`
+            : `Prompt file '${path}' does not exist.`,
+          path
+        };
+        diagnostics.push(diagnostic);
+        failures.set(
+          path,
+          metadata
+            ? promptReadError(path, new Error(diagnostic.message))
+            : { kind: "missing", path }
+        );
       }
       continue;
     }
@@ -252,13 +255,14 @@ export async function capturePackagePrompts(
         : `stat:${metadata.mtimeMs}:${metadata.ctimeMs}:${metadata.size}`;
       if (bytes) {
         const content = bytes.toString("utf8");
-        for (const path of paths) if (referencedPaths.has(path)) markdown.set(path, content);
+        for (const path of references) markdown.set(path, content);
       }
       const fingerprint = { path: target, hash, mtimeMs: metadata.mtimeMs };
       for (const path of paths) fingerprints.set(path, fingerprint);
     } catch (error) {
-      diagnostics.push(...paths.map((path) => accessIssue(path, error, true)));
-      for (const path of paths) {
+      if (references.length === 0) throw error;
+      diagnostics.push(...references.map((path) => accessIssue(path, error, true)));
+      for (const path of references) {
         failures.set(
           path,
           isNodeFileNotFoundError(error) ? { kind: "missing", path } : promptReadError(path, error)

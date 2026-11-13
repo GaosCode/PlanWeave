@@ -1,4 +1,13 @@
-import { mkdir, mkdtemp, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  stat,
+  symlink,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -175,9 +184,11 @@ describe("compilePackageGraph", () => {
     const prompt = "shared/failing.txt";
     manifest.nodes[0].blocks[0].prompt = prompt;
     await mkdir(join(packageDir, "shared"));
-    await writeFile(join(packageDir, prompt), "Shared content");
+    const promptPath = join(packageDir, prompt);
+    await writeFile(promptPath, "Shared content");
+    const promptTarget = await realpath(promptPath);
     vi.mocked(readFile).mockImplementation((path, options) => {
-      if (path === join(packageDir, prompt)) {
+      if (path === promptPath || path === promptTarget) {
         throw nodeIoError(code);
       }
       return actualFs.readFile(path, options);
@@ -218,12 +229,12 @@ describe("compilePackageGraph", () => {
       expect.objectContaining({ code: "stale_prompt_reference", path: "nodes/orphan.md" })
     ]);
     expect(vi.mocked(readFile).mock.calls.map(([path]) => path)).toEqual([
-      join(packageDir, shared)
+      await realpath(join(packageDir, shared))
     ]);
   });
 
   it("checks file types and missing paths without reading any contents in metadata mode", async () => {
-    const packageDir = await createPackageDir();
+    const packageDir = await realpath(await createPackageDir());
     const manifest = basicManifest();
     const task = manifest.nodes[0];
     task.blocks[0].prompt = "nodes/T-001/blocks";
@@ -255,6 +266,7 @@ describe("compilePackageGraph", () => {
     for (const block of otherTask.blocks) {
       block.prompt = task.prompt;
     }
+    otherTask.blocks[0].prompt = "outside-dangling-chain.md";
     try {
       await symlink(
         join(packageDir, "nodes/T-001/prompt.md"),
@@ -273,23 +285,39 @@ describe("compilePackageGraph", () => {
       throw error;
     }
     await symlink(join(packageDir, "nodes/T-001"), join(packageDir, task.blocks[0].prompt), "dir");
-    await symlink(join(packageDir, "absent.md"), join(packageDir, task.blocks[1].prompt), "file");
+    const aliasedPackageDir = join(externalDir, "package-alias");
+    await symlink(packageDir, aliasedPackageDir, "junction");
+    await symlink(
+      join(aliasedPackageDir, "absent.md"),
+      join(packageDir, task.blocks[1].prompt),
+      "file"
+    );
     await symlink(
       join(externalDir, "nodes/T-001/prompt.md"),
       join(packageDir, otherTask.prompt),
       "file"
     );
+    const outsideLink = join(externalDir, "back-to-package.md");
+    await symlink(join(packageDir, "absent.md"), outsideLink, "file");
+    await symlink(outsideLink, join(packageDir, otherTask.blocks[0].prompt), "file");
     vi.mocked(readFile).mockClear();
 
     const graph = await compilePackageGraph(manifest, packageDir);
 
-    expect(graph.diagnostics.errors).toEqual([
-      expect.objectContaining({ code: "prompt_not_file", path: "directory-link.md" }),
-      expect.objectContaining({ code: "prompt_missing", path: "dangling-link.md" }),
-      expect.objectContaining({ code: "package_path_outside", path: "outside-link.md" })
-    ]);
+    expect(graph.diagnostics.errors).toHaveLength(4);
+    expect(graph.diagnostics.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "prompt_missing", path: "dangling-link.md" }),
+        expect.objectContaining({ code: "prompt_not_file", path: "directory-link.md" }),
+        expect.objectContaining({ code: "package_path_outside", path: "outside-link.md" }),
+        expect.objectContaining({
+          code: "package_path_outside",
+          path: "outside-dangling-chain.md"
+        })
+      ])
+    );
     expect(vi.mocked(readFile).mock.calls.map(([path]) => path)).toEqual([
-      join(packageDir, task.prompt)
+      await realpath(join(packageDir, task.prompt))
     ]);
   });
 

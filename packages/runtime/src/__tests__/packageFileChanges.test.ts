@@ -192,6 +192,25 @@ describe("package file changes", () => {
     );
   });
 
+  it("detects orphan Markdown edits without assigning them to a task", async () => {
+    const { root, init } = await createTestWorkspace();
+    const path = "nodes/orphan.md";
+    const file = join(init.workspace.packageDir, path);
+    await writeFile(file, "First version\n");
+    const before = await createPackageFileSnapshot(root);
+    expect(before.promptFiles[path]).toBeDefined();
+    await writeFile(file, "Later version\n");
+
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, [`package/${path}`]);
+    expect(refreshed.indexPackagePaths).toEqual([path]);
+    expect(refreshed.impact).toMatchObject({ ok: true, affectedTasks: [], fullRefresh: true });
+    expect(refreshed.snapshot?.graph.diagnostics.warnings).toEqual([
+      expect.objectContaining({ code: "stale_prompt_reference", path })
+    ]);
+    expect(refreshed.snapshot?.promptFiles[path]?.hash).toEqual(expect.any(String));
+    expect(refreshed.snapshot?.promptFiles[path]?.hash).not.toBe(before.promptFiles[path].hash);
+  });
+
   it("refreshes a changed block prompt path incrementally", async () => {
     const { root, init } = await createTestWorkspace();
     const before = await createPackageFileSnapshot(root);

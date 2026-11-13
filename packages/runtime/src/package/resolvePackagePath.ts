@@ -16,11 +16,13 @@ function assertContained(root: string, candidate: string, packagePath: string): 
   );
 }
 
-async function realpathNearestExistingParent(candidate: string): Promise<string> {
+async function realpathNearestExistingParent(
+  candidate: string
+): Promise<{ path: string; realPath: string }> {
   let current = dirname(candidate);
   while (true) {
     try {
-      return await realpath(current);
+      return { path: current, realPath: await realpath(current) };
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "ENOENT" && code !== "ENOTDIR") {
@@ -51,7 +53,7 @@ export async function resolvePackagePath(
     }
     if (options.forWrite) {
       const realParent = await realpathNearestExistingParent(candidate);
-      assertContained(realRoot, realParent, packagePath);
+      assertContained(realRoot, realParent.realPath, packagePath);
     }
   }
 
@@ -70,6 +72,20 @@ function packagePathCandidate(packageDir: string, packagePath: string): string {
   assertContained(root, candidate, packagePath);
 
   return candidate;
+}
+
+async function resolvePackageLinkTarget(
+  realRoot: string,
+  parent: string,
+  link: string,
+  packagePath: string
+): Promise<string> {
+  const target = resolve(parent, link);
+  const fromRoot = relative(realRoot, target);
+  if (!fromRoot.startsWith("..") && !isAbsolute(fromRoot)) return target;
+  const ancestor = await realpathNearestExistingParent(target);
+  assertContained(realRoot, ancestor.realPath, packagePath);
+  return resolve(ancestor.realPath, relative(ancestor.path, target));
 }
 
 async function resolveMissingTarget(
@@ -99,9 +115,13 @@ async function resolveMissingTarget(
         const link = await readlink(current);
         const parent = await realpath(dirname(current));
         assertContained(realRoot, parent, packagePath);
-        const target = resolve(parent, link, ...missing);
-        assertContained(realRoot, target, packagePath);
-        return resolveMissingTarget(realRoot, target, packagePath, remainingLinks - 1);
+        const target = await resolvePackageLinkTarget(realRoot, parent, link, packagePath);
+        return resolveMissingTarget(
+          realRoot,
+          resolve(target, ...missing),
+          packagePath,
+          remainingLinks - 1
+        );
       }
       const target = resolve(await realpath(current), ...missing);
       assertContained(realRoot, target, packagePath);
@@ -137,13 +157,18 @@ export async function packagePathLinkLocations(
     try {
       if (!(await lstat(current)).isSymbolicLink()) continue;
       links.push(current);
-      const next = resolve(dirname(current), await readlink(current));
+      const next = await resolvePackageLinkTarget(
+        realRoot,
+        dirname(current),
+        await readlink(current),
+        packagePath
+      );
       const nextSegments = relative(realRoot, next);
       if (nextSegments.startsWith("..") || isAbsolute(nextSegments)) break;
       segments = [...nextSegments.split(sep), ...segments];
       current = realRoot;
     } catch (error) {
-      if (!isNodeFileNotFoundError(error)) throw error;
+      if (!isNodeFileNotFoundError(error) && !(error instanceof PackagePathError)) throw error;
       break;
     }
   }

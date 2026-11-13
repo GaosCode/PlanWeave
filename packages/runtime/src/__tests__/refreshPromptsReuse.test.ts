@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import type { PathLike } from "node:fs";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const reads = vi.hoisted(() => ({
   paths: [] as string[],
-  failurePath: null as string | null
+  failurePaths: new Set<string>()
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -18,7 +18,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       if (name !== null) {
         reads.paths.push(name);
       }
-      if (name !== null && name === reads.failurePath) {
+      if (name !== null && reads.failurePaths.has(name)) {
         throw Object.assign(new Error(`Read denied: ${name}`), { code: "EACCES" });
       }
       return actual.readFile(path as never, options as never);
@@ -42,7 +42,7 @@ import { basicManifest, createTestWorkspace, writePromptFiles } from "./promptTe
 
 afterEach(() => {
   reads.paths = [];
-  reads.failurePath = null;
+  reads.failurePaths.clear();
 });
 
 function batchManifest(tasks: number, implementations: number): PlanPackageManifest {
@@ -157,6 +157,10 @@ async function createBatchFixture(scale = { tasks: 2, implementations: 1, canvas
     ...crossStatePaths,
     ...crossPromptPaths
   ];
+  const promptReadPaths = [
+    ...promptPaths,
+    ...(await Promise.all(promptPaths.map((path) => realpath(path))))
+  ];
   return {
     ...fixture,
     manifest,
@@ -166,6 +170,7 @@ async function createBatchFixture(scale = { tasks: 2, implementations: 1, canvas
     globalPath,
     policyPath,
     promptPaths,
+    promptReadPaths,
     reportPaths,
     crossManifestPaths,
     crossStatePaths,
@@ -188,7 +193,7 @@ function countReads(fixture: Awaited<ReturnType<typeof createBatchFixture>>) {
   const count = (paths: string[]) => reads.paths.filter((path) => paths.includes(path)).length;
   return {
     total: reads.paths.length,
-    prompts: count(fixture.promptPaths),
+    prompts: count(fixture.promptReadPaths),
     state: count([fixture.workspace.stateFile]),
     crossManifests: count(fixture.crossManifestPaths),
     crossStates: count(fixture.crossStatePaths),
@@ -214,7 +219,6 @@ describe("batch Prompt request reuse", () => {
     console.info("batch Prompt read counts", JSON.stringify({ scale, counts }));
 
     expect(result.prompts).toHaveLength(scale.tasks * (scale.implementations + 1));
-    // Session compilation/fingerprinting and the Prompt index have distinct read duties.
     expect(counts.prompts).toBeGreaterThanOrEqual(fixture.promptPaths.length);
     expect(counts.prompts).toBeLessThanOrEqual(fixture.promptPaths.length * 4);
     expect(counts.state).toBeLessThanOrEqual(3);
@@ -361,7 +365,8 @@ describe("batch Prompt request reuse", () => {
       state: fixture.workspace.stateFile,
       policy: fixture.policyPath
     };
-    reads.failurePath = paths[source];
+    reads.failurePaths.add(paths[source]);
+    if (source === "block") reads.failurePaths.add(await realpath(paths.block));
     await expect(refreshPrompts({ projectRoot: fixture.root })).rejects.toMatchObject({
       code: "EACCES"
     });
