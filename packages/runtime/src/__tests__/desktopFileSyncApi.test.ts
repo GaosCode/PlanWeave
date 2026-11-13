@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,6 +19,10 @@ import {
   resolveTaskCanvasWorkspace
 } from "../desktop/canvasApi.js";
 import { loadProjectGraph, writeProjectGraph } from "../projectGraph/index.js";
+import {
+  createPackageFileSnapshot,
+  refreshChangedPackagePromptsForPaths
+} from "../package/fileChanges.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { initWorkspace } from "../initWorkspace.js";
 import { createSqlitePlanGraphStore } from "../plangraph/sqliteIndex.js";
@@ -195,6 +199,114 @@ describe("desktop file sync API", () => {
     expect((await store.load())?.diagnostics.some(({ code }) => code === "prompt_missing")).toBe(
       false
     );
+  });
+
+  it("publishes all changed prompt owners captured during an alias retarget", async ({ skip }) => {
+    const manifest = basicManifest({ includeSecondTask: true });
+    const { root, home, init } = await createTestWorkspace(manifest);
+    const { packageDir, manifestFile } = init.workspace;
+    const firstTarget = "shared/first.txt";
+    const secondTarget = "shared/second.txt";
+    const taskPrompt = "shared/task-alias.txt";
+    const blockPrompt = "shared/block-alias.txt";
+    try {
+      await mkdir(join(packageDir, "shared"));
+      await writeFile(join(packageDir, firstTarget), "Original task text");
+      await writeFile(join(packageDir, secondTarget), "Original block text");
+      try {
+        await symlink(join(packageDir, firstTarget), join(packageDir, taskPrompt), "file");
+      } catch (error) {
+        if (
+          process.platform === "win32" &&
+          error instanceof Error &&
+          "code" in error &&
+          (error.code === "EPERM" || error.code === "EACCES")
+        ) {
+          skip("The Windows test process lacks permission to create file symlinks.");
+        }
+        throw error;
+      }
+      await symlink(join(packageDir, secondTarget), join(packageDir, blockPrompt), "file");
+      manifest.nodes[0].prompt = taskPrompt;
+      manifest.nodes[1].blocks[0].prompt = blockPrompt;
+      await writeJsonFile(manifestFile, manifest);
+      const store = await createSqlitePlanGraphStore({ projectRoot: root });
+      await store.rebuild();
+      await createDesktopPackageFileSnapshot(root);
+      const previous = await createPackageFileSnapshot(root);
+
+      const updatedText = "Changed shared text before watcher delivery";
+      await writeFile(join(packageDir, secondTarget), updatedText);
+      const replacement = join(packageDir, "shared/replacement");
+      await symlink(join(packageDir, secondTarget), replacement, "file");
+      await rename(replacement, join(packageDir, taskPrompt));
+
+      const updated = await refreshPackageFileChanges(root, {
+        changedPaths: [`package/${taskPrompt}`]
+      });
+      const indexed = await store.load();
+      expect(indexed?.promptRefs.get("T-002#B-001")).toMatchObject({
+        path: blockPrompt,
+        preview: updatedText
+      });
+      expect(indexed?.promptRefs.get("T-001")).toMatchObject({
+        path: taskPrompt,
+        preview: updatedText
+      });
+      expect(updated).toMatchObject({
+        ok: true,
+        fullRefresh: false,
+        affectedTasks: ["T-001", "T-002"],
+        dirtyPromptRefs: ["T-001", "T-002#B-001"],
+        refreshedPromptCount: 3,
+        diagnostics: []
+      });
+
+      const rendered = await refreshChangedPackagePromptsForPaths(root, previous, [taskPrompt]);
+      expect(rendered.changedPackagePaths).toEqual([taskPrompt]);
+      expect(rendered.indexPackagePaths).toEqual([taskPrompt, blockPrompt]);
+      expect(rendered.refreshed).toEqual(
+        ["T-001#B-001", "T-001#R-001", "T-002#B-001"].map((ref) =>
+          expect.objectContaining({ ref, markdown: expect.stringContaining(updatedText) })
+        )
+      );
+
+      const targetEvent = `package/${secondTarget}`;
+      for (const changedPaths of [[targetEvent], [taskPrompt, targetEvent]]) {
+        await expect(refreshPackageFileChanges(root, { changedPaths })).resolves.toMatchObject({
+          ok: true,
+          fullRefresh: false,
+          affectedTasks: [],
+          dirtyPromptRefs: [],
+          refreshedPromptCount: 0,
+          diagnostics: []
+        });
+      }
+      expect((await store.load())?.graphVersion).toBe(indexed?.graphVersion);
+
+      for (const [nextText, changedPaths] of [
+        ["Edited through the physical target", [targetEvent]],
+        ["Edited with batched alias events", [taskPrompt, targetEvent, `package/${blockPrompt}`]]
+      ] as const) {
+        await writeFile(join(packageDir, secondTarget), nextText);
+        const refreshed = await refreshPackageFileChanges(root, {
+          changedPaths: [...changedPaths]
+        });
+        expect(refreshed).toMatchObject({
+          ok: true,
+          fullRefresh: false,
+          refreshedPromptCount: 3,
+          diagnostics: []
+        });
+        expect([...refreshed.affectedTasks].sort()).toEqual(["T-001", "T-002"]);
+        expect([...refreshed.dirtyPromptRefs].sort()).toEqual(["T-001", "T-002#B-001"]);
+        const latest = await store.load();
+        expect(latest?.promptRefs.get("T-001")?.preview).toBe(nextText);
+        expect(latest?.promptRefs.get("T-002#B-001")?.preview).toBe(nextText);
+      }
+    } finally {
+      await Promise.all([root, home].map((path) => rm(path, { recursive: true, force: true })));
+    }
   });
 
   it("keeps package file snapshots inside runtime and returns serializable dirty prompt refs", async () => {

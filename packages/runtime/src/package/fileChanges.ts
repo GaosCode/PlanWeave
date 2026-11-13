@@ -554,9 +554,9 @@ export async function refreshChangedPackagePromptsForPaths(
       },
       promptMarkdown: new Map([...previous.promptMarkdown, ...captured.markdown])
     };
-    const paths = normalized.changedPackagePaths.filter((path) =>
-      changed(previous.promptFiles[path], snapshot.promptFiles[path])
-    );
+    const paths = Object.entries(captured.fingerprints)
+      .filter(([path, fingerprint]) => changed(previous.promptFiles[path], fingerprint))
+      .map(([path]) => path);
     const affected = ownersForPaths(owners, paths);
     const refsToRefresh = [
       ...new Set(
