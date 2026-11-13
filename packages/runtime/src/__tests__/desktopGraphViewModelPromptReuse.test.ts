@@ -1,4 +1,5 @@
 import type { PathLike } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const promptReadObservations = vi.hoisted(() => ({
@@ -29,15 +30,16 @@ afterEach(() => {
   promptReadObservations.paths = [];
 });
 
-function classifyPromptReads(paths: string[], packageDir: string) {
-  const normalizedPackageDir = packageDir.replaceAll("\\", "/");
+function classifyPromptReads(paths: string[], packageDirs: string[]) {
+  const prefixes = packageDirs.map((directory) => `${directory.replaceAll("\\", "/")}/`);
   const promptPaths = paths
     .map((path) => path.replaceAll("\\", "/"))
-    .filter(
-      (path) =>
-        path.startsWith(normalizedPackageDir) && path.includes("/nodes/") && path.endsWith(".md")
-    );
-  const taskPromptPaths = promptPaths.filter((path) => /\/nodes\/[^/]+\/prompt\.md$/.test(path));
+    .flatMap((path) => {
+      const prefix = prefixes.find((candidate) => path.startsWith(candidate));
+      return prefix === undefined ? [] : [path.slice(prefix.length)];
+    })
+    .filter((path) => path.startsWith("nodes/") && path.endsWith(".md"));
+  const taskPromptPaths = promptPaths.filter((path) => /^nodes\/[^/]+\/prompt\.md$/.test(path));
   const blockPromptPaths = promptPaths.filter(
     (path) => path.includes("/blocks/") && path.endsWith(".prompt.md")
   );
@@ -58,6 +60,7 @@ describe("desktop graph view model prompt reuse", () => {
   it("builds the view model from the PlanGraph prompt index without eager per-prompt re-reads", async () => {
     const { root, init } = await createTestWorkspace(basicManifest({ includeSecondTask: true }));
     const packageDir = init.workspace.packageDir;
+    const packageDirs = [packageDir, await realpath(packageDir)];
     // 2 tasks + 4 blocks
     const promptFileCount = 6;
 
@@ -65,11 +68,11 @@ describe("desktop graph view model prompt reuse", () => {
 
     promptReadObservations.paths = [];
     const first = await buildGraphViewModel(context);
-    const firstCounts = classifyPromptReads(promptReadObservations.paths, packageDir);
+    const firstCounts = classifyPromptReads(promptReadObservations.paths, packageDirs);
 
     promptReadObservations.paths = [];
     const second = await buildGraphViewModel(context);
-    const secondCounts = classifyPromptReads(promptReadObservations.paths, packageDir);
+    const secondCounts = classifyPromptReads(promptReadObservations.paths, packageDirs);
 
     // loadPlanGraphPackage remains the indexing authority: compile validation + prompt index
     // may each read prompt bodies once. No third eager view-model pass.

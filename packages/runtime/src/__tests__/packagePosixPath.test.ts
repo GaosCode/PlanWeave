@@ -1,9 +1,14 @@
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { toPackagePosixPath } from "../package/packagePosixPath.js";
-import { normalizePackagePath, promptPathToRefs } from "../graph/session/fileQueue.js";
-import { compileTaskGraph } from "../graph/compileTaskGraph.js";
-import { basicManifest } from "./promptTestHelpers.js";
+import {
+  createExecutionGraphSession,
+  drainGraphReadQueue,
+  enqueuePackageFileChanges
+} from "../graph/session.js";
+import { normalizePackagePath } from "../graph/session/fileQueue.js";
+import { createTestWorkspace } from "./promptTestHelpers.js";
 import type { ExecutionGraphSession } from "../types.js";
 
 describe("toPackagePosixPath", () => {
@@ -23,12 +28,17 @@ describe("toPackagePosixPath", () => {
 });
 
 describe("fileQueue path normalization", () => {
-  it("maps Windows-separated prompt paths to the same refs as POSIX", () => {
-    const graph = compileTaskGraph(basicManifest());
-    const posix = promptPathToRefs(graph, "nodes/T-001/prompt.md");
-    const windows = promptPathToRefs(graph, String.raw`nodes\T-001\prompt.md`);
-    expect(windows).toEqual(posix);
-    expect(windows.length).toBeGreaterThan(0);
+  it("maps Windows-separated prompt paths to the same refs as POSIX", async () => {
+    const { home, root, init } = await createTestWorkspace();
+    onTestFinished(async () => {
+      await Promise.all([home, root].map((path) => rm(path, { recursive: true, force: true })));
+    });
+    for (const path of ["nodes/T-001/prompt.md", String.raw`nodes\T-001\prompt.md`]) {
+      const session = await createExecutionGraphSession(init.workspace);
+      enqueuePackageFileChanges(session, [{ path, type: "changed" }]);
+      const result = await drainGraphReadQueue(session);
+      expect(result.dirtyPromptRefs).toEqual(["T-001#B-001", "T-001#R-001"]);
+    }
   });
 
   it("normalizes absolute package paths to POSIX relative form", () => {

@@ -10,6 +10,7 @@ import { DEFAULT_AGENT_HOST_TERMINAL_COMPACTION_POLICY } from "../state/agentHos
 import { openAgentHostDatabase } from "../state/sqliteDatabase.js";
 import { AgentHostClient } from "../transport/agentHostClient.js";
 import { acpCapabilitySnapshotTestValue } from "./support/acpCapabilitySnapshotTestValues.js";
+import { emptyHostReadiness } from "./support/agentHostOutboxFailureHarness.js";
 import { HostTransportSocketHarness } from "./support/hostTransportSocketHarness.js";
 import { remoteRunnerEventV2Request } from "./support/remoteRunnerEventCapabilityTestValues.js";
 import {
@@ -97,7 +98,7 @@ describe("Agent Host terminal maintenance", () => {
     });
     const execute = vi.fn();
     const client = new AgentHostClient({
-      readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
+      readiness: emptyHostReadiness,
       serverUrl: server.serverUrl,
       hostId: "host-terminal-permission-replay",
       token: "host-token",

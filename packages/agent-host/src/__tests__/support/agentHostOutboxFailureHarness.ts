@@ -12,7 +12,8 @@ import {
   hostEventSchema,
   hostHelloSchema,
   serverEventSchema,
-  type HostEvent
+  type HostEvent,
+  type HostReadinessObservation
 } from "@planweave-ai/agent-host-protocol";
 import { expect, vi } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -24,6 +25,12 @@ import type { HostTransportLimits } from "../../transport/hostTransport.js";
 import { AgentHostClient } from "../../transport/agentHostClient.js";
 import { FakeHostTransportClock } from "./hostTransportTestClock.js";
 import { remoteRunnerEventV2Request } from "./remoteRunnerEventCapabilityTestValues.js";
+
+export const emptyHostReadiness: HostReadinessObservation = {
+  workspaceMappings: [],
+  acpProfiles: [],
+  runtimeProjects: []
+};
 
 export async function outboxFailureHarness(
   cleanups: Array<() => void | Promise<void>>,
@@ -149,7 +156,7 @@ export async function outboxFailureHarness(
     conversations,
     limits: options.limits,
     capacity: 1,
-    readiness: { workspaceMappings: [], acpProfiles: [], runtimeProjects: [] },
+    readiness: emptyHostReadiness,
     state,
     executor: {
       execute: async () => {
