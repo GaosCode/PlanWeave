@@ -15,6 +15,9 @@ import {
 } from "./projectCanvasContext.js";
 import { createProjectGraphClaimGuardFromAggregation } from "./projectGraphClaimGuard.js";
 import { createPromptSourceReader, type PromptSourceReader } from "./promptSourceReader.js";
+import { resolvePackageWorkspace } from "../package/loadPackage.js";
+import { createExecutionGraphSessionFromSnapshot } from "../graph/session.js";
+import type { PackageFileSnapshot, PackageWorkspaceRef } from "../types.js";
 import { loadRuntimeReadonly, type RuntimeContext, type RuntimeOptions } from "./runtimeContext.js";
 
 export interface PromptRenderContext {
@@ -28,7 +31,8 @@ export interface PromptRenderContext {
 }
 
 export async function createPromptRenderContext(
-  options: RuntimeOptions
+  options: RuntimeOptions,
+  packageSnapshot?: PackageFileSnapshot
 ): Promise<PromptRenderContext> {
   const runtime = await loadRuntimeReadonly(options);
   const { workspace, manifest, graph, state } = runtime;
@@ -47,7 +51,9 @@ export async function createPromptRenderContext(
         workspace,
         manifest,
         compiledGraph: graph,
-        promptMarkdownByPath: options.executionSnapshot?.promptMarkdownByPath
+        promptMarkdownByPath:
+          packageSnapshot?.promptMarkdown ?? options.executionSnapshot?.promptMarkdownByPath,
+        promptDiagnosticsByPath: packageSnapshot?.promptReadFailures
       }
     })
   ]);
@@ -59,6 +65,21 @@ export async function createPromptRenderContext(
     projectCanvasContextRenderer: (taskId) =>
       renderProjectCanvasContextFromSnapshot(runtime, projectAggregation, taskId),
     canvasCommandFlag: canvasCommandFlagForLoadedProjectGraph(workspace, projectAggregation.loaded),
-    packagePromptSnapshotMode: options.executionSnapshot ? "frozen" : "refresh-missing"
+    packagePromptSnapshotMode:
+      options.executionSnapshot || packageSnapshot ? "frozen" : "refresh-missing"
   };
+}
+
+export async function createPromptRenderContextForPackageSnapshot(
+  projectRoot: PackageWorkspaceRef,
+  snapshot: PackageFileSnapshot
+): Promise<PromptRenderContext> {
+  const workspace = await resolvePackageWorkspace(projectRoot);
+  return createPromptRenderContext(
+    {
+      projectRoot: workspace,
+      session: createExecutionGraphSessionFromSnapshot({ projectRoot, workspace, snapshot })
+    },
+    snapshot
+  );
 }

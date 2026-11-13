@@ -26,9 +26,13 @@ import { readManifest, rebuildSessionFromPackage } from "./session/rebuild.js";
 export async function createExecutionGraphSession(
   projectRoot: PackageWorkspaceRef
 ): Promise<ExecutionGraphSession> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  const snapshot = await createPackageFileSnapshotFromLoadedPackage({ workspace, manifest });
-  return createExecutionGraphSessionFromSnapshot({ projectRoot, workspace, snapshot });
+  const loaded = await loadPackage(projectRoot, { fingerprintManifest: true });
+  const snapshot = await createPackageFileSnapshotFromLoadedPackage(loaded);
+  return createExecutionGraphSessionFromSnapshot({
+    projectRoot,
+    workspace: loaded.workspace,
+    snapshot
+  });
 }
 
 export function createExecutionGraphSessionFromSnapshot(input: {
@@ -133,8 +137,11 @@ export async function drainGraphReadQueue(
       session.diagnostics = diagnostics;
       return drainResult(session, true);
     }
-    session.fileSnapshot.manifest = nextManifest;
-    session.fileSnapshot.graph = session.graph;
+    session.fileSnapshot = await createPackageFileSnapshotFromLoadedPackage({
+      workspace: session.workspace,
+      manifest: nextManifest,
+      graph: session.graph
+    });
     alignGraphOrder(session.graph, nextManifest);
     rebuildEdgeIndexes(session.graph, nextManifest);
     refreshReachability(session.graph);
@@ -146,7 +153,7 @@ export async function drainGraphReadQueue(
   }
 
   for (const change of normalizedChanges) {
-    for (const ref of promptPathToRefs(session.graph, change.path)) {
+    for (const ref of promptPathToRefs(session, change.path)) {
       session.dirtyPromptRefs.add(ref);
     }
   }

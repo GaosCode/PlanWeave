@@ -1,20 +1,28 @@
 import { createHash } from "node:crypto";
-import type { Dirent } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import {
+  loadPackagePromptReferenceInventory,
+  promptTargetPaths,
+  resolvePackagePromptTargets
+} from "@planweave-ai/runtime";
 import type { TaskCanvasWorkspace } from "./packageWatchPaths.js";
-import { toPosixPath } from "./packageWatchPaths.js";
 
 export type PackageFileFingerprint = {
   mtimeMs: number;
   size: number;
+  target?: string;
+  problem?: string;
   hash?: string;
 };
 
 export type PackageFingerprintSnapshot = Map<string, PackageFileFingerprint>;
 
 export function isMissingPathError(caught: unknown): boolean {
-  return caught instanceof Error && "code" in caught && caught.code === "ENOENT";
+  return (
+    caught instanceof Error &&
+    "code" in caught &&
+    (caught.code === "ENOENT" || caught.code === "ENOTDIR")
+  );
 }
 
 export async function fingerprintIfPresent(
@@ -22,17 +30,18 @@ export async function fingerprintIfPresent(
   hashContent = false
 ): Promise<PackageFileFingerprint | null> {
   try {
-    const [metadata, content] = await Promise.all([
-      stat(path),
-      hashContent ? readFile(path) : Promise.resolve(null)
-    ]);
+    const metadata = await stat(path);
     if (!metadata.isFile()) {
       return null;
     }
     return {
       mtimeMs: metadata.mtimeMs,
       size: metadata.size,
-      hash: content ? createHash("sha256").update(content).digest("hex") : undefined
+      hash: hashContent
+        ? createHash("sha256")
+            .update(await readFile(path))
+            .digest("hex")
+        : undefined
     };
   } catch (caught) {
     if (isMissingPathError(caught)) {
@@ -42,49 +51,79 @@ export async function fingerprintIfPresent(
   }
 }
 
-async function collectMarkdownFingerprints(
-  rootPath: string,
-  relativeRoot: string,
-  snapshot: PackageFingerprintSnapshot
-): Promise<void> {
-  let entries: Dirent<string>[];
-  try {
-    entries = await readdir(rootPath, { withFileTypes: true });
-  } catch (caught) {
-    if (isMissingPathError(caught)) {
-      return;
-    }
-    throw caught;
-  }
+export type PackageWatchInventory = {
+  references: ReadonlyMap<string, string>;
+  orphans: string[];
+  manifestHash?: string;
+};
 
-  for (const entry of entries) {
-    const path = join(rootPath, entry.name);
-    const relativePath = toPosixPath(join(relativeRoot, entry.name));
-    if (entry.isDirectory()) {
-      await collectMarkdownFingerprints(path, relativePath, snapshot);
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      // Poll path uses mtime+size only. Content hashing every tick is too expensive on large packages.
-      const fingerprint = await fingerprintIfPresent(path, false);
-      if (fingerprint) {
-        snapshot.set(relativePath, fingerprint);
-      }
+export async function loadPackageWatchInventory(
+  workspace: TaskCanvasWorkspace,
+  previous?: PackageWatchInventory,
+  reloadManifest = true,
+  rescanOrphans = true
+): Promise<PackageWatchInventory> {
+  let references = previous?.references ?? new Map<string, string>();
+  let manifestHash = previous?.manifestHash;
+  if (reloadManifest) {
+    try {
+      const inventory = await loadPackagePromptReferenceInventory(workspace);
+      references = inventory.paths;
+      manifestHash = inventory.manifestHash;
+    } catch (error) {
+      console.warn("PlanWeave polling package watcher could not load prompt references:", error);
     }
   }
+  if (!rescanOrphans) return { references, orphans: previous?.orphans ?? [], manifestHash };
+  const targets = await resolvePackagePromptTargets(workspace.packageDir, references.keys(), {
+    includeOrphans: true,
+    manifestPaths: references
+  });
+  const orphans = [...targets.paths.keys()].filter((path) => !references.has(path));
+  for (const diagnostic of targets.diagnostics) {
+    if (diagnostic.code === "prompt_directory_read_failed") {
+      throw new Error(diagnostic.message);
+    }
+  }
+  return { references, orphans, manifestHash };
 }
 
 export async function collectWatchedPackageFingerprints(
-  workspace: TaskCanvasWorkspace
+  workspace: TaskCanvasWorkspace,
+  inventory: PackageWatchInventory,
+  hashContent = false,
+  concurrency = 1
 ): Promise<PackageFingerprintSnapshot> {
+  const targets = await resolvePackagePromptTargets(
+    workspace.packageDir,
+    [...inventory.references.keys(), ...inventory.orphans],
+    { manifestPaths: inventory.references }
+  );
   const snapshot: PackageFingerprintSnapshot = new Map();
-  const manifestFingerprint = await fingerprintIfPresent(workspace.manifestFile);
-  if (manifestFingerprint) {
-    snapshot.set("package/manifest.json", manifestFingerprint);
+  const groups = [
+    [workspace.manifestFile, ["package/manifest.json"]],
+    [workspace.projectPromptFile, ["policy/project-prompt.md"]],
+    ...[...promptTargetPaths(targets)].map(
+      ([target, paths]) => [target, paths.map((path) => `package/${path}`)] as const
+    )
+  ] as const;
+  const fingerprints = await mapWithBoundedConcurrency(
+    groups,
+    concurrency,
+    async ([target, paths]) =>
+      [paths, await fingerprintIfPresent(target, hashContent), target] as const
+  );
+  for (const [paths, fingerprint, target] of fingerprints) {
+    if (!fingerprint) continue;
+    for (const path of paths) snapshot.set(path, { ...fingerprint, target });
   }
-  const projectPromptFingerprint = await fingerprintIfPresent(workspace.projectPromptFile, false);
-  if (projectPromptFingerprint) {
-    snapshot.set("policy/project-prompt.md", projectPromptFingerprint);
+  for (const [path, failure] of targets.failures) {
+    snapshot.set(`package/${path}`, {
+      size: 0,
+      mtimeMs: 0,
+      problem: failure.kind === "read_error" ? failure.error.message : failure.kind
+    });
   }
-  await collectMarkdownFingerprints(join(workspace.packageDir, "nodes"), "package/nodes", snapshot);
   return snapshot;
 }
 
@@ -93,7 +132,11 @@ export function changedFingerprint(
   right: PackageFileFingerprint | undefined
 ): boolean {
   return (
-    left?.mtimeMs !== right?.mtimeMs || left?.size !== right?.size || left?.hash !== right?.hash
+    left?.mtimeMs !== right?.mtimeMs ||
+    left?.size !== right?.size ||
+    left?.target !== right?.target ||
+    left?.problem !== right?.problem ||
+    left?.hash !== right?.hash
   );
 }
 
@@ -118,7 +161,7 @@ export function preserveContentHashes(
       continue;
     }
     const prior = previous.get(path);
-    if (prior?.hash && prior.mtimeMs === fingerprint.mtimeMs && prior.size === fingerprint.size) {
+    if (prior?.hash && !changedFingerprint({ ...prior, hash: undefined }, fingerprint)) {
       fingerprint.hash = prior.hash;
     }
   }

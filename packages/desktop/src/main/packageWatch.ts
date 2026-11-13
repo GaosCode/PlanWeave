@@ -13,7 +13,6 @@ import { desktopBridgeInvokeChannels, packageFileChangedChannel } from "../share
 import type { PackageWatchBackendHandle } from "./packageWatchBackend.js";
 import { startNativePackageWatchBackend } from "./packageWatchNativeBackend.js";
 import { startPollingPackageWatchBackend } from "./packageWatchPollingBackend.js";
-import { dedupePackageWatchPaths } from "./packageWatchPaths.js";
 import { systemWatchScheduler, type WatchScheduler, type WatchTimer } from "./watchRuntime.js";
 
 type PackageWatchPendingSubscriber = {
@@ -52,7 +51,7 @@ async function startPackageWatchBackend(
   scheduler: WatchScheduler,
   onError?: (error: unknown) => void
 ): Promise<PackageWatchBackendHandle> {
-  const native = startNativePackageWatchBackend(workspace, recordChange, onError);
+  const native = await startNativePackageWatchBackend(workspace, recordChange, onError, scheduler);
   if (native) {
     return native;
   }
@@ -251,7 +250,7 @@ function flushPackageFileChange(
     return;
   }
   activeWatch.timer = null;
-  const paths = dedupePackageWatchPaths(activeWatch.changedPaths);
+  const paths = [...activeWatch.changedPaths].sort();
   activeWatch.changedPaths.clear();
   if (paths.length === 0) {
     return;

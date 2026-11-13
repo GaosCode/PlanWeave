@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -84,6 +84,112 @@ describe("package file changes", () => {
       refreshedRefs: 2,
       mode: "full"
     });
+  });
+
+  it("refreshes all owners of a shared prompt and indexes the logical path", async () => {
+    const manifest = basicManifest({ includeSecondTask: true });
+    const { root, init } = await createTestWorkspace(manifest);
+    const sharedPath = "shared/requirements.md";
+    await mkdir(join(init.workspace.packageDir, "shared"));
+    await writeFile(join(init.workspace.packageDir, sharedPath), "original\n");
+    manifest.nodes[0].prompt = sharedPath;
+    manifest.nodes[1].blocks[0].prompt = sharedPath;
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+    const before = await createPackageFileSnapshot(root);
+
+    await writeFile(join(init.workspace.packageDir, sharedPath), "updated shared requirements\n");
+    const refreshed = await refreshChangedPackagePromptsForPaths(root, before, [
+      `package/${sharedPath}`
+    ]);
+
+    expect(refreshed.indexPackagePaths).toEqual([sharedPath]);
+    expect(refreshed.impact.affectedTasks).toEqual(["T-001", "T-002"]);
+    expect(refreshed.refreshed.map(({ ref }) => ref)).toEqual([
+      "T-001#B-001",
+      "T-001#R-001",
+      "T-002#B-001"
+    ]);
+  });
+
+  it("refreshes logical aliases after an atomic edit to a shared physical target", async ({
+    skip
+  }) => {
+    const { root, init } = await createTestWorkspace();
+    const { packageDir } = init.workspace;
+    const target = "shared/body.txt";
+    const taskPath = "nodes/T-001/prompt.md";
+    const blockPath = "nodes/T-001/blocks/B-001.prompt.md";
+    await mkdir(join(packageDir, "shared"));
+    await writeFile(join(packageDir, target), "initial shared prompt");
+    await rm(join(packageDir, taskPath));
+    await rm(join(packageDir, blockPath));
+    try {
+      await symlink(join(packageDir, target), join(packageDir, taskPath), "file");
+    } catch (error) {
+      if (
+        process.platform === "win32" &&
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "EPERM" || error.code === "EACCES")
+      ) {
+        skip("The Windows test process lacks permission to create file symlinks.");
+      }
+      throw error;
+    }
+    await symlink(join(packageDir, target), join(packageDir, blockPath), "file");
+    const before = await createPackageFileSnapshot(root);
+
+    await writeFile(join(packageDir, "shared/replacement"), "changed shared prompt");
+    await rename(join(packageDir, "shared/replacement"), join(packageDir, target));
+    const updated = await refreshChangedPackagePromptsForPaths(root, before, [`package/${target}`]);
+    expect(updated.indexPackagePaths).toEqual(expect.arrayContaining([taskPath, blockPath]));
+    expect(updated.indexPackagePaths).toHaveLength(2);
+    expect(updated.refreshed.map(({ ref }) => ref)).toEqual(["T-001#B-001", "T-001#R-001"]);
+    if (!updated.snapshot) throw new Error("Expected a snapshot of the replaced prompt");
+
+    await writeFile(join(packageDir, "shared/replacement"), "changed shared prompt");
+    await rename(join(packageDir, "shared/replacement"), join(packageDir, target));
+    const unchanged = await refreshChangedPackagePromptsForPaths(root, updated.snapshot, [target]);
+    expect(unchanged.indexPackagePaths).toEqual([]);
+    expect(unchanged.refreshed).toEqual([]);
+  });
+
+  it("reports dangling escaping links and cycles through a coarse refresh without reading them", async ({
+    skip
+  }) => {
+    const { root, init } = await createTestWorkspace();
+    const { packageDir } = init.workspace;
+    const taskPath = "nodes/T-001/prompt.md";
+    const blockPath = "nodes/T-001/blocks/B-001.prompt.md";
+    const before = await createPackageFileSnapshot(root);
+    await rm(join(packageDir, taskPath));
+    await rm(join(packageDir, blockPath));
+    try {
+      await symlink(join(root, "outside-missing.md"), join(packageDir, taskPath), "file");
+    } catch (error) {
+      if (
+        process.platform === "win32" &&
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "EPERM" || error.code === "EACCES")
+      ) {
+        skip("The Windows test process lacks permission to create file symlinks.");
+      }
+      throw error;
+    }
+    await symlink(join(packageDir, blockPath), join(packageDir, blockPath), "file");
+
+    const failed = await refreshChangedPackagePromptsForPaths(root, before, [
+      "package/nodes/T-001"
+    ]);
+    expect(failed.snapshot).toBeNull();
+    expect(failed.indexPackagePaths).toEqual(expect.arrayContaining([taskPath, blockPath]));
+    expect(failed.impact.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "package_path_outside", path: taskPath }),
+        expect.objectContaining({ code: "prompt_access_failed", path: blockPath })
+      ])
+    );
   });
 
   it("refreshes a changed block prompt path incrementally", async () => {
@@ -412,7 +518,7 @@ describe("package file changes", () => {
     expect(refreshed.incremental).toBe(false);
     expect(refreshed.snapshot).toBeNull();
     expect(refreshed.changedPackagePaths).toEqual(["nodes/T-001/blocks/B-001.prompt.md"]);
-    expect(refreshed.indexPackagePaths).toEqual(["manifest.json"]);
+    expect(refreshed.indexPackagePaths).toEqual(["nodes/T-001/blocks/B-001.prompt.md"]);
     expect(refreshed.impact.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining(["package_change_incremental_refresh_failed", "prompt_missing"])
     );

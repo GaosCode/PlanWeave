@@ -88,7 +88,7 @@ async function loadRuntimeContext(options: RuntimeOptions): Promise<{
   if (session) {
     await assertSessionWorkspace(session, options.projectRoot);
   } else {
-    const loaded = await loadPackage(options.projectRoot);
+    const loaded = await loadPackage(options.projectRoot, { fingerprintManifest: true });
     const snapshot = await createPackageFileSnapshotFromLoadedPackage(loaded);
     session = createExecutionGraphSessionFromSnapshot({
       projectRoot: options.projectRoot,

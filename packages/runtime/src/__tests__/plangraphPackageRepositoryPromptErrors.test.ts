@@ -1,4 +1,5 @@
 import type { PathLike } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const injectedReadFailure = vi.hoisted(
@@ -36,7 +37,7 @@ describe("PlanGraph package prompt read failures", () => {
   it("distinguishes permission failures from missing prompts and propagates them to Task Workspace", async () => {
     const { root, init } = await createTestWorkspace(basicManifest());
     const packagePath = "nodes/T-001/blocks/B-001.prompt.md";
-    injectedReadFailure.path = `${init.workspace.packageDir}/${packagePath}`;
+    injectedReadFailure.path = await realpath(`${init.workspace.packageDir}/${packagePath}`);
     const permissionError = new Error("permission denied") as NodeJS.ErrnoException;
     permissionError.code = "EACCES";
     injectedReadFailure.error = permissionError;

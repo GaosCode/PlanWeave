@@ -14,7 +14,7 @@ import type { createTranslator } from "../i18n";
 import type { FloatingControlPosition } from "../types";
 import { useAutoRunControl } from "../hooks/useAutoRunControl";
 import type { WorkspaceAgentEndpointScopeStarter } from "../hooks/useWorkspaceAgentEndpointRun";
-import { usePackageFileSync } from "../hooks/usePackageFileSync";
+import { usePackageFileSync, type PackageFileSyncCompletion } from "../hooks/usePackageFileSync";
 import type { WorkspaceTabsAutoRunProps, WorkspaceTabsFileSyncProps } from "../views/WorkspaceTabs";
 import type { CollaborationRuntimeAvailabilityView } from "../collaboration/runtimeAvailabilityView";
 import type { CanvasLocator } from "../../shared/canvasLocator";
@@ -178,6 +178,8 @@ export function useAutoRunController({
 }
 
 export function useFileSyncController({
+  onFileSyncComplete,
+  planweaveHome,
   projectDiagnostics,
   refreshProjectDerivedState,
   reloadCurrentCanvas,
@@ -186,6 +188,8 @@ export function useFileSyncController({
   setError,
   t
 }: {
+  onFileSyncComplete?: PackageFileSyncCompletion;
+  planweaveHome?: string;
   projectDiagnostics: ValidationIssue[];
   refreshProjectDerivedState: (options?: { includeLayout?: boolean }) => Promise<void>;
   reloadCurrentCanvas: () => Promise<void>;
@@ -220,6 +224,8 @@ export function useFileSyncController({
     diagnosticsSnapshot?.scopeKey === scopeKey ? diagnosticsSnapshot.diagnostics : [];
   const fileSyncResult = resultSnapshot?.scopeKey === scopeKey ? resultSnapshot.result : null;
   const { refreshPackageFiles } = usePackageFileSync({
+    onFileSyncComplete,
+    planweaveHome,
     refreshProjectDerivedState,
     reloadCurrentCanvas,
     selectedCanvasId,

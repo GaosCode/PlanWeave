@@ -1,4 +1,6 @@
 import "@testing-library/jest-dom/vitest";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, vi } from "vitest";
 import {
@@ -6,6 +8,8 @@ import {
   getGraphViewModel,
   getTaskDetail,
   getBlockDetail,
+  createDesktopPackageFileSnapshot,
+  refreshPackageFileChanges,
   updateTaskPrompt,
   updateBlockPrompt,
   resolveTaskCanvasWorkspace,
@@ -28,11 +32,13 @@ export const runtimePromptLabels = taskWorkspaceLabels(createTranslator("en"));
 export async function runtimePromptHarness(
   kind: "task" | "block",
   acknowledgement: "before-write" | "after-write" = "before-write",
-  heldWrite = 1
+  heldWrite = 1,
+  watchPackage = false
 ) {
   const original = await createTestWorkspace(basicManifest());
+  const workspace = await resolveTaskCanvasWorkspace(original.root, "default");
   let selected = {
-    projectRoot: original.root,
+    projectRoot: watchPackage ? workspace.rootPath : original.root,
     projectId: original.init.workspace.id,
     canvasId: "default"
   };
@@ -97,11 +103,11 @@ export async function runtimePromptHarness(
       api,
       history: appHistory,
       promptAuthority: {
-        workspaceRoot: null,
+        workspaceRoot: watchPackage ? original.init.workspace.workspaceRoot : null,
         projectRoot: selected.projectRoot,
         canvasLocator: { kind: "local", projectId: selected.projectId, canvasId: selected.canvasId }
       },
-      selectedWorkspaceRoot: null,
+      selectedWorkspaceRoot: watchPackage ? original.init.workspace.workspaceRoot : null,
       saveAgentEndpointPreference: async () => undefined
     });
     return view === "task-workspace" ? (
@@ -122,7 +128,9 @@ export async function runtimePromptHarness(
           runtimePromptLabels.promptLabels.blockPrompt
         );
   await waitFor(() => expect(input()).toBeInTheDocument());
-  const workspace = await resolveTaskCanvasWorkspace(original.root, "default");
+  if (watchPackage) await createDesktopPackageFileSnapshot(workspace);
+  const sourcePath =
+    kind === "task" ? "nodes/T-001/prompt.md" : "nodes/T-001/blocks/B-001.prompt.md";
   const initialMarkdown =
     kind === "task"
       ? (await getTaskDetail(workspace, "T-001")).promptMarkdown
@@ -141,6 +149,12 @@ export async function runtimePromptHarness(
     writeSource,
     get controller() {
       return current;
+    },
+    async watcherWrite(markdown: string) {
+      await writeFile(join(workspace.packageDir, sourcePath), markdown);
+      const synced = await refreshPackageFileChanges(workspace, { changedPaths: [sourcePath] });
+      expect(synced).toMatchObject({ ok: true, affectedTasks: ["T-001"] });
+      act(() => current.refreshLocalPrompts(synced, () => true));
     },
     async externalWrite(markdown: string) {
       expect(await writeSource(markdown)).toMatchObject({ ok: true });

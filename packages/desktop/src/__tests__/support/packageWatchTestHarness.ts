@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, vi } from "vitest";
@@ -259,7 +259,7 @@ vi.mock("@planweave-ai/runtime", async () => {
 });
 
 export async function createWorkspace(): Promise<TestWorkspace> {
-  const rootPath = await mkdtemp(join(tmpdir(), "planweave-package-watch-"));
+  const rootPath = await realpath(await mkdtemp(join(tmpdir(), "planweave-package-watch-")));
   tempRoots.push(rootPath);
   const packageDir = join(rootPath, "package");
   const nodesDir = join(packageDir, "nodes", "T-001", "blocks");
@@ -268,7 +268,31 @@ export async function createWorkspace(): Promise<TestWorkspace> {
   await mkdir(join(rootPath, "policy"), { recursive: true });
   await writeFile(
     join(packageDir, "manifest.json"),
-    JSON.stringify({ version: "plan-package/v1" }),
+    JSON.stringify({
+      version: "plan-package/v1",
+      project: { title: "Watcher fixture", description: "" },
+      execution: { parallel: { enabled: false, maxConcurrent: 1 } },
+      review: { completionPolicy: "strict" },
+      nodes: [
+        {
+          id: "T-001",
+          type: "task",
+          title: "Task",
+          prompt: "nodes/T-001/prompt.md",
+          acceptance: ["Complete"],
+          blocks: [
+            {
+              id: "B-001",
+              type: "implementation",
+              title: "Block",
+              prompt: "nodes/T-001/blocks/B-001.prompt.md",
+              depends_on: []
+            }
+          ]
+        }
+      ],
+      edges: []
+    }),
     "utf8"
   );
   await writeFile(join(packageDir, "nodes", "T-001", "prompt.md"), "task prompt\n", "utf8");
@@ -281,6 +305,17 @@ export async function createWorkspace(): Promise<TestWorkspace> {
     manifestFile: join(packageDir, "manifest.json"),
     projectPromptFile
   };
+}
+
+export async function replaceFixtureTaskPrompt(
+  workspace: TestWorkspace,
+  path: string,
+  blockPrompt?: string
+): Promise<void> {
+  const manifest = JSON.parse(await readFile(workspace.manifestFile, "utf8"));
+  manifest.nodes[0].prompt = path;
+  if (blockPrompt) manifest.nodes[0].blocks[0].prompt = blockPrompt;
+  await writeFile(workspace.manifestFile, JSON.stringify(manifest));
 }
 
 export function createWebContents(id = 1): TestWebContents {

@@ -6,7 +6,7 @@ import type {
 import type { PlanGraph } from "./domain/types.js";
 import type { PlanPackageGraphMutation } from "../graph/mutation.js";
 import type { PackageWorkspaceRef } from "../types.js";
-import type { LoadedPlanGraphPackage } from "./packageRepository.js";
+import type { LoadedPlanGraphPackage, PlanGraphPackageSnapshot } from "./packageRepository.js";
 import type { UpdateLayoutCommand } from "./commands.js";
 
 export type LoadPlanGraphResult = {
@@ -16,7 +16,10 @@ export type LoadPlanGraphResult = {
 
 export type PlanGraphIndexStore = {
   rebuild(options?: { clearHistory?: boolean }): Promise<PlanGraph>;
-  indexChangedPaths(paths: string[], options?: { clearHistory?: boolean }): Promise<PlanGraph>;
+  indexChangedPaths(
+    paths: string[],
+    options?: { clearHistory?: boolean; snapshot?: PlanGraphPackageSnapshot }
+  ): Promise<PlanGraph>;
   load(): Promise<PlanGraph | null>;
   getProjectionVersion(
     projectionName: string,

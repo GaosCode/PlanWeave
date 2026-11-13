@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -139,6 +139,64 @@ describe("desktop file sync API", () => {
       ]);
     }
   });
+  it("updates existing SQLite owner rows and graph diagnostics through shared prompt deletion and recovery", async () => {
+    const manifest = basicManifest({ includeSecondTask: true });
+    const { root, init } = await createTestWorkspace(manifest);
+    const shared = "shared/common.md";
+    const path = join(init.workspace.packageDir, shared);
+    await mkdir(join(init.workspace.packageDir, "shared"));
+    await writeFile(path, "Shared initial content");
+    manifest.nodes[0].prompt = shared;
+    manifest.nodes[1].blocks[0].prompt = shared;
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+    const store = await createSqlitePlanGraphStore({ projectRoot: root });
+    const before = await store.rebuild();
+    await createDesktopPackageFileSnapshot(root);
+
+    await writeFile(path, "Shared updated content");
+    const refreshed = await refreshPackageFileChanges(root, { changedPaths: ["package/shared"] });
+    expect(refreshed).toMatchObject({
+      ok: true,
+      fullRefresh: true,
+      affectedTasks: ["T-001", "T-002"],
+      dirtyPromptRefs: ["T-001", "T-002#B-001"]
+    });
+    const edited = await store.load();
+    expect(edited?.graphVersion).not.toBe(before.graphVersion);
+    for (const ref of ["T-001", "T-002#B-001"]) {
+      expect(edited?.promptRefs.get(ref)).toMatchObject({
+        path: shared,
+        preview: "Shared updated content"
+      });
+    }
+
+    await rm(path);
+    await expect(
+      refreshPackageFileChanges(root, { changedPaths: [shared] })
+    ).resolves.toMatchObject({
+      ok: false,
+      affectedTasks: ["T-001", "T-002"],
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: "prompt_missing", path: shared })
+      ])
+    });
+    expect((await store.load())?.promptRefs.get("T-002#B-001")?.contentHash).toBe("");
+
+    await writeFile(path, "Shared updated content");
+    await expect(
+      refreshPackageFileChanges(root, { changedPaths: [shared] })
+    ).resolves.toMatchObject({
+      ok: true,
+      fullRefresh: true,
+      dirtyPromptRefs: ["T-001", "T-002#B-001"],
+      diagnostics: []
+    });
+    expect((await store.load())?.graphVersion).toBe(edited?.graphVersion);
+    expect((await store.load())?.diagnostics.some(({ code }) => code === "prompt_missing")).toBe(
+      false
+    );
+  });
+
   it("keeps package file snapshots inside runtime and returns serializable dirty prompt refs", async () => {
     const { root, init } = await createTestWorkspace();
 

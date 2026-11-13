@@ -397,6 +397,7 @@ export function ProjectWorkspaceProvider({
     setError
   });
   const taskWorkspace = useTaskWorkspaceController({
+    planweaveHome: settings.planweaveHome,
     promptAuthority: {
       canvasLocator,
       projectRoot: selectedProject?.rootPath ?? null,
@@ -410,7 +411,8 @@ export function ProjectWorkspaceProvider({
     ownerHumanPrincipalId: ownerControlPlane.humanPrincipalId,
     ownerProjectId: graph?.projectId ?? null,
     saveAgentEndpointPreference: agentEndpointCatalog.savePreference,
-    workspaceCanvas: workspaceCanvasCommands
+    workspaceCanvas: workspaceCanvasCommands,
+    setError
   });
   const currentRouteRef = useRef(appHistory.route);
   currentRouteRef.current = appHistory.route;
@@ -921,6 +923,8 @@ export function ProjectWorkspaceProvider({
     workspaceCanvas: workspaceCanvasCommands
   });
   const fileSyncController = useFileSyncController({
+    onFileSyncComplete: taskWorkspace.refreshLocalPrompts,
+    planweaveHome: settings.planweaveHome,
     projectDiagnostics: visibleProjectDiagnostics,
     refreshProjectDerivedState,
     reloadCurrentCanvas,

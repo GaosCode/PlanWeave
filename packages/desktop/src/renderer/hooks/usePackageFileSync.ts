@@ -6,6 +6,16 @@ import type {
   DesktopProjectSummary
 } from "@planweave-ai/runtime";
 import { bridge, desktopCanvasReference } from "../bridge";
+import {
+  isDesktopHomeTransitionPending,
+  onDesktopHomeTransitionSettled
+} from "../desktopHomeTransition";
+import { isActiveDesktopWatchEvent } from "../desktopWatchRegistration";
+
+export type PackageFileSyncCompletion = (
+  result: DesktopPackageFileSyncResult,
+  isCurrent: () => boolean
+) => void;
 
 function hasProjectPromptChangeDiagnostic(result: DesktopPackageFileSyncResult): boolean {
   return result.diagnostics.some(
@@ -145,6 +155,8 @@ function resolvePendingWaiters(pending: PendingPackageFileRefresh | null): void 
 }
 
 type UsePackageFileSyncArgs = {
+  onFileSyncComplete?: PackageFileSyncCompletion;
+  planweaveHome?: string;
   reloadCurrentCanvas: () => Promise<void>;
   refreshProjectDerivedState: () => Promise<void>;
   selectedCanvasId: string | null;
@@ -156,6 +168,8 @@ type UsePackageFileSyncArgs = {
 };
 
 export function usePackageFileSync({
+  onFileSyncComplete,
+  planweaveHome,
   reloadCurrentCanvas,
   refreshProjectDerivedState,
   selectedCanvasId,
@@ -173,8 +187,15 @@ export function usePackageFileSync({
   const refreshInFlightRef = useRef(false);
   const targetKeyRef = useRef<string | null>(null);
   const latestTargetRef = useRef<RefreshTarget | null>(null);
+  const onFileSyncCompleteRef = useRef(onFileSyncComplete);
+  onFileSyncCompleteRef.current = onFileSyncComplete;
   const targetKey = selectedProject
-    ? JSON.stringify([selectedProject.rootPath, selectedProject.workspaceRoot, selectedCanvasId])
+    ? JSON.stringify([
+        planweaveHome,
+        selectedProject.rootPath,
+        selectedProject.workspaceRoot,
+        selectedCanvasId
+      ])
     : null;
   if (targetKeyRef.current !== targetKey) {
     targetKeyRef.current = targetKey;
@@ -273,6 +294,27 @@ export function usePackageFileSync({
           return;
         }
         const uiResult = syncResultWithWatcherMetadata(result, pending.event, changedPaths.length);
+        const isCurrent = () => isCurrentRefreshTarget(pending.target);
+        const publishPromptRefresh = () => {
+          if (
+            isCurrent() &&
+            (!pending.event || isActiveDesktopWatchEvent(pending.event)) &&
+            !isDesktopHomeTransitionPending()
+          ) {
+            onFileSyncCompleteRef.current?.(
+              uiResult,
+              () => isCurrent() && !isDesktopHomeTransitionPending()
+            );
+          }
+        };
+        if (isDesktopHomeTransitionPending()) {
+          const stop = onDesktopHomeTransitionSettled(() => {
+            stop();
+            publishPromptRefresh();
+          });
+        } else {
+          publishPromptRefresh();
+        }
         setFileSyncDiagnostics(uiResult.diagnostics.map((diagnostic) => diagnostic.message));
         setFileSyncResult?.(uiResult);
         if (!uiResult.ok) {

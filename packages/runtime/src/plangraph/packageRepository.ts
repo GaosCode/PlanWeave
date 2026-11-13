@@ -1,9 +1,18 @@
 import { readFile, stat } from "node:fs/promises";
 import { normalizeContentVersionPromptPath } from "@planweave-ai/collaboration-protocol/content/version";
 import { join } from "node:path";
-import { compilePackageGraph } from "../graph/compileTaskGraph.js";
+import { compilePackageGraphFromPrompts, compilePackageGraph } from "../graph/compileTaskGraph.js";
 import { commitPlanPackageGraphMutation } from "../graph/editGraph.js";
 import { resolvePackagePath } from "../package/resolvePackagePath.js";
+import {
+  capturePackagePrompts,
+  packagePromptOwners,
+  originalPromptPaths,
+  promptReferenceKey,
+  resolvePackagePromptTargets,
+  type PromptReadFailure
+} from "../package/promptInventory.js";
+import { toPackagePosixPath } from "../package/packagePosixPath.js";
 import { loadPackage } from "../package/loadPackage.js";
 import { buildPlanGraph } from "./domain/buildPlanGraph.js";
 import {
@@ -31,15 +40,14 @@ export type LoadedPlanGraphPackage = {
   promptReadFailuresByPath: Map<string, PlanGraphPromptReadFailure>;
 };
 
-export type PlanGraphPromptReadFailure =
-  | { kind: "missing"; path: string }
-  | { kind: "read_error"; path: string; error: Error };
+export type PlanGraphPromptReadFailure = PromptReadFailure;
 
 export type PlanGraphPackageSnapshot = {
   workspace: ProjectWorkspace;
   manifest: PlanPackageManifest;
   compiledGraph: CompiledExecutionGraph;
   promptMarkdownByPath?: ReadonlyMap<string, string>;
+  promptDiagnosticsByPath?: ReadonlyMap<string, PlanGraphPromptReadFailure>;
 };
 
 type PromptReadFailureResult = {
@@ -69,45 +77,11 @@ function blockRef(taskId: string, blockId: string): string {
   return `${taskId}#${blockId}`;
 }
 
-async function readPromptEntry(options: {
-  packageDir: string;
-  ownerKind: "task" | "block";
-  ownerRef: string;
-  packagePath: string;
-  promptMarkdownByPath?: ReadonlyMap<string, string>;
-}): Promise<{ entry: PromptIndexEntry; markdown: string } | PromptReadFailureResult> {
-  try {
-    let markdown: string;
-    if (options.promptMarkdownByPath) {
-      const captured = options.promptMarkdownByPath.get(
-        normalizeContentVersionPromptPath(options.packagePath)
-      );
-      if (captured === undefined)
-        throw new Error(`Captured prompt '${options.packagePath}' is missing.`);
-      markdown = captured;
-    } else {
-      const absolutePath = await resolvePackagePath(options.packageDir, options.packagePath);
-      markdown = await readFile(absolutePath, "utf8");
-    }
-    return {
-      markdown,
-      entry: {
-        ownerKind: options.ownerKind,
-        ownerRef: options.ownerRef,
-        path: options.packagePath,
-        contentHash: sha256Hex(markdown),
-        preview: promptPreview(markdown)
-      }
-    };
-  } catch (error) {
-    return promptReadFailure(options.packagePath, error);
-  }
-}
-
 async function readPromptIndex(
   manifest: PlanPackageManifest,
   packageDir: string,
-  capturedPrompts?: ReadonlyMap<string, string>
+  capturedPrompts?: ReadonlyMap<string, string>,
+  capturedFailures?: ReadonlyMap<string, PlanGraphPromptReadFailure>
 ): Promise<{
   promptIndex: Map<string, PromptIndexEntry>;
   promptMarkdownByPath: Map<string, string>;
@@ -118,45 +92,64 @@ async function readPromptIndex(
   const promptMarkdownByPath = new Map<string, string>();
   const diagnostics: PlanGraphCommandDiagnostic[] = [];
   const promptReadFailuresByPath = new Map<string, PlanGraphPromptReadFailure>();
-
-  for (const node of manifest.nodes) {
-    if (node.type !== "task") {
-      continue;
-    }
-    const taskPrompt = await readPromptEntry({
-      packageDir,
-      ownerKind: "task",
-      ownerRef: node.id,
-      promptMarkdownByPath: capturedPrompts,
-      packagePath: node.prompt
-    });
-    if ("entry" in taskPrompt) {
-      promptIndex.set(node.prompt, taskPrompt.entry);
-      promptMarkdownByPath.set(node.prompt, taskPrompt.markdown);
-    } else {
-      diagnostics.push(taskPrompt.diagnostic);
-      promptReadFailuresByPath.set(node.prompt, taskPrompt.failure);
-    }
-
-    for (const block of node.blocks) {
-      const ref = blockRef(node.id, block.id);
-      const blockPrompt = await readPromptEntry({
-        packageDir,
-        ownerKind: "block",
-        ownerRef: ref,
-        promptMarkdownByPath: capturedPrompts,
-        packagePath: block.prompt
+  const reads = new Map<string, Promise<string>>();
+  const owners = packagePromptOwners(manifest);
+  const targets = capturedPrompts
+    ? null
+    : await resolvePackagePromptTargets(packageDir, owners.keys(), {
+        manifestPaths: originalPromptPaths(owners)
       });
-      if ("entry" in blockPrompt) {
-        promptIndex.set(block.prompt, blockPrompt.entry);
-        promptMarkdownByPath.set(block.prompt, blockPrompt.markdown);
+
+  async function add(ownerKind: "task" | "block", ownerRef: string, path: string) {
+    const key = toPackagePosixPath(promptReferenceKey(path));
+    try {
+      let markdown: string | undefined;
+      if (capturedPrompts) {
+        const failure = capturedFailures?.get(key);
+        if (failure) {
+          promptReadFailuresByPath.set(path, { ...failure, path });
+          return;
+        }
+        markdown = capturedPrompts.get(
+          capturedFailures ? key : normalizeContentVersionPromptPath(path)
+        );
+        if (markdown === undefined) throw new Error(`Captured prompt '${path}' is missing.`);
       } else {
-        diagnostics.push(blockPrompt.diagnostic);
-        promptReadFailuresByPath.set(block.prompt, blockPrompt.failure);
+        const target = targets?.paths.get(key);
+        if (!target) {
+          const failure = targets?.failures.get(key);
+          throw failure?.kind === "read_error"
+            ? failure.error
+            : new Error(`Prompt '${path}' could not be resolved.`);
+        }
+        let reading = reads.get(target);
+        if (!reading) {
+          reading = readFile(target, "utf8");
+          reads.set(target, reading);
+        }
+        markdown = await reading;
       }
+      promptIndex.set(path, {
+        ownerKind,
+        ownerRef,
+        path,
+        contentHash: sha256Hex(markdown),
+        preview: promptPreview(markdown)
+      });
+      promptMarkdownByPath.set(path, markdown);
+    } catch (error) {
+      const failure = promptReadFailure(path, error);
+      diagnostics.push(failure.diagnostic);
+      promptReadFailuresByPath.set(path, failure.failure);
     }
   }
 
+  for (const task of manifest.nodes) {
+    await add("task", task.id, task.prompt);
+    for (const block of task.blocks) {
+      await add("block", blockRef(task.id, block.id), block.prompt);
+    }
+  }
   return { promptIndex, promptMarkdownByPath, promptReadFailuresByPath, diagnostics };
 }
 
@@ -257,8 +250,25 @@ export async function loadPlanGraphPackage(
     return loadPlanGraphPackageFromSnapshot(options.snapshot);
   }
   const { workspace, manifest } = await loadPackage(projectRoot);
-  const compiledGraph = await compilePackageGraph(manifest, workspace.packageDir);
-  return loadPlanGraphPackageFromSnapshot({ workspace, manifest, compiledGraph });
+  const owners = packagePromptOwners(manifest);
+  const targets = await resolvePackagePromptTargets(workspace.packageDir, owners.keys(), {
+    includeOrphans: true,
+    manifestPaths: originalPromptPaths(owners)
+  });
+  const captured = await capturePackagePrompts(targets, "content", owners);
+  const compiledGraph = compilePackageGraphFromPrompts(
+    manifest,
+    owners,
+    targets.paths.keys(),
+    captured.diagnostics
+  );
+  return loadPlanGraphPackageFromSnapshot({
+    workspace,
+    manifest,
+    compiledGraph,
+    promptMarkdownByPath: captured.markdown,
+    promptDiagnosticsByPath: captured.failures
+  });
 }
 
 export async function loadPlanGraphPackageFromSnapshot(
@@ -266,7 +276,12 @@ export async function loadPlanGraphPackageFromSnapshot(
 ): Promise<LoadedPlanGraphPackage> {
   const { workspace, manifest, compiledGraph } = input;
   const { promptIndex, promptMarkdownByPath, promptReadFailuresByPath, diagnostics } =
-    await readPromptIndex(manifest, workspace.packageDir, input.promptMarkdownByPath);
+    await readPromptIndex(
+      manifest,
+      workspace.packageDir,
+      input.promptMarkdownByPath,
+      input.promptDiagnosticsByPath
+    );
   const fingerprint = packageFingerprintFromContent(manifest, promptMarkdownByPath);
   const graph = buildPlanGraph({
     manifest,

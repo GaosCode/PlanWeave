@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, stat, unlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, symlink, unlink, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { packageFileChangedChannel } from "../shared/ipcChannels";
@@ -16,6 +16,7 @@ import {
   getWatchRuntimeTestDriver,
   registerAndWatch,
   resetPackageWatchTestState,
+  replaceFixtureTaskPrompt,
   unwatch,
   waitForPollAndDebounce
 } from "./support/packageWatchTestHarness";
@@ -51,6 +52,63 @@ describe("package file watcher: polling SLA and resources", () => {
         backendKind: "polling"
       })
     );
+  });
+
+  it("updates shared membership from manifest and hashes a shared physical target once per sweep", async ({
+    skip
+  }) => {
+    forcePollingBackend();
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const first = "shared/task.md";
+    const second = "shared/block.md";
+    const target = join(workspace.packageDir, "shared/source.txt");
+    await mkdir(dirname(target));
+    await writeFile(target, "shared prompt");
+    try {
+      await symlink(target, join(workspace.packageDir, first), "file");
+    } catch (error) {
+      if (
+        process.platform === "win32" &&
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "EPERM" || error.code === "EACCES")
+      ) {
+        skip("The Windows test process lacks permission to create file symlinks.");
+      }
+      throw error;
+    }
+    await symlink(target, join(workspace.packageDir, second), "file");
+    await registerAndWatch(webContents, workspace);
+    await replaceFixtureTaskPrompt(workspace, first, second);
+    await waitForPollAndDebounce();
+    webContents.send.mockClear();
+
+    await writeFile(target, "updated shared prompt");
+    await waitForPollAndDebounce();
+    expect(webContents.send).toHaveBeenCalledWith(
+      packageFileChangedChannel,
+      expect.objectContaining({
+        backendKind: "polling",
+        paths: [`package/${second}`, `package/${first}`]
+      })
+    );
+
+    fsPromisesMock.state.readFilePaths = [];
+    await advanceWatchTimeAndSettle(25_000);
+    expect(fsPromisesMock.state.readFilePaths.filter((path) => path === target)).toHaveLength(1);
+    expect(fsPromisesMock.state.readFilePaths).not.toContain(join(workspace.packageDir, first));
+
+    await replaceFixtureTaskPrompt(
+      workspace,
+      "nodes/T-001/prompt.md",
+      "nodes/T-001/blocks/B-001.prompt.md"
+    );
+    await waitForPollAndDebounce();
+    webContents.send.mockClear();
+    await writeFile(target, "shared prompt no longer referenced");
+    await waitForPollAndDebounce();
+    expect(webContents.send).not.toHaveBeenCalled();
   });
 
   it("skips markdown content reads on unchanged polling ticks", async () => {

@@ -1,17 +1,28 @@
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
 import { performance } from "node:perf_hooks";
-import { optionalReaddir } from "../fs/optionalFile.js";
-import { compilePackageGraph } from "../graph/compileTaskGraph.js";
-import { requireMapValue } from "../graph/requireMapValue.js";
+import { compilePackageGraphFromPrompts } from "../graph/compileTaskGraph.js";
 import { affectedTasksForPackageFileChange, type PackageChangeImpact } from "../graph/editGraph.js";
 import { loadPackage } from "./loadPackage.js";
+import {
+  capturePackagePrompts,
+  isOrphanPromptWatchPath,
+  isPackageNodesPath,
+  normalizePackageWatchPath,
+  originalPromptPaths,
+  packagePromptOwners,
+  promptWatchAliases,
+  resolvePackagePromptTargets,
+  type PromptOwner
+} from "./promptInventory.js";
 import { refreshPrompt } from "../prompt/refreshPrompt.js";
 import { refreshPrompts } from "../prompt/refreshPrompts.js";
+import {
+  createPromptRenderContextForPackageSnapshot,
+  type PromptRenderContext
+} from "../taskManager/promptRenderContext.js";
 import type {
   CompiledExecutionGraph,
-  CompiledTaskGraph,
   FileFingerprint,
   PackageFileSnapshot,
   PackageWorkspaceRef,
@@ -36,6 +47,7 @@ export type PromptRefreshStats = {
 
 export type PackageFileSyncResult = {
   snapshot: PackageFileSnapshot | null;
+  observedSnapshot?: PackageFileSnapshot;
   impact: PackageChangeImpact;
   refreshed: PromptSurface[];
   refreshStats: PromptRefreshStats;
@@ -67,54 +79,12 @@ async function fingerprint(path: string): Promise<FileFingerprint> {
   };
 }
 
-async function statFingerprint(path: string): Promise<FileFingerprint> {
-  const metadata = await stat(path);
-  return {
-    path,
-    hash: `stat:${metadata.mtimeMs}:${metadata.ctimeMs}:${metadata.size}`,
-    mtimeMs: metadata.mtimeMs
-  };
-}
-
-async function listMarkdownFiles(root: string): Promise<string[]> {
-  const entries = await optionalReaddir(root, { withFileTypes: true });
-  if (!entries) {
-    return [];
-  }
-  const files: string[] = [];
-  for (const entry of entries) {
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await listMarkdownFiles(path)));
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      files.push(path);
-    }
-  }
-  return files;
-}
-
-async function snapshotPromptFiles(
-  packageDir: string,
-  mode: PromptFingerprintMode
-): Promise<Record<string, FileFingerprint>> {
-  const promptFiles: Record<string, FileFingerprint> = {};
-  for (const file of await listMarkdownFiles(join(packageDir, "nodes"))) {
-    promptFiles[relative(packageDir, file)] =
-      mode === "content" ? await fingerprint(file) : await statFingerprint(file);
-  }
-  return promptFiles;
-}
-
 function sameManifest(left: PlanPackageManifest, right: PlanPackageManifest): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function changed(left: FileFingerprint | undefined, right: FileFingerprint | undefined): boolean {
-  return left?.hash !== right?.hash || left?.mtimeMs !== right?.mtimeMs;
-}
-
-function dedupe(paths: string[]): string[] {
-  return [...new Set(paths)];
+  return left?.hash !== right?.hash;
 }
 
 function normalizeConcurrency(limit: number): number {
@@ -174,23 +144,9 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-function normalizeWatcherPath(path: string): string {
-  let normalized = path
-    .split("\\")
-    .join("/")
-    .replace(/^\.\/+/, "");
-  while (normalized.startsWith("//")) {
-    normalized = normalized.slice(1);
-  }
-  let end = normalized.length;
-  while (end > 0 && normalized[end - 1] === "/") {
-    end -= 1;
-  }
-  return normalized.slice(0, end);
-}
-
 export function normalizePackageChangedPaths(
-  changedPaths: string[] | undefined
+  changedPaths: string[] | undefined,
+  aliases?: ReadonlyMap<string, string[]>
 ): NormalizedPackageChangePaths {
   if (!changedPaths || changedPaths.length === 0) {
     return {
@@ -209,7 +165,7 @@ export function normalizePackageChangedPaths(
   const diagnostics: ValidationIssue[] = [];
 
   for (const rawPath of changedPaths) {
-    const normalized = normalizeWatcherPath(rawPath);
+    const normalized = normalizePackageWatchPath(rawPath);
     if (normalized === "manifest.json" || normalized === "package/manifest.json") {
       changedPackagePaths.push("manifest.json");
       diagnostics.push(
@@ -237,19 +193,24 @@ export function normalizePackageChangedPaths(
     const packagePath = normalized.startsWith("package/")
       ? normalized.slice("package/".length)
       : normalized;
-    if (packagePath === "nodes" || packagePath.startsWith("nodes/")) {
-      if (!packagePath.endsWith(".md")) {
-        changedPackagePaths.push(packagePath);
-        diagnostics.push(
-          issue(
-            "package_change_coarse_path_requires_full_refresh",
-            "Directory-level package changes require a full package refresh.",
-            normalized
-          )
-        );
-        continue;
-      }
+    const paths = aliases?.get(packagePath);
+    if (paths) {
+      changedPackagePaths.push(...paths);
+      continue;
+    }
+    if (isOrphanPromptWatchPath(packagePath)) {
       changedPackagePaths.push(packagePath);
+      continue;
+    }
+    if (isPackageNodesPath(packagePath)) {
+      changedPackagePaths.push(packagePath);
+      diagnostics.push(
+        issue(
+          "package_change_coarse_path_requires_full_refresh",
+          "Directory-level package changes require a full package refresh.",
+          normalized
+        )
+      );
       continue;
     }
 
@@ -264,80 +225,23 @@ export function normalizePackageChangedPaths(
   }
 
   return {
-    changedPackagePaths: dedupe(changedPackagePaths),
+    changedPackagePaths: [...new Set(changedPackagePaths)],
     diagnostics,
     incremental: diagnostics.length === 0
   };
 }
 
-function affectedTasksForPromptPaths(graph: CompiledTaskGraph, paths: string[]): string[] {
-  const affected = new Set<string>();
-  for (const path of paths) {
-    for (const taskId of graph.taskNodesInManifestOrder) {
-      const task = graph.tasksById.get(taskId);
-      if (!task) {
-        continue;
-      }
-      if (task.prompt === path || task.blocks.some((block) => block.prompt === path)) {
-        affected.add(taskId);
-      }
-    }
-  }
-  return [...affected];
-}
-
-function dedupedPromptSurfaceRefsForPromptPaths(
-  graph: CompiledTaskGraph,
+function ownersForPaths(
+  owners: ReadonlyMap<string, PromptOwner[]>,
   paths: string[]
+): PromptOwner[] {
+  return paths.flatMap((path) => owners.get(path) ?? []);
+}
+
+export function changedPackagePaths(
+  previous: PackageFileSnapshot,
+  next: PackageFileSnapshot
 ): string[] {
-  const refs = new Set<string>();
-  for (const path of paths) {
-    for (const taskId of graph.taskNodesInManifestOrder) {
-      const task = requireMapValue(graph.tasksById, taskId, "tasksById");
-      if (task.prompt === path) {
-        for (const blockRef of requireMapValue(graph.blocksByTask, taskId, "blocksByTask")) {
-          refs.add(blockRef);
-        }
-      }
-      for (const block of task.blocks) {
-        if (block.prompt === path) {
-          refs.add(`${taskId}#${block.id}`);
-        }
-      }
-    }
-  }
-  return [...refs];
-}
-
-function graphPromptPaths(graph: CompiledTaskGraph): Set<string> {
-  const paths = new Set<string>();
-  for (const taskId of graph.taskNodesInManifestOrder) {
-    const task = graph.tasksById.get(taskId);
-    if (!task) {
-      continue;
-    }
-    paths.add(task.prompt);
-    for (const block of task.blocks) {
-      paths.add(block.prompt);
-    }
-  }
-  return paths;
-}
-
-function incrementalPromptImpact(
-  graph: CompiledTaskGraph,
-  changedPromptPaths: string[]
-): PackageChangeImpact {
-  return {
-    ok: graph.diagnostics.errors.length === 0,
-    affectedTasks: affectedTasksForPromptPaths(graph, changedPromptPaths),
-    diagnostics: graph.diagnostics.errors,
-    fullRefresh: false,
-    graph
-  };
-}
-
-function changedPackagePaths(previous: PackageFileSnapshot, next: PackageFileSnapshot): string[] {
   const paths = new Set([...Object.keys(previous.promptFiles), ...Object.keys(next.promptFiles)]);
   const changedPaths = [...paths].filter((path) =>
     changed(previous.promptFiles[path], next.promptFiles[path])
@@ -347,10 +251,33 @@ function changedPackagePaths(previous: PackageFileSnapshot, next: PackageFileSna
     : changedPaths;
 }
 
+export function changedPackagePromptOwners(
+  previous: PackageFileSnapshot,
+  next: PackageFileSnapshot,
+  paths = changedPackagePaths(previous, next)
+): string[] {
+  const nextOwners = packagePromptOwners(next.manifest);
+  const refs = new Set(ownersForPaths(nextOwners, paths).map((owner) => owner.ref));
+  if (!sameManifest(previous.manifest, next.manifest)) {
+    const previousPaths = new Map(
+      [...packagePromptOwners(previous.manifest)].flatMap(([path, owners]) =>
+        owners.map((owner) => [owner.ref, path] as const)
+      )
+    );
+    for (const [path, owners] of nextOwners) {
+      for (const { ref } of owners) {
+        if (previousPaths.has(ref) && previousPaths.get(ref) !== path) refs.add(ref);
+      }
+    }
+  }
+  return [...refs];
+}
+
 export async function createPackageFileSnapshotFromLoadedPackage(input: {
   workspace: ProjectWorkspace;
   manifest: PlanPackageManifest;
   graph?: CompiledExecutionGraph;
+  manifestFingerprint?: FileFingerprint;
   promptFingerprintMode?: PromptFingerprintMode;
 }): Promise<PackageFileSnapshot> {
   return createPackageFileSnapshotFromPackageRoot({
@@ -358,6 +285,7 @@ export async function createPackageFileSnapshotFromLoadedPackage(input: {
     manifestFile: input.workspace.manifestFile,
     manifest: input.manifest,
     graph: input.graph,
+    manifestFingerprint: input.manifestFingerprint,
     promptFingerprintMode: input.promptFingerprintMode
   });
 }
@@ -367,29 +295,45 @@ export async function createPackageFileSnapshotFromPackageRoot(input: {
   manifestFile: string;
   manifest: PlanPackageManifest;
   graph?: CompiledExecutionGraph;
+  manifestFingerprint?: FileFingerprint;
   promptFingerprintMode?: PromptFingerprintMode;
 }): Promise<PackageFileSnapshot> {
-  const promptFingerprintMode = input.promptFingerprintMode ?? "content";
+  const mode = input.promptFingerprintMode ?? "content";
+  const owners = packagePromptOwners(input.manifest);
+  const targets = await resolvePackagePromptTargets(input.packageDir, owners.keys(), {
+    includeOrphans: true,
+    manifestPaths: originalPromptPaths(owners)
+  });
+  const captured = await capturePackagePrompts(targets, mode, owners);
   const graph =
     input.graph ??
-    (await compilePackageGraph(input.manifest, input.packageDir, {
-      validatePromptContents: promptFingerprintMode === "content"
-    }));
+    compilePackageGraphFromPrompts(
+      input.manifest,
+      owners,
+      targets.paths.keys(),
+      captured.diagnostics
+    );
   return {
     manifest: input.manifest,
     graph,
-    manifestFile: await fingerprint(input.manifestFile),
-    promptFiles: await snapshotPromptFiles(input.packageDir, promptFingerprintMode)
+    manifestFile: input.manifestFingerprint ?? (await fingerprint(input.manifestFile)),
+    promptFiles: captured.fingerprints,
+    promptTargets: targets,
+    ...(mode === "content"
+      ? {
+          promptMarkdown: captured.markdown,
+          promptReadFailures: captured.failures
+        }
+      : {})
   };
 }
 
 export async function createPackageFileMetadataSnapshot(
   projectRoot: PackageWorkspaceRef
 ): Promise<PackageFileSnapshot> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
+  const loaded = await loadPackage(projectRoot, { fingerprintManifest: true });
   return createPackageFileSnapshotFromLoadedPackage({
-    workspace,
-    manifest,
+    ...loaded,
     promptFingerprintMode: "stat"
   });
 }
@@ -397,60 +341,70 @@ export async function createPackageFileMetadataSnapshot(
 export async function createPackageFileSnapshot(
   projectRoot: PackageWorkspaceRef
 ): Promise<PackageFileSnapshot> {
-  const { workspace, manifest } = await loadPackage(projectRoot);
-  return createPackageFileSnapshotFromLoadedPackage({ workspace, manifest });
+  return createPackageFileSnapshotFromLoadedPackage(
+    await loadPackage(projectRoot, { fingerprintManifest: true })
+  );
 }
 
 export async function detectPackageFileChanges(
   projectRoot: PackageWorkspaceRef,
   previous: PackageFileSnapshot
-): Promise<{ snapshot: PackageFileSnapshot | null; impact: PackageChangeImpact }> {
+): Promise<{
+  snapshot: PackageFileSnapshot | null;
+  observedSnapshot?: PackageFileSnapshot;
+  impact: PackageChangeImpact;
+  indexPackagePaths: string[];
+}> {
   try {
     const snapshot = await createPackageFileSnapshot(projectRoot);
-    let impact: PackageChangeImpact = {
-      ok: true,
-      affectedTasks: [],
-      diagnostics: [],
-      fullRefresh: false,
-      graph: snapshot.graph
-    };
-    if (!sameManifest(previous.manifest, snapshot.manifest)) {
-      impact = affectedTasksForPackageFileChange({
-        kind: "manifest",
-        before: previous.manifest,
-        after: snapshot.manifest,
-        graph: snapshot.graph
-      });
-    } else {
-      const promptPaths = new Set([
-        ...Object.keys(previous.promptFiles),
-        ...Object.keys(snapshot.promptFiles)
-      ]);
-      const changedPrompts = [...promptPaths].filter((path) =>
-        changed(previous.promptFiles[path], snapshot.promptFiles[path])
-      );
-      if (changedPrompts.length > 0) {
-        impact = {
-          ok: snapshot.graph.diagnostics.errors.length === 0,
-          affectedTasks: affectedTasksForPromptPaths(snapshot.graph, changedPrompts),
-          diagnostics: snapshot.graph.diagnostics.errors,
-          fullRefresh: true,
+    const paths = changedPackagePaths(previous, snapshot);
+    const manifestChanged = !sameManifest(previous.manifest, snapshot.manifest);
+    const manifestImpact = manifestChanged
+      ? affectedTasksForPackageFileChange({
+          kind: "manifest",
+          before: previous.manifest,
+          after: snapshot.manifest,
           graph: snapshot.graph
-        };
+        })
+      : null;
+    const diagnostics = snapshot.graph.diagnostics.errors;
+    const changedOwners = ownersForPaths(packagePromptOwners(snapshot.manifest), [
+      ...paths,
+      ...diagnostics.flatMap(({ path }) => (path ? [path] : []))
+    ]);
+    const ok = diagnostics.length === 0;
+    const repaired = ok && previous.graph.diagnostics.errors.length > 0;
+    const indexPackagePaths = repaired && paths.length === 0 ? ["manifest.json"] : paths;
+    return {
+      snapshot: ok ? snapshot : null,
+      observedSnapshot: snapshot,
+      indexPackagePaths:
+        !ok && indexPackagePaths.length === 0 ? ["manifest.json"] : indexPackagePaths,
+      impact: {
+        ok,
+        affectedTasks: [
+          ...new Set([
+            ...(manifestImpact?.affectedTasks ?? []),
+            ...changedOwners.map((owner) => owner.taskId)
+          ])
+        ],
+        diagnostics,
+        fullRefresh: !ok || repaired || manifestChanged || paths.length > 0,
+        graph: snapshot.graph
       }
-    }
-    return { snapshot: impact.ok ? snapshot : null, impact };
+    };
   } catch (error) {
     return {
       snapshot: null,
+      indexPackagePaths: ["manifest.json"],
       impact: {
         ok: false,
         affectedTasks: [],
         diagnostics: [
-          {
-            code: "package_change_detection_failed",
-            message: error instanceof Error ? error.message : String(error)
-          }
+          issue(
+            "package_change_detection_failed",
+            error instanceof Error ? error.message : String(error)
+          )
         ],
         fullRefresh: true
       }
@@ -464,43 +418,24 @@ export async function refreshChangedPackagePrompts(
 ): Promise<PackageFileSyncResult> {
   const startedAt = performance.now();
   const detected = await detectPackageFileChanges(projectRoot, previous);
-  if (!detected.snapshot || !detected.impact.ok) {
-    return {
-      ...detected,
-      refreshed: [],
-      refreshStats: promptRefreshStats({
-        requested: 0,
-        refreshed: 0,
-        concurrency: null,
-        changedPathCount: 1,
-        mode: "full",
-        startedAt
-      }),
-      changedPackagePaths: ["manifest.json"],
-      indexPackagePaths: ["manifest.json"],
-      incremental: false
-    };
-  }
-  const result = detected.impact.fullRefresh
-    ? await refreshPrompts({ projectRoot })
-    : { prompts: [] };
-  const snapshot = await createPackageFileSnapshot(projectRoot);
-  const indexPackagePaths = changedPackagePaths(previous, snapshot);
+  const context =
+    detected.snapshot && detected.impact.fullRefresh
+      ? await createPromptRenderContextForPackageSnapshot(projectRoot, detected.snapshot)
+      : undefined;
+  const result = context ? await refreshPrompts({ projectRoot, context }) : { prompts: [] };
   const refreshedCount = result.prompts.length;
   return {
-    snapshot,
-    impact: detected.impact,
+    ...detected,
     refreshed: result.prompts,
     refreshStats: promptRefreshStats({
       requested: refreshedCount,
       refreshed: refreshedCount,
       concurrency: detected.impact.fullRefresh ? null : 1,
-      changedPathCount: indexPackagePaths.length,
+      changedPathCount: detected.indexPackagePaths.length,
       mode: "full",
       startedAt
     }),
-    changedPackagePaths: indexPackagePaths,
-    indexPackagePaths,
+    changedPackagePaths: detected.indexPackagePaths,
     incremental: false
   };
 }
@@ -538,87 +473,117 @@ export async function refreshChangedPackagePromptsForPaths(
   options: PackageFileRefreshOptions = {}
 ): Promise<PackageFileSyncResult> {
   const startedAt = performance.now();
-  const normalized = normalizePackageChangedPaths(changedPaths);
-  if (!normalized.incremental) {
-    return refreshFullWithDiagnostics(
+  const previousTargets = previous.promptTargets;
+  const owners = packagePromptOwners(previous.manifest);
+  const aliases = previousTargets && promptWatchAliases(previousTargets);
+  const normalized = normalizePackageChangedPaths(changedPaths, aliases);
+  const fallback = (diagnostics: ValidationIssue[]) =>
+    refreshFullWithDiagnostics(
       projectRoot,
       previous,
-      normalized.diagnostics,
+      diagnostics,
       normalized.changedPackagePaths,
       startedAt
     );
+  if (
+    !normalized.incremental ||
+    !previousTargets ||
+    !aliases ||
+    !previous.promptMarkdown ||
+    previous.graph.diagnostics.errors.length > 0
+  ) {
+    return fallback(normalized.diagnostics);
   }
 
-  const knownPromptPaths = graphPromptPaths(previous.graph);
-  const unknownPromptPaths = normalized.changedPackagePaths.filter(
-    (path) => !knownPromptPaths.has(path)
-  );
-  if (unknownPromptPaths.length > 0) {
-    return refreshFullWithDiagnostics(
-      projectRoot,
-      previous,
-      unknownPromptPaths.map((path) =>
+  const unknownPaths = normalized.changedPackagePaths.filter((path) => !owners.has(path));
+  if (unknownPaths.length > 0) {
+    return fallback(
+      unknownPaths.map((path) =>
         issue(
           "package_change_prompt_not_in_graph",
           `Prompt '${path}' is not referenced by the current package graph; falling back to a full refresh.`,
           path
         )
-      ),
-      normalized.changedPackagePaths,
-      startedAt
+      )
     );
   }
 
   try {
-    const { workspace } = await loadPackage(projectRoot);
-    const nextPromptFiles = { ...previous.promptFiles };
-    const changedPromptPaths: string[] = [];
+    const loaded = await loadPackage(projectRoot, { fingerprintManifest: true });
+    const { workspace } = loaded;
+    if (changed(previous.manifestFile, loaded.manifestFingerprint)) return fallback([]);
 
-    for (const packagePath of normalized.changedPackagePaths) {
-      if (!previous.promptFiles[packagePath]) {
-        return refreshFullWithDiagnostics(
-          projectRoot,
-          previous,
-          [
-            issue(
-              "package_change_prompt_added_requires_full_refresh",
-              `Prompt '${packagePath}' was added; falling back to a full refresh.`,
-              packagePath
-            )
-          ],
-          normalized.changedPackagePaths,
-          startedAt
-        );
-      }
-
-      const nextFingerprint = await fingerprint(join(workspace.packageDir, packagePath));
-      nextPromptFiles[packagePath] = nextFingerprint;
-      if (changed(previous.promptFiles[packagePath], nextFingerprint)) {
-        changedPromptPaths.push(packagePath);
+    const manifestPaths = originalPromptPaths(owners);
+    const targets = await resolvePackagePromptTargets(
+      workspace.packageDir,
+      normalized.changedPackagePaths,
+      { manifestPaths }
+    );
+    const resolvedAliases = promptWatchAliases(targets);
+    const pending = new Set<string>();
+    for (const alias of resolvedAliases.keys()) {
+      for (const path of aliases.get(alias) ?? []) {
+        if (!targets.paths.has(path)) pending.add(path);
       }
     }
-
-    const impact = incrementalPromptImpact(previous.graph, changedPromptPaths);
-    const refsToRefresh = dedupedPromptSurfaceRefsForPromptPaths(
-      previous.graph,
-      changedPromptPaths
+    if (pending.size > 0) {
+      const extra = await resolvePackagePromptTargets(workspace.packageDir, pending, {
+        manifestPaths
+      });
+      targets.paths = new Map([...targets.paths, ...extra.paths]);
+      targets.diagnostics.push(...extra.diagnostics);
+      targets.failures = new Map([...targets.failures, ...extra.failures]);
+    }
+    const captured = await capturePackagePrompts(targets, "content", owners);
+    if (captured.diagnostics.length > 0) {
+      return fallback(
+        captured.diagnostics.map(({ path, message }) =>
+          issue("package_change_incremental_refresh_failed", message, path)
+        )
+      );
+    }
+    const snapshot: PackageFileSnapshot = {
+      ...previous,
+      manifestFile: loaded.manifestFingerprint ?? previous.manifestFile,
+      promptFiles: { ...previous.promptFiles, ...captured.fingerprints },
+      promptTargets: {
+        ...targets,
+        paths: new Map([...previousTargets.paths, ...targets.paths])
+      },
+      promptMarkdown: new Map([...previous.promptMarkdown, ...captured.markdown])
+    };
+    const paths = normalized.changedPackagePaths.filter((path) =>
+      changed(previous.promptFiles[path], snapshot.promptFiles[path])
     );
+    const affected = ownersForPaths(owners, paths);
+    const refsToRefresh = [
+      ...new Set(
+        affected.flatMap(({ kind, ref, taskId }) =>
+          kind === "task" ? (snapshot.graph.blocksByTask.get(taskId) ?? []) : [ref]
+        )
+      )
+    ];
     const refreshConcurrency = normalizeConcurrency(
       options.refreshConcurrency ?? DEFAULT_PROMPT_REFRESH_CONCURRENCY
     );
+    let context: Promise<PromptRenderContext> | undefined;
     const refreshed = await mapWithConcurrency(refsToRefresh, refreshConcurrency, (ref) =>
-      refreshPrompt({ projectRoot, ref })
+      refreshPrompt({
+        projectRoot,
+        ref,
+        context: () =>
+          (context ??= createPromptRenderContextForPackageSnapshot(workspace, snapshot))
+      })
     );
     return {
-      snapshot: impact.ok
-        ? {
-            manifest: previous.manifest,
-            graph: previous.graph,
-            manifestFile: previous.manifestFile,
-            promptFiles: nextPromptFiles
-          }
-        : null,
-      impact,
+      snapshot,
+      impact: {
+        ok: true,
+        affectedTasks: [...new Set(affected.map((owner) => owner.taskId))],
+        diagnostics: [],
+        fullRefresh: false,
+        graph: snapshot.graph
+      },
       refreshed,
       refreshStats: promptRefreshStats({
         requested: refsToRefresh.length,
@@ -629,22 +594,16 @@ export async function refreshChangedPackagePromptsForPaths(
         startedAt
       }),
       changedPackagePaths: normalized.changedPackagePaths,
-      indexPackagePaths: normalized.changedPackagePaths,
+      indexPackagePaths: paths,
       incremental: true
     };
   } catch (error) {
-    return refreshFullWithDiagnostics(
-      projectRoot,
-      previous,
-      [
-        issue(
-          "package_change_incremental_refresh_failed",
-          error instanceof Error ? error.message : String(error),
-          normalized.changedPackagePaths[0]
-        )
-      ],
-      normalized.changedPackagePaths,
-      startedAt
-    );
+    return fallback([
+      issue(
+        "package_change_incremental_refresh_failed",
+        error instanceof Error ? error.message : String(error),
+        normalized.changedPackagePaths[0]
+      )
+    ]);
   }
 }

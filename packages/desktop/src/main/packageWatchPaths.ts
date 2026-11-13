@@ -1,101 +1,54 @@
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import type { resolveTaskCanvasWorkspace } from "@planweave-ai/runtime";
+import { dirname } from "node:path";
+import {
+  isOrphanPromptWatchPath,
+  normalizePackageWatchPath,
+  type ProjectWorkspace
+} from "@planweave-ai/runtime";
 
-export type TaskCanvasWorkspace = Awaited<ReturnType<typeof resolveTaskCanvasWorkspace>>;
+export type TaskCanvasWorkspace = ProjectWorkspace;
 
 export type PackageWatchRoot = {
   rootPath: string;
-  relativeRoot: string;
-  coarsePath: string;
-  preserveOverlaps?: boolean;
+  scope: "package" | "policy";
 };
 
-export function toPosixPath(path: string): string {
-  return path.split("\\").join("/");
-}
-
-export function normalizePackageWatchPath(path: string): string {
-  let normalized = toPosixPath(path).replace(/^\.\/+/, "");
-  while (normalized.startsWith("//")) {
-    normalized = normalized.slice(1);
-  }
-  let end = normalized.length;
-  while (end > 0 && normalized[end - 1] === "/") {
-    end -= 1;
-  }
-  return normalized.slice(0, end);
-}
-
-export function shouldNotifyPackagePath(path: string): boolean {
-  return (
-    path === "package/manifest.json" ||
-    path === "policy/project-prompt.md" ||
-    /^package\/nodes\/.+\.md$/.test(path)
-  );
-}
-
-export function isDescendantPath(parentPath: string, childPath: string): boolean {
-  const path = relative(resolve(parentPath), resolve(childPath));
-  return path !== "" && !path.startsWith("..") && !isAbsolute(path);
-}
-
 export function watchedRootsForWorkspace(workspace: TaskCanvasWorkspace): PackageWatchRoot[] {
-  const roots: PackageWatchRoot[] = [
-    {
-      rootPath: workspace.packageDir,
-      relativeRoot: "package",
-      coarsePath: "package/manifest.json"
-    },
-    {
-      rootPath: join(workspace.packageDir, "nodes"),
-      relativeRoot: "package/nodes",
-      coarsePath: "package/manifest.json"
-    },
-    {
-      rootPath: dirname(workspace.projectPromptFile),
-      relativeRoot: "policy",
-      coarsePath: "policy/project-prompt.md",
-      preserveOverlaps: true
-    }
-  ];
-  return roots.filter(
-    (root) =>
-      root.preserveOverlaps ||
-      !roots.some(
-        (candidate) => candidate !== root && isDescendantPath(candidate.rootPath, root.rootPath)
-      )
-  );
-}
-
-export function normalizeWatchEventPath(
-  relativeRoot: string,
-  coarsePath: string,
-  filename: string | Buffer | null
-): string {
-  if (!filename) {
-    return coarsePath;
-  }
-  return normalizePackageWatchPath(join(relativeRoot, filename.toString()));
-}
-
-export function dedupePackageWatchPaths(paths: Iterable<string>): string[] {
   return [
-    ...new Set([...paths].map(normalizePackageWatchPath).filter(shouldNotifyPackagePath))
-  ].sort();
+    { rootPath: workspace.packageDir, scope: "package" },
+    { rootPath: dirname(workspace.projectPromptFile), scope: "policy" }
+  ];
 }
 
-export function absolutePathForRelative(
-  workspace: TaskCanvasWorkspace,
-  relativePath: string
-): string {
-  if (relativePath === "package/manifest.json") {
-    return workspace.manifestFile;
+export function packageWatchEventPaths(
+  scope: PackageWatchRoot["scope"],
+  filename: string | Buffer | null,
+  aliases: ReadonlyMap<string, string[]>
+): string[] {
+  const path = normalizePackageWatchPath(filename?.toString() ?? "");
+  if (scope === "policy") {
+    return !path || path === "project-prompt.md" ? ["policy/project-prompt.md"] : [];
   }
-  if (relativePath === "policy/project-prompt.md") {
-    return workspace.projectPromptFile;
+  if (!path || path === "manifest.json") return ["package/manifest.json"];
+  const prompts = new Set(aliases.get(path));
+  if (isOrphanPromptWatchPath(path)) prompts.add(path);
+  return [...prompts].map((prompt) => `package/${prompt}`);
+}
+
+export function watchAliasAncestors(
+  aliases: ReadonlyMap<string, string[]>
+): Map<string, Set<string>> {
+  const ancestors = new Map<string, Set<string>>();
+  for (const [path, prompts] of aliases) {
+    for (
+      let directory = dirname(path);
+      directory !== "." && dirname(directory) !== directory;
+      directory = dirname(directory)
+    ) {
+      const key = normalizePackageWatchPath(directory);
+      const set = ancestors.get(key) ?? new Set<string>();
+      for (const prompt of prompts) set.add(prompt);
+      ancestors.set(key, set);
+    }
   }
-  const withoutPrefix = relativePath.startsWith("package/")
-    ? relativePath.slice("package/".length)
-    : relativePath;
-  return join(workspace.packageDir, withoutPrefix);
+  return ancestors;
 }

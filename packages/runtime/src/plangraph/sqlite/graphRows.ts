@@ -1,3 +1,5 @@
+import { toPackagePosixPath } from "../../package/packagePosixPath.js";
+import { promptReferenceKey } from "../../package/promptInventory.js";
 import type {
   PlanGraph,
   PlanGraphBlockNode,
@@ -214,7 +216,7 @@ function changedPromptOwnerRefs(graph: PlanGraph, paths: string[]): string[] {
     paths.map(normalizePackagePath).filter((path): path is string => path !== null)
   );
   return [...graph.promptRefs.values()]
-    .filter((prompt) => normalized.has(prompt.path))
+    .filter((prompt) => normalized.has(toPackagePosixPath(promptReferenceKey(prompt.path))))
     .map((prompt) => prompt.ownerRef);
 }
 
@@ -223,18 +225,15 @@ function normalizePackagePath(path: string): string | null {
   if (normalized === "manifest.json" || normalized === "package/manifest.json") {
     return "manifest.json";
   }
-  const packageNodesPrefix = "package/nodes/";
-  if (normalized.startsWith(packageNodesPrefix)) {
-    return normalized.slice("package/".length);
+  if (normalized.startsWith("package/")) {
+    return toPackagePosixPath(promptReferenceKey(normalized.slice("package/".length)));
   }
   const nodesIndex = normalized.indexOf("/nodes/");
-  if (nodesIndex >= 0) {
-    return normalized.slice(nodesIndex + 1);
+  if (nodesIndex >= 0 && (normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized))) {
+    return toPackagePosixPath(promptReferenceKey(normalized.slice(nodesIndex + 1)));
   }
-  if (normalized.startsWith("nodes/")) {
-    return normalized;
-  }
-  return null;
+  if (normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized)) return null;
+  return toPackagePosixPath(promptReferenceKey(normalized));
 }
 
 export function shouldFullRebuildChangedPaths(paths: string[]): boolean {

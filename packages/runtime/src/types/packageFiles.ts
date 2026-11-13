@@ -17,6 +17,12 @@ export type PackageFileSnapshot = {
   graph: CompiledExecutionGraph;
   manifestFile: FileFingerprint;
   promptFiles: Record<string, FileFingerprint>;
+  promptMarkdown?: ReadonlyMap<string, string>;
+  promptReadFailures?: ReadonlyMap<
+    string,
+    import("../package/promptInventory.js").PromptReadFailure
+  >;
+  promptTargets?: import("../package/promptInventory.js").PackagePromptTargets;
 };
 
 export type PromptSurface = {

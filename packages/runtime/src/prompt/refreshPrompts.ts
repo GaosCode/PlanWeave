@@ -1,18 +1,21 @@
 import { loadPackage } from "../package/loadPackage.js";
 import { compileTaskGraph } from "../graph/compileTaskGraph.js";
-import { createPromptRenderContext } from "../taskManager/promptRenderContext.js";
+import {
+  createPromptRenderContext,
+  type PromptRenderContext
+} from "../taskManager/promptRenderContext.js";
 import { renderPromptSurfaceFromContext } from "../taskManager/promptRenderer.js";
 import type { PackageWorkspaceRef, RefreshPromptsResult } from "../types.js";
 
 export async function refreshPrompts(options: {
   projectRoot: PackageWorkspaceRef;
+  context?: PromptRenderContext;
 }): Promise<RefreshPromptsResult> {
-  const { manifest } = await loadPackage(options.projectRoot);
-  const graph = compileTaskGraph(manifest);
-  if (graph.blockRefsInManifestOrder.length === 0) {
-    return { prompts: [] };
+  if (!options.context) {
+    const { manifest } = await loadPackage(options.projectRoot);
+    if (compileTaskGraph(manifest).blockRefsInManifestOrder.length === 0) return { prompts: [] };
   }
-  const context = await createPromptRenderContext(options);
+  const context = options.context ?? (await createPromptRenderContext(options));
   const prompts = [];
   for (const ref of context.runtime.graph.blockRefsInManifestOrder) {
     prompts.push({

@@ -1,3 +1,4 @@
+import { mkdir, rename, symlink, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { desktopBridgeInvokeChannels, packageFileChangedChannel } from "../shared/ipcChannels";
@@ -15,6 +16,7 @@ import {
   getWatchRuntimeTestDriver,
   registerAndWatch,
   resetPackageWatchTestState,
+  replaceFixtureTaskPrompt,
   settleWatchTasks,
   unwatch,
   waitForPollAndDebounce
@@ -62,6 +64,60 @@ describe("package file watcher: controller lifecycle", () => {
         backendKind: "native"
       })
     );
+  });
+
+  it("routes native aliases through retarget, deletion, and restoration of a linked directory", async () => {
+    const workspace = await createWorkspace();
+    const webContents = createWebContents();
+    const path = "shared/current/source.txt";
+    const shared = join(workspace.packageDir, "shared");
+    const first = join(shared, "first");
+    const second = join(shared, "second");
+    const link = join(shared, "current");
+    const intermediate = join(shared, "intermediate");
+    await mkdir(first, { recursive: true });
+    await mkdir(second);
+    await writeFile(join(first, "source.txt"), "first source");
+    await writeFile(join(second, "source.txt"), "second source");
+    await symlink(first, intermediate, process.platform === "win32" ? "junction" : "dir");
+    await symlink(intermediate, link, process.platform === "win32" ? "junction" : "dir");
+    await replaceFixtureTaskPrompt(workspace, path);
+    await registerAndWatch(webContents, workspace);
+    const watcher = fsMock.watchers.find(({ rootPath }) => rootPath === workspace.packageDir);
+    if (!watcher) throw new Error("Expected the native package watcher");
+
+    async function expectOwner(event: string, path: string) {
+      watcher?.callback(event, path);
+      await flushDebounce();
+      expect(webContents.send).toHaveBeenCalledWith(
+        packageFileChangedChannel,
+        expect.objectContaining({
+          paths: ["package/shared/current/source.txt"]
+        })
+      );
+      webContents.send.mockClear();
+    }
+
+    await expectOwner("change", "shared/first/source.txt");
+    await unlink(intermediate);
+    await symlink(second, intermediate, process.platform === "win32" ? "junction" : "dir");
+    await expectOwner("rename", "shared/intermediate");
+    watcher.callback("change", "shared/first/source.txt");
+    await flushDebounce();
+    expect(webContents.send).not.toHaveBeenCalled();
+
+    await rename(join(second, "source.txt"), join(second, "moved.txt"));
+    await expectOwner("rename", "shared/second/source.txt");
+    await rename(join(second, "moved.txt"), join(second, "source.txt"));
+    await expectOwner("rename", "shared/second/source.txt");
+
+    await replaceFixtureTaskPrompt(workspace, "nodes/T-001/prompt.md");
+    watcher.callback("rename", "manifest.json");
+    await flushDebounce();
+    webContents.send.mockClear();
+    watcher.callback("change", "shared/second/source.txt");
+    await flushDebounce();
+    expect(webContents.send).not.toHaveBeenCalled();
   });
 
   it("uses non-overlapping native watch roots and keeps the project prompt policy root", async () => {

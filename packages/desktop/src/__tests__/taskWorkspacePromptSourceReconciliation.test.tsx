@@ -94,11 +94,10 @@ it("appends a run page with 100 Block drafts without reloading Prompt details", 
 });
 
 it("does not roll back a saved Task Prompt when a pre-save header returns late", async () => {
-  const h = await runtimePromptHarness("task", "after-write");
+  const h = await runtimePromptHarness("task", "after-write", 1, true);
   const captured = deferred<string>();
   const releaseStale = deferred<void>();
   const releaseFresh = deferred<void>();
-  expect(await h.writeSource("Earlier source")).toMatchObject({ ok: true });
   h.api.getTaskWorkspace
     .mockImplementationOnce(async (input) => {
       const header = await getTaskWorkspace(input);
@@ -110,7 +109,7 @@ it("does not roll back a saved Task Prompt when a pre-save header returns late",
       await releaseFresh.promise;
       return getTaskWorkspace(input);
     });
-  act(() => h.controller.refresh());
+  await h.watcherWrite("Earlier source");
   expect(await captured.promise).toBe("Earlier source");
   const staleRead = h.api.getTaskWorkspace.mock.results.at(-1)?.value;
   expect(await h.writeSource(h.initialMarkdown)).toMatchObject({ ok: true });
@@ -163,9 +162,13 @@ it("accepts an older text only from a source read that started after the saved P
 });
 
 it("defers an external Task Prompt update until the editor leaves composition", async () => {
-  const h = await runtimePromptHarness("task");
+  const h = await runtimePromptHarness("task", "before-write", 1, true);
   fireEvent.compositionStart(h.input());
-  await h.externalWrite("External source");
+  await h.watcherWrite("External source");
+  await waitFor(() => expect(h.api.getTaskWorkspace).toHaveBeenCalledTimes(2));
+  const refreshed = h.api.getTaskWorkspace.mock.results.at(-1)?.value;
+  await act(async () => expect((await refreshed)?.task.promptMarkdown).toBe("External source"));
+  expect(h.controller.workspace?.task.promptMarkdown).toBe("External source");
   expect(h.input()).toHaveValue(h.initialMarkdown);
   fireEvent.compositionEnd(h.input());
   expect(h.input()).toHaveValue("External source");

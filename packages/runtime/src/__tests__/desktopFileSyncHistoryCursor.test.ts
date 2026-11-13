@@ -1,4 +1,4 @@
-import { lstat, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -11,8 +11,9 @@ import {
   undoDesktopPlanGraphCommand,
   updateTaskTitle
 } from "../desktop/index.js";
+import { writeJsonFile } from "../json.js";
 import { createSqlitePlanGraphStore } from "../plangraph/index.js";
-import { createTestWorkspace } from "./promptTestHelpers.js";
+import { basicManifest, createTestWorkspace } from "./promptTestHelpers.js";
 
 afterEach(() => {
   delete process.env.PLANWEAVE_HOME;
@@ -100,6 +101,44 @@ describe("file sync preserves the current undo and redo position", () => {
       await expect(readFile(f.init.workspace.manifestFile)).resolves.toEqual(manifestAfter);
       await expect(lstat(f.path)).rejects.toMatchObject({ code: "ENOENT" });
     }
+  });
+
+  it("retains the history cursor on a same-content shared notification and clears it after an external edit", async () => {
+    const manifest = basicManifest();
+    const f = await createTestWorkspace(manifest);
+    const shared = "shared/source.md";
+    const path = join(f.init.workspace.packageDir, shared);
+    await mkdir(join(f.init.workspace.packageDir, "shared"));
+    await writeFile(path, "Shared history baseline");
+    manifest.nodes[0].prompt = shared;
+    await writeJsonFile(f.init.workspace.manifestFile, manifest);
+    expect((await updateTaskTitle(f.root, "T-001", "Earlier local edit")).ok).toBe(true);
+    await createDesktopPackageFileSnapshot(f.root);
+    const earlier = await position(f.root);
+
+    await writeFile(path, "Shared history baseline");
+    await expect(
+      refreshPackageFileChanges(f.root, { changedPaths: [shared] })
+    ).resolves.toMatchObject({
+      ok: true,
+      dirtyPromptRefs: [],
+      refreshedPromptCount: 0
+    });
+    expect(await position(f.root)).toEqual(earlier);
+
+    await writeFile(path, "Shared external edit");
+    await expect(
+      refreshPackageFileChanges(f.root, { changedPaths: ["package/shared"] })
+    ).resolves.toMatchObject({
+      ok: true,
+      dirtyPromptRefs: ["T-001"]
+    });
+    expect(await position(f.root)).toEqual({
+      cursor: null,
+      redo: null,
+      canUndo: false,
+      canRedo: false
+    });
   });
 
   it.each([

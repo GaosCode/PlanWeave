@@ -3,7 +3,11 @@
 import "@testing-library/jest-dom/vitest";
 
 import { act, render, waitFor, screen, cleanup, fireEvent } from "@testing-library/react";
-import type { DesktopBlockDetail } from "@planweave-ai/runtime";
+import type {
+  DesktopBlockDetail,
+  DesktopBridgeApi,
+  DesktopPackageFileChangeEvent
+} from "@planweave-ai/runtime";
 import type { Edge, ReactFlowInstance } from "@xyflow/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ReactNode, Suspense } from "react";
@@ -17,7 +21,7 @@ import type { GraphNavigationSnapshot } from "../renderer/taskWorkspaceNavigatio
 import { bridges, installProviderHarness } from "./helpers/projectWorkspaceProviderHarness";
 import { deferred, project, projectSnapshot } from "./helpers/desktopProjectFixtures";
 import { graph } from "./helpers/graphFixtures";
-import { workspaceHeader } from "./helpers/taskWorkspaceControllerModelFixture";
+import { runItems, workspaceHeader } from "./helpers/taskWorkspaceControllerModelFixture";
 
 installProviderHarness();
 afterEach(() => {
@@ -108,6 +112,7 @@ beforeEach(() => {
   }
   vi.doUnmock("../renderer/task-workspace/useTaskWorkspaceGraphNavigation");
   vi.doUnmock("../renderer/task-workspace/useTaskWorkspaceController");
+  vi.doUnmock("../renderer/controllers/AutoRunController");
   vi.doUnmock("../renderer/controllers/GraphWorkspaceController");
   vi.doMock("../renderer/hooks/useCollaborationCanvasPresence", () => ({
     useCollaborationCanvasPresence: () => undefined
@@ -283,6 +288,140 @@ async function enterWorkspace(
 }
 
 describe("Graph viewport across real ReactFlow route lifecycles", () => {
+  it("refreshes open Task and Block Prompts after package sync and preserves loaded run pages", async () => {
+    const listeners = new Set<(event: DesktopPackageFileChangeEvent) => void>();
+    bridges.desktop.target.onPackageFileChanged = vi.fn((listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    });
+    const firstPage = runItems(null).map((item) => ({
+      ...item,
+      blockRef: alpha.ref,
+      run: {
+        ...item.run,
+        runIdentity: {
+          ...item.run.runIdentity,
+          projectId: project.projectId,
+          taskId: alpha.taskId,
+          claimRef: alpha.ref
+        },
+        record: {
+          ...item.run.record,
+          ref: alpha.ref,
+          taskId: alpha.taskId,
+          recordId: `${alpha.ref}::${item.run.record.runId}`
+        }
+      }
+    }));
+    const listRuns = vi.fn<DesktopBridgeApi["listTaskWorkspaceRuns"]>(async (input) => ({
+      version: "planweave.task-workspace-runs-page/v1",
+      projectRoot: input.projectRoot,
+      canvasId: input.canvasId,
+      taskId: input.taskId,
+      limit: 50,
+      items: input.cursor ? firstPage.slice(1) : firstPage.slice(0, 1),
+      nextCursor: input.cursor
+        ? null
+        : {
+            version: "planweave.task-workspace-runs-cursor/v2",
+            taskId: alpha.taskId,
+            canvasId: "canvas-main",
+            orderedAt: "2026-07-13T00:00:00.000Z",
+            recordId: firstPage[0].run.record.recordId
+          }
+    }));
+    bridges.desktop.target.listTaskWorkspaceRuns = listRuns;
+    const probe = await mountGraph();
+    await enterWorkspace(probe, "Task");
+    await act(async () => probe.current.taskWorkspace.loadMoreRuns());
+    expect(probe.current.taskWorkspace.workspace?.blocks[0]?.runs).toHaveLength(2);
+    expect(listRuns).toHaveBeenCalledTimes(2);
+
+    const taskPrompt = screen.getByLabelText("Task Prompt");
+    const initial = probe.current.taskWorkspace.workspace!;
+    expect(taskPrompt).toHaveValue(initial.task.promptMarkdown);
+    const readHeader = vi.mocked(
+      bridges.desktop.target.getTaskWorkspace as DesktopBridgeApi["getTaskWorkspace"]
+    );
+    const sync = vi.mocked(
+      bridges.desktop.target
+        .refreshPackageFileChanges as DesktopBridgeApi["refreshPackageFileChanges"]
+    );
+    const pending = deferred<Awaited<ReturnType<DesktopBridgeApi["refreshPackageFileChanges"]>>>();
+    readHeader.mockClear();
+    sync.mockClear();
+    sync.mockImplementationOnce(() => pending.promise);
+    readHeader.mockResolvedValueOnce({
+      ...initial,
+      task: { ...initial.task, promptMarkdown: "External Task Prompt" },
+      blocks: initial.blocks.map((block) => ({
+        ...block,
+        promptMarkdown: "External Block Prompt",
+        promptSurfaceMarkdown: "External effective Prompt",
+        runs: []
+      }))
+    });
+    const registration = vi
+      .mocked(bridges.desktop.target.watchPackageFiles as DesktopBridgeApi["watchPackageFiles"])
+      .mock.calls.at(-1)?.[0];
+    if (!registration) throw new Error("Missing watch registration");
+    const emit = () => {
+      for (const notify of listeners)
+        notify({
+          ...registration,
+          canvasId: registration.canvasId ?? null,
+          paths: ["package/shared/source.md"],
+          backendKind: "native",
+          triggeredAt: new Date().toISOString()
+        });
+    };
+    act(emit);
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(readHeader).not.toHaveBeenCalled();
+    expect(taskPrompt).toHaveValue(initial.task.promptMarkdown);
+
+    const result = {
+      ok: true,
+      primed: false,
+      fullRefresh: false,
+      affectedTasks: [alpha.taskId],
+      dirtyPromptRefs: [alpha.taskId, alpha.ref],
+      refreshedPromptCount: 1,
+      refreshConcurrency: 4,
+      diagnostics: []
+    };
+    await act(async () => pending.resolve(result));
+    expect(taskPrompt).toHaveValue("External Task Prompt");
+    expect(probe.current.taskWorkspace.workspace?.blocks[0]).toMatchObject({
+      promptMarkdown: "External Block Prompt",
+      promptSurfaceMarkdown: "External effective Prompt"
+    });
+    expect(readHeader).toHaveBeenCalledTimes(1);
+    expect(listRuns).toHaveBeenCalledTimes(2);
+    expect(probe.current.taskWorkspace.workspace?.blocks[0]?.runs).toHaveLength(2);
+
+    for (const affectedTasks of [[], [beta.taskId]]) {
+      sync.mockResolvedValueOnce({ ...result, affectedTasks, dirtyPromptRefs: [] });
+      await act(async () => emit());
+    }
+    expect(readHeader).toHaveBeenCalledTimes(1);
+
+    const stale = deferred<Awaited<ReturnType<DesktopBridgeApi["getTaskWorkspace"]>>>();
+    readHeader.mockImplementationOnce(() => stale.promise);
+    sync.mockResolvedValueOnce(result);
+    await act(async () => emit());
+    expect(readHeader).toHaveBeenCalledTimes(2);
+    act(() => probe.history.returnToTaskWorkspaceSource());
+    await waitFor(() => expect(probe.current.taskWorkspace.navigation).toBeNull());
+    await enterWorkspace(probe, "Task");
+    const reopenedPrompt = screen.getByLabelText("Task Prompt");
+    await waitFor(() => expect(reopenedPrompt).toHaveValue(initial.task.promptMarkdown));
+    await act(async () =>
+      stale.resolve({ ...initial, task: { ...initial.task, promptMarkdown: "Retired header" } })
+    );
+    expect(reopenedPrompt).toHaveValue(initial.task.promptMarkdown);
+  });
+
   it.each([
     "Block",
     "Task"

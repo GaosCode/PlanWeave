@@ -3,7 +3,7 @@ import { resolvePackageWorkspace } from "../../package/loadPackage.js";
 import { resolveProjectWorkspaceInHome } from "../../project.js";
 import type { PackageWorkspaceRef, ProjectWorkspace } from "../../types.js";
 import type { PlanGraph } from "../domain/types.js";
-import { loadPlanGraphPackage } from "../packageRepository.js";
+import { loadPlanGraphPackage, type PlanGraphPackageSnapshot } from "../packageRepository.js";
 import type { PlanGraphIndexStore, PlanGraphOperationLog } from "../ports.js";
 import { jsonString } from "./columns.js";
 import { openDatabase, type SqliteDatabase } from "./connection.js";
@@ -63,10 +63,14 @@ export async function createSqlitePlanGraphStore(options: {
   options = { ...options, projectRoot: workspace };
   const graphKey = workspace.workspaceRoot;
   const historyKey = workspace.rootPath;
-  const rebuild = async (rebuildOptions: { clearHistory?: boolean } = {}): Promise<PlanGraph> => {
+  const rebuild = async (
+    rebuildOptions: { clearHistory?: boolean; snapshot?: PlanGraphPackageSnapshot } = {}
+  ): Promise<PlanGraph> => {
     const db = await openPlanGraphDatabase(indexPath);
     try {
-      const loaded = await loadPlanGraphPackage(options.projectRoot);
+      const loaded = await loadPlanGraphPackage(options.projectRoot, {
+        snapshot: rebuildOptions.snapshot
+      });
       writeGraphIndex(db, graphKey, loaded.graph);
       if (rebuildOptions.clearHistory) {
         db.prepare("DELETE FROM operation_log WHERE project_root = ?").run(historyKey);
@@ -81,13 +85,18 @@ export async function createSqlitePlanGraphStore(options: {
   return {
     indexPath,
     rebuild,
-    async indexChangedPaths(paths: string[], rebuildOptions: { clearHistory?: boolean } = {}) {
+    async indexChangedPaths(
+      paths: string[],
+      rebuildOptions: { clearHistory?: boolean; snapshot?: PlanGraphPackageSnapshot } = {}
+    ) {
       if (shouldFullRebuildChangedPaths(paths)) {
         return rebuild(rebuildOptions);
       }
       const db = await openPlanGraphDatabase(indexPath);
       try {
-        const loaded = await loadPlanGraphPackage(options.projectRoot);
+        const loaded = await loadPlanGraphPackage(options.projectRoot, {
+          snapshot: rebuildOptions.snapshot
+        });
         writeChangedPromptIndex(db, graphKey, loaded.graph, paths);
         if (rebuildOptions.clearHistory) {
           db.prepare("DELETE FROM operation_log WHERE project_root = ?").run(historyKey);

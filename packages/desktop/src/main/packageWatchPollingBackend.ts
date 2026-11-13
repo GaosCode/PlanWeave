@@ -3,12 +3,12 @@ import {
   changedFingerprint,
   collectWatchedPackageFingerprints,
   diffWatchedPackageSnapshots,
-  fingerprintIfPresent,
-  mapWithBoundedConcurrency,
+  loadPackageWatchInventory,
+  type PackageWatchInventory,
   preserveContentHashes,
   type PackageFingerprintSnapshot
 } from "./packageWatchFingerprints.js";
-import { absolutePathForRelative, type TaskCanvasWorkspace } from "./packageWatchPaths.js";
+import type { TaskCanvasWorkspace } from "./packageWatchPaths.js";
 import {
   PollingWatchLane,
   systemWatchScheduler,
@@ -53,7 +53,7 @@ export async function startPollingPackageWatchBackend(
   scheduler: WatchScheduler = systemWatchScheduler
 ): Promise<PackageWatchBackendHandle> {
   let lastSnapshot: PackageFingerprintSnapshot = new Map();
-  let knownRelativePaths: Set<string> = new Set();
+  let inventory: PackageWatchInventory = { references: new Map(), orphans: [] };
   let closed = false;
   const queue = new WatchTaskQueue();
 
@@ -63,115 +63,79 @@ export async function startPollingPackageWatchBackend(
   }
 
   try {
-    lastSnapshot = await collectWatchedPackageFingerprints(workspace);
-    knownRelativePaths = new Set(lastSnapshot.keys());
+    inventory = await loadPackageWatchInventory(workspace);
+    lastSnapshot = await collectWatchedPackageFingerprints(workspace, inventory);
   } catch (caught) {
     emitError("inventory", caught);
-    // Proceed with empty known set; inventory will repopulate when healthy.
+  }
+
+  function publish(next: PackageFingerprintSnapshot, isCurrent: () => boolean): void {
+    if (!isCurrent()) return;
+    for (const path of diffWatchedPackageSnapshots(lastSnapshot, next)) recordChange(path);
+    lastSnapshot = next;
   }
 
   async function probeKnownFiles(isCurrent: () => boolean): Promise<void> {
-    const next: PackageFingerprintSnapshot = new Map();
-    const knownList = Array.from(knownRelativePaths);
-    for (const rel of knownList) {
-      if (!isCurrent()) {
-        return;
+    const next = await collectWatchedPackageFingerprints(workspace, inventory);
+    if (!isCurrent()) return;
+    preserveContentHashes(lastSnapshot, next);
+    if (
+      changedFingerprint(
+        lastSnapshot.get("package/manifest.json"),
+        next.get("package/manifest.json")
+      )
+    ) {
+      const previous = inventory.references;
+      inventory = await loadPackageWatchInventory(workspace, inventory, true, false);
+      if (!isCurrent()) return;
+      for (const path of previous.keys()) {
+        if (!inventory.references.has(path) && !inventory.orphans.includes(path))
+          next.delete(`package/${path}`);
       }
-      const fingerprint = await fingerprintIfPresent(
-        absolutePathForRelative(workspace, rel),
-        false
-      );
-      if (fingerprint) {
-        next.set(rel, fingerprint);
-      }
     }
-    if (!isCurrent()) {
-      return;
-    }
-    const manifestFp = await fingerprintIfPresent(workspace.manifestFile, false);
-    if (manifestFp) {
-      next.set("package/manifest.json", manifestFp);
-    }
-    const projectFp = await fingerprintIfPresent(workspace.projectPromptFile, false);
-    if (projectFp) {
-      next.set("policy/project-prompt.md", projectFp);
-    }
-    if (!isCurrent()) {
-      return;
-    }
-
-    const previous = lastSnapshot;
-    preserveContentHashes(previous, next);
-    for (const path of diffWatchedPackageSnapshots(previous, next)) {
-      recordChange(path);
-    }
-    lastSnapshot = next;
-    knownRelativePaths = new Set([...knownRelativePaths, ...next.keys()]);
+    publish(next, isCurrent);
   }
 
   async function refreshInventory(isCurrent: () => boolean): Promise<void> {
-    const nextSnapshot = await collectWatchedPackageFingerprints(workspace);
-    if (!isCurrent()) {
-      return;
-    }
-    const previousSnapshot = lastSnapshot;
-
-    const previousKeys = new Set(previousSnapshot.keys());
-    const nextKeys = new Set(nextSnapshot.keys());
-    for (const key of nextKeys) {
-      if (!previousKeys.has(key)) {
-        recordChange(key);
-      }
-    }
-    for (const key of previousKeys) {
-      if (!nextKeys.has(key)) {
-        recordChange(key);
-      }
-    }
-    // mtime/size edits on known files remain probe's job; inventory only discovers membership.
-    // Preserve their prior fingerprints so inventory cannot advance the shared baseline before
-    // a concurrent probe has published the change. New paths start from inventory's fingerprint.
-    lastSnapshot = new Map(
-      [...nextSnapshot].map(([key, fingerprint]) => [key, previousSnapshot.get(key) ?? fingerprint])
-    );
-    knownRelativePaths = new Set(nextKeys);
+    const nextInventory = await loadPackageWatchInventory(workspace, inventory, false);
+    const next = await collectWatchedPackageFingerprints(workspace, nextInventory);
+    if (!isCurrent()) return;
+    inventory = nextInventory;
+    preserveContentHashes(lastSnapshot, next);
+    publish(next, isCurrent);
   }
 
   async function hashSweep(isCurrent: () => boolean): Promise<void> {
-    const knownList = Array.from(knownRelativePaths);
-    const previousSnapshot = lastSnapshot;
-    const updates = await mapWithBoundedConcurrency(
-      knownList,
-      POLLING_READ_CONCURRENCY,
-      async (rel) => {
-        const newFp = await fingerprintIfPresent(absolutePathForRelative(workspace, rel), true);
-        return { rel, newFp };
-      }
+    const next = await collectWatchedPackageFingerprints(
+      workspace,
+      inventory,
+      true,
+      POLLING_READ_CONCURRENCY
     );
-    if (!isCurrent()) {
-      return;
+    if (!isCurrent()) return;
+    const oldManifestHash =
+      lastSnapshot.get("package/manifest.json")?.hash ?? inventory.manifestHash;
+    const newManifestHash = next.get("package/manifest.json")?.hash;
+    if (newManifestHash && oldManifestHash !== newManifestHash) {
+      inventory = await loadPackageWatchInventory(workspace, inventory, true, false);
     }
-
-    for (const { rel, newFp } of updates) {
-      if (!newFp) {
-        continue;
-      }
-      const old = previousSnapshot.get(rel);
-      const current = lastSnapshot.get(rel);
-      // A deletion or incompatible probe/inventory commit after this sweep started owns the
-      // newer state. Equivalent fingerprints remain safe even if their object identity changed.
-      if (!old || !current || changedFingerprint(old, current)) {
-        continue;
-      }
-      let changed = old.mtimeMs !== newFp.mtimeMs || old.size !== newFp.size;
-      if (!changed && old.hash && newFp.hash && old.hash !== newFp.hash) {
-        changed = true;
-      }
-      lastSnapshot.set(rel, newFp);
-      if (changed) {
-        recordChange(rel);
+    if (!isCurrent()) return;
+    for (const [path, fingerprint] of next) {
+      const old = lastSnapshot.get(path);
+      if (
+        old &&
+        !old.hash &&
+        !(
+          path === "package/manifest.json" &&
+          oldManifestHash &&
+          oldManifestHash !== newManifestHash
+        ) &&
+        !changedFingerprint(old, { ...fingerprint, hash: undefined })
+      ) {
+        lastSnapshot.set(path, fingerprint);
       }
     }
+    publish(next, isCurrent);
   }
 
   const lanes = [

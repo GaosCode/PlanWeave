@@ -434,7 +434,7 @@ export async function updatePromptSurface(options: {
 export function affectedTasksForPackageFileChange(change: PackageFileChange): PackageChangeImpact {
   if (change.kind === "manifest") {
     const beforeGraph = compileTaskGraph(change.before);
-    const afterGraph = compileTaskGraph(change.after);
+    const afterGraph = change.graph ?? compileTaskGraph(change.after);
     const affectedTasks = affectedTaskIdsForManifestChange(
       change.before,
       change.after,

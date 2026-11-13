@@ -344,6 +344,16 @@ export {
   detectPackageFileChanges,
   refreshChangedPackagePrompts
 } from "./package/fileChanges.js";
+export { loadPackagePromptReferenceInventory } from "./package/loadPackagePromptInventory.js";
+export {
+  isOrphanPromptWatchPath,
+  isPackageNodesPath,
+  normalizePackageWatchPath,
+  promptTargetPaths,
+  promptWatchAliases,
+  resolvePackagePromptTargets,
+  type PackagePromptTargets
+} from "./package/promptInventory.js";
 export type { PackageFileSyncResult, PromptRefreshStats } from "./package/fileChanges.js";
 export {
   createExecutionGraphSession,

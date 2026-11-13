@@ -39,10 +39,13 @@ import type { TaskWorkspaceController, TaskWorkspaceLiveStatus } from "./contrac
 import { projectSharedTaskWorkspace } from "./taskWorkspaceSharedProjection";
 import { useTaskWorkspaceExecutorActions } from "./useTaskWorkspaceExecutorActions";
 import {
+  applyTaskWorkspacePromptHeader,
   projectLocalTaskWorkspaceHeader,
+  projectTaskWorkspacePromptSources,
   type TaskWorkspacePromptWorkspace
 } from "./taskWorkspaceHeaderProjection";
 import type { TaskWorkspacePromptAuthority } from "./useTaskWorkspacePromptDrafts";
+import { useTaskWorkspaceFileSync } from "./useTaskWorkspaceFileSync";
 import { useTaskWorkspacePromptActions } from "./useTaskWorkspacePromptActions";
 import {
   type TaskWorkspaceRecordLoad,
@@ -127,13 +130,16 @@ export function useTaskWorkspaceController(options: {
   ownerProjectId?: string | null;
   history: AppViewHistoryController;
   selectedWorkspaceRoot: string | null;
+  planweaveHome?: string;
+  setError?: (message: string | null) => void;
   saveAgentEndpointPreference: (
     key: string,
     endpoint: AvailableAgentEndpoint | null
   ) => Promise<void>;
   /** When enabled, task/block prompt and executor writes use Workspace Canvas commands. */
   workspaceCanvas?: WorkspaceCanvasCommandsResult | null;
-}): TaskWorkspaceController {
+}): TaskWorkspaceController &
+  Pick<ReturnType<typeof useTaskWorkspaceFileSync>, "refreshLocalPrompts"> {
   const {
     agentEndpointCatalog,
     agentEndpointPreferences,
@@ -462,13 +468,33 @@ export function useTaskWorkspaceController(options: {
     workspaceCanvas?.projection
   ]);
 
+  const { promptHeader, refreshLocalPrompts } = useTaskWorkspaceFileSync({
+    api,
+    authority: options.promptAuthority,
+    navigation,
+    nextGeneration: nextLocalSourceGeneration,
+    planweaveHome: options.planweaveHome,
+    setError: options.setError
+  });
   const loadedWorkspace = workspaceLoad.key === key ? workspaceLoad.workspace : null;
+  const loadedPromptWorkspace = workspaceLoad.key === key ? workspaceLoad.promptWorkspace : null;
+  const externalHeader =
+    promptHeader &&
+    loadedPromptWorkspace?.local &&
+    promptHeader.generation > loadedPromptWorkspace.local.generation
+      ? promptHeader
+      : null;
   const workspace = useMemo(
     () =>
       loadedWorkspace
-        ? projectSharedTaskWorkspace(loadedWorkspace, workspaceCanvas?.projection ?? null)
+        ? projectSharedTaskWorkspace(
+            externalHeader
+              ? applyTaskWorkspacePromptHeader(loadedWorkspace, externalHeader.header)
+              : loadedWorkspace,
+            workspaceCanvas?.projection ?? null
+          )
         : null,
-    [loadedWorkspace, workspaceCanvas?.projection]
+    [externalHeader, loadedWorkspace, workspaceCanvas?.projection]
   );
   const packageExecutorNames = workspaceLoad.key === key ? workspaceLoad.packageExecutorNames : [];
   const routedSelectedRun = useMemo(() => {
@@ -842,7 +868,13 @@ export function useTaskWorkspaceController(options: {
     }
   }, [api, key, localNavigation, runFreshness.append]);
 
-  const promptWorkspace = workspaceLoad.key === key ? workspaceLoad.promptWorkspace : null;
+  const promptWorkspace = useMemo(
+    () =>
+      externalHeader
+        ? projectTaskWorkspacePromptSources(externalHeader.header, externalHeader.generation)
+        : loadedPromptWorkspace,
+    [externalHeader, loadedPromptWorkspace]
+  );
   const { getPromptDraft, saveBlockPrompt, saveTaskPrompt } = useTaskWorkspacePromptActions({
     authority: options.promptAuthority,
     api,
@@ -1032,7 +1064,7 @@ export function useTaskWorkspaceController(options: {
     recordError ??
     liveProjection.error;
 
-  return useMemo<TaskWorkspaceController>(
+  return useMemo(
     () => ({
       agentEndpointsForBlock,
       agentEndpointsForTask,
@@ -1051,6 +1083,7 @@ export function useTaskWorkspaceController(options: {
       recordError,
       remoteConversation,
       refresh,
+      refreshLocalPrompts,
       returnToCanvas: history.returnToTaskWorkspaceSource,
       runnerModel: liveProjection.runnerModel,
       saveBlockAgentEndpoint,
@@ -1090,6 +1123,7 @@ export function useTaskWorkspaceController(options: {
       recordError,
       remoteConversation,
       refresh,
+      refreshLocalPrompts,
       saveBlockAgentEndpoint,
       saveBlockPrompt,
       saveTaskAgentEndpoint,

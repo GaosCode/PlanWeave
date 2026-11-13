@@ -51,10 +51,32 @@ export function projectLocalTaskWorkspaceHeader(input: {
       null;
     agentHints.set(block.ref, { executorName, agentId: agentFamilyFromExecutorName(executorName) });
   }
-  const promptWorkspace: TaskWorkspacePromptWorkspace = {
+  return {
+    workspace: withRemoteLiveTimelineRuns(composed, agentHints),
+    pageItems,
+    pageIds,
+    promptWorkspace: projectTaskWorkspacePromptSources(header, promptGeneration),
+    requiredCapabilitiesByBlockRef: Object.fromEntries(
+      graphTask.blocks.map((block) => [block.ref, [...block.requiredCapabilities]])
+    ),
+    taskRequiredCapabilities: [
+      ...new Set(
+        graphTask.blocks
+          .filter((block) => block.executor === null)
+          .flatMap((block) => block.requiredCapabilities)
+      )
+    ]
+  };
+}
+
+export function projectTaskWorkspacePromptSources(
+  header: TaskWorkspace,
+  generation: number
+): TaskWorkspacePromptWorkspace {
+  return {
     project: header.project,
     local: {
-      generation: promptGeneration,
+      generation,
       task: {
         promptMarkdown: header.task.promptMarkdown,
         promptMissing: header.task.promptMissing
@@ -67,20 +89,31 @@ export function projectLocalTaskWorkspaceHeader(input: {
       )
     }
   };
+}
+
+export function applyTaskWorkspacePromptHeader(
+  workspace: TaskWorkspace,
+  header: TaskWorkspace
+): TaskWorkspace {
+  const sourcesByRef = new Map(header.blocks.map((block) => [block.ref, block]));
   return {
-    workspace: withRemoteLiveTimelineRuns(composed, agentHints),
-    pageItems,
-    pageIds,
-    promptWorkspace,
-    requiredCapabilitiesByBlockRef: Object.fromEntries(
-      graphTask.blocks.map((block) => [block.ref, [...block.requiredCapabilities]])
-    ),
-    taskRequiredCapabilities: [
-      ...new Set(
-        graphTask.blocks
-          .filter((block) => block.executor === null)
-          .flatMap((block) => block.requiredCapabilities)
-      )
-    ]
+    ...workspace,
+    task: {
+      ...workspace.task,
+      promptMarkdown: header.task.promptMarkdown,
+      promptMissing: header.task.promptMissing
+    },
+    blocks: workspace.blocks.map((block) => {
+      const source = sourcesByRef.get(block.ref);
+      return source
+        ? {
+            ...block,
+            promptMarkdown: source.promptMarkdown,
+            promptMissing: source.promptMissing,
+            promptSources: source.promptSources,
+            promptSurfaceMarkdown: source.promptSurfaceMarkdown
+          }
+        : block;
+    })
   };
 }
