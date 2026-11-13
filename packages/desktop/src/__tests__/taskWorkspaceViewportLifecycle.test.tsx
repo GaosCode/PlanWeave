@@ -120,6 +120,8 @@ beforeEach(() => {
   vi.resetModules();
   vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1000);
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(700);
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(700);
   vi.stubGlobal(
     "ResizeObserver",
     class {
