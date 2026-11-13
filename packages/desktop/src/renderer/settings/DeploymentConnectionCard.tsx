@@ -11,6 +11,7 @@ import type {
   DesktopServerExposureErrorCode,
   DesktopServerExposureView
 } from "../../shared/deploymentExposure";
+import { deploymentArchiveFailureCodes as archiveFailureCodes } from "../../shared/deploymentArchiveFailureCodes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -187,6 +188,24 @@ function exposureErrorLabel(
   return t("deploymentServerStartFailed");
 }
 
+function exportErrorLabel(
+  code: string | null | undefined,
+  t: ReturnType<typeof createTranslator>
+): string {
+  switch (code) {
+    case archiveFailureCodes.destinationNotFile:
+      return t("deploymentExportDestinationNotFile");
+    case archiveFailureCodes.permissionsUnavailable:
+      return t("deploymentExportPermissionsUnavailable");
+    case archiveFailureCodes.cleanupFailed:
+      return t("deploymentExportCleanupFailed");
+    case archiveFailureCodes.committedCleanupFailed:
+      return t("deploymentExportCommittedCleanupFailed");
+    default:
+      return t("deploymentExportFailed");
+  }
+}
+
 export function DeploymentConnectionCard({
   t,
   presentation = "card",
@@ -230,9 +249,12 @@ export function DeploymentConnectionCard({
   const [connectivityState, setConnectivityState] =
     useState<CheckState<ConnectivityValidationView> | null>(null);
   const [copyState, setCopyState] = useState<OperationState<"copied"> | null>(null);
-  const [exportState, setExportState] = useState<OperationState<
-    "exported" | "needs_project" | "invalid_project" | "cancelled"
-  > | null>(null);
+  const [exportState, setExportState] = useState<
+    | (OperationState<"exported" | "needs_project" | "invalid_project" | "cancelled"> & {
+        errorCode?: string | null;
+      })
+    | null
+  >(null);
   const [busy, setBusy] = useState<"activation" | "connect" | null>(null);
   const [activationNotice, setActivationNotice] = useState<"invalid" | null>(null);
   const [deployToolsOpen, setDeployToolsOpen] = useState(false);
@@ -319,8 +341,7 @@ export function DeploymentConnectionCard({
   const actionError =
     visibleGuidanceState?.status === "error" ||
     visibleConnectivityState?.status === "error" ||
-    visibleCopyState?.status === "error" ||
-    visibleExportState?.status === "error";
+    visibleCopyState?.status === "error";
 
   const activate = async () => {
     if (!collaborationBridge || mode === "custom_https") return;
@@ -413,8 +434,15 @@ export function DeploymentConnectionCard({
       if (isCurrent()) {
         setExportState({ generation, request, status: result.state });
       }
-    } catch {
-      if (isCurrent()) setExportState({ generation, request, status: "error" });
+    } catch (error) {
+      if (isCurrent()) {
+        setExportState({
+          generation,
+          request,
+          status: "error",
+          errorCode: collaborationErrorCode(error)
+        });
+      }
     }
   };
 
@@ -847,6 +875,11 @@ export function DeploymentConnectionCard({
       {visibleExportState?.status === "invalid_project" ? (
         <p className="text-xs text-destructive" role="alert">
           {t("deploymentExportInvalidProject")}
+        </p>
+      ) : null}
+      {visibleExportState?.status === "error" ? (
+        <p className="text-xs text-destructive" role="alert">
+          {exportErrorLabel(visibleExportState.errorCode, t)}
         </p>
       ) : null}
       {actionError || (mode !== "custom_https" && activationNotice === "invalid") ? (

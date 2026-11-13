@@ -1,7 +1,26 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  readlink,
+  rename,
+  rm,
+  rmdir,
+  stat,
+  symlink,
+  unlink,
+  writeFile
+} from "node:fs/promises";
+import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { WindowsPrivateStorageSecurity } from "@planweave-ai/agent-host";
 import {
   hashOperatorToken,
   parseServerConfig,
@@ -14,6 +33,17 @@ import {
   DeploymentBundleUnavailableError
 } from "../main/collaboration/deploymentActions.js";
 import { writeDesktopConnectionScript } from "../main/collaboration/writeDesktopConnectionScript.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof fs>();
+  return {
+    ...actual,
+    open: vi.fn(actual.open),
+    rename: vi.fn(actual.rename),
+    rmdir: vi.fn(actual.rmdir),
+    unlink: vi.fn(actual.unlink)
+  };
+});
 
 const operatorToken = `pw_operator_${"A".repeat(43)}`;
 
@@ -32,6 +62,8 @@ const target = {
 const roots: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.resetAllMocks();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -49,6 +81,78 @@ async function temporaryRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "planweave-deployment-actions-"));
   roots.push(root);
   return root;
+}
+
+async function exportFixture(token = operatorToken, credential = token) {
+  const root = await temporaryRoot();
+  const resourceDirectory = join(root, "resource");
+  const bundlePath = join(root, "bundle.zip");
+  await mkdir(join(resourceDirectory, "image"), { recursive: true });
+  await Promise.all([
+    writeFile(join(resourceDirectory, "compose.yaml"), "services: {}\n"),
+    writeFile(join(resourceDirectory, "image", "Dockerfile"), "FROM scratch\n")
+  ]);
+  const source = {
+    operatorToken: token,
+    config: parseServerConfig({
+      version: "server-config/v1",
+      bind: { host: "0.0.0.0", port: 443 },
+      publicUrl: target.endpoint.serverOrigin,
+      deployment: target.endpoint,
+      tls: {
+        certificatePath: "/run/planweave/input/tls/server.crt",
+        privateKeyPath: "/run/planweave/input/tls/server.key"
+      },
+      dataDirectory: "/var/lib/planweave-server",
+      trustedProjects: [],
+      operatorCredentials: [
+        {
+          operatorId: "operator-test",
+          tokenSha256: hashOperatorToken(credential),
+          projectIds: [],
+          serverAdmin: true
+        }
+      ]
+    })
+  };
+  return {
+    root,
+    bundlePath,
+    exportBundle: (destination = bundlePath) =>
+      new DeploymentActions({
+        resourceDirectory,
+        resolveBundleSource: async () => source,
+        showSaveDialog: async () => ({ canceled: false, filePath: destination })
+      }).exportComposeBundle(request("export_supported_compose_bundle"))
+  };
+}
+
+const oldBundle = Buffer.from("previous deployment archive\n");
+const otherToken = `pw_operator_${"B".repeat(43)}`;
+
+const fsFailure = (code: string) => Object.assign(new Error(code), { code });
+
+function failStagedWrite(stage: "write" | "sync" | "rename") {
+  const failure = fsFailure(stage === "write" ? "ENOSPC" : "EIO");
+  if (stage === "rename") {
+    vi.mocked(rename).mockRejectedValueOnce(failure);
+    return failure;
+  }
+  vi.mocked(open).mockImplementationOnce(async (...args) => {
+    const actual = await vi.importActual<typeof fs>("node:fs/promises");
+    const handle = await actual.open(...args);
+    if (stage === "write") {
+      const write = handle.writeFile.bind(handle);
+      vi.spyOn(handle, "writeFile").mockImplementationOnce(async () => {
+        await write(Buffer.from("partial write\n"));
+        throw failure;
+      });
+    } else {
+      vi.spyOn(handle, "sync").mockRejectedValueOnce(failure);
+    }
+    return handle;
+  });
+  return failure;
 }
 
 describe("DeploymentActions", () => {
@@ -169,49 +273,15 @@ describe("DeploymentActions", () => {
   });
 
   it("exports a Server bundle without packing the current project", async () => {
-    const root = await temporaryRoot();
-    const resourceDirectory = join(root, "resource");
-    const bundlePath = join(root, "bundle.zip");
-    await mkdir(join(resourceDirectory, "image"), { recursive: true });
-    await Promise.all([
-      writeFile(join(resourceDirectory, "compose.yaml"), "services: {}\n"),
-      writeFile(join(resourceDirectory, "image", "Dockerfile"), "FROM scratch\n")
-    ]);
-    const source = {
-      operatorToken,
-      config: parseServerConfig({
-        version: "server-config/v1",
-        bind: { host: "0.0.0.0", port: 443 },
-        publicUrl: target.endpoint.serverOrigin,
-        deployment: target.endpoint,
-        tls: {
-          certificatePath: "/run/planweave/input/tls/server.crt",
-          privateKeyPath: "/run/planweave/input/tls/server.key"
-        },
-        dataDirectory: "/var/lib/planweave-server",
-        trustedProjects: [],
-        operatorCredentials: [
-          {
-            operatorId: "operator-test",
-            tokenSha256: hashOperatorToken(operatorToken),
-            projectIds: [],
-            serverAdmin: true
-          }
-        ]
-      })
-    };
-    const actions = new DeploymentActions({
-      resourceDirectory,
-      resolveBundleSource: async () => source,
-      showSaveDialog: async () => ({ canceled: false, filePath: bundlePath })
-    });
-    const exported = await actions.exportComposeBundle(request("export_supported_compose_bundle"));
+    const { root, bundlePath, exportBundle } = await exportFixture();
+    const exported = await exportBundle();
     expect(exported).toEqual({
       state: "exported",
       fileName: "bundle.zip",
       tls: "required_after_export"
     });
     expect(JSON.stringify(exported)).not.toContain(operatorToken);
+    if (process.platform !== "win32") expect((await stat(bundlePath)).mode & 0o777).toBe(0o600);
     const archive = unzipSync(await readFile(bundlePath));
     expect(Object.keys(archive).sort()).toEqual(
       [
@@ -253,42 +323,244 @@ describe("DeploymentActions", () => {
   });
 
   it("rejects a bundle whose operator token does not match server.json", async () => {
-    const root = await temporaryRoot();
-    const resourceDirectory = join(root, "resource");
-    await mkdir(join(resourceDirectory, "image"), { recursive: true });
-    await Promise.all([
-      writeFile(join(resourceDirectory, "compose.yaml"), "services: {}\n"),
-      writeFile(join(resourceDirectory, "image", "Dockerfile"), "FROM scratch\n")
-    ]);
-    const actions = new DeploymentActions({
-      resourceDirectory,
-      resolveBundleSource: async () => ({
-        operatorToken: `pw_operator_${"B".repeat(43)}`,
-        config: parseServerConfig({
-          version: "server-config/v1",
-          bind: { host: "0.0.0.0", port: 443 },
-          publicUrl: target.endpoint.serverOrigin,
-          deployment: target.endpoint,
-          tls: {
-            certificatePath: "/run/planweave/input/tls/server.crt",
-            privateKeyPath: "/run/planweave/input/tls/server.key"
-          },
-          dataDirectory: "/var/lib/planweave-server",
-          trustedProjects: [],
-          operatorCredentials: [
-            {
-              operatorId: "operator-test",
-              tokenSha256: hashOperatorToken(operatorToken),
-              projectIds: [],
-              serverAdmin: true
-            }
-          ]
-        })
-      }),
-      showSaveDialog: async () => ({ canceled: false, filePath: join(root, "bundle.zip") })
+    const { root, bundlePath, exportBundle } = await exportFixture(otherToken, operatorToken);
+    await writeFile(bundlePath, oldBundle);
+    await expect(exportBundle()).resolves.toMatchObject({ state: "invalid_project" });
+    expect(await readFile(bundlePath)).toEqual(oldBundle);
+    expect((await readdir(root)).sort()).toEqual(["bundle.zip", "resource"]);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "replaces a readable archive with a private ZIP",
+    async () => {
+      const { root, bundlePath, exportBundle } = await exportFixture();
+      await writeFile(bundlePath, oldBundle);
+      await chmod(bundlePath, 0o644);
+
+      await expect(exportBundle()).resolves.toMatchObject({
+        state: "exported",
+        fileName: "bundle.zip"
+      });
+      expect((await stat(bundlePath)).mode & 0o777).toBe(0o600);
+      const archive = unzipSync(await readFile(bundlePath));
+      expect(
+        Buffer.from(archive[".operator-token"]).equals(Buffer.from(`${operatorToken}\n`))
+      ).toBe(true);
+      expect((await readdir(root)).sort()).toEqual(["bundle.zip", "resource"]);
+    }
+  );
+
+  it.skipIf(process.platform !== "darwin")(
+    "does not inherit a macOS ACL that grants ZIP read access",
+    async () => {
+      const { root, bundlePath, exportBundle } = await exportFixture();
+      expect(
+        spawnSync("/bin/chmod", ["+a", "everyone allow read,file_inherit,directory_inherit", root])
+          .status
+      ).toBe(0);
+
+      await expect(exportBundle()).resolves.toMatchObject({ state: "exported" });
+      const acl = spawnSync("/bin/ls", ["-le", bundlePath], { encoding: "utf8" });
+      expect(acl.status).toBe(0);
+      expect(acl.stdout.trimEnd().split("\n")).toHaveLength(1);
+    }
+  );
+
+  it.skipIf(process.platform === "win32").each(["file", "missing"])(
+    "rejects a symbolic link to a %s destination without following it",
+    async (targetKind) => {
+      const { root, bundlePath, exportBundle } = await exportFixture();
+      const linkedPath = join(root, "linked.zip");
+      if (targetKind === "file") await writeFile(linkedPath, oldBundle);
+      await symlink(linkedPath, bundlePath);
+
+      await expect(exportBundle()).rejects.toMatchObject({
+        code: "deployment_archive_destination_not_file"
+      });
+      expect(await readlink(bundlePath)).toBe(linkedPath);
+      if (targetKind === "file") {
+        expect(await readFile(linkedPath)).toEqual(oldBundle);
+      } else {
+        await expect(lstat(linkedPath)).rejects.toMatchObject({ code: "ENOENT" });
+      }
+    }
+  );
+
+  it("rejects a directory destination without changing its contents", async () => {
+    const { root, bundlePath, exportBundle } = await exportFixture();
+    await mkdir(bundlePath);
+    const child = join(bundlePath, "keep");
+    await writeFile(child, oldBundle);
+
+    await expect(exportBundle()).rejects.toMatchObject({
+      code: "deployment_archive_destination_not_file"
     });
-    await expect(
-      actions.exportComposeBundle(request("export_supported_compose_bundle"))
-    ).resolves.toMatchObject({ state: "invalid_project" });
+    expect(await readFile(child)).toEqual(oldBundle);
+    expect((await readdir(root)).sort()).toEqual(["bundle.zip", "resource"]);
+  });
+
+  it("preserves the old ZIP when Windows cannot secure the empty staging file", async () => {
+    const { root, bundlePath, exportBundle } = await exportFixture();
+    await writeFile(bundlePath, oldBundle);
+    const failure = fsFailure("EACCES");
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    vi.spyOn(WindowsPrivateStorageSecurity.prototype, "prepareDirectory").mockResolvedValueOnce(
+      undefined
+    );
+    vi.spyOn(WindowsPrivateStorageSecurity.prototype, "secureFile").mockImplementationOnce(
+      async (path) => {
+        expect((await stat(path)).size).toBe(0);
+        throw failure;
+      }
+    );
+
+    try {
+      await expect(exportBundle()).rejects.toMatchObject({
+        code: "deployment_archive_permissions_unavailable",
+        cause: failure
+      });
+    } finally {
+      platform.mockRestore();
+    }
+    expect((await readFile(bundlePath)).equals(oldBundle)).toBe(true);
+    expect((await readdir(root)).sort()).toEqual(["bundle.zip", "resource"]);
+  });
+
+  it("replaces the selected hard link without changing the old inode's bytes", async () => {
+    const { root, bundlePath, exportBundle } = await exportFixture();
+    const linkedPath = join(root, "linked.zip");
+    await writeFile(linkedPath, oldBundle);
+    await link(linkedPath, bundlePath);
+
+    await expect(exportBundle()).resolves.toMatchObject({ state: "exported" });
+    expect((await readFile(linkedPath)).equals(oldBundle)).toBe(true);
+    expect((await stat(bundlePath)).ino).not.toBe((await stat(linkedPath)).ino);
+    const archive = unzipSync(await readFile(bundlePath));
+    expect(Buffer.from(archive[".operator-token"]).equals(Buffer.from(`${operatorToken}\n`))).toBe(
+      true
+    );
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "preserves a writable old ZIP in a read-only parent",
+    async () => {
+      const { root, bundlePath, exportBundle } = await exportFixture();
+      await writeFile(bundlePath, oldBundle, { mode: 0o600 });
+      await chmod(root, 0o500);
+      try {
+        await expect(exportBundle()).rejects.toMatchObject({ code: "EACCES" });
+        expect(await readFile(bundlePath)).toEqual(oldBundle);
+        expect((await readdir(root)).sort()).toEqual(["bundle.zip", "resource"]);
+      } finally {
+        await chmod(root, 0o700);
+      }
+    }
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "does not follow a link introduced immediately before rename",
+    async () => {
+      const { root, bundlePath, exportBundle } = await exportFixture();
+      const linkedPath = join(root, "linked.zip");
+      await writeFile(linkedPath, oldBundle);
+      vi.mocked(rename).mockImplementationOnce(async (source, destination) => {
+        const actual = await vi.importActual<typeof fs>("node:fs/promises");
+        await symlink(linkedPath, destination);
+        await actual.rename(source, destination);
+      });
+
+      await expect(exportBundle()).resolves.toMatchObject({ state: "exported" });
+      expect((await lstat(bundlePath)).isFile()).toBe(true);
+      expect((await readFile(linkedPath)).equals(oldBundle)).toBe(true);
+      expect(await readdir(root)).toHaveLength(3);
+    }
+  );
+
+  it("publishes complete concurrent exports to a shared destination", async () => {
+    const first = await exportFixture();
+    const second = await exportFixture(otherToken);
+    const bothStaged = Promise.withResolvers<void>();
+    let arrivals = 0;
+    const actual = await vi.importActual<typeof fs>("node:fs/promises");
+    const renameAfterBothStaged: typeof rename = async (source, destination) => {
+      if (++arrivals === 2) bothStaged.resolve();
+      await bothStaged.promise;
+      await actual.rename(source, destination);
+    };
+    vi.mocked(rename)
+      .mockImplementationOnce(renameAfterBothStaged)
+      .mockImplementationOnce(renameAfterBothStaged);
+
+    const results = await Promise.all([
+      first.exportBundle(),
+      second.exportBundle(first.bundlePath)
+    ]);
+    expect(results.every((result) => result.state === "exported")).toBe(true);
+    expect(arrivals).toBe(2);
+    const archive = unzipSync(await readFile(first.bundlePath));
+    const credentials = Buffer.from(archive[".operator-token"]);
+    const config = JSON.parse(Buffer.from(archive["server.json"]).toString("utf8"));
+    expect(
+      [operatorToken, otherToken].some(
+        (token) =>
+          credentials.equals(Buffer.from(`${token}\n`)) &&
+          config.operatorCredentials[0].tokenSha256 === hashOperatorToken(token)
+      )
+    ).toBe(true);
+    expect((await readdir(first.root)).sort()).toEqual(["bundle.zip", "resource"]);
+  });
+
+  it.each([
+    "write",
+    "sync",
+    "rename"
+  ] as const)("preserves the old ZIP and cleans temporary data when %s fails", async (stage) => {
+    const { root, bundlePath, exportBundle } = await exportFixture();
+    await writeFile(bundlePath, oldBundle);
+    const failure = failStagedWrite(stage);
+
+    await expect(exportBundle()).rejects.toBe(failure);
+    expect((await readFile(bundlePath)).equals(oldBundle)).toBe(true);
+    expect((await readdir(root)).sort()).toEqual(["bundle.zip", "resource"]);
+  });
+
+  it("preserves the old ZIP and surfaces precommit cleanup failure", async () => {
+    const { root, bundlePath, exportBundle } = await exportFixture();
+    await writeFile(bundlePath, oldBundle);
+    const failure = failStagedWrite("rename");
+    const cleanupFailure = fsFailure("EPERM");
+    vi.mocked(unlink).mockRejectedValueOnce(cleanupFailure);
+
+    await expect(exportBundle()).rejects.toMatchObject({ errors: [failure, cleanupFailure] });
+    expect((await readFile(bundlePath)).equals(oldBundle)).toBe(true);
+    const remaining = (await readdir(root)).filter(
+      (name) => !["bundle.zip", "resource"].includes(name)
+    );
+    expect(remaining).toHaveLength(1);
+    const staging = join(root, remaining[0]);
+    const files = await readdir(staging);
+    expect(files).toHaveLength(1);
+    if (process.platform !== "win32") {
+      expect((await stat(join(staging, files[0]))).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("reports that the ZIP was committed when removing the empty temporary directory fails", async () => {
+    const { root, bundlePath, exportBundle } = await exportFixture();
+    await writeFile(bundlePath, oldBundle);
+    vi.mocked(rmdir).mockRejectedValueOnce(fsFailure("EPERM"));
+
+    await expect(exportBundle()).rejects.toMatchObject({
+      code: "deployment_archive_committed_cleanup_failed"
+    });
+    const archive = unzipSync(await readFile(bundlePath));
+    expect(Buffer.from(archive[".operator-token"]).equals(Buffer.from(`${operatorToken}\n`))).toBe(
+      true
+    );
+    const remaining = (await readdir(root)).filter(
+      (name) => !["bundle.zip", "resource"].includes(name)
+    );
+    expect(remaining).toHaveLength(1);
+    expect(await readdir(join(root, remaining[0]))).toEqual([]);
   });
 });

@@ -246,6 +246,30 @@ describe("DeploymentConnectionCard target lifecycle", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["deployment_archive_destination_not_file", "Choose a regular file or a new filename."],
+    [
+      "deployment_archive_permissions_unavailable",
+      "Choose a location that supports private file permissions."
+    ],
+    [
+      "deployment_archive_committed_cleanup_failed",
+      "The bundle was exported, but Desktop could not remove its temporary folder."
+    ]
+  ])("shows the export outcome for %s", async (code, message) => {
+    const user = userEvent.setup();
+    collaborationBridge.getDeploymentGuidance.mockImplementation(async (input) =>
+      guidanceFor(input.target)
+    );
+    collaborationBridge.exportDeploymentComposeBundle.mockRejectedValueOnce({ code });
+    await renderExistingServer(user);
+    await user.click(screen.getByRole("button", { name: "View deploy steps" }));
+    const exportButton = screen.getByRole("button", { name: "Export self-host bundle" });
+    await user.click(exportButton);
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(exportButton).toBeEnabled();
+  });
+
   it("discards an action completion after unmount", async () => {
     const user = userEvent.setup();
     const pending = deferred<ReturnType<typeof guidanceFor>>();

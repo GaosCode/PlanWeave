@@ -19,9 +19,10 @@ import {
   serverConfigSchema,
   type ServerConfig
 } from "@planweave-ai/server";
-import { lstat, readdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { zipSync, strToU8 } from "fflate";
+import { publishDeploymentArchive } from "./deploymentArchivePublisher.js";
 import { writeDesktopConnectionScript } from "./writeDesktopConnectionScript.js";
 
 const composePreview =
@@ -230,7 +231,7 @@ export class DeploymentActions {
         source,
         target
       });
-      await writeFile(save.filePath, archive, { mode: 0o600 });
+      await publishDeploymentArchive(save.filePath, archive);
     } catch (error) {
       if (error instanceof DeploymentBundleUnavailableError)
         return unavailableBundleView(error.state);
