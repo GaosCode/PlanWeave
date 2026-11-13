@@ -1,17 +1,19 @@
-import { useAppUpdate } from "../hooks/useAppUpdate";
 import type { createTranslator } from "../i18n";
+import { useAppUpdate } from "./AppUpdateProvider";
 import { AppUpdateToast } from "./AppUpdateToast";
 
 type AppUpdateSurfaceProps = {
-  setError: (message: string | null) => void;
   t: ReturnType<typeof createTranslator>;
 };
 
-export function AppUpdateSurface({ setError, t }: AppUpdateSurfaceProps) {
-  const appUpdate = useAppUpdate({ setError });
+export function AppUpdateSurface({ t }: AppUpdateSurfaceProps) {
+  const appUpdate = useAppUpdate();
+  if (!appUpdate?.appUpdateAvailable || !appUpdate.appUpdateState) return null;
 
   return (
     <AppUpdateToast
+      actionError={appUpdate.appUpdateError}
+      actionPending={appUpdate.appUpdatePending}
       onCheck={appUpdate.checkForAppUpdate}
       onDownload={appUpdate.downloadAppUpdate}
       onInstall={appUpdate.installAppUpdate}

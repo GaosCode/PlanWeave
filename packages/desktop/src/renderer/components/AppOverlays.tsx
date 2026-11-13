@@ -20,7 +20,7 @@ export function AppOverlays({
 }: AppOverlaysProps) {
   return (
     <>
-      <AppUpdateSurface setError={setError} t={t} />
+      <AppUpdateSurface t={t} />
       <AppSuccessToast message={successMessage} onDismiss={() => setSuccessMessage(null)} t={t} />
       <AppErrorBanner message={error} onDismiss={() => setError(null)} t={t} />
     </>

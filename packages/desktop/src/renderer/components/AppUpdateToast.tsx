@@ -5,6 +5,8 @@ import type { AppUpdateState } from "../../shared/appUpdate";
 import type { createTranslator } from "../i18n";
 
 type AppUpdateToastProps = {
+  actionError: string | null;
+  actionPending: boolean;
   onCheck: () => Promise<void>;
   onDismiss?: () => void;
   onDownload: () => Promise<void>;
@@ -40,6 +42,8 @@ function updateLabel(state: AppUpdateState, t: ReturnType<typeof createTranslato
 }
 
 export function AppUpdateToast({
+  actionError,
+  actionPending,
   onCheck,
   onDismiss,
   onDownload,
@@ -94,6 +98,11 @@ export function AppUpdateToast({
           <XIcon data-icon="inline-start" />
         </Button>
       </div>
+      {actionError ? (
+        <div className="max-h-36 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive [overflow-wrap:anywhere]">
+          {t("appUpdateRequestFailed")} {actionError}
+        </div>
+      ) : null}
       {state.status === "downloading" ? (
         <div className="flex flex-col gap-1">
           <div className="h-1.5 overflow-hidden rounded-full bg-surface-muted">
@@ -107,25 +116,30 @@ export function AppUpdateToast({
       ) : null}
       <div className="flex justify-end gap-2">
         {manualReleases ? (
-          <Button size="sm" onClick={() => void onDownload()}>
+          <Button disabled={actionPending} size="sm" onClick={() => void onDownload()}>
             <ExternalLinkIcon data-icon="inline-start" />
             {t("downloadAppUpdateFromReleases")}
           </Button>
         ) : null}
         {state.status === "available" && !manualReleases ? (
-          <Button size="sm" onClick={() => void onDownload()}>
+          <Button disabled={actionPending} size="sm" onClick={() => void onDownload()}>
             <DownloadIcon data-icon="inline-start" />
             {t("downloadAppUpdate")}
           </Button>
         ) : null}
         {state.status === "downloaded" && state.delivery === "in-app" ? (
-          <Button size="sm" onClick={() => void onInstall()}>
+          <Button disabled={actionPending} size="sm" onClick={() => void onInstall()}>
             <RotateCwIcon data-icon="inline-start" />
             {t("restartToInstallUpdate")}
           </Button>
         ) : null}
         {state.status === "error" ? (
-          <Button size="sm" variant="outline" onClick={() => void onCheck()}>
+          <Button
+            disabled={actionPending}
+            size="sm"
+            variant="outline"
+            onClick={() => void onCheck()}
+          >
             <RefreshCwIcon data-icon="inline-start" />
             {t("checkForAppUpdate")}
           </Button>

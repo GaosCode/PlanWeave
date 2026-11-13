@@ -1,80 +1,122 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { AppUpdateState, PlanWeaveAppUpdateApi } from "../../shared/appUpdate";
 import { desktopCommandBridge } from "../desktopCommandBridge.js";
-import { useCallback, useEffect, useState } from "react";
-import type { AppUpdateState } from "../../shared/appUpdate";
 
-function idleState(): AppUpdateState {
-  return {
-    status: "idle",
-    checkedAt: null,
-    currentVersion: "",
-    delivery: "in-app",
-    error: null,
-    progress: null,
-    update: null,
-    updatedAt: new Date(0).toISOString()
-  };
+type UpdateCommand = "checkForAppUpdate" | "downloadAppUpdate" | "installAppUpdate";
+
+type UpdateSession = {
+  api: PlanWeaveAppUpdateApi;
+  latestState: AppUpdateState | null;
+  eventRevision: number;
+  actionStarted: boolean;
+  actionPending: boolean;
+};
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-export function useAppUpdate({ setError }: { setError: (message: string | null) => void }) {
-  const [appUpdateState, setAppUpdateState] = useState<AppUpdateState>(() => idleState());
-  const appUpdateApi =
-    typeof window !== "undefined"
-      ? window.planweaveAppUpdate
-        ? desktopCommandBridge(window.planweaveAppUpdate)
-        : undefined
-      : undefined;
+export function useAppUpdateController() {
+  const [appUpdateState, setAppUpdateState] = useState<AppUpdateState | null>(null);
+  const [appUpdatePending, setAppUpdatePending] = useState(false);
+  const [appUpdateError, setAppUpdateError] = useState<string | null>(null);
+  const activeSession = useRef<UpdateSession | null>(null);
+  const api = typeof window === "undefined" ? undefined : window.planweaveAppUpdate;
+  const appUpdateApi = api ? desktopCommandBridge(api) : undefined;
+
+  const publish = useCallback((session: UpdateSession, state: AppUpdateState) => {
+    session.latestState = state;
+    setAppUpdateState(state);
+  }, []);
 
   useEffect(() => {
-    if (!appUpdateApi) {
-      return;
-    }
-    let cancelled = false;
-    void appUpdateApi.getAppUpdateState().then((state) => {
-      if (!cancelled) {
-        setAppUpdateState(state);
-      }
-    });
+    if (!appUpdateApi) return;
+    const session: UpdateSession = {
+      api: appUpdateApi,
+      latestState: null,
+      eventRevision: 0,
+      actionStarted: false,
+      actionPending: false
+    };
+    activeSession.current = session;
+    setAppUpdateState(null);
+    setAppUpdatePending(false);
+    setAppUpdateError(null);
     const unsubscribe = appUpdateApi.onAppUpdateChanged((state) => {
-      setAppUpdateState(state);
+      if (activeSession.current !== session) return;
+      session.eventRevision += 1;
+      publish(session, state);
+      setAppUpdateError(null);
     });
+    const readInitialState = async () => {
+      try {
+        const state = await appUpdateApi.getAppUpdateState();
+        if (activeSession.current !== session || session.actionStarted) return;
+        if (!session.latestState || state.updatedAt > session.latestState.updatedAt) {
+          publish(session, state);
+        }
+      } catch (error) {
+        if (activeSession.current === session && !session.actionStarted && !session.latestState) {
+          setAppUpdateError(errorMessage(error));
+        }
+      }
+    };
+    void readInitialState();
     return () => {
-      cancelled = true;
+      activeSession.current = null;
       unsubscribe();
     };
-  }, [appUpdateApi]);
+  }, [appUpdateApi, publish]);
 
-  const checkForAppUpdate = useCallback(async () => {
-    if (!appUpdateApi) {
-      setError("Desktop update bridge unavailable.");
-      return;
-    }
-    const nextState = await appUpdateApi.checkForAppUpdate();
-    setAppUpdateState(nextState);
-  }, [appUpdateApi, setError]);
+  const runAction = useCallback(
+    async (command: UpdateCommand) => {
+      const session = activeSession.current;
+      if (!session || session.api !== appUpdateApi || session.actionPending) return;
+      const status = session.latestState?.status;
+      if (status === "checking" || status === "downloading" || status === "unsupported") return;
+      if (command === "downloadAppUpdate" && status !== "available") return;
+      if (
+        command === "installAppUpdate" &&
+        (status !== "downloaded" || session.latestState?.delivery !== "in-app")
+      ) {
+        return;
+      }
 
-  const downloadAppUpdate = useCallback(async () => {
-    if (!appUpdateApi) {
-      setError("Desktop update bridge unavailable.");
-      return;
-    }
-    const nextState = await appUpdateApi.downloadAppUpdate();
-    setAppUpdateState(nextState);
-  }, [appUpdateApi, setError]);
-
-  const installAppUpdate = useCallback(async () => {
-    if (!appUpdateApi) {
-      setError("Desktop update bridge unavailable.");
-      return;
-    }
-    const nextState = await appUpdateApi.installAppUpdate();
-    setAppUpdateState(nextState);
-  }, [appUpdateApi, setError]);
+      const eventRevision = session.eventRevision;
+      session.actionStarted = true;
+      session.actionPending = true;
+      setAppUpdatePending(true);
+      setAppUpdateError(null);
+      try {
+        const state = await session.api[command]();
+        if (activeSession.current !== session) return;
+        const latest = session.latestState;
+        if (
+          !latest ||
+          eventRevision === session.eventRevision ||
+          state.updatedAt > latest.updatedAt
+        ) {
+          publish(session, state);
+        }
+      } catch (error) {
+        if (activeSession.current === session) {
+          setAppUpdateError(errorMessage(error));
+        }
+      } finally {
+        session.actionPending = false;
+        if (activeSession.current === session) setAppUpdatePending(false);
+      }
+    },
+    [appUpdateApi, publish]
+  );
 
   return {
     appUpdateAvailable: Boolean(appUpdateApi),
+    appUpdatePending,
     appUpdateState,
-    checkForAppUpdate,
-    downloadAppUpdate,
-    installAppUpdate
+    appUpdateError,
+    checkForAppUpdate: () => runAction("checkForAppUpdate"),
+    downloadAppUpdate: () => runAction("downloadAppUpdate"),
+    installAppUpdate: () => runAction("installAppUpdate")
   };
 }

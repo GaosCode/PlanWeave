@@ -944,6 +944,8 @@ export const zhCnCatalog = {
   appUpdate: "应用更新",
   appUpdateHint: "检查 GitHub Release 中是否有新的 PlanWeave Desktop 版本。",
   appUpdateUnsupported: "检查更新只在已打包的 Desktop 应用中可用。",
+  appUpdateBridgeUnavailable: "桌面应用的更新服务不可用。",
+  appUpdateRequestFailed: "更新操作未能完成。",
   appUpdateAvailable: "发现新版本",
   appUpdateDownloading: "正在下载更新",
   appUpdateDownloaded: "更新已下载",

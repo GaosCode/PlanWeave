@@ -223,9 +223,8 @@ describe("app update handlers", () => {
     });
     updaterMock.autoUpdater.downloadUpdate.mockResolvedValue(undefined);
 
-    const { downloadAppUpdate, installAppUpdate, registerAppUpdateHandlers } = await import(
-      "../main/appUpdate"
-    );
+    const { checkForAppUpdate, downloadAppUpdate, installAppUpdate, registerAppUpdateHandlers } =
+      await import("../main/appUpdate");
     registerAppUpdateHandlers();
 
     updaterMock.emit("update-available", {
@@ -244,6 +243,10 @@ describe("app update handlers", () => {
       releaseDate: null,
       releaseName: null
     });
+
+    const checked = await checkForAppUpdate();
+    expect(checked).toMatchObject({ status: "downloaded", update: { version: "0.1.2" } });
+    expect(updaterMock.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
 
     const installed = await installAppUpdate();
     expect(installed.status).toBe("downloaded");

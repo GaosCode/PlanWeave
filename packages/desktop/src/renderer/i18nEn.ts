@@ -1004,6 +1004,8 @@ export const enCatalog = {
   appUpdate: "App update",
   appUpdateHint: "Check GitHub releases for a newer PlanWeave Desktop build.",
   appUpdateUnsupported: "Update checks are available only in packaged desktop builds.",
+  appUpdateBridgeUnavailable: "The desktop update bridge is unavailable.",
+  appUpdateRequestFailed: "Could not complete the update request.",
   appUpdateAvailable: "Update available",
   appUpdateDownloading: "Downloading update",
   appUpdateDownloaded: "Update downloaded",

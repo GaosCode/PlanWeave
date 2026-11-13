@@ -13,6 +13,7 @@ import { useGlobalPrompt } from "./hooks/useGlobalPrompt";
 import { useResizableSidebarLayout } from "./hooks/useResizableSidebarLayout";
 import { CollapsedSidebarControls, RightPaletteSidebar } from "./AppSidebars";
 import { AppOverlays } from "./components/AppOverlays";
+import { AppUpdateProvider } from "./components/AppUpdateProvider";
 import { detectRendererPlatform } from "./rendererPlatform";
 import {
   ProjectWorkspaceProvider,
@@ -96,39 +97,18 @@ export function AppWorkspaceChrome({
   );
 }
 
-function AppSettingsChrome({
-  error,
-  setError,
-  setSuccessMessage,
-  successMessage,
-  t
-}: {
-  error: string | null;
-  setError: (message: string | null) => void;
-  setSuccessMessage: (message: string | null) => void;
-  successMessage: string | null;
-  t: ReturnType<typeof createTranslator>;
-}) {
+function AppSettingsChrome({ t }: { t: ReturnType<typeof createTranslator> }) {
   const { settingsRouteProps } = useProjectWorkspace();
   return (
-    <>
-      <Suspense
-        fallback={
-          <div className="flex h-full min-h-0 items-center justify-center text-sm text-text-muted">
-            {t("loadingProject")}
-          </div>
-        }
-      >
-        <AppSettingsRoute {...settingsRouteProps} />
-      </Suspense>
-      <AppOverlays
-        error={error}
-        successMessage={successMessage}
-        setError={setError}
-        setSuccessMessage={setSuccessMessage}
-        t={t}
-      />
-    </>
+    <Suspense
+      fallback={
+        <div className="flex h-full min-h-0 items-center justify-center text-sm text-text-muted">
+          {t("loadingProject")}
+        </div>
+      }
+    >
+      <AppSettingsRoute {...settingsRouteProps} />
+    </Suspense>
   );
 }
 
@@ -228,20 +208,14 @@ export function App() {
 
   return (
     <ProjectWorkspaceProvider shell={shellInput}>
-      <div
-        className="glass-surface relative h-screen min-h-0 overflow-hidden text-foreground"
-        data-window-platform={rendererPlatform}
-      >
-        {activeView === "settings" ? (
-          <AppSettingsChrome
-            error={error}
-            setError={setError}
-            setSuccessMessage={setSuccessMessage}
-            successMessage={successMessage}
-            t={t}
-          />
-        ) : (
-          <>
+      <AppUpdateProvider>
+        <div
+          className="glass-surface relative h-screen min-h-0 overflow-hidden text-foreground"
+          data-window-platform={rendererPlatform}
+        >
+          {activeView === "settings" ? (
+            <AppSettingsChrome t={t} />
+          ) : (
             <AppWorkspaceChrome
               leftSidebarCollapsed={leftSidebarCollapsed}
               leftSidebarWidth={leftSidebarWidth}
@@ -252,16 +226,16 @@ export function App() {
               settings={settings}
               startSidebarResize={startSidebarResize}
             />
-            <AppOverlays
-              error={error}
-              successMessage={successMessage}
-              setError={setError}
-              setSuccessMessage={setSuccessMessage}
-              t={t}
-            />
-          </>
-        )}
-      </div>
+          )}
+          <AppOverlays
+            error={error}
+            successMessage={successMessage}
+            setError={setError}
+            setSuccessMessage={setSuccessMessage}
+            t={t}
+          />
+        </div>
+      </AppUpdateProvider>
     </ProjectWorkspaceProvider>
   );
 }

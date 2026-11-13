@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import type { AppUpdateState } from "../../shared/appUpdate";
-import { useAppUpdate } from "../hooks/useAppUpdate";
+import { useAppUpdate } from "../components/AppUpdateProvider";
 import type { createTranslator } from "../i18n";
 
 type AppUpdateSettingsRowProps = {
@@ -9,10 +9,10 @@ type AppUpdateSettingsRowProps = {
 };
 
 function appUpdateDescription(
-  state: AppUpdateState,
+  state: AppUpdateState | null,
   t: ReturnType<typeof createTranslator>
 ): string {
-  switch (state.status) {
+  switch (state?.status) {
     case "unsupported":
       return t("appUpdateUnsupported");
     case "available":
@@ -34,9 +34,36 @@ function appUpdateDescription(
 }
 
 export function AppUpdateSettingsRow({ t }: AppUpdateSettingsRowProps) {
-  const { appUpdateAvailable, appUpdateState, checkForAppUpdate } = useAppUpdate({
-    setError: () => undefined
-  });
+  const appUpdate = useAppUpdate();
+  const appUpdateState = appUpdate?.appUpdateState ?? null;
+  const status = appUpdateState?.status;
+  const disabled = !appUpdate?.appUpdateAvailable || status === "unsupported";
+  const busy =
+    Boolean(appUpdate?.appUpdatePending) || status === "checking" || status === "downloading";
+  let action = appUpdate?.checkForAppUpdate;
+  let actionLabel = t("checkForAppUpdate");
+
+  switch (appUpdateState?.status) {
+    case "available":
+      action = appUpdate?.downloadAppUpdate;
+      actionLabel =
+        appUpdateState.delivery === "github-releases"
+          ? t("downloadAppUpdateFromReleases")
+          : t("downloadAppUpdate");
+      break;
+    case "downloaded":
+      if (appUpdateState.delivery === "in-app") {
+        action = appUpdate?.installAppUpdate;
+        actionLabel = t("restartToInstallUpdate");
+      }
+      break;
+    case "checking":
+      actionLabel = t("checkingForAppUpdate");
+      break;
+    case "downloading":
+      actionLabel = t("appUpdateDownloading");
+      break;
+  }
 
   return (
     <Field
@@ -46,20 +73,32 @@ export function AppUpdateSettingsRow({ t }: AppUpdateSettingsRowProps) {
       <FieldContent className="min-w-0">
         <FieldLabel className="text-sm font-semibold">{t("appUpdate")}</FieldLabel>
         <FieldDescription className="break-words [overflow-wrap:anywhere]">
-          {appUpdateDescription(appUpdateState, t)}
+          {appUpdate?.appUpdateAvailable
+            ? appUpdateDescription(appUpdateState, t)
+            : t("appUpdateBridgeUnavailable")}
         </FieldDescription>
+        {appUpdate?.appUpdateAvailable && appUpdate.appUpdateError ? (
+          <FieldDescription
+            className="break-words text-destructive [overflow-wrap:anywhere]"
+            role="alert"
+          >
+            {t("appUpdateRequestFailed")} {appUpdate.appUpdateError}
+          </FieldDescription>
+        ) : null}
       </FieldContent>
       <Button
-        disabled={
-          !appUpdateAvailable ||
-          appUpdateState.status === "checking" ||
-          appUpdateState.status === "downloading"
-        }
+        aria-disabled={busy || undefined}
+        className="aria-disabled:opacity-50"
+        disabled={disabled}
         size="sm"
+        type="button"
         variant="outline"
-        onClick={() => void checkForAppUpdate()}
+        onClick={() => {
+          if (disabled || busy) return;
+          void action?.();
+        }}
       >
-        {appUpdateState.status === "checking" ? t("checkingForAppUpdate") : t("checkForAppUpdate")}
+        {actionLabel}
       </Button>
     </Field>
   );

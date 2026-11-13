@@ -1,10 +1,14 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../renderer/App";
+import { createTranslator } from "../renderer/i18n";
+import { available, downloaded, updateBridge } from "./helpers/appUpdateFixture";
+import { cleanupRendererTestEnvironment } from "./helpers/rendererTestEnvironment";
 
 const settingsRouteModule = vi.hoisted(() => {
   let resolveReady: (() => void) | undefined;
@@ -40,7 +44,6 @@ vi.mock("../renderer/AppSettingsRoute", async () => {
   };
 });
 vi.mock("../renderer/bridge", () => ({ bridge: bridgeMock }));
-vi.mock("../renderer/i18n", () => ({ createTranslator: () => (key: string) => key }));
 vi.mock("../renderer/rendererPlatform", () => ({ detectRendererPlatform: () => "darwin" }));
 vi.mock("../renderer/hooks/useAppViewHistory", () => ({ useAppViewHistory }));
 vi.mock("../renderer/hooks/useDesktopSettingsBridge", () => ({ useDesktopSettingsBridge }));
@@ -52,24 +55,31 @@ vi.mock("../renderer/ProjectWorkspaceProvider", () => ({
   ProjectWorkspaceProvider: ({ children }: { children: ReactNode }) => children,
   useProjectWorkspace
 }));
-vi.mock("../renderer/components/AppOverlays", () => ({
-  AppOverlays: () => <div data-testid="app-overlays">Overlays</div>
+vi.mock("../renderer/sidebar/ProjectSidebar", () => ({ ProjectSidebar: () => null }));
+vi.mock("../renderer/views/WorkspaceTabs", () => ({ WorkspaceTabs: () => null }));
+vi.mock("../renderer/AppSidebars", () => ({
+  CollapsedSidebarControls: () => null,
+  RightPaletteSidebar: () => null
 }));
 
 afterEach(() => {
-  cleanup();
+  cleanupRendererTestEnvironment();
   vi.clearAllMocks();
 });
 
+const en = createTranslator("en");
+
 describe("App settings lazy route", () => {
-  it("keeps overlays visible while the settings route is loading", async () => {
+  it("keeps update overlays available during settings loading and preserves a dismissal across navigation", async () => {
+    const user = userEvent.setup();
+    const bridge = updateBridge(available);
     useDesktopSettingsBridge.mockReturnValue({
       settings: { language: "en" },
       updateLayoutSettings: vi.fn(),
       updateSettings: vi.fn(),
       updateSettingsAndWait: vi.fn().mockResolvedValue(undefined)
     });
-    useAppViewHistory.mockReturnValue(["settings", vi.fn(), { historyError: null }]);
+    useAppViewHistory.mockReturnValue(["graph", vi.fn(), { historyError: null }]);
     useDetectedAgents.mockReturnValue({
       agentDetectionRefreshing: false,
       agentDetections: [],
@@ -88,12 +98,22 @@ describe("App settings lazy route", () => {
       setRightSidebarCollapsedPreference: vi.fn(),
       startSidebarResize: vi.fn()
     });
-    useProjectWorkspace.mockReturnValue({ settingsRouteProps: {} });
+    useProjectWorkspace.mockReturnValue({
+      settingsRouteProps: {},
+      shell: { activeView: "task-workspace" }
+    });
 
-    render(<App />);
+    const app = render(<App />);
+    const toast = await screen.findByRole("complementary");
+    await user.click(within(toast).getByRole("button", { name: "Close" }));
 
-    expect(screen.getByText("loadingProject")).toBeInTheDocument();
-    expect(screen.getByTestId("app-overlays")).toBeInTheDocument();
+    useAppViewHistory.mockReturnValue(["settings", vi.fn(), { historyError: null }]);
+    await act(async () => app.rerender(<App />));
+    expect(screen.getByText(en("loadingProject"))).toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+
+    act(() => bridge.publish(downloaded));
+    expect(within(screen.getByRole("complementary")).getByText("Update downloaded")).toBeVisible();
 
     settingsRouteModule.resolve();
 
