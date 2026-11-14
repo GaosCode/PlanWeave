@@ -12,6 +12,7 @@ import {
   type TaskWorkspaceNavigationIdentity
 } from "../taskWorkspaceNavigation";
 import type { TaskWorkspaceController } from "./contracts";
+import { TaskWorkspacePromptConflict } from "./taskWorkspacePromptDraft";
 import {
   sharedBlockPromptMarkdown,
   sharedTaskPromptMarkdown
@@ -22,10 +23,21 @@ type TaskWorkspacePromptApi = Pick<
   "getBlockDetail" | "getTaskDetail" | "updateBlockPrompt" | "updateTaskPrompt"
 >;
 
-function graphEditError(result: Awaited<ReturnType<DesktopBridgeApi["updateTaskPrompt"]>>): string {
-  return (
+function promptSaveError(
+  result: Awaited<ReturnType<DesktopBridgeApi["updateTaskPrompt"]>>,
+  ref: string
+): Error {
+  const [diagnostic] = result.diagnostics;
+  if (
+    result.diagnostics.length === 1 &&
+    diagnostic?.code === "graph_version_conflict" &&
+    diagnostic.path === ref
+  ) {
+    return new TaskWorkspacePromptConflict();
+  }
+  return new Error(
     result.diagnostics.map((diagnostic) => diagnostic.message).join("\n") ||
-    "The graph edit could not be saved."
+      "The graph edit could not be saved."
   );
 }
 
@@ -89,9 +101,7 @@ export function useTaskWorkspacePromptActions(options: {
         throw new Error("The loaded Task prompt does not match this Task Workspace.");
       }
       if ((sharedPrompt ?? current?.promptMarkdown) !== baseMarkdown) {
-        throw new Error(
-          "The Task prompt changed outside this editor. Reload the page and merge your changes before saving."
-        );
+        throw new TaskWorkspacePromptConflict();
       }
       if (current && (current.graphVersion === undefined || current.promptHash === undefined)) {
         throw new Error(
@@ -127,7 +137,7 @@ export function useTaskWorkspacePromptActions(options: {
             baseGraphVersion: current.graphVersion,
             basePromptHash: current.promptHash
           });
-          if (!result.ok) throw new Error(graphEditError(result));
+          if (!result.ok) throw promptSaveError(result, navigation.taskId);
         }
       });
       if (mode === "retired") return "retired";
@@ -172,9 +182,7 @@ export function useTaskWorkspacePromptActions(options: {
         throw new Error("The loaded Block prompt does not belong to this Task Workspace.");
       }
       if ((sharedPrompt ?? current?.promptMarkdown) !== baseMarkdown) {
-        throw new Error(
-          "The Block prompt changed outside this editor. Reload the page and merge your changes before saving."
-        );
+        throw new TaskWorkspacePromptConflict();
       }
       if (current && (current.graphVersion === undefined || current.promptHash === undefined)) {
         throw new Error(
@@ -210,7 +218,7 @@ export function useTaskWorkspacePromptActions(options: {
             baseGraphVersion: current.graphVersion,
             basePromptHash: current.promptHash
           });
-          if (!result.ok) throw new Error(graphEditError(result));
+          if (!result.ok) throw promptSaveError(result, blockRef);
         }
       });
       if (mode === "retired") return "retired";

@@ -23,7 +23,7 @@ import { useAppViewHistory } from "../../renderer/hooks/useAppViewHistory";
 import { useTaskWorkspaceController } from "../../renderer/task-workspace/useTaskWorkspaceController";
 import { TaskWorkspaceRoute } from "../../renderer/task-workspace/TaskWorkspaceRoute";
 import { taskWorkspaceLabels } from "../../renderer/task-workspace/labels";
-import { createTranslator } from "../../renderer/i18n";
+import { createTranslator, type SupportedLanguage } from "../../renderer/i18n";
 import { controllerApi } from "./taskWorkspaceControllerHarness";
 import { deferred } from "./desktopProjectFixtures";
 
@@ -33,8 +33,10 @@ export async function runtimePromptHarness(
   kind: "task" | "block",
   acknowledgement: "before-write" | "after-write" = "before-write",
   heldWrite = 1,
-  watchPackage = false
+  watchPackage = false,
+  language: SupportedLanguage = "en"
 ) {
+  const labels = taskWorkspaceLabels(createTranslator(language));
   const original = await createTestWorkspace(basicManifest());
   const workspace = await resolveTaskCanvasWorkspace(original.root, "default");
   let selected = {
@@ -111,7 +113,7 @@ export async function runtimePromptHarness(
       saveAgentEndpointPreference: async () => undefined
     });
     return view === "task-workspace" ? (
-      <TaskWorkspaceRoute controller={current} labels={runtimePromptLabels} />
+      <TaskWorkspaceRoute controller={current} labels={labels} />
     ) : null;
   }
   const view = render(<App />);
@@ -123,9 +125,9 @@ export async function runtimePromptHarness(
   act(open);
   const input = () =>
     kind === "task"
-      ? screen.getByLabelText(runtimePromptLabels.promptLabels.taskPrompt)
+      ? screen.getByLabelText(labels.promptLabels.taskPrompt)
       : within(screen.getByTestId("task-workspace-block-prompts:T-001#B-001")).getByLabelText(
-          runtimePromptLabels.promptLabels.blockPrompt
+          labels.promptLabels.blockPrompt
         );
   await waitFor(() => expect(input()).toBeInTheDocument());
   if (watchPackage) await createDesktopPackageFileSnapshot(workspace);

@@ -3,6 +3,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { TaskWorkspace } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TaskWorkspacePromptConflict } from "../renderer/task-workspace/taskWorkspacePromptDraft";
 import {
   taskWorkspaceNavigationIdentity,
   type TaskWorkspaceNavigationIdentity
@@ -288,7 +289,7 @@ describe("Task Workspace selected run controller", () => {
         baseMarkdown: "# Task workspace",
         markdown: "# Local draft"
       })
-    ).rejects.toThrow("The Task prompt changed outside this editor.");
+    ).rejects.toBeInstanceOf(TaskWorkspacePromptConflict);
     expect(api.updateTaskPrompt).not.toHaveBeenCalled();
   });
 

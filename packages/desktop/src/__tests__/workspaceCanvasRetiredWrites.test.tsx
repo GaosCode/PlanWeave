@@ -139,6 +139,7 @@ describe("Workspace command result retirement", () => {
     const fixture = taskWorkspaceInspectorFixture();
     const labels: TaskWorkspacePromptLabels = {
       blockPrompt: "Block prompt",
+      blockPromptConflict: "Block prompt conflict",
       disabled: "Disabled",
       effectivePrompt: "Effective prompt",
       empty: "Empty",
@@ -148,7 +149,8 @@ describe("Workspace command result retirement", () => {
       savePrompt: "Save Prompt",
       saved: "Saved",
       saving: "Saving",
-      taskPrompt: "Task prompt"
+      taskPrompt: "Task prompt",
+      taskPromptConflict: "Task prompt conflict"
     };
     port.api.openWorkspaceCanvasSession = vi.fn(async (locator) => {
       const opened = projection(locator);

@@ -67,6 +67,7 @@ const labels: TaskWorkspaceInspectorLabels = {
   permission: "Permission",
   promptLabels: {
     blockPrompt: "Block prompt",
+    blockPromptConflict: "Block prompt conflict",
     disabled: "Disabled",
     effectivePrompt: "Effective prompt",
     empty: "Empty",
@@ -76,7 +77,8 @@ const labels: TaskWorkspaceInspectorLabels = {
     savePrompt: "Save Prompt",
     saved: "Saved",
     saving: "Saving",
-    taskPrompt: "Task prompt"
+    taskPrompt: "Task prompt",
+    taskPromptConflict: "Task prompt conflict"
   },
   promptFile: "Prompt file",
   protocolDetails: "Protocol details",

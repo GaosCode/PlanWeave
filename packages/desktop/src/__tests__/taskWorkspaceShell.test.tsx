@@ -94,6 +94,7 @@ const labels: TaskWorkspaceLabels = {
   permission: "Permission",
   promptLabels: {
     blockPrompt: "Block prompt",
+    blockPromptConflict: "Block prompt conflict",
     disabled: "Disabled",
     effectivePrompt: "Effective prompt",
     empty: "Empty",
@@ -103,7 +104,8 @@ const labels: TaskWorkspaceLabels = {
     savePrompt: "Save Prompt",
     saved: "Saved",
     saving: "Saving",
-    taskPrompt: "Task prompt"
+    taskPrompt: "Task prompt",
+    taskPromptConflict: "Task prompt conflict"
   },
   reasoning: "Reasoning",
   resizeInspector: "Resize inspector",

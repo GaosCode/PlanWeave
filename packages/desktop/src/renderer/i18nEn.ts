@@ -243,6 +243,10 @@ export const enCatalog = {
   selectedBlock: "Block Detail",
   selectedTask: "Task Detail",
   savePrompt: "Save Prompt",
+  taskPromptConflict:
+    "The Task prompt changed outside this editor. Copy your draft, then reload the page and merge your changes before saving.",
+  blockPromptConflict:
+    "The Block prompt changed outside this editor. Copy your draft, then reload the page and merge your changes before saving.",
   bridgeUnavailable: "Desktop bridge unavailable",
   ready: "ready",
   inProgress: "in_progress",

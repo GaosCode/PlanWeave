@@ -20,6 +20,7 @@ afterEach(() => {
 
 const labels: TaskWorkspacePromptLabels = {
   blockPrompt: "Block prompt",
+  blockPromptConflict: "Block prompt conflict",
   disabled: "Disabled",
   effectivePrompt: "Effective prompt",
   empty: "Empty",
@@ -29,7 +30,8 @@ const labels: TaskWorkspacePromptLabels = {
   savePrompt: "Save Prompt",
   saved: "Saved",
   saving: "Saving",
-  taskPrompt: "Task prompt"
+  taskPrompt: "Task prompt",
+  taskPromptConflict: "Task prompt conflict"
 };
 
 describe("Task Workspace prompt editing", () => {

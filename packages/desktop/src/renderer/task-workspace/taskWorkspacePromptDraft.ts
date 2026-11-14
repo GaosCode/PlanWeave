@@ -5,6 +5,8 @@ export type TaskWorkspacePromptSourceReader = () => {
   markdown: string | Promise<string | null>;
 } | null;
 
+export class TaskWorkspacePromptConflict extends Error {}
+
 type PromptWriter = TaskWorkspaceController["saveTaskPrompt"];
 type PromptStatus = "idle" | "saving" | "saved" | "error" | "retired";
 type PromptSnapshot = {
@@ -12,7 +14,7 @@ type PromptSnapshot = {
   draft: string;
   composing: boolean;
   pending: boolean;
-  error: string | null;
+  error: TaskWorkspacePromptConflict | string | null;
   status: PromptStatus;
 };
 
@@ -229,7 +231,12 @@ export class TaskWorkspacePromptDraft {
         this.clearTimer(authority);
         if (!this.authority || this.authority === authority) {
           this.publish({
-            error: error instanceof Error ? error.message : String(error),
+            error:
+              error instanceof TaskWorkspacePromptConflict
+                ? error
+                : error instanceof Error
+                  ? error.message
+                  : String(error),
             status: this.authority === authority ? "error" : "retired"
           });
         }

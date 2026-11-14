@@ -233,6 +233,8 @@ export const zhCnCatalog = {
   selectedBlock: "Block 详情",
   selectedTask: "Task 详情",
   savePrompt: "保存 Prompt",
+  taskPromptConflict: "任务提示词已在编辑器外修改。请先复制当前草稿，再重新加载页面，合并后保存。",
+  blockPromptConflict: "区块提示词已在编辑器外修改。请先复制当前草稿，再重新加载页面，合并后保存。",
   bridgeUnavailable: "Desktop bridge 不可用",
   ready: "ready",
   inProgress: "in_progress",

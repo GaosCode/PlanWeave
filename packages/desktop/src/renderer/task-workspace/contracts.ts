@@ -30,6 +30,7 @@ export type TaskWorkspaceLiveStatus = "idle" | "loading" | "live" | "unavailable
 
 export type TaskWorkspacePromptLabels = {
   blockPrompt: string;
+  blockPromptConflict: string;
   disabled: string;
   effectivePrompt: string;
   empty: string;
@@ -40,6 +41,7 @@ export type TaskWorkspacePromptLabels = {
   saved: string;
   saving: string;
   taskPrompt: string;
+  taskPromptConflict: string;
 };
 
 export type TaskWorkspacePromptSaveInput = {

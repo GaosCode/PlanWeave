@@ -1,6 +1,9 @@
 import type { TaskWorkspace, TaskWorkspaceBlock } from "@planweave-ai/runtime";
 import { useEffect, useSyncExternalStore } from "react";
-import type { TaskWorkspacePromptDraft } from "./taskWorkspacePromptDraft";
+import {
+  TaskWorkspacePromptConflict,
+  type TaskWorkspacePromptDraft
+} from "./taskWorkspacePromptDraft";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -74,11 +77,13 @@ function PromptBody({
 }
 
 function EditablePromptBody({
+  conflictMessage,
   label,
   missing,
   labels,
   owner
 }: {
+  conflictMessage: string;
   label: string;
   missing: boolean;
   labels: TaskWorkspacePromptLabels;
@@ -134,7 +139,7 @@ function EditablePromptBody({
       />
       {error && (
         <p className="text-xs text-destructive" role="alert">
-          {error}
+          {error instanceof TaskWorkspacePromptConflict ? conflictMessage : error}
         </p>
       )}
     </form>
@@ -189,6 +194,7 @@ export function TaskWorkspaceTaskPrompt({
   if (owner) {
     return (
       <EditablePromptBody
+        conflictMessage={labels.taskPromptConflict}
         label={labels.taskPrompt}
         labels={labels}
         missing={task.promptMissing}
@@ -230,6 +236,7 @@ export function TaskWorkspaceBlockPrompts({
   if (owner) {
     blockPrompt = (
       <EditablePromptBody
+        conflictMessage={labels.blockPromptConflict}
         label={labels.blockPrompt}
         labels={labels}
         missing={block.promptMissing}

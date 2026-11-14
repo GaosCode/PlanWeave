@@ -203,11 +203,39 @@ it.each([
   expect(h.writes.map((write) => write.markdown)).toEqual(["A"]);
 });
 
-it.each([
-  "task",
-  "block"
-] as const)("preserves the newer %s draft when external updates win during acknowledgement", async (kind) => {
-  const h = await runtimePromptHarness(kind, "after-write");
+const conflictMessages = [
+  {
+    kind: "task",
+    language: "en",
+    message:
+      "The Task prompt changed outside this editor. Copy your draft, then reload the page and merge your changes before saving."
+  },
+  {
+    kind: "block",
+    language: "en",
+    message:
+      "The Block prompt changed outside this editor. Copy your draft, then reload the page and merge your changes before saving."
+  },
+  {
+    kind: "task",
+    language: "zh-CN",
+    message: "任务提示词已在编辑器外修改。请先复制当前草稿，再重新加载页面，合并后保存。"
+  },
+  {
+    kind: "block",
+    language: "zh-CN",
+    message: "区块提示词已在编辑器外修改。请先复制当前草稿，再重新加载页面，合并后保存。"
+  }
+] as const;
+
+it.each(
+  conflictMessages
+)("localizes a stale $kind draft in $language when external updates win during acknowledgement", async ({
+  kind,
+  language,
+  message
+}) => {
+  const h = await runtimePromptHarness(kind, "after-write", 1, false, language);
   const summary = kind === "block" ? h.input().closest("details")?.querySelector("summary") : null;
   if (kind === "block") {
     if (!summary) throw new Error("Missing Block summary");
@@ -234,14 +262,38 @@ it.each([
     fireEvent.click(summary);
     expect(h.input()).toBeVisible();
   }
-  await waitFor(() =>
-    expect(screen.getByRole("alert")).toHaveTextContent("changed outside this editor")
-  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(message);
   expect(h.input()).toHaveValue("AB");
   expect(await h.markdown()).toBe(latest);
   expect(h.writes.map((write) => write.markdown)).toEqual(["A"]);
   await h.remount();
   expect(h.input()).toHaveValue("AB");
+});
+
+it.each(
+  conflictMessages
+)("localizes the $kind write conflict in $language when external changes land after reading the baseline", async ({
+  kind,
+  language,
+  message
+}) => {
+  const h = await runtimePromptHarness(kind, "before-write", 1, false, language);
+  fireEvent.change(h.input(), { target: { value: "Local draft" } });
+  fireEvent.blur(h.input());
+  await waitFor(() => expect(h.writes).toHaveLength(1));
+  expect(h.writes[0]?.baseline).toBe(h.initialMarkdown);
+  try {
+    await h.externalWrite("External source");
+  } finally {
+    await act(async () => {
+      h.pending.resolve();
+      await h.pending.promise;
+    });
+  }
+  expect(await screen.findByRole("alert")).toHaveTextContent(message);
+  expect(h.input()).toHaveValue("Local draft");
+  expect(await h.markdown()).toBe("External source");
+  expect(h.writes).toHaveLength(1);
 });
 
 it("keeps the Task draft and visible failure when an unconfirmed acknowledgement rejects after C arrives", async () => {

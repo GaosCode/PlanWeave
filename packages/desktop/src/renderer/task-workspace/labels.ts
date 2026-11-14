@@ -29,6 +29,7 @@ function formatDuration(t: Translator, milliseconds: number): string {
 function promptLabels(t: Translator): TaskWorkspacePromptLabels {
   return {
     blockPrompt: t("blockPrompt"),
+    blockPromptConflict: t("blockPromptConflict"),
     disabled: t("disabled"),
     effectivePrompt: t("effectivePrompt"),
     empty: t("empty"),
@@ -38,7 +39,8 @@ function promptLabels(t: Translator): TaskWorkspacePromptLabels {
     savePrompt: t("savePrompt"),
     saved: t("saved"),
     saving: t("saving"),
-    taskPrompt: t("taskPrompt")
+    taskPrompt: t("taskPrompt"),
+    taskPromptConflict: t("taskPromptConflict")
   };
 }
 
