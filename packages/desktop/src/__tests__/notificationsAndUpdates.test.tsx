@@ -4,6 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AppErrorBanner } from "../renderer/components/AppErrorBanner";
 import { AppOverlays } from "../renderer/components/AppOverlays";
 import { AppUpdateProvider } from "../renderer/components/AppUpdateProvider";
 import { AppUpdateSurface } from "../renderer/components/AppUpdateSurface";
@@ -164,14 +165,9 @@ function UpdateOverlays({ settingsOpen = false }: { settingsOpen?: boolean }) {
       <button type="button" onClick={() => setError(workspaceError)}>
         Open workspace
       </button>
-      <AppOverlays
-        error={error}
-        setError={setError}
-        setSuccessMessage={vi.fn()}
-        successMessage={null}
-        t={en}
-      />
+      <AppOverlays setSuccessMessage={vi.fn()} successMessage={null} t={en} />
       {settingsOpen && <AppUpdateSettingsRow t={en} />}
+      <AppErrorBanner message={error} onDismiss={() => setError(null)} t={en} />
     </AppUpdateProvider>
   );
 }

@@ -84,7 +84,7 @@ export function AppUpdateToast({
   return (
     <aside
       aria-live="polite"
-      className="app-no-drag fixed bottom-4 left-4 z-50 flex w-[min(360px,calc(100vw-2rem))] flex-col gap-3 rounded-md border border-border/80 bg-surface-raised p-4 text-text shadow-xl"
+      className="app-no-drag absolute bottom-4 left-4 z-50 flex w-[min(360px,calc(100vw-2rem))] flex-col gap-3 rounded-md border border-border/80 bg-surface-raised p-4 text-text shadow-xl"
       data-testid="app-update-toast"
     >
       <div className="flex items-start justify-between gap-3">

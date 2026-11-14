@@ -17,17 +17,17 @@ export function AppErrorBanner({ message, onDismiss, t }: AppErrorBannerProps) {
   const displayMessage = formatAgentEndpointRunError(message, t);
 
   return (
-    <div className="pointer-events-none absolute top-12 left-1/2 z-50 w-[min(720px,calc(100%-2rem))] -translate-x-1/2">
-      <div
-        className="pointer-events-auto flex items-start gap-3 rounded-lg border border-destructive/40 bg-background p-3 text-sm shadow-lg"
-        role="alert"
-      >
-        <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
-        <div className="min-w-0 flex-1 whitespace-pre-wrap text-destructive">{displayMessage}</div>
-        <Button size="icon-sm" variant="ghost" aria-label={t("dismissError")} onClick={onDismiss}>
-          <XIcon data-icon="inline-start" />
-        </Button>
+    <div
+      className="mx-auto my-2 flex w-[min(720px,calc(100%-2rem))] shrink-0 items-start gap-3 rounded-lg border border-destructive/40 bg-background p-3 text-sm"
+      role="alert"
+    >
+      <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+      <div className="max-h-36 min-w-0 flex-1 overflow-auto whitespace-pre-wrap text-destructive [overflow-wrap:anywhere]">
+        {displayMessage}
       </div>
+      <Button size="icon-sm" variant="ghost" aria-label={t("dismissError")} onClick={onDismiss}>
+        <XIcon data-icon="inline-start" />
+      </Button>
     </div>
   );
 }

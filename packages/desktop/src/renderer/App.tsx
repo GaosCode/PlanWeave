@@ -12,6 +12,7 @@ import { useRuntimeTools } from "./hooks/useRuntimeTools";
 import { useGlobalPrompt } from "./hooks/useGlobalPrompt";
 import { useResizableSidebarLayout } from "./hooks/useResizableSidebarLayout";
 import { CollapsedSidebarControls, RightPaletteSidebar } from "./AppSidebars";
+import { AppErrorBanner } from "./components/AppErrorBanner";
 import { AppOverlays } from "./components/AppOverlays";
 import { AppUpdateProvider } from "./components/AppUpdateProvider";
 import { detectRendererPlatform } from "./rendererPlatform";
@@ -210,30 +211,31 @@ export function App() {
     <ProjectWorkspaceProvider shell={shellInput}>
       <AppUpdateProvider>
         <div
-          className="glass-surface relative h-screen min-h-0 overflow-hidden text-foreground"
+          className="glass-surface flex h-screen min-h-0 flex-col overflow-hidden text-foreground"
           data-window-platform={rendererPlatform}
         >
-          {activeView === "settings" ? (
-            <AppSettingsChrome t={t} />
-          ) : (
-            <AppWorkspaceChrome
-              leftSidebarCollapsed={leftSidebarCollapsed}
-              leftSidebarWidth={leftSidebarWidth}
-              rightSidebarCollapsed={rightSidebarCollapsed}
-              rightSidebarWidth={rightSidebarWidth}
-              setLeftSidebarCollapsedPreference={setLeftSidebarCollapsedPreference}
-              setRightSidebarCollapsedPreference={setRightSidebarCollapsedPreference}
-              settings={settings}
-              startSidebarResize={startSidebarResize}
+          <div className="relative min-h-0 flex-1">
+            {activeView === "settings" ? (
+              <AppSettingsChrome t={t} />
+            ) : (
+              <AppWorkspaceChrome
+                leftSidebarCollapsed={leftSidebarCollapsed}
+                leftSidebarWidth={leftSidebarWidth}
+                rightSidebarCollapsed={rightSidebarCollapsed}
+                rightSidebarWidth={rightSidebarWidth}
+                setLeftSidebarCollapsedPreference={setLeftSidebarCollapsedPreference}
+                setRightSidebarCollapsedPreference={setRightSidebarCollapsedPreference}
+                settings={settings}
+                startSidebarResize={startSidebarResize}
+              />
+            )}
+            <AppOverlays
+              successMessage={successMessage}
+              setSuccessMessage={setSuccessMessage}
+              t={t}
             />
-          )}
-          <AppOverlays
-            error={error}
-            successMessage={successMessage}
-            setError={setError}
-            setSuccessMessage={setSuccessMessage}
-            t={t}
-          />
+          </div>
+          <AppErrorBanner message={error} onDismiss={() => setError(null)} t={t} />
         </div>
       </AppUpdateProvider>
     </ProjectWorkspaceProvider>

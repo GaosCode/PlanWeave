@@ -62,7 +62,7 @@ export function AppSettingsRoute({
   updateSettings
 }: AppSettingsRouteProps) {
   return (
-    <div className="h-screen min-h-0 overflow-hidden text-foreground">
+    <div className="h-full min-h-0 overflow-hidden text-foreground">
       <SettingsView
         graph={graph}
         globalPromptMarkdown={globalPromptMarkdown}
