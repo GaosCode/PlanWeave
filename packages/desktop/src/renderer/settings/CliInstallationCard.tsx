@@ -4,6 +4,13 @@ import { Button } from "@/components/ui/button";
 import { cliInstallCommand, type CliInstallation } from "../../shared/cliInstallation";
 import type { createTranslator } from "../i18n";
 
+const installationLabels = {
+  available: "cliInstalled",
+  missing: "cliMissing",
+  unknown: "cliInstallationUnknown",
+  unavailable: "cliUnavailable"
+} as const;
+
 export function CliInstallationCard({ t }: { t: ReturnType<typeof createTranslator> }) {
   const [installation, setInstallation] = useState<CliInstallation | null>(null);
   const [checking, setChecking] = useState(false);
@@ -73,21 +80,20 @@ export function CliInstallationCard({ t }: { t: ReturnType<typeof createTranslat
           {!api ? <p>{t("cliDesktopOnly")}</p> : null}
           {cli ? (
             <p className="font-medium">
-              {t(
-                cli.status === "available"
-                  ? "cliInstalled"
-                  : cli.status === "missing"
-                    ? "cliMissing"
-                    : "cliUnavailable"
-              )}
+              {t(installationLabels[cli.status])}
               {cli.status === "available" ? ` · ${cli.version}` : null}
             </p>
           ) : null}
-          {cli && cli.status !== "missing" ? (
+          {cli && "path" in cli ? (
             <p className="break-all font-mono text-xs text-text-muted">{cli.path}</p>
           ) : null}
           {cli?.status === "unavailable" ? (
             <p className="break-words text-destructive [overflow-wrap:anywhere]">{cli.error}</p>
+          ) : null}
+          {installation?.shellEnvironmentError ? (
+            <p role="alert" className="break-words text-text-muted [overflow-wrap:anywhere]">
+              {t("cliShellEnvironmentUnavailable")} {installation.shellEnvironmentError}
+            </p>
           ) : null}
           {cli?.status === "missing" && installation ? (
             canInstall ? (

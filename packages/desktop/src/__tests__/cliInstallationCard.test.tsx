@@ -12,7 +12,8 @@ const missing: CliInstallation = {
   cli: { status: "missing" },
   node: { status: "available", path: "/bin/node", version: "v22.13.0" },
   npm: { status: "available", path: "/bin/npm", version: "10.0.0" },
-  nodeSupported: true
+  nodeSupported: true,
+  shellEnvironmentError: null
 };
 const detect = vi.fn<() => Promise<CliInstallation>>();
 const copyInstallCommand = vi.fn<() => Promise<void>>();
@@ -48,6 +49,24 @@ describe("CLI installation card", () => {
     render(<CliInstallationCard t={t} />);
     expect(await screen.findByText(/请先安装 Node.js/)).toBeVisible();
     expect(screen.queryByRole("button", { name: "复制安装命令" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the install action unavailable until a retry can confirm the CLI is missing", async () => {
+    detect.mockResolvedValue({
+      ...missing,
+      cli: { status: "unknown" },
+      shellEnvironmentError: "Login shell timed out."
+    });
+    render(<CliInstallationCard t={t} />);
+    expect(await screen.findByText("未能确认是否已安装")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("Login shell timed out.");
+    expect(screen.queryByText("未安装")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "复制安装命令" })).not.toBeInTheDocument();
+
+    detect.mockResolvedValue(missing);
+    await userEvent.click(screen.getByRole("button", { name: "重新检测" }));
+    expect(await screen.findByRole("button", { name: "复制安装命令" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("keeps broken installations distinct from missing ones and exposes refresh failures", async () => {

@@ -7,6 +7,7 @@ export const commandInstallationSchema = z.discriminatedUnion("status", [
     .object({ status: z.literal("available"), path: z.string().min(1), version: z.string().min(1) })
     .strict(),
   z.object({ status: z.literal("missing") }).strict(),
+  z.object({ status: z.literal("unknown") }).strict(),
   z
     .object({ status: z.literal("unavailable"), path: z.string().min(1), error: z.string().min(1) })
     .strict()
@@ -17,7 +18,8 @@ export const cliInstallationSchema = z
     cli: commandInstallationSchema,
     node: commandInstallationSchema,
     npm: commandInstallationSchema,
-    nodeSupported: z.boolean()
+    nodeSupported: z.boolean(),
+    shellEnvironmentError: z.string().min(1).nullable()
   })
   .strict();
 

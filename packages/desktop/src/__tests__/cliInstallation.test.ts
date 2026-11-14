@@ -23,6 +23,7 @@ describe("CLI installation detection", () => {
   });
   afterEach(async () => {
     Object.defineProperty(process, "platform", { value: platform });
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
     await rm(directory, { recursive: true, force: true });
   });
@@ -78,10 +79,24 @@ describe("CLI installation detection", () => {
   );
 
   it.skipIf(process.platform === "win32")(
-    "reports a shell environment failure instead of declaring the CLI missing",
+    "reports verified command versions and leaves unverified installs unknown when the login shell fails",
     async () => {
+      vi.stubEnv("PATH", directory);
+      const path = await executable("planweave", 'echo "0.4.0"');
       shellEnvironment.mockResolvedValue({ kind: "unavailable", reason: "login shell timed out" });
-      await expect(detectCliInstallation()).rejects.toThrow("login shell timed out");
+      expect(await detectCliInstallation()).toEqual({
+        cli: { status: "available", path, version: "0.4.0" },
+        node: { status: "unknown" },
+        npm: { status: "unknown" },
+        nodeSupported: false,
+        shellEnvironmentError: "login shell timed out"
+      });
+      shellEnvironment.mockResolvedValue({ kind: "loaded", environment: { PATH: directory } });
+      expect(await detectCliInstallation()).toMatchObject({
+        node: { status: "missing" },
+        npm: { status: "missing" },
+        shellEnvironmentError: null
+      });
     }
   );
 

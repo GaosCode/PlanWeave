@@ -28,7 +28,11 @@ async function resolvePosixCommand(
   return null;
 }
 
-async function probeCommand(command: string, env: NodeJS.ProcessEnv): Promise<CommandInstallation> {
+async function probeCommand(
+  command: string,
+  env: NodeJS.ProcessEnv,
+  absentStatus: "missing" | "unknown"
+): Promise<CommandInstallation> {
   const invocation =
     process.platform === "win32"
       ? resolveWindowsProcessInvocation({ command, args: ["--version"], env })
@@ -37,7 +41,7 @@ async function probeCommand(command: string, env: NodeJS.ProcessEnv): Promise<Co
     process.platform === "win32"
       ? (invocation?.target.executable ?? null)
       : await resolvePosixCommand(command, env);
-  if (!path) return { status: "missing" };
+  if (!path) return { status: absentStatus };
   return new Promise((resolve) => {
     execFile(
       invocation?.command ?? path,
@@ -71,18 +75,29 @@ async function probeCommand(command: string, env: NodeJS.ProcessEnv): Promise<Co
 
 export async function detectCliInstallation(): Promise<CliInstallation> {
   let env = agentProcessEnv();
+  let shellEnvironmentError: string | null = null;
   if (process.platform !== "win32") {
     const shell = await readPosixShellEnvironment();
-    if (shell.kind === "unavailable") throw new Error(shell.reason);
-    env = agentProcessEnv({ env: { ...process.env, ...shell.environment } });
+    if (shell.kind === "loaded") {
+      env = agentProcessEnv({ env: { ...process.env, ...shell.environment } });
+    } else {
+      shellEnvironmentError = shell.reason;
+    }
   }
+  const absentStatus = shellEnvironmentError === null ? "missing" : "unknown";
   const [cli, node, npm] = await Promise.all([
-    probeCommand("planweave", env),
-    probeCommand("node", env),
-    probeCommand("npm", env)
+    probeCommand("planweave", env, absentStatus),
+    probeCommand("node", env, absentStatus),
+    probeCommand("npm", env, absentStatus)
   ]);
   const nodeVersion = node.status === "available" ? node.version.replace(/^v/, "").split(".") : [];
   const major = Number(nodeVersion[0]);
   const minor = Number(nodeVersion[1]);
-  return { cli, node, npm, nodeSupported: major > 22 || (major === 22 && minor >= 13) };
+  return {
+    cli,
+    node,
+    npm,
+    nodeSupported: major > 22 || (major === 22 && minor >= 13),
+    shellEnvironmentError
+  };
 }

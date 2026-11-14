@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, type ExecFileException } from "node:child_process";
 import { isAbsolute } from "node:path";
 import { setAgentProcessEnvironmentOverlay } from "@planweave-ai/runtime";
 
@@ -37,17 +37,30 @@ const runShellEnvironmentCommand: ShellEnvironmentRunner = (shell, args, options
       {
         encoding: null,
         timeout: options.timeout,
+        killSignal: "SIGKILL",
         maxBuffer: options.maxBuffer
       },
       (error, stdout) => {
         if (error) {
-          reject(error);
+          reject(new Error(shellCommandDiagnostic(error, options.timeout)));
           return;
         }
         resolve(stdout);
       }
     );
   });
+
+function shellCommandDiagnostic(error: ExecFileException, timeoutMs: number): string {
+  if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    return "Login shell output exceeded the size limit.";
+  }
+  if (error.killed) return `Login shell timed out after ${timeoutMs} ms.`;
+  if (error.signal) return `Login shell was terminated by ${error.signal}.`;
+  if (typeof error.code === "number") return `Login shell exited with code ${error.code}.`;
+  return error.code
+    ? `Login shell failed to start (${error.code}).`
+    : "Login shell failed to start.";
+}
 
 function diagnostic(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
