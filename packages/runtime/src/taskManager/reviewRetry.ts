@@ -1,5 +1,6 @@
+import { taskIndexPath } from "./resultIndex.js";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { withCurrentProjectWorkspace } from "../project.js";
 import { assertCurrentCanvasWorkspace } from "../package/assertCurrentCanvasWorkspace.js";
 import { assertResultsStorageIdentity } from "../package/packageStorageIdentity.js";
@@ -83,9 +84,7 @@ async function resetMaxCycleReviewsUnderCanvasLock(
     refs.length > 0
       ? await Promise.all([
           snapshotFile(workspace.stateFile),
-          ...[...taskIds].map((taskId) =>
-            snapshotFile(join(workspace.resultsDir, taskId, "index.json"))
-          )
+          ...[...taskIds].map((taskId) => taskIndexPath(workspace, taskId).then(snapshotFile))
         ])
       : [];
   let rolledBack = false;
@@ -193,7 +192,7 @@ export async function retryReview(options: {
       const snapshots = await Promise.all([
         snapshotFile(workspace.manifestFile),
         snapshotFile(workspace.stateFile),
-        snapshotFile(join(workspace.resultsDir, taskId, "index.json"))
+        taskIndexPath(workspace, taskId).then(snapshotFile)
       ]);
       try {
         const edit = await commitPlanPackageGraphMutation({ projectRoot: workspace, mutation });

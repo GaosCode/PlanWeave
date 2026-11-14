@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { resolveResultsPath } from "./resultPaths.js";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { z } from "zod";
 import { artifactReferenceSchema } from "../autoRun/runnerContractSchemas.js";
@@ -90,7 +90,7 @@ export async function findAttemptRun(runRoot: string, attemptId: string): Promis
   const matches: string[] = [];
   for (const entry of entries ?? []) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    const metadataPath = join(runRoot, entry.name, "metadata.json");
+    const metadataPath = await resolveResultsPath(runRoot, entry.name, "metadata.json");
     if ((await optionalStat(metadataPath)) === null) continue;
     const metadata = await readImplementationRunMetadataFile(metadataPath);
     if (metadata.submissionAttemptId === attemptId) matches.push(entry.name);

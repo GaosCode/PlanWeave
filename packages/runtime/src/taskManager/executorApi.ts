@@ -1,3 +1,4 @@
+import { resolveResultsPath } from "./resultPaths.js";
 import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import type {
@@ -116,7 +117,7 @@ export async function getCurrentWork(options: {
           feedback.sourceReviewBlockRef,
           defaultExecutor
         ),
-        promptPath: join(
+        promptPath: await resolveResultsPath(
           context.workspace.resultsDir,
           taskId,
           "feedback",

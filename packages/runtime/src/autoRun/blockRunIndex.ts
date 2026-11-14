@@ -1,5 +1,6 @@
+import { assertResultsRunId, resolveResultsPath } from "../taskManager/resultPaths.js";
 import { mkdir } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname } from "node:path";
 import { withAdvisoryDirectoryLock } from "../fs/advisoryDirectoryLock.js";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { loadPackage } from "../package/loadPackage.js";
@@ -14,14 +15,24 @@ import {
   type BlockRunLogicalCursor
 } from "./blockRunIndexSchema.js";
 import {
+  assertBlockRunIndexStoragePaths,
   BlockRunIndexSnapshotChangedError,
   maintainBlockRunIndex,
   mutateBlockRunIndex,
+  prepareBlockRunIndexMutation,
+  prepareBlockRunIndexReplacement,
   readBlockRunIndexSnapshot,
   replaceBlockRunIndexWithV5,
   type BlockRunIndexPublishStage,
   type BlockRunIndexReadSnapshot
 } from "./blockRunIndexStorage.js";
+
+export async function assertBlockRunIndexPaths(runRoot: string): Promise<void> {
+  await Promise.all([
+    assertBlockRunIndexStoragePaths(runRoot),
+    resolveResultsPath(runRoot, ".planweave-task-workspace-run-index.lock")
+  ]);
+}
 
 export type { BlockRunIndexEntry, BlockRunLogicalCursor } from "./blockRunIndexSchema.js";
 export { BlockRunIndexPartialMaintenanceError } from "./blockRunIndexStorage.js";
@@ -51,18 +62,17 @@ function chronologyCandidates(
 
 async function readRunFacts(
   runRoot: string,
-  runId: string
-): Promise<{
-  orderedAt: string;
-  stableIdentity: string;
-  hasArtifact: boolean;
-}> {
-  const runDir = join(runRoot, runId);
-  const metadataPath = join(runDir, "metadata.json");
+  runId: string,
+  planned?: { metadata?: ImplementationRunMetadata; hasArtifact?: boolean }
+): Promise<Omit<BlockRunIndexEntry, "runId" | "retryIndex">> {
+  const runDir = await resolveResultsPath(runRoot, runId);
+  const metadataPath = await resolveResultsPath(runDir, "metadata.json");
   // Missing metadata is incomplete; present metadata uses the shared artifact contract.
-  const metadata = (await optionalStat(metadataPath))
-    ? await readImplementationRunMetadataFile(metadataPath)
-    : null;
+  const metadata =
+    planned?.metadata ??
+    ((await optionalStat(metadataPath))
+      ? await readImplementationRunMetadataFile(metadataPath)
+      : null);
   let orderedAt: string | null = null;
   for (const candidate of chronologyCandidates(metadata)) {
     if (typeof candidate !== "string" || !Number.isFinite(Date.parse(candidate))) continue;
@@ -81,9 +91,30 @@ async function readRunFacts(
   }
   const ref = metadata?.ref && metadata.ref !== "" ? metadata.ref : blockRefFromRunRoot(runRoot);
   const hasArtifact =
-    Boolean(await optionalStat(join(runDir, "report.md"))) ||
-    metadata?.artifactReference !== undefined;
+    planned?.hasArtifact === true ||
+    metadata?.artifactReference !== undefined ||
+    Boolean(await optionalStat(await resolveResultsPath(runDir, "report.md")));
   return { orderedAt, stableIdentity: `${ref}::${runId}`, hasArtifact };
+}
+
+async function readUnindexedRuns(
+  runRoot: string,
+  plannedEntry?: Omit<BlockRunIndexEntry, "retryIndex">
+): Promise<BlockRunIndexEntry[]> {
+  const directoryEntries = await optionalReaddir(runRoot, { withFileTypes: true });
+  const runIds = (directoryEntries ?? [])
+    .filter(
+      (entry) =>
+        entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== plannedEntry?.runId
+    )
+    .map((entry) => entry.name);
+  const entries: Omit<BlockRunIndexEntry, "retryIndex">[] = await Promise.all(
+    runIds.map(async (runId) => ({ runId, ...(await readRunFacts(runRoot, runId)) }))
+  );
+  if (plannedEntry) entries.push(plannedEntry);
+  return sortEntries(entries.map((entry, index) => ({ ...entry, retryIndex: index + 1 }))).map(
+    (entry, index) => ({ ...entry, retryIndex: index + 1 })
+  );
 }
 
 async function migrateExistingRuns(
@@ -91,18 +122,7 @@ async function migrateExistingRuns(
   previous: BlockRunIndexReadSnapshot | null,
   options: BlockRunIndexWriteOptions = {}
 ): Promise<void> {
-  const directoryEntries = await optionalReaddir(runRoot, { withFileTypes: true });
-  const runIds = (directoryEntries ?? [])
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-    .map((entry) => entry.name);
-  const facts = await Promise.all(runIds.map((runId) => readRunFacts(runRoot, runId)));
-  const entries = facts.map((fact, index) => ({
-    runId: runIds[index]!,
-    retryIndex: index + 1,
-    ...fact
-  }));
-  const sorted = sortEntries(entries).map((entry, index) => ({ ...entry, retryIndex: index + 1 }));
-  await replaceBlockRunIndexWithV5(runRoot, previous, sorted, options);
+  await replaceBlockRunIndexWithV5(runRoot, previous, await readUnindexedRuns(runRoot), options);
 }
 
 export async function migrateBlockRunIndexes(projectRoot: PackageWorkspaceRef): Promise<{
@@ -115,7 +135,13 @@ export async function migrateBlockRunIndexes(projectRoot: PackageWorkspaceRef): 
   for (const node of manifest.nodes) {
     if (node.type !== "task") continue;
     for (const block of node.blocks) {
-      const runRoot = join(workspace.resultsDir, node.id, "blocks", block.id, "runs");
+      const runRoot = await resolveResultsPath(
+        workspace.resultsDir,
+        node.id,
+        "blocks",
+        block.id,
+        "runs"
+      );
       await rebuildBlockRunIndex(runRoot);
       const snapshot = await readBlockRunIndexSnapshot(runRoot);
       indexedBlocks += 1;
@@ -129,10 +155,11 @@ export async function rebuildBlockRunIndex(
   runRoot: string,
   options: BlockRunIndexWriteOptions = {}
 ): Promise<void> {
+  await assertBlockRunIndexPaths(runRoot);
   await mkdir(runRoot, { recursive: true });
   await withAdvisoryDirectoryLock(
     {
-      lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"),
+      lockPath: await resolveResultsPath(runRoot, ".planweave-task-workspace-run-index.lock"),
       operation: "rebuild-block-run-index"
     },
     async () => {
@@ -146,10 +173,11 @@ export async function initializeBlockRunIndex(
   runRoot: string,
   options: BlockRunIndexWriteOptions = {}
 ): Promise<void> {
+  await assertBlockRunIndexPaths(runRoot);
   await mkdir(runRoot, { recursive: true });
   await withAdvisoryDirectoryLock(
     {
-      lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"),
+      lockPath: await resolveResultsPath(runRoot, ".planweave-task-workspace-run-index.lock"),
       operation: "initialize-block-run-index"
     },
     async () => {
@@ -160,36 +188,63 @@ export async function initializeBlockRunIndex(
   );
 }
 
+export async function withPreparedBlockRunIndex<T>(
+  runRoot: string,
+  action: (
+    prepare: (
+      runId: string,
+      planned?: { metadata?: ImplementationRunMetadata; hasArtifact?: boolean }
+    ) => Promise<() => Promise<void>>
+  ) => Promise<T>,
+  options: BlockRunIndexWriteOptions = {}
+): Promise<T> {
+  await assertBlockRunIndexPaths(runRoot);
+  await mkdir(runRoot, { recursive: true });
+  return withAdvisoryDirectoryLock(
+    {
+      lockPath: await resolveResultsPath(runRoot, ".planweave-task-workspace-run-index.lock"),
+      operation: "upsert-block-run-index"
+    },
+    () =>
+      action(async (runId, planned) => {
+        assertResultsRunId(runId);
+        const snapshot = await readBlockRunIndexSnapshot(runRoot);
+        const entry = { runId, ...(await readRunFacts(runRoot, runId, planned)) };
+        if (!snapshot) {
+          return prepareBlockRunIndexReplacement(
+            runRoot,
+            null,
+            await readUnindexedRuns(runRoot, entry),
+            options
+          );
+        }
+        const publish = await prepareBlockRunIndexMutation(
+          runRoot,
+          snapshot,
+          { kind: "upsert", entry },
+          options
+        );
+        return async () => {
+          await publish();
+        };
+      })
+  );
+}
+
 export async function upsertBlockRunInIndex(
   runRoot: string,
   runId: string,
   hasArtifact: boolean | undefined,
   options: BlockRunIndexWriteOptions = {}
 ): Promise<void> {
-  await mkdir(runRoot, { recursive: true });
-  await withAdvisoryDirectoryLock(
-    {
-      lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"),
-      operation: "upsert-block-run-index"
+  assertResultsRunId(runId);
+  await withPreparedBlockRunIndex(
+    runRoot,
+    async (prepare) => {
+      const publish = await prepare(runId, { hasArtifact });
+      await publish();
     },
-    async () => {
-      let snapshot = await readBlockRunIndexSnapshot(runRoot);
-      if (!snapshot) {
-        await migrateExistingRuns(runRoot, null, options);
-        snapshot = await readBlockRunIndexSnapshot(runRoot);
-      }
-      if (!snapshot) throw new Error(`Failed to initialize block run index at '${runRoot}'.`);
-      const facts = await readRunFacts(runRoot, runId);
-      await mutateBlockRunIndex(
-        runRoot,
-        snapshot,
-        {
-          kind: "upsert",
-          entry: { runId, ...facts, hasArtifact: facts.hasArtifact || hasArtifact === true }
-        },
-        options
-      );
-    }
+    options
   );
 }
 
@@ -329,9 +384,10 @@ export async function recordBlockRunArtifactInIndex(
   runId: string,
   options: BlockRunIndexWriteOptions = {}
 ): Promise<void> {
+  assertResultsRunId(runId);
   await withAdvisoryDirectoryLock(
     {
-      lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"),
+      lockPath: await resolveResultsPath(runRoot, ".planweave-task-workspace-run-index.lock"),
       operation: "record-block-run-artifact-index"
     },
     async () => {
@@ -353,19 +409,20 @@ export async function recordBlockRunArtifactInIndex(
 }
 
 export async function removeBlockRunFromIndex(runRoot: string, runId: string): Promise<void> {
+  assertResultsRunId(runId);
   await withAdvisoryDirectoryLock(
     {
-      lockPath: join(runRoot, ".planweave-task-workspace-run-index.lock"),
+      lockPath: await resolveResultsPath(runRoot, ".planweave-task-workspace-run-index.lock"),
       operation: "remove-block-run-index"
     },
     async () => {
+      const facts = await readRunFacts(runRoot, runId);
       let snapshot = await readBlockRunIndexSnapshot(runRoot);
       if (!snapshot) {
         await migrateExistingRuns(runRoot, null);
         snapshot = await readBlockRunIndexSnapshot(runRoot);
       }
       if (!snapshot) throw new Error(`Block run index is missing at '${runRoot}'.`);
-      const facts = await readRunFacts(runRoot, runId);
       await mutateBlockRunIndex(runRoot, snapshot, { kind: "remove", runId, cursor: facts });
     }
   );

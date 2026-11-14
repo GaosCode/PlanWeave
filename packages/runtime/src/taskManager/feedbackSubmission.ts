@@ -1,3 +1,4 @@
+import { resolveResultsPath } from "./resultPaths.js";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -14,8 +15,13 @@ import type {
 } from "../types.js";
 import { patchFeedbackArtifact } from "./feedbackArtifacts.js";
 import { readFeedbackSubmissionMetadataFile } from "./feedbackSubmissionMetadata.js";
-import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
-import { allocatePrefixedId, incrementTaskIndexCount, updateTaskIndex } from "./resultIndex.js";
+import { loadRuntimeReadonly, refreshDerivedState } from "./runtimeContext.js";
+import {
+  allocatePrefixedId,
+  incrementTaskIndexCount,
+  taskIndexPath,
+  updateTaskIndex
+} from "./resultIndex.js";
 
 function withCurrentRef(currentRefs: string[], ref: string): string[] {
   return currentRefs.includes(ref) ? currentRefs : [...currentRefs, ref];
@@ -42,7 +48,7 @@ async function feedbackSubmissionMatches(options: {
 }): Promise<boolean> {
   try {
     const metadata = await readFeedbackSubmissionMetadataFile(
-      join(options.submissionDir, "metadata.json")
+      await resolveResultsPath(options.submissionDir, "metadata.json")
     );
     if (
       metadata.feedbackId !== options.feedbackId ||
@@ -51,7 +57,10 @@ async function feedbackSubmissionMatches(options: {
     ) {
       return false;
     }
-    return (await fileHash(join(options.submissionDir, "report.md"))) === options.reportHash;
+    return (
+      (await fileHash(await resolveResultsPath(options.submissionDir, "report.md"))) ===
+      options.reportHash
+    );
   } catch (error) {
     if (error instanceof Error && /is (invalid|malformed JSON):/.test(error.message)) {
       throw error;
@@ -139,7 +148,7 @@ export async function submitFeedbackFromBytes(
   const { workspace: lockWorkspace } =
     options.executionSnapshot ?? (await loadPackage(options.projectRoot));
   return withExecutionStateLock(options, lockWorkspace, async () => {
-    const context = await loadRuntime({ ...options, projectRoot: lockWorkspace });
+    const context = await loadRuntimeReadonly({ ...options, projectRoot: lockWorkspace });
     const { workspace, manifest, graph } = context;
     let { state } = context;
     const feedbackId = state.currentFeedbackId;
@@ -151,7 +160,11 @@ export async function submitFeedbackFromBytes(
     if (!taskId) {
       throw new Error(`Feedback '${feedbackId}' points to an unknown review block.`);
     }
-    const submissionRoot = join(
+    await Promise.all([
+      taskIndexPath(workspace, taskId),
+      resolveResultsPath(workspace.resultsDir, taskId, "feedback", feedbackId, "feedback.json")
+    ]);
+    const submissionRoot = await resolveResultsPath(
       workspace.resultsDir,
       taskId,
       "feedback",

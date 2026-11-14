@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { WORKSPACE_CANVAS_EXECUTION_CAPABILITY } from "@planweave-ai/agent-host-protocol";
 import { manifestSchema } from "../schema/manifest.js";
+import { parseBlockRef } from "../graph/blockRef.js";
 import { basicManifest } from "./promptTestHelpers.js";
 import { manifestTestBuilder } from "./manifestTestBuilder.js";
 
@@ -9,7 +10,27 @@ describe("plan-package/v1 manifest schema", () => {
     expect(() => manifestSchema.parse(basicManifest())).not.toThrow();
   });
 
-  it.each(["", "id#suffix"])("reports the exact fields for invalid ID %j", (id) => {
+  it.each([
+    "",
+    "id#suffix",
+    ".",
+    "..",
+    "../outside",
+    "/outside",
+    "nested\\outside",
+    "C:outside",
+    "C:\\outside",
+    "\\\\host\\share",
+    "NUL.txt",
+    "lPt².backup",
+    "CONOUT$",
+    "name:stream",
+    "name.",
+    " name",
+    "name ",
+    "name\u0000",
+    "name?"
+  ])("reports the exact fields for invalid ID %j", (id) => {
     const manifest = basicManifest();
     const task = manifest.nodes[0];
     task.id = id;
@@ -24,11 +45,14 @@ describe("plan-package/v1 manifest schema", () => {
       ["nodes", 0, "blocks", 0, "id"],
       ["nodes", 0, "blocks", 1, "id"]
     ]);
+    expect(() => parseBlockRef(`${id}#B-001`)).toThrow("Invalid block ref");
+    expect(() => parseBlockRef(`T-001#${id}`)).toThrow("Invalid block ref");
   });
 
   it.each([
-    " ",
-    " 任务:实作.()+[] ",
+    "任务 实作.()+[]",
+    "..custom~id",
+    "COM10",
     "a".repeat(257)
   ])("preserves historically valid ID %j", (id) => {
     const manifest = basicManifest();

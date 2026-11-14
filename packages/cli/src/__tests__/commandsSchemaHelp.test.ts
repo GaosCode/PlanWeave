@@ -95,11 +95,12 @@ describe("planweave CLI help and schema output", () => {
       "Only implementation and review block types are supported."
     );
     expect(formatSchemaHelp("manifest")).toContain(
-      "task id string, non-empty, must not contain '#'"
+      "task id string, non-empty portable directory name"
     );
     expect(formatSchemaHelp("manifest")).toContain(
-      "block id string, non-empty, must not contain '#'"
+      "block id string, non-empty portable directory name"
     );
+    expect(formatSchemaHelp("manifest")).toContain("Windows-reserved characters or device names");
     expect(formatSchemaHelp("manifest")).toContain(
       "Agent identity and runner transport are separate."
     );

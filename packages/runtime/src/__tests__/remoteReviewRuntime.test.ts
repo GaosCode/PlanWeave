@@ -1,5 +1,5 @@
-import { appendFile, readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { appendFile, mkdir, readFile, readdir, symlink, unlink } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getTaskWorkspaceRunDetail } from "../desktop/index.js";
 import { readState } from "../state.js";
@@ -11,9 +11,92 @@ import {
 } from "../taskManager/index.js";
 import { writeReport } from "./promptTestHelpers.js";
 import { previewClaimNext } from "../desktop/claimPreviewApi.js";
+import { snapshotDirectory } from "./support/snapshotDirectory.js";
+import { recordBlockRunInIndex } from "../autoRun/blockRunIndex.js";
+import { writeJsonFile } from "../json.js";
 import { reportInput, claimIdentity, activateReadyBlock } from "./remoteBlockTestHelpers.js";
 
 describe("remote review runtime lifecycle", () => {
+  it.each([
+    ["a persisted REV leaf", "reviews/R-001/attempts/REV-001/review-result.json", false],
+    ["a dangling REV leaf", "reviews/R-001/attempts/REV-001/metadata.json", true],
+    ["an ACP run metadata leaf", "blocks/R-001/runs/RUN-001/metadata.json", false],
+    [
+      "the ACP run index pointer",
+      "blocks/R-001/runs/.planweave-task-workspace-run-index/current.json",
+      false
+    ],
+    ["the ACP run index generation", "", false]
+  ])("rejects %s without changing Results or state", async (_kind, relative, dangling) => {
+    const { init, port, identity } = await activateReadyBlock();
+    await port.complete({
+      ref: "T-001#B-001",
+      ...identity,
+      ...reportInput(Buffer.from("# Implementation complete\n"))
+    });
+    const ref = "T-001#R-001";
+    const candidate = await port.inspect({ ref });
+    const reviewIdentity = {
+      ...identity,
+      operationId: "operation-review-boundary",
+      dispatchId: "dispatch-review-boundary",
+      executionAttemptId: "attempt-review-boundary",
+      sourceRevision: candidate.sourceRevision,
+      graphFingerprint: candidate.graphFingerprint
+    };
+    await port.claim({ ref, ...claimIdentity(reviewIdentity) });
+    await port.activate({ ref, ...reviewIdentity });
+
+    const { resultsDir, stateFile } = init.workspace;
+    const outside = `${resultsDir}-outside`;
+    const reviewRunRoot = join(resultsDir, "T-001", "blocks", "R-001", "runs");
+    const indexRoot = join(reviewRunRoot, ".planweave-task-workspace-run-index");
+    let escapedPath = join(resultsDir, "T-001", ...relative.split("/"));
+    if (!relative) {
+      await writeJsonFile(join(reviewRunRoot, "RUN-001", "metadata.json"), {
+        ref,
+        startedAt: "2026-01-01T00:00:00.000Z",
+        executionAttemptId: "previous-attempt"
+      });
+      await recordBlockRunInIndex(reviewRunRoot, "RUN-001");
+      const { currentGeneration } = JSON.parse(
+        await readFile(join(indexRoot, "current.json"), "utf8")
+      ) as { currentGeneration: string };
+      escapedPath = join(indexRoot, "generations", currentGeneration, "manifest.json");
+      await unlink(escapedPath);
+    }
+    await mkdir(outside);
+    const sentinel = await writeReport(outside, "sentinel", "outside Results\n");
+    await mkdir(dirname(escapedPath), { recursive: true });
+    await symlink(dangling ? join(outside, "missing") : sentinel, escapedPath, "file");
+    const beforeState = await readFile(stateFile);
+    const beforeResults = await snapshotDirectory(resultsDir);
+    const beforeOutside = await snapshotDirectory(outside);
+
+    await expect(
+      port.complete({
+        ref,
+        ...reviewIdentity,
+        ...reportInput(
+          Buffer.from(
+            JSON.stringify({
+              reviewBlockRef: ref,
+              taskId: "T-001",
+              verdict: "passed",
+              content: "Reviewed the implementation."
+            })
+          )
+        )
+      })
+    ).rejects.toMatchObject({
+      code: "results_path_outside",
+      message: expect.stringContaining(escapedPath)
+    });
+    expect(await readFile(stateFile)).toEqual(beforeState);
+    expect(await snapshotDirectory(outside)).toEqual(beforeOutside);
+    expect(await snapshotDirectory(resultsDir)).toEqual(beforeResults);
+  });
+
   it("dispatches and completes a ready review block through the remote port", async () => {
     const { init, port, identity } = await activateReadyBlock();
     const implBytes = Buffer.from("# Implementation complete\n");
@@ -54,6 +137,13 @@ describe("remote review runtime lifecycle", () => {
       ...reportInput(Buffer.from(reviewJson, "utf8"))
     });
     expect(completed).toMatchObject({ ref: "T-001#R-001", status: "completed" });
+    await expect(
+      port.complete({
+        ref: "T-001#R-001",
+        ...reviewIdentity,
+        ...reportInput(Buffer.from(reviewJson, "utf8"))
+      })
+    ).resolves.toEqual(completed);
     const reviewState = (await readState(init.workspace.stateFile)).blocks["T-001#R-001"];
     expect(reviewState).toMatchObject({
       status: "completed",
@@ -72,7 +162,7 @@ describe("remote review runtime lifecycle", () => {
     const reviewRunIds = (await readdir(reviewRunRoot))
       .filter((name) => /^RUN-\d+$/.test(name))
       .sort();
-    expect(reviewRunIds.length).toBeGreaterThan(0);
+    expect(reviewRunIds).toHaveLength(1);
     const reviewRunId = reviewRunIds.at(-1)!;
     expect(
       JSON.parse(await readFile(join(reviewRunRoot, reviewRunId, "metadata.json"), "utf8"))

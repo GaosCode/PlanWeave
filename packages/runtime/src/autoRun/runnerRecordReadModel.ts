@@ -1,5 +1,6 @@
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { z } from "zod";
 import type {
   AutoRunLatestBlockRunSummary,
@@ -794,7 +795,9 @@ export async function consumeRunnerRecordReadModel(options: {
   let content = "";
   const boundaryDiagnostics: RunnerEventReplayDiagnostic[] = [];
   try {
-    const persistedContent = await readFile(join(options.runDir, "events.ndjson"));
+    const persistedContent = await readFile(
+      await resolveResultsPath(options.runDir, "events.ndjson")
+    );
     content = persistedContent.toString("utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -868,7 +871,7 @@ export async function consumeRunnerRecordReadModel(options: {
             let refreshedMetadataValue: unknown = options.metadata;
             try {
               refreshedMetadataValue = JSON.parse(
-                await readFile(join(options.runDir, "metadata.json"), "utf8")
+                await readFile(await resolveResultsPath(options.runDir, "metadata.json"), "utf8")
               ) as unknown;
             } catch (error) {
               if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -919,7 +922,7 @@ export async function readRunnerRecordReadModelForArtifact(
 }
 
 async function readRunnerArtifactMetadata(runDir: string): Promise<Record<string, unknown>> {
-  const path = join(runDir, "metadata.json");
+  const path = await resolveResultsPath(runDir, "metadata.json");
   const metadata = JSON.parse(await readFile(path, "utf8")) as unknown;
   if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
     throw new Error(`Runner metadata at '${path}' must be an object.`);

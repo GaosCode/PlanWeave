@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
 import { getAutoRunStatus, runAutoRunStep } from "../taskManager/autoRun.js";
@@ -92,7 +92,15 @@ async function blockRunRecordPath(
 ): Promise<string> {
   const workspace = await sessionWorkspace(projectRoot);
   const { taskId, blockId } = parseBlockRef(ref);
-  return join(workspace.resultsDir, taskId, "blocks", blockId, "runs", runId, "metadata.json");
+  return resolveResultsPath(
+    workspace.resultsDir,
+    taskId,
+    "blocks",
+    blockId,
+    "runs",
+    runId,
+    "metadata.json"
+  );
 }
 
 async function feedbackRunRecordPath(
@@ -100,7 +108,7 @@ async function feedbackRunRecordPath(
   runId: string
 ): Promise<string> {
   const workspace = await sessionWorkspace(projectRoot);
-  return join(workspace.resultsDir, "feedback-runs", runId, "metadata.json");
+  return resolveResultsPath(workspace.resultsDir, "feedback-runs", runId, "metadata.json");
 }
 
 async function stepRecordLink(

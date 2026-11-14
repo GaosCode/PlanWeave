@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { resolveResultsPath } from "./resultPaths.js";
 import { withCanvasStorageMutation } from "../package/withCanvasStorageMutation.js";
 import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../json.js";
@@ -23,8 +23,8 @@ function feedbackArtifactPath(
   workspace: ProjectWorkspace,
   taskId: string,
   feedbackId: string
-): string {
-  return join(workspace.resultsDir, taskId, "feedback", feedbackId, "feedback.json");
+): Promise<string> {
+  return resolveResultsPath(workspace.resultsDir, taskId, "feedback", feedbackId, "feedback.json");
 }
 
 export async function writeFeedbackArtifact(
@@ -33,8 +33,8 @@ export async function writeFeedbackArtifact(
   artifact: FeedbackArtifact
 ): Promise<void> {
   const parsed = feedbackArtifactSchema.parse(artifact);
-  await withCanvasStorageMutation(workspace, () =>
-    writeJsonFile(feedbackArtifactPath(workspace, taskId, parsed.feedbackId), parsed)
+  await withCanvasStorageMutation(workspace, async () =>
+    writeJsonFile(await feedbackArtifactPath(workspace, taskId, parsed.feedbackId), parsed)
   );
 }
 
@@ -44,7 +44,7 @@ export async function readFeedbackArtifact(
   feedbackId: string
 ): Promise<FeedbackArtifact> {
   return feedbackArtifactSchema.parse(
-    await readJsonFile<unknown>(feedbackArtifactPath(workspace, taskId, feedbackId))
+    await readJsonFile<unknown>(await feedbackArtifactPath(workspace, taskId, feedbackId))
   );
 }
 
@@ -56,7 +56,7 @@ export async function patchFeedbackArtifact(
     Partial<Pick<FeedbackArtifact, "latestSubmissionId" | "resolvedAt">>
 ): Promise<void> {
   await withCanvasStorageMutation(workspace, async () => {
-    const path = feedbackArtifactPath(workspace, taskId, feedbackId);
+    const path = await feedbackArtifactPath(workspace, taskId, feedbackId);
     const current = feedbackArtifactSchema.parse(await readJsonFile<unknown>(path));
     await writeJsonFile(path, {
       ...current,

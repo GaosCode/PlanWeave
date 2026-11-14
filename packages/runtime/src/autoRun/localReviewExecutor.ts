@@ -1,3 +1,4 @@
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
@@ -208,7 +209,7 @@ export async function runLocalReviewFeedback(options: {
   signal?: AbortSignal;
   executeProcess: CliProcessExecutor;
 }): Promise<ExecutorAdapterResult> {
-  const runRoot = join(options.workspaceResultsDir, "feedback-runs");
+  const runRoot = await resolveResultsPath(options.workspaceResultsDir, "feedback-runs");
   const runId = await allocateRunId(runRoot);
   const runDir = join(runRoot, runId);
   const metadataPath = join(runDir, "metadata.json");

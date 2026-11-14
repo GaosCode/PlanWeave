@@ -26,8 +26,7 @@ import {
 } from "./acpPreflightProbe.js";
 import { executorRuntimeLimits } from "./executorShared.js";
 import { selectedDesktopAcpSessionDefaults } from "./desktopAgentSettings.js";
-import { optionalStat } from "../fs/optionalFile.js";
-import { recordBlockRunInIndex } from "./blockRunIndex.js";
+import { withPreparedBlockRunIndex, type recordBlockRunInIndex } from "./blockRunIndex.js";
 import { acpRunRecoveryExecutionSchema, renderAcpRunRecoveryPrompt } from "./acpRunRecovery.js";
 import {
   executorProfileExecutionHost,
@@ -155,7 +154,7 @@ export function createAcpRunner(options?: {
 }): AcpAgentRunner {
   const probe = options?.probe ?? probeInstalledAcpAgent;
   const sessionController = options?.sessionController ?? new AcpSessionController();
-  const recordBlockRun = options?.recordBlockRun ?? recordBlockRunInIndex;
+  const recordBlockRun = options?.recordBlockRun;
   const profileResolver = options?.profileResolver ?? createRuntimeAcpProfileResolver();
   return {
     transport: "acp",
@@ -429,74 +428,79 @@ export function createAcpRunner(options?: {
         prompt,
         executionWaveId: input.executionWaveId
       });
-      try {
-        return await sessionController.execute(
-          {
-            kind: input.claim.blockType === "review" ? "review" : "implementation",
-            identity: {
-              scope: prepared.runDir,
-              executorRunId: prepared.runId,
-              claimRef: input.claim.ref,
-              desktopRunId: input.runtime?.desktopRunId,
-              runSessionId: input.runtime?.runSessionId
-            },
-            runDir: prepared.runDir,
-            metadataPath: prepared.metadataPath,
-            prompt,
-            cwd: prepared.cwd,
-            launch,
-            host: resolved.profile.host,
-            profileIdentity: {
-              profileId: resolved.profile.profileId,
-              fingerprint: resolved.profile.fingerprint,
-              source: resolved.profile.source,
-              environmentNames: resolved.profile.environment.map((entry) => entry.name)
-            },
-            environment: resolved.environment,
-            shutdown: resolved.profile.shutdown,
-            capabilityPolicy: resolved.profile.capabilities,
-            authenticationHints: definition.acp.authentication,
-            executorName: input.executorName,
-            agentId: resolved.profile.agentId,
-            taskId: input.claim.taskId,
-            metadataIdentity: {
-              blockId: input.claim.blockId,
-              ...prepared.implementationIdentity,
-              ...(input.executionWaveId ? { executionWaveId: input.executionWaveId } : {})
-            },
-            projectId: prepared.projectId,
-            canvasId: prepared.canvasId,
-            projectRoot:
-              typeof input.projectRoot === "string"
-                ? input.projectRoot
-                : input.projectRoot.rootPath,
-            connectionMode: resolved.profile.connection.mode,
-            sessionStart: recovery
-              ? {
-                  kind: "load",
-                  sessionId: recovery.lineage.sourceSessionId,
-                  recovery: recovery.lineage
-                }
-              : { kind: "new" }
+      return sessionController.execute(
+        {
+          kind: input.claim.blockType === "review" ? "review" : "implementation",
+          identity: {
+            scope: prepared.runDir,
+            executorRunId: prepared.runId,
+            claimRef: input.claim.ref,
+            desktopRunId: input.runtime?.desktopRunId,
+            runSessionId: input.runtime?.runSessionId
           },
-          {
-            signal: input.runtime?.signal,
-            timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
-            interactionBroker: input.runtime?.interactionBroker,
-            interactionObserver: input.runtime?.interactionObserver,
-            onMetadataPersisted: () => recordBlockRun(dirname(prepared.runDir), prepared.runId),
-            sessionDefaults:
-              resolved.profile.sessionDefaults ??
-              (input.runtime?.desktopRunId && definition.acp.launch
-                ? selectedDesktopAcpSessionDefaults(definition.agent)
-                : undefined)
-          }
-        );
-      } finally {
-        if (await optionalStat(prepared.metadataPath)) {
-          await recordBlockRun(dirname(prepared.runDir), prepared.runId);
+          runDir: prepared.runDir,
+          startedAt: prepared.startedAt,
+          metadataPath: prepared.metadataPath,
+          prompt,
+          cwd: prepared.cwd,
+          launch,
+          host: resolved.profile.host,
+          profileIdentity: {
+            profileId: resolved.profile.profileId,
+            fingerprint: resolved.profile.fingerprint,
+            source: resolved.profile.source,
+            environmentNames: resolved.profile.environment.map((entry) => entry.name)
+          },
+          environment: resolved.environment,
+          shutdown: resolved.profile.shutdown,
+          capabilityPolicy: resolved.profile.capabilities,
+          authenticationHints: definition.acp.authentication,
+          executorName: input.executorName,
+          agentId: resolved.profile.agentId,
+          taskId: input.claim.taskId,
+          metadataIdentity: {
+            blockId: input.claim.blockId,
+            ...prepared.implementationIdentity,
+            ...(input.executionWaveId ? { executionWaveId: input.executionWaveId } : {})
+          },
+          projectId: prepared.projectId,
+          canvasId: prepared.canvasId,
+          projectRoot:
+            typeof input.projectRoot === "string" ? input.projectRoot : input.projectRoot.rootPath,
+          connectionMode: resolved.profile.connection.mode,
+          sessionStart: recovery
+            ? {
+                kind: "load",
+                sessionId: recovery.lineage.sourceSessionId,
+                recovery: recovery.lineage
+              }
+            : { kind: "new" }
+        },
+        {
+          signal: input.runtime?.signal,
+          timeoutMs: input.runtime?.timeoutMs ?? executorRuntimeLimits(input.profile).timeoutMs,
+          interactionBroker: input.runtime?.interactionBroker,
+          interactionObserver: input.runtime?.interactionObserver,
+          onMetadataPersisted: recordBlockRun
+            ? () => recordBlockRun(dirname(prepared.runDir), prepared.runId)
+            : undefined,
+          withArtifactPublication: (persist) =>
+            withPreparedBlockRunIndex(dirname(prepared.runDir), async (prepareIndex) => {
+              const publishIndex = await prepareIndex(prepared.runId, {
+                metadata: { ref: input.claim.ref, startedAt: prepared.startedAt },
+                hasArtifact: true
+              });
+              const reference = await persist();
+              await publishIndex();
+              return reference;
+            }),
+          sessionDefaults:
+            resolved.profile.sessionDefaults ??
+            (input.runtime?.desktopRunId && definition.acp.launch
+              ? selectedDesktopAcpSessionDefaults(definition.agent)
+              : undefined)
         }
-      }
+      );
     },
     async runFeedback(input, definition) {
       if (input.profile.runner.transport !== "acp" || input.profile.agent !== definition.agent) {

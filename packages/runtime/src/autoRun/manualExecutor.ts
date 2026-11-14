@@ -1,3 +1,4 @@
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
@@ -49,7 +50,7 @@ async function runManualFeedback(input: ExecutorFeedbackInput): Promise<Executor
     throw executorProfileMismatch("manual", input.profile);
   }
   const canvasFlag = await canvasCommandFlagForWorkspace(input.workspace);
-  const feedbackRoot = join(input.workspace.resultsDir, "feedback-runs");
+  const feedbackRoot = await resolveResultsPath(input.workspace.resultsDir, "feedback-runs");
   const runId = await allocateRunId(feedbackRoot);
   const runDir = join(feedbackRoot, runId);
   const promptPath = join(runDir, "feedback.md");

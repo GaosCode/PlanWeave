@@ -1,5 +1,6 @@
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { lstat, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { claimRefSchema } from "../autoRun/runnerContractSchemas.js";
 import { readJsonFile } from "../json.js";
@@ -59,8 +60,8 @@ export async function locateCanonicalAgentRunControlDirectory(
   }
   const runDir =
     parsed.kind === "block"
-      ? join(blockRunRoot(workspace.resultsDir, parsed.blockRef), parsed.runId)
-      : join(workspace.resultsDir, "feedback-runs", parsed.runId);
+      ? await blockRunRoot(workspace.resultsDir, parsed.blockRef, parsed.runId)
+      : await resolveResultsPath(workspace.resultsDir, "feedback-runs", parsed.runId);
   if (!contained(workspace.resultsDir, runDir)) {
     throw new AgentRunControlRunLocationError(
       "invalid_identity",
@@ -97,7 +98,7 @@ export async function locateCanonicalAgentRunControlDirectory(
   } else {
     try {
       const metadata = feedbackMetadataIdentitySchema.parse(
-        await readJsonFile<unknown>(join(runDir, "metadata.json"))
+        await readJsonFile<unknown>(await resolveResultsPath(runDir, "metadata.json"))
       );
       claimRef = metadata.claimRef;
     } catch {

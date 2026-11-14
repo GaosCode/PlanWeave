@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { resolveResultsPath } from "./resultPaths.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { requireMapValue } from "../graph/requireMapValue.js";
 import { buildAgentClaimMarkdown } from "../plangraph/projections/agentContextProjection.js";
@@ -70,7 +70,7 @@ async function renderLatestImplementationReports(
       continue;
     }
     const { blockId } = parseBlockRef(ref);
-    const reportPath = join(
+    const reportPath = await resolveResultsPath(
       context.workspace.resultsDir,
       taskId,
       "blocks",
@@ -105,7 +105,7 @@ async function renderFocusedReviewLines(
   if (!taskId || !feedback.latestSubmissionId) {
     return [];
   }
-  const submissionPath = join(
+  const submissionPath = await resolveResultsPath(
     context.workspace.resultsDir,
     taskId,
     "feedback",

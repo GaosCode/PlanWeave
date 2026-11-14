@@ -1,4 +1,4 @@
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -11,6 +11,7 @@ import {
 import { loadRuntime } from "../taskManager/runtimeContext.js";
 import { computeWorkRevision } from "../taskManager/selectors.js";
 import { readJsonFile, writeJsonFile } from "../json.js";
+import { readState, writeState } from "../state.js";
 import type { RuntimeState, TaskResultIndex } from "../types.js";
 import { createTestWorkspace, writeReport, writeReviewResult } from "./promptTestHelpers.js";
 
@@ -239,5 +240,51 @@ describe("submitReviewResult", () => {
       latestFeedbackSubmissionByFeedback: { "FE-001": "FS-001" },
       feedbackStatusById: { "FE-001": "resolved" }
     });
+  });
+
+  it("rejects a feedback submission directory linked outside Results before allocating FS-001", async () => {
+    const { root, init } = await createTestWorkspace();
+    await completeImplementation(root);
+    await submitReviewResult({
+      projectRoot: root,
+      ref: "T-001#R-001",
+      resultPath: await writeReviewResult(root, "needs_changes", "Fix the edge case.")
+    });
+    await claimNext({ projectRoot: root });
+    const { resultsDir, stateFile } = init.workspace;
+    const taskIndex = join(resultsDir, "T-001", "index.json");
+    const taskFeedback = join(resultsDir, "T-001", "feedback", "FE-001");
+    const feedbackArtifact = join(taskFeedback, "feedback.json");
+    const submissionsDir = join(taskFeedback, "submissions");
+    const outside = `${resultsDir}-outside`;
+    await mkdir(outside);
+    const sentinel = await writeReport(outside, "sentinel", "outside feedback\n");
+    await symlink(outside, submissionsDir, process.platform === "win32" ? "junction" : "dir");
+    const historicalState = await readState(stateFile);
+    await writeState(stateFile, { ...historicalState, tasks: {} });
+    const observedPaths = [stateFile, taskIndex, feedbackArtifact, sentinel];
+    const readObserved = () => Promise.all(observedPaths.map((path) => readFile(path)));
+    const before = await readObserved();
+    const options = {
+      projectRoot: root,
+      reportPath: await writeReport(root, "feedback-boundary.md", "The edge case is fixed.\n")
+    };
+
+    await expect(submitFeedback(options)).rejects.toMatchObject({
+      code: "results_path_outside",
+      message: expect.stringContaining(submissionsDir)
+    });
+    await expect(readObserved()).resolves.toEqual(before);
+    await expect(readdir(outside)).resolves.toEqual(["sentinel"]);
+
+    await unlink(submissionsDir);
+    await expect(submitFeedback(options)).resolves.toMatchObject({
+      status: "accepted",
+      feedbackId: "FE-001",
+      submissionId: "FS-001"
+    });
+    await expect(readFile(join(submissionsDir, "FS-001", "report.md"), "utf8")).resolves.toBe(
+      "The edge case is fixed.\n"
+    );
   });
 });

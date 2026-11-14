@@ -1,9 +1,10 @@
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { beginExecutorResultsWriter } from "./executorResultsLifecycle.js";
 import { createWriteStream } from "node:fs";
 import type { WriteStream } from "node:fs";
-import { mkdir, open, readFile, rmdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rmdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
+import { isNodeFileNotFoundError, optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { writeJsonFile } from "../json.js";
 import { resolvePackageWorkspace } from "../package/loadPackage.js";
@@ -36,7 +37,7 @@ import type {
 import { executorProfileExecutionHost } from "../types.js";
 import type { ExecutionWaveId } from "./runnerContractSchemas.js";
 import { runCommandInTmux, type TmuxSessionInfo } from "./tmuxExecutor.js";
-import { recordBlockRunInIndex } from "./blockRunIndex.js";
+import { withPreparedBlockRunIndex } from "./blockRunIndex.js";
 import { ExecutorCancelledError, isExecutorCancelledError } from "./executorCancellation.js";
 
 export { ExecutorCancelledError, isExecutorCancelledError } from "./executorCancellation.js";
@@ -314,6 +315,31 @@ export async function pathExists(path: string): Promise<boolean> {
   return (await optionalStat(path)) !== null;
 }
 
+async function countRunDirectories(runRoot: string): Promise<number> {
+  const entries = await optionalReaddir(runRoot, { withFileTypes: true });
+  return (
+    entries?.filter((entry) => entry.isDirectory() && /^RUN-\d+$/.test(entry.name)).length ?? 0
+  );
+}
+
+function formatRunId(ordinal: number): string {
+  return `RUN-${String(ordinal).padStart(3, "0")}`;
+}
+
+export async function findAvailableRunId(runRoot: string): Promise<string> {
+  const count = await countRunDirectories(runRoot);
+  for (let attempt = 1; attempt <= 1000; attempt++) {
+    const candidate = formatRunId(count + attempt);
+    try {
+      await lstat(join(runRoot, candidate));
+    } catch (error) {
+      if (isNodeFileNotFoundError(error)) return candidate;
+      throw error;
+    }
+  }
+  throw new Error(`Unable to allocate a run id under ${runRoot}`);
+}
+
 /** @deprecated Prefer `allocateRunId` — kept as a thin alias for callers/tests. */
 export async function nextRunId(runRoot: string): Promise<string> {
   return allocateRunId(runRoot);
@@ -323,21 +349,12 @@ export async function nextRunId(runRoot: string): Promise<string> {
 export async function allocateRunId(runRoot: string): Promise<string> {
   await mkdir(runRoot, { recursive: true });
   for (let attempt = 1; attempt <= 1000; attempt++) {
-    const existing = await optionalReaddir(runRoot, { withFileTypes: true });
-    const count =
-      existing?.filter((entry) => entry.isDirectory() && /^RUN-\d+$/.test(entry.name)).length ?? 0;
-    const candidate = `RUN-${String(count + attempt).padStart(3, "0")}`;
+    const candidate = formatRunId((await countRunDirectories(runRoot)) + attempt);
     try {
       await mkdir(join(runRoot, candidate), { recursive: false });
       return candidate;
     } catch (error) {
-      if (
-        error instanceof Error &&
-        "code" in error &&
-        (error as NodeJS.ErrnoException).code === "EEXIST"
-      ) {
-        continue;
-      }
+      if (error instanceof Error && "code" in error && error.code === "EEXIST") continue;
       throw error;
     }
   }
@@ -386,62 +403,69 @@ export async function prepareBlockRun(options: {
         );
       }
     }
-    const runRoot = join(workspace.resultsDir, taskId, "blocks", blockId, "runs");
-    const existingRunId = submissionAttemptId
-      ? await findAttemptRun(runRoot, submissionAttemptId)
-      : null;
-    if (existingRunId) {
-      const runDir = join(runRoot, existingRunId);
-      const metadataPath = join(runDir, "metadata.json");
-      const metadata = await readImplementationRunMetadataFile(metadataPath);
-      if (
-        metadata.ref !== options.claim.ref ||
-        metadata.taskId !== taskId ||
-        metadata.blockId !== blockId ||
-        metadata.runId !== existingRunId ||
-        metadata.executor !== options.executorName ||
-        metadata.adapter !== options.adapter ||
-        typeof metadata.startedAt !== "string"
-      ) {
-        throw new ExecutorClaimRejectedError(
-          `Prepared run '${existingRunId}' identity conflicts with executor preparation.`
-        );
+    const runRoot = await resolveResultsPath(
+      workspace.resultsDir,
+      taskId,
+      "blocks",
+      blockId,
+      "runs"
+    );
+    return withPreparedBlockRunIndex(runRoot, async (prepareIndex) => {
+      const existingRunId = submissionAttemptId
+        ? await findAttemptRun(runRoot, submissionAttemptId)
+        : null;
+      if (existingRunId) {
+        const runDir = await resolveResultsPath(runRoot, existingRunId);
+        const metadataPath = await resolveResultsPath(runDir, "metadata.json");
+        const metadata = await readImplementationRunMetadataFile(metadataPath);
+        if (
+          metadata.ref !== options.claim.ref ||
+          metadata.taskId !== taskId ||
+          metadata.blockId !== blockId ||
+          metadata.runId !== existingRunId ||
+          metadata.executor !== options.executorName ||
+          metadata.adapter !== options.adapter ||
+          typeof metadata.startedAt !== "string"
+        ) {
+          throw new ExecutorClaimRejectedError(
+            `Prepared run '${existingRunId}' identity conflicts with executor preparation.`
+          );
+        }
+        if (metadata.preparedContentRevision !== options.executionSnapshot?.contentRevision) {
+          throw new ExecutorClaimRejectedError(
+            `Prepared run '${existingRunId}' content conflicts with executor preparation; reclaim before starting a new execution.`
+          );
+        }
+        if (
+          options.adapter !== "manual" &&
+          (metadata.executionAdmittedAt !== null || metadata.command !== undefined)
+        ) {
+          throw new ExecutorAlreadyAdmittedError(existingRunId);
+        }
+        const promptPath = await resolveResultsPath(runDir, "prompt.md");
+        const publishIndex = await prepareIndex(existingRunId, { metadata });
+        if (!(await pathExists(promptPath))) await writeFile(promptPath, options.prompt, "utf8");
+        await publishIndex();
+        const executionAdmittedAt =
+          options.adapter !== "manual" ? new Date().toISOString() : undefined;
+        if (executionAdmittedAt) {
+          await finishRunMetadata(metadataPath, { executionAdmittedAt });
+        }
+        return {
+          runId: existingRunId,
+          runDir,
+          promptPath,
+          metadataPath,
+          startedAt: metadata.startedAt,
+          ...(executionAdmittedAt ? { executionAdmittedAt } : {})
+        };
       }
-      if (metadata.preparedContentRevision !== options.executionSnapshot?.contentRevision) {
-        throw new ExecutorClaimRejectedError(
-          `Prepared run '${existingRunId}' content conflicts with executor preparation; reclaim before starting a new execution.`
-        );
-      }
-      if (
-        options.adapter !== "manual" &&
-        (metadata.executionAdmittedAt !== null || metadata.command !== undefined)
-      ) {
-        throw new ExecutorAlreadyAdmittedError(existingRunId);
-      }
+      const runId = await findAvailableRunId(runRoot);
+      const runDir = join(runRoot, runId);
       const promptPath = join(runDir, "prompt.md");
-      if (!(await pathExists(promptPath))) await writeFile(promptPath, options.prompt, "utf8");
-      await recordBlockRunInIndex(runRoot, existingRunId);
-      const executionAdmittedAt =
-        options.adapter !== "manual" ? new Date().toISOString() : undefined;
-      if (executionAdmittedAt) {
-        await finishRunMetadata(metadataPath, { executionAdmittedAt });
-      }
-      return {
-        runId: existingRunId,
-        runDir,
-        promptPath,
-        metadataPath,
-        startedAt: metadata.startedAt,
-        ...(executionAdmittedAt ? { executionAdmittedAt } : {})
-      };
-    }
-    const runId = await allocateRunId(runRoot);
-    const runDir = join(runRoot, runId);
-    const promptPath = join(runDir, "prompt.md");
-    const metadataPath = join(runDir, "metadata.json");
-    const startedAt = new Date().toISOString();
-    try {
-      await writeJsonFile(metadataPath, {
+      const metadataPath = join(runDir, "metadata.json");
+      const startedAt = new Date().toISOString();
+      const metadata = {
         runId,
         ...(submissionAttemptId !== undefined ? { submissionAttemptId } : {}),
         ...(options.executionSnapshot
@@ -467,37 +491,43 @@ export async function prepareBlockRun(options: {
         exitCode: null,
         agentSessionId: null,
         codexSessionId: null
-      });
-    } catch (error) {
+      };
+      const publishIndex = await prepareIndex(runId, { metadata });
+      await mkdir(runDir, { recursive: false });
       try {
-        await rmdir(runDir);
-      } catch (cleanupError) {
-        if (!(error instanceof Error))
-          throw new AggregateError(
-            [error, cleanupError],
-            "Preparation and empty-directory cleanup failed."
-          );
-        error.cause =
-          error.cause === undefined
-            ? cleanupError
-            : new AggregateError([error.cause, cleanupError], "Preparation cleanup failed.");
+        await writeJsonFile(metadataPath, metadata);
+      } catch (error) {
+        try {
+          await rmdir(runDir);
+        } catch (cleanupError) {
+          if (!(error instanceof Error))
+            throw new AggregateError(
+              [error, cleanupError],
+              "Preparation and empty-directory cleanup failed."
+            );
+          error.cause =
+            error.cause === undefined
+              ? cleanupError
+              : new AggregateError([error.cause, cleanupError], "Preparation cleanup failed.");
+        }
+        throw error;
       }
-      throw error;
-    }
-    await writeFile(promptPath, options.prompt, "utf8");
-    await recordBlockRunInIndex(runRoot, runId);
-    const executionAdmittedAt = options.adapter !== "manual" ? new Date().toISOString() : undefined;
-    if (executionAdmittedAt) {
-      await finishRunMetadata(metadataPath, { executionAdmittedAt });
-    }
-    return {
-      runId,
-      runDir,
-      promptPath,
-      metadataPath,
-      startedAt,
-      ...(executionAdmittedAt ? { executionAdmittedAt } : {})
-    };
+      await writeFile(promptPath, options.prompt, "utf8");
+      await publishIndex();
+      const executionAdmittedAt =
+        options.adapter !== "manual" ? new Date().toISOString() : undefined;
+      if (executionAdmittedAt) {
+        await finishRunMetadata(metadataPath, { executionAdmittedAt });
+      }
+      return {
+        runId,
+        runDir,
+        promptPath,
+        metadataPath,
+        startedAt,
+        ...(executionAdmittedAt ? { executionAdmittedAt } : {})
+      };
+    });
   });
 }
 

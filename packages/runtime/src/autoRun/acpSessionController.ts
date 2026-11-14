@@ -117,11 +117,14 @@ export class AcpSessionController {
       interactionObserver?: RunnerInteractionObserver;
       sessionDefaults?: DesktopAcpSessionDefaults;
       onMetadataPersisted?: () => void | Promise<void>;
+      withArtifactPublication?: (
+        persist: () => Promise<NonNullable<Awaited<ReturnType<typeof materializeFinalArtifact>>>>
+      ) => Promise<NonNullable<Awaited<ReturnType<typeof materializeFinalArtifact>>>>;
     }
   ): Promise<ExecutorAdapterResult> {
     await mkdir(run.runDir, { recursive: true });
     const heartbeatPath = join(run.runDir, "heartbeat.json");
-    const startedAt = new Date().toISOString();
+    const startedAt = run.startedAt ?? new Date().toISOString();
     const ownerLeaseId = randomUUID();
     const agentRunControlLeaseId = agentRunControlLeaseIdSchema.parse(ownerLeaseId);
     const ownerGeneration = 1;
@@ -638,12 +641,21 @@ export class AcpSessionController {
             if (protocolObserverError !== undefined) throw protocolObserverError;
             executionPhase = "artifact";
             const envelope = extractFinalArtifactEnvelope(output, expected);
-            const artifactReference = await materializeFinalArtifact({
-              envelope,
-              expected,
-              rootDir: run.runDir,
-              relativePath: artifactRelative
-            });
+            const persistArtifact = () =>
+              materializeFinalArtifact({
+                envelope,
+                expected,
+                rootDir: run.runDir,
+                relativePath: artifactRelative
+              });
+            const artifactReference = options?.withArtifactPublication
+              ? await options.withArtifactPublication(async () => {
+                  const reference = await persistArtifact();
+                  validatedArtifactReference = reference;
+                  await writeState("running", { artifactReference: reference });
+                  return reference;
+                })
+              : await persistArtifact();
             validatedArtifactReference = artifactReference;
             if (eventStore) {
               await eventStore.append({ kind: "artifact", artifact: artifactReference });

@@ -1,6 +1,6 @@
+import { resolveResultsPath } from "./resultPaths.js";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import {
   dependencyResultSummarySchema,
   type DependencyResultSummary,
@@ -109,9 +109,20 @@ async function implementationGeneration(
   let bytes: Buffer | null = null;
   let metadataMatches = false;
   if (runId) {
-    const runDir = join(context.workspace.resultsDir, taskId, "blocks", blockId, "runs", runId);
+    const runDir = await resolveResultsPath(
+      context.workspace.resultsDir,
+      taskId,
+      "blocks",
+      blockId,
+      "runs",
+      runId
+    );
+    const [metadataPath, reportPath] = await Promise.all([
+      resolveResultsPath(runDir, "metadata.json"),
+      resolveResultsPath(runDir, "report.md")
+    ]);
     try {
-      const metadata = await readImplementationRunMetadataFile(join(runDir, "metadata.json"));
+      const metadata = await readImplementationRunMetadataFile(metadataPath);
       expectedReportDigest = metadata.reportHash ?? null;
       try {
         bytes = metadata.artifactReference
@@ -121,7 +132,7 @@ async function implementationGeneration(
                 value: metadata.artifactReference
               })
             ).bytes
-          : await readFile(join(runDir, "report.md"));
+          : await readFile(reportPath);
         actualReportDigest = createHash("sha256").update(bytes).digest("hex");
         metadataMatches =
           metadata.ref === ref &&
@@ -129,7 +140,7 @@ async function implementationGeneration(
           metadata.reportHash === actualReportDigest;
       } catch {
         try {
-          const unverifiedBytes = await readFile(join(runDir, "report.md"));
+          const unverifiedBytes = await readFile(reportPath);
           actualReportDigest = createHash("sha256").update(unverifiedBytes).digest("hex");
         } catch {
           actualReportDigest = null;
@@ -137,7 +148,7 @@ async function implementationGeneration(
       }
     } catch {
       try {
-        const unverifiedBytes = await readFile(join(runDir, "report.md"));
+        const unverifiedBytes = await readFile(reportPath);
         actualReportDigest = createHash("sha256").update(unverifiedBytes).digest("hex");
       } catch {
         actualReportDigest = null;

@@ -289,12 +289,12 @@ async function findLatestArtifact(workspace: ProjectWorkspace, locators: readonl
   return null;
 }
 
-function runRootForBlock(workspace: ProjectWorkspace, blockRef: string): string {
+function runRootForBlock(workspace: ProjectWorkspace, blockRef: string): Promise<string> {
   return blockRunRoot(workspace.resultsDir, blockRef);
 }
 
 async function indexedBlockSummary(workspace: ProjectWorkspace, blockRef: string) {
-  const runRoot = runRootForBlock(workspace, blockRef);
+  const runRoot = await runRootForBlock(workspace, blockRef);
   if (!(await optionalStat(runRoot))) {
     return { head: null, latestArtifactRunId: null };
   }
@@ -316,7 +316,7 @@ async function queryTaskRunLocators(
     : undefined;
   const batches = await Promise.all(
     blockRefs.map(async (blockRef) => {
-      const runRoot = runRootForBlock(workspace, blockRef);
+      const runRoot = await runRootForBlock(workspace, blockRef);
       if (!(await optionalStat(runRoot))) {
         return { blockRef, entries: [], hasMore: false, latestRecordId: null };
       }
@@ -571,7 +571,7 @@ export async function getTaskWorkspace(
     }
     if (parsedSelection.kind === "block") {
       await readBlockRunIndexEntry(
-        runRootForBlock(workspace, parsedSelection.blockRef),
+        await runRootForBlock(workspace, parsedSelection.blockRef),
         parsedSelection.runId
       );
     }
@@ -599,7 +599,7 @@ export async function getTaskWorkspace(
               ? summary.head.orderedAt
               : (
                   await readBlockRunIndexEntry(
-                    runRootForBlock(workspace, blockRef),
+                    await runRootForBlock(workspace, blockRef),
                     summary.latestArtifactRunId
                   )
                 ).orderedAt
@@ -853,7 +853,9 @@ export async function getTaskWorkspaceRunDetail(
   let latestRecordId: string | null = null;
   if (parsed.kind === "block") {
     const [blockIndexEntry, blockIndexSummary] = await Promise.all([
-      readBlockRunIndexEntry(runRootForBlock(workspace, parsed.blockRef), parsed.runId),
+      runRootForBlock(workspace, parsed.blockRef).then((root) =>
+        readBlockRunIndexEntry(root, parsed.runId)
+      ),
       indexedBlockSummary(workspace, parsed.blockRef)
     ]);
     latestRecordId = blockIndexSummary.head

@@ -1,3 +1,4 @@
+import { identifierSegmentRequirement } from "../schema/identifierSegment.js";
 import {
   edgeTypes,
   executorIntegration,
@@ -97,7 +98,7 @@ const reviewTriggerConditionSchema = Object.fromEntries(
   reviewTriggerConditions.map((condition) => [condition, condition])
 ) as Record<ReviewTriggerCondition, ReviewTriggerCondition>;
 const edgeTypeSchema = edgeTypes.map((type) => `"${type}"`).join(" | ");
-const idSegmentDescription = "id string, non-empty, must not contain '#'";
+const idSegmentDescription = "id string, non-empty portable directory name";
 
 export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
   name: "manifest",
@@ -178,6 +179,7 @@ export const manifestSchemaDocument: SchemaDocument<"manifest"> = {
   notes: [
     "Only task nodes are supported; do not create goal, context, requirement, risk, or file nodes.",
     "Only implementation and review block types are supported.",
+    `Task and Block IDs use portable directory names. ${identifierSegmentRequirement}`,
     "Use task edges for task dependencies and block depends_on for block order inside a task.",
     "Dependencies answer when a block can start; shared resources only describe coordination context.",
     "Implementation requirements express portable Host capabilities; concrete Host and human assignment stay outside the Plan Package.",

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { resolveResultsPath } from "./resultPaths.js";
 import { inspectPendingTransitionsForWorkspace } from "../autoRun/pendingTransitionIntent.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { withExecutionStateLock } from "./executionStateBoundary.js";
@@ -53,9 +54,19 @@ async function resultRunMatchesIndex(
   if (!blockId) {
     return false;
   }
-  const runDir = join(workspace.resultsDir, taskId, "blocks", blockId, "runs", runId);
-  const metadataPath = join(runDir, "metadata.json");
-  if (!(await exists(metadataPath)) || !(await exists(join(runDir, "report.md")))) {
+  const runDir = await resolveResultsPath(
+    workspace.resultsDir,
+    taskId,
+    "blocks",
+    blockId,
+    "runs",
+    runId
+  );
+  const metadataPath = await resolveResultsPath(runDir, "metadata.json");
+  if (
+    !(await exists(metadataPath)) ||
+    !(await exists(await resolveResultsPath(runDir, "report.md")))
+  ) {
     return false;
   }
   // Present metadata must parse under the implementation-run contract; invalid/malformed fails visibly.

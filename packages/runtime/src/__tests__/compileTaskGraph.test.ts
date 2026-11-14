@@ -106,7 +106,7 @@ describe("compileTaskGraph", () => {
 
   it.each([
     ["T-001", "B-001"],
-    [" 任务:实作.+[] ", " "],
+    ["任务 实作.+[]", ".block"],
     ["a".repeat(257), "乙".repeat(257)]
   ])("parses '%s#%s' without changing either segment", (taskId, blockId) => {
     expect(parseBlockRef(`${taskId}#${blockId}`)).toEqual({ taskId, blockId });

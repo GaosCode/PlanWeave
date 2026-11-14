@@ -1,3 +1,4 @@
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { AcpCorrelation, RunnerIdentity, RunnerRunIdentity } from "./runnerContractSchemas.js";
@@ -113,6 +114,10 @@ export class AcpEventStore {
 
   async open(): Promise<RunnerEventReplayDiagnostic[]> {
     if (this.opened) throw new Error("ACP event store is already open.");
+    await Promise.all([
+      resolveResultsPath(this.options.runDir, "events.ndjson"),
+      resolveResultsPath(this.options.runDir, "protocol.ndjson")
+    ]);
     await mkdir(this.options.runDir, { recursive: true });
     let content: string;
     try {

@@ -1,3 +1,4 @@
+import { resolveResultsPath } from "./resultPaths.js";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -111,8 +112,8 @@ export function parseTaskResultIndex(raw: unknown, indexPath: string): TaskResul
   return parsed.data;
 }
 
-function taskIndexPath(workspace: ProjectWorkspace, taskId: string): string {
-  return join(workspace.resultsDir, taskId, "index.json");
+export function taskIndexPath(workspace: ProjectWorkspace, taskId: string): Promise<string> {
+  return resolveResultsPath(workspace.resultsDir, taskId, "index.json");
 }
 
 /**
@@ -125,7 +126,7 @@ export async function readTaskIndex(
   workspace: ProjectWorkspace,
   taskId: string
 ): Promise<TaskResultIndex> {
-  const path = taskIndexPath(workspace, taskId);
+  const path = await taskIndexPath(workspace, taskId);
   if (!(await optionalStat(path))) {
     return {};
   }
@@ -146,8 +147,7 @@ async function writeTaskIndex(
   taskId: string,
   index: TaskResultIndex
 ): Promise<void> {
-  await mkdir(join(workspace.resultsDir, taskId), { recursive: true });
-  await writeJsonFile(taskIndexPath(workspace, taskId), index);
+  await writeJsonFile(await taskIndexPath(workspace, taskId), index);
 }
 
 export async function updateTaskIndex(

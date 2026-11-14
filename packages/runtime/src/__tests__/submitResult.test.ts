@@ -5,11 +5,12 @@ import {
   mkdir,
   readFile,
   readdir,
+  rename,
   symlink,
   unlink,
   writeFile
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import * as json from "../json.js";
 import { readState, writeState } from "../state.js";
@@ -32,9 +33,88 @@ import {
 import type { RuntimeState, TaskResultIndex } from "../types.js";
 import { readBlockRunIndexView } from "../autoRun/blockRunIndex.js";
 import { prepareBlockRun } from "../autoRun/executorShared.js";
-import { createTestWorkspace, writeReport } from "./promptTestHelpers.js";
+import { snapshotDirectory } from "./support/snapshotDirectory.js";
+import { basicManifest, createTestWorkspace, writeReport } from "./promptTestHelpers.js";
 
 describe("submitBlockResult", () => {
+  it("preserves Unicode task, block, and custom run IDs through the Results root alias", async () => {
+    const taskId = "任务 β";
+    const blockId = "实现 Ω";
+    const runId = "交付 + 1";
+    const ref = `${taskId}#${blockId}`;
+    const manifest = basicManifest();
+    const task = manifest.nodes[0];
+    if (task.type !== "task") throw new Error("Expected task fixture");
+    task.id = taskId;
+    task.prompt = `nodes/${taskId}/prompt.md`;
+    for (const block of task.blocks) {
+      block.prompt = `nodes/${taskId}/blocks/${block.id}.prompt.md`;
+    }
+    task.blocks[0].id = blockId;
+    task.blocks[1].depends_on = [blockId];
+    const { root, init } = await createTestWorkspace(manifest);
+    const { resultsDir } = init.workspace;
+    const actualResultsDir = `${resultsDir}-backing`;
+    await rename(resultsDir, actualResultsDir);
+    await symlink(actualResultsDir, resultsDir, process.platform === "win32" ? "junction" : "dir");
+
+    await expect(claimNext({ projectRoot: root })).resolves.toMatchObject({ ref });
+    const report = "Unicode identity payload\n";
+    const options = {
+      projectRoot: root,
+      ref,
+      runId,
+      reportPath: await writeReport(root, "unicode-report.md", report)
+    };
+    const first = await submitBlockResult(options);
+    expect(first).toEqual({ ref, runId, status: "completed" });
+    await expect(submitBlockResult(options)).resolves.toEqual(first);
+    const runRoot = join(actualResultsDir, taskId, "blocks", blockId, "runs");
+    await expect(readFile(join(runRoot, runId, "report.md"), "utf8")).resolves.toBe(report);
+    await expect(readJsonFile(join(runRoot, runId, "metadata.json"))).resolves.toMatchObject({
+      ref,
+      taskId,
+      blockId,
+      runId
+    });
+    expect((await readBlockRunIndexView(runRoot, { limit: 10 })).entries).toMatchObject([
+      { runId }
+    ]);
+    await expect(readJsonFile(join(actualResultsDir, taskId, "index.json"))).resolves.toMatchObject(
+      {
+        latestRunByBlock: { [ref]: runId },
+        counts: { runs: 1 }
+      }
+    );
+  });
+
+  it("rejects a run root linked to a similarly named sibling before allocating a run", async () => {
+    const { root, init } = await createTestWorkspace();
+    const { resultsDir, stateFile } = init.workspace;
+    await claimNext({ projectRoot: root });
+    const runRoot = join(resultsDir, "T-001", "blocks", "B-001", "runs");
+    const outside = `${resultsDir}-outside`;
+    const sentinel = join(outside, "sentinel");
+    await mkdir(outside);
+    await writeFile(sentinel, "outside results");
+    await mkdir(dirname(runRoot), { recursive: true });
+    await symlink(outside, runRoot, process.platform === "win32" ? "junction" : "dir");
+    const historicalState = await readState(stateFile);
+    await writeState(stateFile, { ...historicalState, tasks: {} });
+    const before = await readFile(stateFile);
+    const reportPath = await writeReport(root, "boundary.md");
+
+    await expect(
+      submitBlockResult({ projectRoot: root, ref: "T-001#B-001", reportPath })
+    ).rejects.toThrow(/Results path .*outside/i);
+    expect(await readFile(stateFile)).toEqual(before);
+    expect(await readdir(outside)).toEqual(["sentinel"]);
+    expect(await readFile(sentinel, "utf8")).toBe("outside results");
+    await expect(access(join(resultsDir, "T-001", "index.json"))).rejects.toMatchObject({
+      code: "ENOENT"
+    });
+  });
+
   it.each([
     "",
     "../outside",
@@ -58,6 +138,51 @@ describe("submitBlockResult", () => {
     await expect(
       access(join(init.workspace.resultsDir, "T-001", "blocks", "B-001", "runs", "RUN-001"))
     ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each([
+    { source: "explicit", runId: "CON.txt" },
+    { source: "explicit", runId: "RUN-end." },
+    { source: "reserved", runId: "AUX.txt" },
+    { source: "completed", runId: "RUN-previous." }
+  ] as const)("rejects an unsafe $source run ID ($runId) without creating Results directories", async ({
+    source,
+    runId
+  }) => {
+    const { root, init } = await createTestWorkspace();
+    const { resultsDir, stateFile } = init.workspace;
+    const ref = "T-001#B-001";
+    await claimNext({ projectRoot: root });
+    if (source !== "explicit") {
+      const state = await readState(stateFile);
+      state.blocks[ref] =
+        source === "reserved"
+          ? { ...state.blocks[ref], submissionRunId: runId }
+          : { ...state.blocks[ref], status: "completed", lastRunId: runId };
+      await writeState(stateFile, state);
+    }
+    const outside = `${resultsDir}-outside`;
+    await mkdir(outside);
+    await writeFile(join(outside, "sentinel"), "outside Results");
+    const beforeState = await readFile(stateFile);
+    const beforeResults = await snapshotDirectory(resultsDir);
+    const beforeOutside = await snapshotDirectory(outside);
+    expect(beforeResults).toEqual([]);
+
+    await expect(
+      submitBlockResult({
+        projectRoot: root,
+        ref,
+        ...(source === "explicit" ? { runId } : {}),
+        reportPath: await writeReport(root, "unsafe-run-id.md")
+      })
+    ).rejects.toMatchObject({
+      code: "results_path_outside",
+      message: expect.stringContaining(runId)
+    });
+    expect(await snapshotDirectory(resultsDir)).toEqual(beforeResults);
+    expect(await readFile(stateFile)).toEqual(beforeState);
+    expect(await snapshotDirectory(outside)).toEqual(beforeOutside);
   });
 
   it("submits a prepared manual claim without runId into the same RUN and counts it once", async () => {

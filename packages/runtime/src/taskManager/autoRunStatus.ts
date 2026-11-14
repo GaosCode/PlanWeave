@@ -1,3 +1,4 @@
+import { resolveResultsPath } from "./resultPaths.js";
 import { join } from "node:path";
 import { finalArtifactRelativePath } from "../autoRun/finalArtifactContract.js";
 import {
@@ -76,7 +77,7 @@ async function runFileUpdateTimes(
   const stdoutUpdatedAt = await fileUpdatedAt(join(runDir, "stdout.md"));
   const stderrUpdatedAt = await fileUpdatedAt(join(runDir, "stderr.log"));
   const metadataUpdatedAt = await fileUpdatedAt(metadataPath);
-  const heartbeatPath = join(runDir, "heartbeat.json");
+  const heartbeatPath = await resolveResultsPath(runDir, "heartbeat.json");
   const heartbeatUpdatedAt = await fileUpdatedAt(heartbeatPath);
   const heartbeat: Record<string, unknown> = heartbeatUpdatedAt
     ? await readJsonFile<Record<string, unknown>>(heartbeatPath).catch(() => ({}))
@@ -451,13 +452,13 @@ async function latestFeedbackRunSummary(options: {
   currentFeedbackId: string | null;
   acpMetadata?: Map<string, Record<string, unknown>>;
 }): Promise<AutoRunLatestRunSummary | null> {
-  const runRoot = join(options.resultsDir, "feedback-runs");
+  const runRoot = await resolveResultsPath(options.resultsDir, "feedback-runs");
   const runId = await latestRunId(runRoot);
   if (!runId) {
     return null;
   }
-  const runDir = join(runRoot, runId);
-  const metadataPath = join(runDir, "metadata.json");
+  const runDir = await resolveResultsPath(runRoot, runId);
+  const metadataPath = await resolveResultsPath(runDir, "metadata.json");
   const metadata = (await exists(metadataPath))
     ? await readJsonFile<Record<string, unknown>>(metadataPath)
     : {};
@@ -476,7 +477,7 @@ async function latestFeedbackRunSummary(options: {
   const hasManualPrompt = await exists(feedbackPromptPath);
   const hasReport = await exists(reportPath);
   const exitCode = typeof metadata.exitCode === "number" ? metadata.exitCode : null;
-  const stderrSummary = await readSummary(join(runDir, "stderr.log"));
+  const stderrSummary = await readSummary(await resolveResultsPath(runDir, "stderr.log"));
   const metadataFailureReason = stringField(metadata.failureReason);
   const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
   const identity = runnerIdentity(metadata);
@@ -504,7 +505,8 @@ async function latestFeedbackRunSummary(options: {
     startedAt: stringField(metadata.startedAt),
     finishedAt: stringField(metadata.finishedAt),
     stdoutSummary:
-      stringField(metadata.nextCommand) ?? (await readSummary(join(runDir, "stdout.md"))),
+      stringField(metadata.nextCommand) ??
+      (await readSummary(await resolveResultsPath(runDir, "stdout.md"))),
     stderrSummary,
     failureReason:
       metadataFailureReason ?? (exitCode !== null && exitCode !== 0 ? stderrSummary || null : null),
@@ -539,19 +541,25 @@ export async function getAutoRunStatus(options: {
     : undefined;
 
   for (const block of executionStatus.blocks) {
-    const runRoot = join(workspace.resultsDir, block.taskId, "blocks", block.blockId, "runs");
+    const runRoot = await resolveResultsPath(
+      workspace.resultsDir,
+      block.taskId,
+      "blocks",
+      block.blockId,
+      "runs"
+    );
     const runId = await latestRunId(runRoot);
     if (!runId) {
       continue;
     }
-    const runDir = join(runRoot, runId);
-    const metadataPath = join(runDir, "metadata.json");
+    const runDir = await resolveResultsPath(runRoot, runId);
+    const metadataPath = await resolveResultsPath(runDir, "metadata.json");
     // Missing metadata stays incomplete empty product state; present files use B-003 contract.
     const metadata: Record<string, unknown> = (await exists(metadataPath))
       ? ((await readImplementationRunMetadataFile(metadataPath)) as Record<string, unknown>)
       : {};
     const exitCode = typeof metadata.exitCode === "number" ? metadata.exitCode : null;
-    const stderrSummary = await readSummary(join(runDir, "stderr.log"));
+    const stderrSummary = await readSummary(await resolveResultsPath(runDir, "stderr.log"));
     const metadataFailureReason = stringField(metadata.failureReason);
     const updateTimes = await runFileUpdateTimes(runDir, metadataPath);
     const identity = runnerIdentity(metadata);
@@ -568,7 +576,7 @@ export async function getAutoRunStatus(options: {
       status: block.status,
       startedAt: typeof metadata.startedAt === "string" ? metadata.startedAt : null,
       finishedAt: typeof metadata.finishedAt === "string" ? metadata.finishedAt : null,
-      stdoutSummary: await readSummary(join(runDir, "stdout.md")),
+      stdoutSummary: await readSummary(await resolveResultsPath(runDir, "stdout.md")),
       stderrSummary,
       failureReason:
         metadataFailureReason ??
@@ -576,7 +584,9 @@ export async function getAutoRunStatus(options: {
           ? ((stderrSummary || block.reason) ?? null)
           : (block.reason ?? null)),
       promptPath: join(runDir, "prompt.md"),
-      reportPath: (await exists(join(runDir, finalArtifactRelativePath("implementation"))))
+      reportPath: (await exists(
+        await resolveResultsPath(runDir, finalArtifactRelativePath("implementation"))
+      ))
         ? join(runDir, finalArtifactRelativePath("implementation"))
         : null,
       metadataPath,

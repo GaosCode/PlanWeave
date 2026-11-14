@@ -1,3 +1,4 @@
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
@@ -114,7 +115,7 @@ async function existingRunDirectories(ref: RunnerInteractionCanvasRef): Promise<
   for (const node of manifest.nodes) {
     if (node.type !== "task") continue;
     for (const block of node.blocks) {
-      const root = blockRunRoot(workspace.resultsDir, `${node.id}#${block.id}`);
+      const root = await blockRunRoot(workspace.resultsDir, `${node.id}#${block.id}`);
       const entries = await optionalReaddir(root, { withFileTypes: true });
       for (const entry of entries ?? []) {
         if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
@@ -123,7 +124,7 @@ async function existingRunDirectories(ref: RunnerInteractionCanvasRef): Promise<
       }
     }
   }
-  const feedbackRoot = join(workspace.resultsDir, "feedback-runs");
+  const feedbackRoot = await resolveResultsPath(workspace.resultsDir, "feedback-runs");
   const feedbackEntries = await optionalReaddir(feedbackRoot, { withFileTypes: true });
   for (const entry of feedbackEntries ?? []) {
     if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
@@ -166,13 +167,17 @@ async function locateRunDirectory(
   identity: RunnerInteractionIdentity
 ): Promise<{ runDir: string; kind: "block" | "feedback"; metadata: unknown }> {
   parseBlockRef(identity.claimRef);
-  const blockCandidate = join(
-    blockRunRoot(scope.resultsDir, identity.claimRef),
+  const blockCandidate = await blockRunRoot(
+    scope.resultsDir,
+    identity.claimRef,
     identity.executorRunId
   );
   const candidates: Array<{ runDir: string; kind: "block" | "feedback" }> = [
     { runDir: blockCandidate, kind: "block" },
-    { runDir: join(scope.resultsDir, "feedback-runs", identity.executorRunId), kind: "feedback" }
+    {
+      runDir: await resolveResultsPath(scope.resultsDir, "feedback-runs", identity.executorRunId),
+      kind: "feedback"
+    }
   ];
   const matches: typeof candidates = [];
   let requestFound = false;
@@ -212,7 +217,7 @@ async function locateRunDirectory(
   const match = matches[0]!;
   return {
     ...match,
-    metadata: await readJsonFile<unknown>(join(match.runDir, "metadata.json"))
+    metadata: await readJsonFile<unknown>(await resolveResultsPath(match.runDir, "metadata.json"))
   };
 }
 
@@ -243,8 +248,8 @@ async function locateRunDirectoryForAction(
   const parsed = parseActionRecordId(action.recordId);
   const candidate =
     parsed.kind === "block"
-      ? join(blockRunRoot(scope.resultsDir, parsed.blockRef), parsed.runId)
-      : join(scope.resultsDir, "feedback-runs", parsed.runId);
+      ? await blockRunRoot(scope.resultsDir, parsed.blockRef, parsed.runId)
+      : await resolveResultsPath(scope.resultsDir, "feedback-runs", parsed.runId);
   if (!(await optionalStat(candidate))?.isDirectory()) {
     throw new RunnerInteractionApiError(
       "interaction_not_found",
@@ -252,7 +257,9 @@ async function locateRunDirectoryForAction(
     );
   }
   await validateRunDirectory(scope.resultsDir, candidate);
-  const metadata = await readJsonFile<unknown>(join(candidate, "metadata.json"));
+  const metadata = await readJsonFile<unknown>(
+    await resolveResultsPath(candidate, "metadata.json")
+  );
   if (parsed.kind === "feedback") {
     const feedbackIdentity = z
       .object({ feedbackId: z.literal(parsed.feedbackId) })

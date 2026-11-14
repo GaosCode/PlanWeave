@@ -1,7 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { allocateRunId } from "../autoRun/executorShared.js";
-import { upsertBlockRunInIndex } from "../autoRun/blockRunIndex.js";
+import { resolveResultsPath } from "./resultPaths.js";
+import { findAvailableRunId } from "../autoRun/executorShared.js";
+import { withPreparedBlockRunIndex } from "../autoRun/blockRunIndex.js";
 import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
@@ -159,10 +160,13 @@ export function createRemoteBlockRuntimePort(options: {
 }): RemoteBlockRuntimePort {
   const projectRoot = options.projectRoot;
 
-  async function withLock<T>(operation: (context: RuntimeContext) => Promise<T>): Promise<T> {
+  async function withLock<T>(
+    operation: (context: RuntimeContext) => Promise<T>,
+    loadContext = loadRuntime
+  ): Promise<T> {
     const { workspace } = await loadPackage(projectRoot);
     return withExecutionStateLock({ projectRoot: workspace }, workspace, async () =>
-      operation(await loadRuntime({ projectRoot: workspace }))
+      operation(await loadContext({ projectRoot: workspace }))
     );
   }
 
@@ -353,32 +357,17 @@ export function createRemoteBlockRuntimePort(options: {
         // Non-resumable interruptions (e.g. lease_lost) never create a local run unless we
         // materialize one here — otherwise Task Workspace keeps showing older local Auto Runs.
         if (!input.interruption.resumable) {
-          const { taskId, blockId } = parseBlockRef(input.ref);
-          const runRoot = join(context.workspace.resultsDir, taskId, "blocks", blockId, "runs");
-          runId = await allocateRunId(runRoot);
-          const runDir = join(runRoot, runId);
-          await mkdir(runDir, { recursive: true });
-          await materializeRemoteAcpFailure({
-            workspace: context.workspace,
-            ref: input.ref,
-            runId,
-            runDir,
-            failure: {
+          runId = await persistRemoteFailure(
+            context.workspace,
+            input.ref,
+            {
               code: "transport_failed",
               message: `Remote execution interrupted: ${input.interruption.reason}.`,
               retryable: false
             },
-            identity: identityFromInput(input),
-            ...(input.agentId ? { agentId: input.agentId } : {})
-          });
-          await upsertBlockRunInIndex(runRoot, runId, true);
-          await updateTaskIndex(context.workspace, taskId, (index) => ({
-            ...index,
-            latestRunByBlock: {
-              ...(index.latestRunByBlock ?? {}),
-              [input.ref]: runId!
-            }
-          }));
+            identityFromInput(input),
+            input.agentId
+          );
         }
         context.state.blocks[input.ref] = runId
           ? { ...interrupted, lastRunId: runId }
@@ -389,7 +378,7 @@ export function createRemoteBlockRuntimePort(options: {
           binding: bindingView(context, input.ref),
           retryDecision
         });
-      });
+      }, loadRuntimeReadonly);
     },
 
     resumeAttempt: async (rawInput) => {
@@ -532,28 +521,13 @@ export function createRemoteBlockRuntimePort(options: {
             `Remote source changed before failure of '${input.ref}'.`
           );
         }
-        const { taskId, blockId } = parseBlockRef(input.ref);
-        const runRoot = join(context.workspace.resultsDir, taskId, "blocks", blockId, "runs");
-        const runId = await allocateRunId(runRoot);
-        const runDir = join(runRoot, runId);
-        await mkdir(runDir, { recursive: true });
-        await materializeRemoteAcpFailure({
-          workspace: context.workspace,
-          ref: input.ref,
-          runId,
-          runDir,
-          failure: input.failure,
-          identity: identityFromInput(input),
-          ...(input.agentId ? { agentId: input.agentId } : {})
-        });
-        await upsertBlockRunInIndex(runRoot, runId, true);
-        await updateTaskIndex(context.workspace, taskId, (index) => ({
-          ...index,
-          latestRunByBlock: {
-            ...(index.latestRunByBlock ?? {}),
-            [input.ref]: runId
-          }
-        }));
+        const runId = await persistRemoteFailure(
+          context.workspace,
+          input.ref,
+          input.failure,
+          identityFromInput(input),
+          input.agentId
+        );
         context.state.blocks[input.ref] = failRemoteBlockOwnership({
           blockType,
           blockState: current,
@@ -568,7 +542,43 @@ export function createRemoteBlockRuntimePort(options: {
           binding: bindingView(context, input.ref),
           retryDecision: input.failure.retryable ? "manual_retry_required" : "not_retryable"
         });
-      });
+      }, loadRuntimeReadonly);
     }
   };
+}
+
+async function persistRemoteFailure(
+  workspace: Parameters<typeof materializeRemoteAcpFailure>[0]["workspace"],
+  ref: string,
+  failure: Parameters<typeof materializeRemoteAcpFailure>[0]["failure"],
+  identity: Parameters<typeof materializeRemoteAcpFailure>[0]["identity"],
+  agentId: string | undefined
+): Promise<string> {
+  const { taskId, blockId } = parseBlockRef(ref);
+  const runRoot = await resolveResultsPath(workspace.resultsDir, taskId, "blocks", blockId, "runs");
+  await resolveResultsPath(workspace.resultsDir, taskId, "index.json");
+  return withPreparedBlockRunIndex(runRoot, async (prepareIndex) => {
+    const runId = await findAvailableRunId(runRoot);
+    const startedAt = new Date().toISOString();
+    const publishIndex = await prepareIndex(runId, {
+      metadata: { ref, startedAt },
+      hasArtifact: true
+    });
+    await mkdir(join(runRoot, runId), { recursive: false });
+    await materializeRemoteAcpFailure({
+      workspace,
+      ref,
+      runId,
+      failure,
+      startedAt,
+      identity,
+      ...(agentId ? { agentId } : {})
+    });
+    await publishIndex();
+    await updateTaskIndex(workspace, taskId, (index) => ({
+      ...index,
+      latestRunByBlock: { ...index.latestRunByBlock, [ref]: runId }
+    }));
+    return runId;
+  });
 }

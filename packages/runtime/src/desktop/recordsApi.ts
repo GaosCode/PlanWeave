@@ -1,3 +1,4 @@
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
@@ -139,23 +140,27 @@ async function listDirectories(path: string): Promise<string[]> {
   );
 }
 
-export function blockRunRoot(resultsDir: string, blockRef: string): string {
+export function blockRunRoot(
+  resultsDir: string,
+  blockRef: string,
+  ...segments: string[]
+): Promise<string> {
   const { taskId, blockId } = parseBlockRef(blockRef);
-  return join(resultsDir, taskId, "blocks", blockId, "runs");
+  return resolveResultsPath(resultsDir, taskId, "blocks", blockId, "runs", ...segments);
 }
 
 async function listBlockRunIds(resultsDir: string, blockRef: string): Promise<string[]> {
-  return (await listDirectories(blockRunRoot(resultsDir, blockRef))).filter(
+  return (await listDirectories(await blockRunRoot(resultsDir, blockRef))).filter(
     (runId) => !runId.startsWith(".")
   );
 }
 
-function feedbackRunRoot(resultsDir: string): string {
-  return join(resultsDir, "feedback-runs");
+function feedbackRunRoot(resultsDir: string, ...segments: string[]): Promise<string> {
+  return resolveResultsPath(resultsDir, "feedback-runs", ...segments);
 }
 
 async function listFeedbackRunIds(resultsDir: string): Promise<string[]> {
-  return (await listDirectories(feedbackRunRoot(resultsDir))).filter(
+  return (await listDirectories(await feedbackRunRoot(resultsDir))).filter(
     (runId) => !runId.startsWith(".")
   );
 }
@@ -171,15 +176,14 @@ function assertContainedPath(root: string, candidate: string): void {
   throw new Error("ACP run record path escapes the selected canvas results directory.");
 }
 
-function blockRunDirectory(
+async function blockRunDirectory(
   workspace: ProjectWorkspace,
   parsed: Extract<ParsedRunRecordId, { kind: "block" }>
-): string {
+): Promise<string> {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(parsed.runId)) {
     throw new Error(`Run id '${parsed.runId}' is invalid.`);
   }
-  const runRoot = blockRunRoot(workspace.resultsDir, parsed.blockRef);
-  const runDir = join(runRoot, parsed.runId);
+  const runDir = await blockRunRoot(workspace.resultsDir, parsed.blockRef, parsed.runId);
   assertContainedPath(workspace.resultsDir, runDir);
   return runDir;
 }
@@ -189,9 +193,9 @@ async function assertRealRunDirectory(resultsDir: string, runDir: string): Promi
   assertContainedPath(realResultsDir, realRunDir);
 }
 
-function reviewAttemptRoot(resultsDir: string, blockRef: string): string {
+function reviewAttemptRoot(resultsDir: string, blockRef: string): Promise<string> {
   const { taskId, blockId } = parseBlockRef(blockRef);
-  return join(resultsDir, taskId, "reviews", blockId, "attempts");
+  return resolveResultsPath(resultsDir, taskId, "reviews", blockId, "attempts");
 }
 
 function stringField(metadata: Record<string, unknown>, key: string): string | null {
@@ -250,7 +254,7 @@ async function runFileUpdateTimes(
   const stdoutUpdatedAt = await fileUpdatedAt(join(runDir, "stdout.md"));
   const stderrUpdatedAt = await fileUpdatedAt(join(runDir, "stderr.log"));
   const metadataUpdatedAt = await fileUpdatedAt(metadataPath);
-  const heartbeatPath = join(runDir, "heartbeat.json");
+  const heartbeatPath = await resolveResultsPath(runDir, "heartbeat.json");
   const heartbeatUpdatedAt = await fileUpdatedAt(heartbeatPath);
   let heartbeat: Record<string, unknown> | null = null;
   let heartbeatContractInvalid = false;
@@ -343,12 +347,12 @@ async function runRecordIndex(options: {
   runId: string;
 }): Promise<DesktopRunRecordIndexEntry> {
   const { taskId, blockId } = parseBlockRef(options.blockRef);
-  const runDir = join(blockRunRoot(options.resultsDir, options.blockRef), options.runId);
-  const metadataPath = join(runDir, "metadata.json");
+  const runDir = await blockRunRoot(options.resultsDir, options.blockRef, options.runId);
+  const metadataPath = await resolveResultsPath(runDir, "metadata.json");
   const metadata = await readPresentImplementationRunMetadata(metadataPath);
   const adapter = adapterField(metadata);
-  const promptPath = join(runDir, "prompt.md");
-  const reportPath = join(runDir, finalArtifactRelativePath("implementation"));
+  const promptPath = await resolveResultsPath(runDir, "prompt.md");
+  const reportPath = await resolveResultsPath(runDir, finalArtifactRelativePath("implementation"));
   const metadataUpdatedAt = await fileUpdatedAt(metadataPath);
   return {
     metadata,
@@ -404,9 +408,9 @@ async function runRecordSummary(options: {
   runId: string;
 }): Promise<DesktopBlockRunRecordSummary> {
   const { summary, metadata } = await runRecordIndex(options);
-  const runDir = join(blockRunRoot(options.resultsDir, options.blockRef), options.runId);
-  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
-  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
+  const runDir = await blockRunRoot(options.resultsDir, options.blockRef, options.runId);
+  const stdout = await readOptionalFile(await resolveResultsPath(runDir, "stdout.md"));
+  const stderr = await readOptionalFile(await resolveResultsPath(runDir, "stderr.log"));
   const updateTimes = await runFileUpdateTimes(runDir, summary.metadataPath);
   return {
     ...summary,
@@ -548,8 +552,8 @@ async function feedbackRunRecordIndex(options: {
   feedbackId: string;
   runId: string;
 }): Promise<DesktopRunRecordIndexEntry> {
-  const runDir = join(feedbackRunRoot(options.resultsDir), options.runId);
-  const metadataPath = join(runDir, "metadata.json");
+  const runDir = await feedbackRunRoot(options.resultsDir, options.runId);
+  const metadataPath = await resolveResultsPath(runDir, "metadata.json");
   const present = await readPresentFeedbackRunMetadata(metadataPath, options.runId);
   const metadata = (present ?? {}) as Record<string, unknown>;
   const feedbackId = stringField(metadata, "feedbackId") ?? options.feedbackId;
@@ -564,10 +568,11 @@ async function feedbackRunRecordIndex(options: {
   }
   const { taskId, blockId } = parseBlockRef(sourceReviewBlockRef);
   const adapter = adapterField(metadata);
-  const promptPath = (await exists(join(runDir, "prompt.md")))
-    ? join(runDir, "prompt.md")
-    : join(runDir, "feedback.md");
-  const reportPath = join(runDir, finalArtifactRelativePath("feedback"));
+  const preparedPromptPath = await resolveResultsPath(runDir, "prompt.md");
+  const promptPath = (await exists(preparedPromptPath))
+    ? preparedPromptPath
+    : await resolveResultsPath(runDir, "feedback.md");
+  const reportPath = await resolveResultsPath(runDir, finalArtifactRelativePath("feedback"));
   const metadataUpdatedAt = await fileUpdatedAt(metadataPath);
   return {
     metadata,
@@ -625,9 +630,9 @@ async function feedbackRunRecordSummary(options: {
   runId: string;
 }): Promise<DesktopBlockRunRecordSummary> {
   const { summary, metadata } = await feedbackRunRecordIndex(options);
-  const runDir = join(feedbackRunRoot(options.resultsDir), options.runId);
-  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
-  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
+  const runDir = await feedbackRunRoot(options.resultsDir, options.runId);
+  const stdout = await readOptionalFile(await resolveResultsPath(runDir, "stdout.md"));
+  const stderr = await readOptionalFile(await resolveResultsPath(runDir, "stderr.log"));
   const updateTimes = await runFileUpdateTimes(runDir, summary.metadataPath);
   return {
     ...summary,
@@ -644,7 +649,7 @@ async function feedbackRunRecordSummariesForBlock(
   const runIds = await listFeedbackRunIds(resultsDir);
   const records = await Promise.all(
     runIds.map(async (runId) => {
-      const metadataPath = join(feedbackRunRoot(resultsDir), runId, "metadata.json");
+      const metadataPath = await feedbackRunRoot(resultsDir, runId, "metadata.json");
       const metadata = await readPresentFeedbackRunMetadata(metadataPath, runId);
       if (!metadata || metadata.sourceReviewBlockRef !== blockRef) {
         return null;
@@ -714,7 +719,7 @@ export async function listTaskFeedbackRunRecordsFromSnapshot(
   const runIds = await listFeedbackRunIds(workspace.resultsDir);
   const records = await Promise.all(
     runIds.map(async (runId) => {
-      const metadataPath = join(feedbackRunRoot(workspace.resultsDir), runId, "metadata.json");
+      const metadataPath = await feedbackRunRoot(workspace.resultsDir, runId, "metadata.json");
       const metadata = await readPresentFeedbackRunMetadata(metadataPath, runId);
       if (!metadata) {
         throw new Error(
@@ -777,7 +782,7 @@ export async function listTaskFeedbackRecordsFromSnapshot(
     Object.entries(snapshot.rawState.feedback).map(async ([feedbackId, feedback]) => {
       const sourceTaskId = parseBlockRef(feedback.sourceReviewBlockRef).taskId;
       if (sourceTaskId === scope.taskId) {
-        const artifactPath = join(
+        const artifactPath = await resolveResultsPath(
           workspace.resultsDir,
           scope.taskId,
           "feedback",
@@ -862,10 +867,10 @@ export async function getRunRecordFromWorkspace(
   const { metadata } = indexEntry;
   const runDir =
     parsed.kind === "block"
-      ? join(blockRunRoot(workspace.resultsDir, parsed.blockRef), parsed.runId)
-      : join(feedbackRunRoot(workspace.resultsDir), parsed.runId);
-  const stdout = await readOptionalFile(join(runDir, "stdout.md"));
-  const stderr = await readOptionalFile(join(runDir, "stderr.log"));
+      ? await blockRunRoot(workspace.resultsDir, parsed.blockRef, parsed.runId)
+      : await feedbackRunRoot(workspace.resultsDir, parsed.runId);
+  const stdout = await readOptionalFile(await resolveResultsPath(runDir, "stdout.md"));
+  const stderr = await readOptionalFile(await resolveResultsPath(runDir, "stderr.log"));
   const updateTimes = await runFileUpdateTimes(runDir, indexEntry.summary.metadataPath);
   const summary: DesktopBlockRunRecordSummary = {
     ...indexEntry.summary,
@@ -882,7 +887,7 @@ export async function getRunRecordFromWorkspace(
     artifact.kind === "verified"
       ? artifact.bytes.toString("utf8")
       : await readOptionalFile(
-          join(
+          await resolveResultsPath(
             runDir,
             finalArtifactRelativePath(parsed.kind === "feedback" ? "feedback" : "implementation")
           )
@@ -926,8 +931,8 @@ export async function subscribeRunRecord(
   const { workspace } = await loadPackage(projectRoot);
   const runDir =
     parsed.kind === "block"
-      ? join(blockRunRoot(workspace.resultsDir, parsed.blockRef), parsed.runId)
-      : join(feedbackRunRoot(workspace.resultsDir), parsed.runId);
+      ? await blockRunRoot(workspace.resultsDir, parsed.blockRef, parsed.runId)
+      : await feedbackRunRoot(workspace.resultsDir, parsed.runId);
   const indexEntry =
     parsed.kind === "block"
       ? await runRecordIndex({
@@ -970,7 +975,7 @@ export async function resolvePersistedAgentPromptTurnTarget(
   if (parsed.kind !== "block") {
     throw new Error("ACP conversation turns are only available for block run records.");
   }
-  const runDir = blockRunDirectory(workspace, parsed);
+  const runDir = await blockRunDirectory(workspace, parsed);
   await assertRealRunDirectory(workspace.resultsDir, runDir);
   const metadata = (
     await runRecordIndex({
@@ -1012,8 +1017,8 @@ export async function resolveRunRecordArtifactPath(
   const { workspace } = await loadPackage(projectRoot);
   const runDir =
     parsed.kind === "block"
-      ? join(blockRunRoot(workspace.resultsDir, parsed.blockRef), parsed.runId)
-      : join(feedbackRunRoot(workspace.resultsDir), parsed.runId);
+      ? await blockRunRoot(workspace.resultsDir, parsed.blockRef, parsed.runId)
+      : await feedbackRunRoot(workspace.resultsDir, parsed.runId);
   const verified = await readVerifiedArtifactReference({ rootDir: runDir, value: reference });
   return join(runDir, verified.reference.relativePath);
 }
@@ -1024,14 +1029,13 @@ export async function getReviewAttempts(
 ): Promise<DesktopReviewAttemptSummary[]> {
   const { workspace } = await loadPackage(projectRoot);
   const { taskId, blockId } = parseBlockRef(blockRef);
-  const attemptIds = (
-    await listDirectories(reviewAttemptRoot(workspace.resultsDir, blockRef))
-  ).sort(compareIdsNewestFirst);
+  const attemptRoot = await reviewAttemptRoot(workspace.resultsDir, blockRef);
+  const attemptIds = (await listDirectories(attemptRoot)).sort(compareIdsNewestFirst);
   return Promise.all(
     attemptIds.map(async (attemptId) => {
-      const attemptDir = join(reviewAttemptRoot(workspace.resultsDir, blockRef), attemptId);
+      const attemptDir = await resolveResultsPath(attemptRoot, attemptId);
       const resultPath = join(attemptDir, "review-result.json");
-      const metadataPath = join(attemptDir, "metadata.json");
+      const metadataPath = await resolveResultsPath(attemptDir, "metadata.json");
       const metadata = await readPresentReviewAttemptMetadata(metadataPath);
       const artifact = await verifyRunArtifactMetadata(attemptDir, metadata, ["review"]);
       let content = "";
@@ -1049,7 +1053,7 @@ export async function getReviewAttempts(
             "Persisted runner artifact is corrupt or no longer matches its verified bytes."
           );
         }
-      } else if (await exists(resultPath)) {
+      } else if (await exists(await resolveResultsPath(attemptDir, "review-result.json"))) {
         const result = await readReviewResultArtifactFile(resultPath);
         content = result.content;
         verdict = result.verdict;
@@ -1081,7 +1085,7 @@ export async function getFeedbackRecords(
       .filter(([, feedback]) => feedback.sourceReviewBlockRef === blockRef)
       .sort(([leftId], [rightId]) => compareIdsNewestFirst(leftId, rightId))
       .map(async ([feedbackId, feedback]) => {
-        const artifactPath = join(
+        const artifactPath = await resolveResultsPath(
           workspace.resultsDir,
           parseBlockRef(blockRef).taskId,
           "feedback",

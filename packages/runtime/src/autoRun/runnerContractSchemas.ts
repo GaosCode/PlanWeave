@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseBlockRef } from "../graph/blockRef.js";
 import { identifierSegmentSchema } from "../schema/identifierSegment.js";
 import { acpAgentIdSchema, runnerTransportSchema } from "../types/executor.js";
 import {
@@ -27,6 +28,14 @@ export const claimRefSchema = z
   .min(3)
   .max(513)
   .regex(/^[^#\s]+#[^#\s]+$/)
+  .refine((value) => {
+    try {
+      parseBlockRef(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Claim ref must contain portable Task and Block IDs.")
   .brand("ClaimRef");
 export const runnerRunIdSchema = identifierSchema.brand("RunnerRunId");
 export const runSessionIdSchema = identifierSchema.brand("RunSessionId");

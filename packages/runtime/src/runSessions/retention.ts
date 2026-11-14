@@ -54,7 +54,8 @@
  */
 
 import { rm } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { assertResultsPath, resolveResultsPath } from "../taskManager/resultPaths.js";
 import { optionalReaddir, optionalStat } from "../fs/optionalFile.js";
 import { z } from "zod";
 import {
@@ -219,7 +220,7 @@ export function isPathInsideResultsDir(resultsDir: string, targetPath: string): 
   const root = resolve(resultsDir);
   const target = resolve(targetPath);
   const rel = relative(root, target);
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
 export function isPrunableArtifactPath(resultsDir: string, targetPath: string): boolean {
@@ -239,7 +240,7 @@ async function readTimestampMs(
   dirPath: string,
   metadataKeys: string[]
 ): Promise<{ timestampMs: number; timestamp: string | null }> {
-  const metadataPath = join(dirPath, "metadata.json");
+  const metadataPath = await resolveResultsPath(dirPath, "metadata.json");
   try {
     if (await optionalStat(metadataPath)) {
       const metadata = await readJsonFile<Record<string, unknown>>(metadataPath);
@@ -274,10 +275,10 @@ async function listPrefixedDirs(root: string, pattern: RegExp): Promise<string[]
     .sort();
 }
 
-function protectedPathsFromState(
+async function protectedPathsFromState(
   workspace: ProjectWorkspace,
   state: RuntimeState
-): Map<string, string> {
+): Promise<Map<string, string>> {
   const protectedPaths = new Map<string, string>();
   const protect = (path: string, reason: string) => {
     if (isPathInsideResultsDir(workspace.resultsDir, path)) {
@@ -285,20 +286,45 @@ function protectedPathsFromState(
     }
   };
 
-  const protectRun = (taskId: string, blockId: string, runId: string, reason: string) => {
-    protect(join(workspace.resultsDir, taskId, "blocks", blockId, "runs", runId), reason);
+  const protectRun = async (taskId: string, blockId: string, runId: string, reason: string) => {
+    protect(
+      await resolveResultsPath(workspace.resultsDir, taskId, "blocks", blockId, "runs", runId),
+      reason
+    );
   };
-  const protectReview = (taskId: string, blockId: string, attemptId: string, reason: string) => {
-    protect(join(workspace.resultsDir, taskId, "reviews", blockId, "attempts", attemptId), reason);
+  const protectReview = async (
+    taskId: string,
+    blockId: string,
+    attemptId: string,
+    reason: string
+  ) => {
+    protect(
+      await resolveResultsPath(
+        workspace.resultsDir,
+        taskId,
+        "reviews",
+        blockId,
+        "attempts",
+        attemptId
+      ),
+      reason
+    );
   };
-  const protectSubmission = (
+  const protectSubmission = async (
     taskId: string,
     feedbackId: string,
     submissionId: string,
     reason: string
   ) => {
     protect(
-      join(workspace.resultsDir, taskId, "feedback", feedbackId, "submissions", submissionId),
+      await resolveResultsPath(
+        workspace.resultsDir,
+        taskId,
+        "feedback",
+        feedbackId,
+        "submissions",
+        submissionId
+      ),
       reason
     );
   };
@@ -309,10 +335,10 @@ function protectedPathsFromState(
       continue;
     }
     if (block.lastRunId) {
-      protectRun(taskId, blockId, block.lastRunId, `state lastRunId for ${ref}`);
+      await protectRun(taskId, blockId, block.lastRunId, `state lastRunId for ${ref}`);
     }
     if (block.latestReviewAttemptId) {
-      protectReview(
+      await protectReview(
         taskId,
         blockId,
         block.latestReviewAttemptId,
@@ -343,7 +369,7 @@ function protectedPathsFromState(
     const sourceRef = feedback.sourceReviewBlockRef;
     const taskId = sourceRef?.split("#")[0];
     if (feedback.latestSubmissionId && taskId) {
-      protectSubmission(
+      await protectSubmission(
         taskId,
         feedbackId,
         feedback.latestSubmissionId,
@@ -358,11 +384,11 @@ function protectedPathsFromState(
   return protectedPaths;
 }
 
-function protectedPathsFromIndex(
+async function protectedPathsFromIndex(
   workspace: ProjectWorkspace,
   taskId: string,
   index: TaskResultIndex
-): Map<string, string> {
+): Promise<Map<string, string>> {
   const protectedPaths = new Map<string, string>();
   const protect = (path: string, reason: string) => {
     protectedPaths.set(resolve(path), reason);
@@ -374,7 +400,7 @@ function protectedPathsFromIndex(
       continue;
     }
     protect(
-      join(workspace.resultsDir, taskId, "blocks", blockId, "runs", runId),
+      await resolveResultsPath(workspace.resultsDir, taskId, "blocks", blockId, "runs", runId),
       `index latestRunByBlock for ${ref}`
     );
   }
@@ -384,7 +410,14 @@ function protectedPathsFromIndex(
       continue;
     }
     protect(
-      join(workspace.resultsDir, taskId, "reviews", blockId, "attempts", attemptId),
+      await resolveResultsPath(
+        workspace.resultsDir,
+        taskId,
+        "reviews",
+        blockId,
+        "attempts",
+        attemptId
+      ),
       `index latestReviewAttemptByBlock for ${ref}`
     );
   }
@@ -395,7 +428,14 @@ function protectedPathsFromIndex(
       continue;
     }
     protect(
-      join(workspace.resultsDir, taskId, "feedback", feedbackId, "submissions", submissionId),
+      await resolveResultsPath(
+        workspace.resultsDir,
+        taskId,
+        "feedback",
+        feedbackId,
+        "submissions",
+        submissionId
+      ),
       `index latestFeedbackSubmissionByFeedback for ${feedbackId}`
     );
   }
@@ -464,7 +504,7 @@ async function collectRunCandidates(
   protectedPaths: Map<string, string>
 ): Promise<ArtifactCandidate[]> {
   const candidates: ArtifactCandidate[] = [];
-  const blocksRoot = join(workspace.resultsDir, taskId, "blocks");
+  const blocksRoot = await resolveResultsPath(workspace.resultsDir, taskId, "blocks");
   const blockEntries = await optionalReaddir(blocksRoot, { withFileTypes: true });
   if (!blockEntries) {
     return candidates;
@@ -472,11 +512,11 @@ async function collectRunCandidates(
   for (const blockEntry of blockEntries.filter((entry) => entry.isDirectory())) {
     const blockId = blockEntry.name;
     const ref = `${taskId}#${blockId}`;
-    const runRoot = join(blocksRoot, blockId, "runs");
+    const runRoot = await resolveResultsPath(blocksRoot, blockId, "runs");
     const runIds = await listPrefixedDirs(runRoot, runIdPattern);
     const latestId = runIds[runIds.length - 1];
     for (const runId of runIds) {
-      const path = join(runRoot, runId);
+      const path = await resolveResultsPath(runRoot, runId);
       const { timestampMs, timestamp } = await readTimestampMs(path, [
         "submittedAt",
         "finishedAt",
@@ -514,7 +554,7 @@ async function collectReviewCandidates(
   protectedPaths: Map<string, string>
 ): Promise<ArtifactCandidate[]> {
   const candidates: ArtifactCandidate[] = [];
-  const reviewsRoot = join(workspace.resultsDir, taskId, "reviews");
+  const reviewsRoot = await resolveResultsPath(workspace.resultsDir, taskId, "reviews");
   const reviewEntries = await optionalReaddir(reviewsRoot, { withFileTypes: true });
   if (!reviewEntries) {
     return candidates;
@@ -522,11 +562,11 @@ async function collectReviewCandidates(
   for (const reviewEntry of reviewEntries.filter((entry) => entry.isDirectory())) {
     const blockId = reviewEntry.name;
     const ref = `${taskId}#${blockId}`;
-    const attemptRoot = join(reviewsRoot, blockId, "attempts");
+    const attemptRoot = await resolveResultsPath(reviewsRoot, blockId, "attempts");
     const attemptIds = await listPrefixedDirs(attemptRoot, reviewIdPattern);
     const latestId = attemptIds[attemptIds.length - 1];
     for (const attemptId of attemptIds) {
-      const path = join(attemptRoot, attemptId);
+      const path = await resolveResultsPath(attemptRoot, attemptId);
       const { timestampMs, timestamp } = await readTimestampMs(path, ["reviewedAt", "submittedAt"]);
       const candidate: ArtifactCandidate = {
         kind: "review_attempt",
@@ -560,18 +600,18 @@ async function collectFeedbackSubmissionCandidates(
   protectedPaths: Map<string, string>
 ): Promise<ArtifactCandidate[]> {
   const candidates: ArtifactCandidate[] = [];
-  const feedbackRoot = join(workspace.resultsDir, taskId, "feedback");
+  const feedbackRoot = await resolveResultsPath(workspace.resultsDir, taskId, "feedback");
   const feedbackEntries = await optionalReaddir(feedbackRoot, { withFileTypes: true });
   if (!feedbackEntries) {
     return candidates;
   }
   for (const feedbackEntry of feedbackEntries.filter((entry) => entry.isDirectory())) {
     const feedbackId = feedbackEntry.name;
-    const submissionRoot = join(feedbackRoot, feedbackId, "submissions");
+    const submissionRoot = await resolveResultsPath(feedbackRoot, feedbackId, "submissions");
     const submissionIds = await listPrefixedDirs(submissionRoot, feedbackSubmissionIdPattern);
     const latestId = submissionIds[submissionIds.length - 1];
     for (const submissionId of submissionIds) {
-      const path = join(submissionRoot, submissionId);
+      const path = await resolveResultsPath(submissionRoot, submissionId);
       const { timestampMs, timestamp } = await readTimestampMs(path, ["submittedAt"]);
       const candidate: ArtifactCandidate = {
         kind: "feedback_submission",
@@ -605,7 +645,7 @@ async function collectAllCandidates(
   candidates: ArtifactCandidate[];
   totals: PrunePlan["totals"];
 }> {
-  const protectedPaths = protectedPathsFromState(workspace, state);
+  const protectedPaths = await protectedPathsFromState(workspace, state);
   const taskEntries = (await optionalReaddir(workspace.resultsDir, { withFileTypes: true })) ?? [];
   const taskIds = taskEntries
     .filter(
@@ -616,7 +656,7 @@ async function collectAllCandidates(
 
   for (const taskId of taskIds) {
     const index = await readTaskIndex(workspace, taskId);
-    for (const [path, reason] of protectedPathsFromIndex(workspace, taskId, index)) {
+    for (const [path, reason] of await protectedPathsFromIndex(workspace, taskId, index)) {
       protectedPaths.set(path, reason);
     }
   }
@@ -856,6 +896,7 @@ export async function applyPrunePlan(
         });
         continue;
       }
+      await assertResultsPath(workspace.resultsDir, absolutePath);
       if (
         item.artifactIdentity !==
         (await pruneArtifactIdentity(absolutePath, item.kind === "session"))

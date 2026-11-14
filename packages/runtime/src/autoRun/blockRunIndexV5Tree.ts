@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { optionalReadFile } from "../fs/optionalFile.js";
 import {
   BLOCK_RUN_INDEX_MAX_PAGES,
@@ -42,8 +42,8 @@ export function assertBlockRunIndexV5PageCapacity(pageCount: number): void {
   }
 }
 
-function nodePath(indexRoot: string, objectId: string): string {
-  return join(indexRoot, "nodes", `${objectId}.json`);
+export function blockRunIndexV5NodePath(indexRoot: string, objectId: string): Promise<string> {
+  return resolveResultsPath(indexRoot, "nodes", `${objectId}.json`);
 }
 
 function chunks<T>(values: readonly T[]): T[][] {
@@ -190,7 +190,7 @@ export async function readBlockRunIndexV5TreeNode(
   indexRoot: string,
   objectId: string
 ): Promise<BlockRunIndexV5TreeNode> {
-  const text = await optionalReadFile(nodePath(indexRoot, objectId), "utf8");
+  const text = await optionalReadFile(await blockRunIndexV5NodePath(indexRoot, objectId), "utf8");
   if (text === null) throw new Error(`Block run index v5 tree node '${objectId}' is missing.`);
   const raw = JSON.parse(text) as unknown;
   const kind = raw && typeof raw === "object" && "kind" in raw ? raw.kind : null;
@@ -355,22 +355,14 @@ function rangeContains(
 }
 
 export async function blockRunIndexV5TreeReferencesObject(
-  indexRoot: string,
   rootNodeId: string | null,
   candidate: BlockRunIndexV5RetiredObject,
-  cache: Map<string, BlockRunIndexV5TreeNode> = new Map()
+  readNode: (objectId: string) => Promise<BlockRunIndexV5TreeNode>
 ): Promise<boolean> {
   if (rootNodeId === null) return false;
   if (candidate.level === BLOCK_RUN_INDEX_TREE_DEPTH - 1) {
     return rootNodeId === candidate.objectId;
   }
-  const readNode = async (objectId: string): Promise<BlockRunIndexV5TreeNode> => {
-    const cached = cache.get(objectId);
-    if (cached) return cached;
-    const node = await readBlockRunIndexV5TreeNode(indexRoot, objectId);
-    cache.set(objectId, node);
-    return node;
-  };
   const visit = async (objectId: string): Promise<boolean> => {
     const node = await readNode(objectId);
     if (node.kind === "leaf") {

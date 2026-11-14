@@ -1,6 +1,7 @@
+import { resolveResultsPath } from "./resultPaths.js";
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { isNodeFileNotFoundError, optionalReaddir } from "../fs/optionalFile.js";
 import { withExecutionStateLock } from "./executionStateBoundary.js";
@@ -28,7 +29,7 @@ import {
   readReviewAttemptMetadataFile,
   readReviewResultArtifactFile
 } from "./reviewAttemptMetadata.js";
-import { loadRuntime, refreshDerivedState } from "./runtimeContext.js";
+import { loadRuntimeReadonly, refreshDerivedState } from "./runtimeContext.js";
 import {
   allocatePrefixedId,
   incrementTaskIndexCount,
@@ -36,6 +37,7 @@ import {
   nextId,
   readTaskIndex,
   recordReviewCompletionReason,
+  taskIndexPath,
   updateTaskIndex
 } from "./resultIndex.js";
 import { computeWorkRevision, getBlock, getTask, isActiveFeedbackStatus } from "./selectors.js";
@@ -49,7 +51,7 @@ import {
   extractFinalArtifactEnvelope,
   FinalArtifactContractError
 } from "../autoRun/finalArtifactContract.js";
-import { ensureRemoteReviewAcpConversationRun } from "./remoteAcpTranscript.js";
+import { withRemoteReviewAcpConversationRun } from "./remoteAcpTranscript.js";
 import {
   RemoteBlockRuntimeError,
   type RemoteBlockCompletionInput
@@ -132,7 +134,13 @@ async function recordReviewAttemptIndexes(options: {
 }): Promise<void> {
   const { taskId, blockId } = parseBlockRef(options.reviewBlockRef);
   await writeJsonFile(
-    join(options.workspace.resultsDir, taskId, "reviews", blockId, "index.json"),
+    await resolveResultsPath(
+      options.workspace.resultsDir,
+      taskId,
+      "reviews",
+      blockId,
+      "index.json"
+    ),
     {
       latestReviewAttemptId: options.attemptId,
       latestVerdict: options.reviewResult.verdict,
@@ -166,7 +174,13 @@ async function writeReviewAttempt(options: {
   resultPath: string;
 }): Promise<string> {
   const { taskId, blockId } = parseBlockRef(options.reviewBlockRef);
-  const attemptRoot = join(options.workspace.resultsDir, taskId, "reviews", blockId, "attempts");
+  const attemptRoot = await resolveResultsPath(
+    options.workspace.resultsDir,
+    taskId,
+    "reviews",
+    blockId,
+    "attempts"
+  );
   const attemptId = await allocatePrefixedId(attemptRoot, "REV");
   const attemptDir = join(attemptRoot, attemptId);
   await writeJsonFile(join(attemptDir, "review-result.json"), options.reviewResult);
@@ -188,8 +202,8 @@ async function readMatchingReviewAttempt(options: {
   attemptId: string;
   resultHash: string;
 }): Promise<PersistedReviewAttempt | null> {
-  const metadataPath = join(options.attemptDir, "metadata.json");
-  const resultPath = join(options.attemptDir, "review-result.json");
+  const metadataPath = await resolveResultsPath(options.attemptDir, "metadata.json");
+  const resultPath = await resolveResultsPath(options.attemptDir, "review-result.json");
   try {
     const metadata = await readReviewAttemptMetadataFile(metadataPath);
     if (
@@ -223,7 +237,13 @@ async function findPersistedReviewAttempt(options: {
   resultHash: string;
 }): Promise<PersistedReviewAttempt | null> {
   const { taskId, blockId } = parseBlockRef(options.reviewBlockRef);
-  const attemptRoot = join(options.workspace.resultsDir, taskId, "reviews", blockId, "attempts");
+  const attemptRoot = await resolveResultsPath(
+    options.workspace.resultsDir,
+    taskId,
+    "reviews",
+    blockId,
+    "attempts"
+  );
   const entries = await optionalReaddir(attemptRoot, { withFileTypes: true });
   if (!entries) {
     return null;
@@ -277,7 +297,11 @@ async function findFeedbackForReviewAttempt(options: {
   reviewBlockRef: string;
   attemptId: string;
 }): Promise<FeedbackArtifact | null> {
-  const feedbackRoot = join(options.workspace.resultsDir, options.taskId, "feedback");
+  const feedbackRoot = await resolveResultsPath(
+    options.workspace.resultsDir,
+    options.taskId,
+    "feedback"
+  );
   const entries = await optionalReaddir(feedbackRoot, { withFileTypes: true });
   if (!entries) {
     return null;
@@ -326,7 +350,11 @@ async function nextFeedbackId(options: {
   taskId: string;
   state: { feedback: Record<string, unknown> };
 }): Promise<string> {
-  const feedbackRoot = join(options.workspace.resultsDir, options.taskId, "feedback");
+  const feedbackRoot = await resolveResultsPath(
+    options.workspace.resultsDir,
+    options.taskId,
+    "feedback"
+  );
   await mkdir(feedbackRoot, { recursive: true });
   const count = Math.max(
     Object.keys(options.state.feedback).length,
@@ -384,9 +412,6 @@ export async function submitReviewResultValue(
     resultPath: string;
     session?: ExecutionGraphSession;
     executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
-    remote?: ActiveRemoteOperationIdentity;
-    transcript?: NonNullable<RemoteBlockCompletionInput["transcript"]>;
-    reportBytes?: Uint8Array;
   },
   value: unknown
 ): Promise<SubmitReviewResult> {
@@ -414,11 +439,14 @@ export async function submitRemoteReviewResult(options: {
   });
   const { workspace } = await loadPackage(options.projectRoot);
   return withExecutionStateLock(options, workspace, async () => {
-    const stagingDir = join(workspace.resultsDir, taskId, "blocks", "remote-review-staging");
-    await mkdir(stagingDir, { recursive: true });
-    const resultPath = join(stagingDir, `${options.ownership.executionAttemptId}.json`);
-    await writeFile(resultPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-    return submitReviewResultValue(
+    const resultPath = await resolveResultsPath(
+      workspace.resultsDir,
+      taskId,
+      "blocks",
+      "remote-review-staging",
+      `${options.ownership.executionAttemptId}.json`
+    );
+    return submitReviewResultLocked(
       {
         projectRoot: workspace,
         ref: options.ref,
@@ -427,9 +455,25 @@ export async function submitRemoteReviewResult(options: {
         reportBytes: options.reportBytes,
         ...(options.transcript ? { transcript: options.transcript } : {})
       },
-      parsed
+      parsed,
+      reviewResultHash(parsed)
     );
   });
+}
+
+async function assertReviewResultsPaths(
+  workspace: ProjectWorkspace,
+  ref: string,
+  verdict: ReviewResult["verdict"]
+): Promise<void> {
+  const { taskId, blockId } = parseBlockRef(ref);
+  const { resultsDir } = workspace;
+  await Promise.all([
+    taskIndexPath(workspace, taskId),
+    resolveResultsPath(resultsDir, taskId, "reviews", blockId, "attempts"),
+    resolveResultsPath(resultsDir, taskId, "reviews", blockId, "index.json"),
+    ...(verdict === "needs_changes" ? [resolveResultsPath(resultsDir, taskId, "feedback")] : [])
+  ]);
 }
 
 async function submitReviewResultLocked(
@@ -446,7 +490,7 @@ async function submitReviewResultLocked(
   parsed: ReviewResult,
   resultHash: string
 ): Promise<SubmitReviewResult> {
-  const context = await loadRuntime(options);
+  const context = await loadRuntimeReadonly(options);
   const { workspace, manifest, graph } = context;
   let { state } = context;
   const { taskId } = parseBlockRef(options.ref);
@@ -457,19 +501,25 @@ async function submitReviewResultLocked(
   if (parsed.reviewBlockRef !== options.ref || parsed.taskId !== taskId) {
     throw new Error("review-result.json does not match the submitted review block ref.");
   }
+  await assertReviewResultsPaths(workspace, options.ref, parsed.verdict);
   const blockState = state.blocks[options.ref];
-  const materializeRemoteConversation = async (attemptId: string): Promise<void> => {
-    if (!options.remote || !options.transcript || !options.reportBytes) {
-      return;
-    }
-    await ensureRemoteReviewAcpConversationRun({
-      workspace,
-      ref: options.ref,
-      transcript: options.transcript,
-      reportBytes: options.reportBytes,
-      identity: options.remote,
-      reviewAttemptId: attemptId
-    });
+  const withRemoteConversation = <T>(
+    action: (persist: (attemptId: string) => Promise<void>) => Promise<T>
+  ): Promise<T> => {
+    const { remote, transcript, reportBytes } = options;
+    if (!remote || !transcript || !reportBytes) return action(async () => {});
+    return withRemoteReviewAcpConversationRun(
+      { workspace, ref: options.ref, executionAttemptId: remote.executionAttemptId, transcript },
+      (persist) =>
+        action(async (reviewAttemptId) => {
+          await persist({ reportBytes, identity: remote, reviewAttemptId });
+        })
+    );
+  };
+  const stageRemoteResult = async (): Promise<void> => {
+    if (!options.remote) return;
+    await mkdir(dirname(options.resultPath), { recursive: true });
+    await writeFile(options.resultPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
   };
   if (options.remote) {
     if (blockState?.remoteOperationReceipt) {
@@ -483,18 +533,22 @@ async function submitReviewResultLocked(
           `Remote review completion for '${options.ref}' conflicts with its terminal operation receipt.`
         );
       }
-      await materializeRemoteConversation(blockState.remoteOperationReceipt.runId);
-      return {
-        ref: options.ref,
-        reviewAttemptId: blockState.remoteOperationReceipt.runId,
-        verdict: parsed.verdict,
-        status: blockState.status,
-        ...(blockState.completionReason === "passed" ||
-        blockState.completionReason === "max_cycles_reached"
-          ? { completionReason: blockState.completionReason }
-          : {}),
-        feedbackCreated: Boolean(blockState.activeFeedbackId)
-      };
+      const receipt = blockState.remoteOperationReceipt;
+      return withRemoteConversation(async (persist) => {
+        await stageRemoteResult();
+        await persist(receipt.runId);
+        return {
+          ref: options.ref,
+          reviewAttemptId: receipt.runId,
+          verdict: parsed.verdict,
+          status: blockState.status,
+          ...(blockState.completionReason === "passed" ||
+          blockState.completionReason === "max_cycles_reached"
+            ? { completionReason: blockState.completionReason }
+            : {}),
+          feedbackCreated: Boolean(blockState.activeFeedbackId)
+        };
+      });
     }
     assertActiveRemoteBlockOwnership({
       blockType: "review",
@@ -518,16 +572,6 @@ async function submitReviewResultLocked(
     }
   }
 
-  const sealRemoteCompletion = async (attemptId: string): Promise<void> => {
-    if (!options.remote) return;
-    state.blocks[options.ref] = sealRemoteBlockOperationCompleted({
-      blockType: "review",
-      blockState: state.blocks[options.ref],
-      ownership: options.remote,
-      runId: attemptId
-    });
-    await materializeRemoteConversation(attemptId);
-  };
   const workRevision = computeWorkRevision(graph, state, options.ref);
   const persistedAttempt = await findPersistedReviewAttempt({
     workspace,
@@ -570,81 +614,171 @@ async function submitReviewResultLocked(
   const shouldReusePersistedAttempt =
     persistedAttemptId !== null &&
     (isSameWorkRevision || isCurrentFeedbackRetry || isPendingResolvedFeedbackRetry);
-  const attemptId =
-    shouldReusePersistedAttempt && persistedAttemptId
-      ? persistedAttemptId
-      : await writeReviewAttempt({
-          workspace,
-          reviewBlockRef: options.ref,
-          reviewResult: parsed,
-          workRevision,
-          resultHash,
-          resultPath: options.resultPath
-        });
-  if (shouldReusePersistedAttempt && persistedAttemptId) {
-    await recordReviewAttemptIndexes({
-      workspace,
-      reviewBlockRef: options.ref,
-      reviewResult: parsed,
-      workRevision: persistedAttempt?.reviewedWorkRevision ?? workRevision,
-      attemptId,
-      incrementCount: false
-    });
-    if (parsed.verdict === "needs_changes" && persistedFeedback) {
-      await recordFeedbackEnvelopeIndexes({
+  return withRemoteConversation(async (persist) => {
+    await stageRemoteResult();
+    const sealRemoteCompletion = async (attemptId: string): Promise<void> => {
+      if (!options.remote) return;
+      state.blocks[options.ref] = sealRemoteBlockOperationCompleted({
+        blockType: "review",
+        blockState: state.blocks[options.ref],
+        ownership: options.remote,
+        runId: attemptId
+      });
+      await persist(attemptId);
+    };
+    const attemptId =
+      shouldReusePersistedAttempt && persistedAttemptId
+        ? persistedAttemptId
+        : await writeReviewAttempt({
+            workspace,
+            reviewBlockRef: options.ref,
+            reviewResult: parsed,
+            workRevision,
+            resultHash,
+            resultPath: options.resultPath
+          });
+    if (shouldReusePersistedAttempt && persistedAttemptId) {
+      await recordReviewAttemptIndexes({
         workspace,
-        taskId,
         reviewBlockRef: options.ref,
-        feedbackId: persistedFeedback.feedbackId,
-        feedbackStatus: persistedFeedback.status,
+        reviewResult: parsed,
+        workRevision: persistedAttempt?.reviewedWorkRevision ?? workRevision,
+        attemptId,
         incrementCount: false
       });
-      state.feedback[persistedFeedback.feedbackId] = {
-        status: persistedFeedback.status,
-        sourceReviewBlockRef: options.ref,
-        latestSubmissionId: persistedFeedback.latestSubmissionId ?? null,
-        content: persistedFeedback.content
-      };
-      state.blocks[options.ref] = {
-        ...state.blocks[options.ref],
-        status: "in_progress",
-        latestReviewAttemptId: attemptId,
-        activeFeedbackId: persistedFeedbackIsActive ? persistedFeedback.feedbackId : null,
-        pendingFeedbackId:
-          persistedFeedback.status === "resolved" ? persistedFeedback.feedbackId : null,
-        completionReason: null
-      };
-      state.currentReviewBlockRef = options.ref;
-      if (persistedFeedbackIsActive) {
-        state.currentFeedbackId = persistedFeedback.feedbackId;
-        state.currentRefs = withoutCurrentRef(state.currentRefs, options.ref);
-      } else {
-        state.currentRefs = state.currentRefs.includes(options.ref)
-          ? state.currentRefs
-          : [...state.currentRefs, options.ref];
+      if (parsed.verdict === "needs_changes" && persistedFeedback) {
+        await recordFeedbackEnvelopeIndexes({
+          workspace,
+          taskId,
+          reviewBlockRef: options.ref,
+          feedbackId: persistedFeedback.feedbackId,
+          feedbackStatus: persistedFeedback.status,
+          incrementCount: false
+        });
+        state.feedback[persistedFeedback.feedbackId] = {
+          status: persistedFeedback.status,
+          sourceReviewBlockRef: options.ref,
+          latestSubmissionId: persistedFeedback.latestSubmissionId ?? null,
+          content: persistedFeedback.content
+        };
+        state.blocks[options.ref] = {
+          ...state.blocks[options.ref],
+          status: "in_progress",
+          latestReviewAttemptId: attemptId,
+          activeFeedbackId: persistedFeedbackIsActive ? persistedFeedback.feedbackId : null,
+          pendingFeedbackId:
+            persistedFeedback.status === "resolved" ? persistedFeedback.feedbackId : null,
+          completionReason: null
+        };
+        state.currentReviewBlockRef = options.ref;
+        if (persistedFeedbackIsActive) {
+          state.currentFeedbackId = persistedFeedback.feedbackId;
+          state.currentRefs = withoutCurrentRef(state.currentRefs, options.ref);
+        } else {
+          state.currentRefs = state.currentRefs.includes(options.ref)
+            ? state.currentRefs
+            : [...state.currentRefs, options.ref];
+        }
+        await sealRemoteCompletion(attemptId);
+        state = refreshDerivedState(manifest, state);
+        await writeState(workspace.stateFile, state);
+        return {
+          ref: options.ref,
+          reviewAttemptId: attemptId,
+          verdict: "needs_changes",
+          feedbackId: persistedFeedback.feedbackId,
+          status: "in_progress",
+          feedbackCreated: true
+        };
       }
-      await sealRemoteCompletion(attemptId);
-      state = refreshDerivedState(manifest, state);
-      await writeState(workspace.stateFile, state);
-      return {
-        ref: options.ref,
-        reviewAttemptId: attemptId,
-        verdict: "needs_changes",
-        feedbackId: persistedFeedback.feedbackId,
-        status: "in_progress",
-        feedbackCreated: true
-      };
+      if (
+        parsed.verdict === "needs_changes" &&
+        persistedCompletionReason === "max_cycles_reached"
+      ) {
+        state.blocks[options.ref] = {
+          ...state.blocks[options.ref],
+          status: "completed",
+          latestReviewAttemptId: attemptId,
+          activeFeedbackId: null,
+          pendingFeedbackId: null,
+          blockedReason: null,
+          completionReason: "max_cycles_reached"
+        };
+        state.currentReviewBlockRef =
+          state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
+        state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
+        await sealRemoteCompletion(attemptId);
+        state = refreshDerivedState(manifest, state);
+        await writeState(workspace.stateFile, state);
+        return {
+          ref: options.ref,
+          reviewAttemptId: attemptId,
+          verdict: "needs_changes",
+          status: "completed",
+          completionReason: "max_cycles_reached",
+          feedbackCreated: false,
+          message: "No feedback envelope was created because max feedback cycles were reached."
+        };
+      }
     }
-    if (parsed.verdict === "needs_changes" && persistedCompletionReason === "max_cycles_reached") {
+    const task = getTask(graph, taskId);
+    const previousFeedbackCount = Object.values(state.feedback).filter(
+      (feedback) => feedback.sourceReviewBlockRef === options.ref
+    ).length;
+
+    if (parsed.verdict === "passed") {
       state.blocks[options.ref] = {
         ...state.blocks[options.ref],
         status: "completed",
         latestReviewAttemptId: attemptId,
         activeFeedbackId: null,
         pendingFeedbackId: null,
-        blockedReason: null,
+        completionReason: "passed",
+        passedWorkRevision: workRevision
+      };
+      await recordReviewCompletionReason({
+        workspace,
+        taskId,
+        reviewBlockRef: options.ref,
+        completionReason: "passed"
+      });
+      state.currentReviewBlockRef =
+        state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
+      state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
+      await sealRemoteCompletion(attemptId);
+      state = refreshDerivedState(manifest, state);
+      await writeState(workspace.stateFile, state);
+      return {
+        ref: options.ref,
+        reviewAttemptId: attemptId,
+        verdict: "passed",
+        status: "completed",
+        completionReason: "passed",
+        feedbackCreated: false
+      };
+    }
+
+    if (maxFeedbackCyclesReached(previousFeedbackCount, block.review.maxFeedbackCycles)) {
+      const warning: ValidationIssue = {
+        code: "review_max_cycles_reached",
+        message: `Review block '${options.ref}' reached max feedback cycles without passing.`,
+        path: options.ref
+      };
+      state.blocks[options.ref] = {
+        ...state.blocks[options.ref],
+        status: "completed",
+        latestReviewAttemptId: attemptId,
+        activeFeedbackId: null,
+        pendingFeedbackId: null,
         completionReason: "max_cycles_reached"
       };
+      await recordReviewCompletionReason({
+        workspace,
+        taskId,
+        reviewBlockRef: options.ref,
+        completionReason: "max_cycles_reached",
+        warning
+      });
       state.currentReviewBlockRef =
         state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
       state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
@@ -661,68 +795,72 @@ async function submitReviewResultLocked(
         message: "No feedback envelope was created because max feedback cycles were reached."
       };
     }
-  }
-  const task = getTask(graph, taskId);
-  const previousFeedbackCount = Object.values(state.feedback).filter(
-    (feedback) => feedback.sourceReviewBlockRef === options.ref
-  ).length;
 
-  if (parsed.verdict === "passed") {
-    state.blocks[options.ref] = {
-      ...state.blocks[options.ref],
-      status: "completed",
-      latestReviewAttemptId: attemptId,
-      activeFeedbackId: null,
-      pendingFeedbackId: null,
-      completionReason: "passed",
-      passedWorkRevision: workRevision
-    };
-    await recordReviewCompletionReason({
+    let feedbackContent: string;
+    try {
+      const hookOutput = await executeReviewHook({
+        projectRoot: workspace.sourceRoot ?? workspace.rootPath,
+        reviewBlock: block,
+        reviewResult: parsed,
+        task,
+        reviewBlockRef: options.ref,
+        feedbackCycleCount: previousFeedbackCount
+      });
+      feedbackContent = hookOutput.feedbackPrompt;
+    } catch (error) {
+      state.blocks[options.ref] = {
+        ...state.blocks[options.ref],
+        status: "blocked",
+        latestReviewAttemptId: attemptId,
+        activeFeedbackId: null,
+        pendingFeedbackId: null,
+        blockedReason: `Review hook failed: ${error instanceof Error ? error.message : String(error)}`
+      };
+      state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
+      await sealRemoteCompletion(attemptId);
+      state = refreshDerivedState(manifest, state);
+      await writeState(workspace.stateFile, state);
+      return {
+        ref: options.ref,
+        reviewAttemptId: attemptId,
+        verdict: "needs_changes",
+        status: "blocked"
+      };
+    }
+
+    const feedbackId = await nextFeedbackId({ workspace, taskId, state });
+    await writeFeedbackArtifact(workspace, taskId, {
+      feedbackId,
+      sourceReviewBlockRef: options.ref,
+      content: feedbackContent,
+      sourceReviewAttemptId: attemptId,
+      status: "open",
+      createdAt: new Date().toISOString()
+    });
+    await recordFeedbackEnvelopeIndexes({
       workspace,
       taskId,
       reviewBlockRef: options.ref,
-      completionReason: "passed"
+      feedbackId,
+      feedbackStatus: "open",
+      incrementCount: true
     });
-    state.currentReviewBlockRef =
-      state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
-    state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
-    await sealRemoteCompletion(attemptId);
-    state = refreshDerivedState(manifest, state);
-    await writeState(workspace.stateFile, state);
-    return {
-      ref: options.ref,
-      reviewAttemptId: attemptId,
-      verdict: "passed",
-      status: "completed",
-      completionReason: "passed",
-      feedbackCreated: false
-    };
-  }
-
-  if (maxFeedbackCyclesReached(previousFeedbackCount, block.review.maxFeedbackCycles)) {
-    const warning: ValidationIssue = {
-      code: "review_max_cycles_reached",
-      message: `Review block '${options.ref}' reached max feedback cycles without passing.`,
-      path: options.ref
+    state.feedback[feedbackId] = {
+      status: "open",
+      sourceReviewBlockRef: options.ref,
+      latestSubmissionId: null,
+      content: feedbackContent
     };
     state.blocks[options.ref] = {
       ...state.blocks[options.ref],
-      status: "completed",
+      status: "in_progress",
       latestReviewAttemptId: attemptId,
-      activeFeedbackId: null,
-      pendingFeedbackId: null,
-      completionReason: "max_cycles_reached"
+      activeFeedbackId: feedbackId,
+      pendingFeedbackId: null
     };
-    await recordReviewCompletionReason({
-      workspace,
-      taskId,
-      reviewBlockRef: options.ref,
-      completionReason: "max_cycles_reached",
-      warning
-    });
-    state.currentReviewBlockRef =
-      state.currentReviewBlockRef === options.ref ? null : state.currentReviewBlockRef;
-    state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
+    state.currentFeedbackId = feedbackId;
+    state.currentReviewBlockRef = options.ref;
+    state.currentRefs = withoutCurrentRef(state.currentRefs, options.ref);
     await sealRemoteCompletion(attemptId);
     state = refreshDerivedState(manifest, state);
     await writeState(workspace.stateFile, state);
@@ -730,87 +868,9 @@ async function submitReviewResultLocked(
       ref: options.ref,
       reviewAttemptId: attemptId,
       verdict: "needs_changes",
-      status: "completed",
-      completionReason: "max_cycles_reached",
-      feedbackCreated: false,
-      message: "No feedback envelope was created because max feedback cycles were reached."
+      feedbackId,
+      status: "in_progress",
+      feedbackCreated: true
     };
-  }
-
-  let feedbackContent: string;
-  try {
-    const hookOutput = await executeReviewHook({
-      projectRoot: workspace.sourceRoot ?? workspace.rootPath,
-      reviewBlock: block,
-      reviewResult: parsed,
-      task,
-      reviewBlockRef: options.ref,
-      feedbackCycleCount: previousFeedbackCount
-    });
-    feedbackContent = hookOutput.feedbackPrompt;
-  } catch (error) {
-    state.blocks[options.ref] = {
-      ...state.blocks[options.ref],
-      status: "blocked",
-      latestReviewAttemptId: attemptId,
-      activeFeedbackId: null,
-      pendingFeedbackId: null,
-      blockedReason: `Review hook failed: ${error instanceof Error ? error.message : String(error)}`
-    };
-    state.currentRefs = state.currentRefs.filter((ref) => ref !== options.ref);
-    await sealRemoteCompletion(attemptId);
-    state = refreshDerivedState(manifest, state);
-    await writeState(workspace.stateFile, state);
-    return {
-      ref: options.ref,
-      reviewAttemptId: attemptId,
-      verdict: "needs_changes",
-      status: "blocked"
-    };
-  }
-
-  const feedbackId = await nextFeedbackId({ workspace, taskId, state });
-  await writeFeedbackArtifact(workspace, taskId, {
-    feedbackId,
-    sourceReviewBlockRef: options.ref,
-    content: feedbackContent,
-    sourceReviewAttemptId: attemptId,
-    status: "open",
-    createdAt: new Date().toISOString()
   });
-  await recordFeedbackEnvelopeIndexes({
-    workspace,
-    taskId,
-    reviewBlockRef: options.ref,
-    feedbackId,
-    feedbackStatus: "open",
-    incrementCount: true
-  });
-  state.feedback[feedbackId] = {
-    status: "open",
-    sourceReviewBlockRef: options.ref,
-    latestSubmissionId: null,
-    content: feedbackContent
-  };
-  state.blocks[options.ref] = {
-    ...state.blocks[options.ref],
-    status: "in_progress",
-    latestReviewAttemptId: attemptId,
-    activeFeedbackId: feedbackId,
-    pendingFeedbackId: null
-  };
-  state.currentFeedbackId = feedbackId;
-  state.currentReviewBlockRef = options.ref;
-  state.currentRefs = withoutCurrentRef(state.currentRefs, options.ref);
-  await sealRemoteCompletion(attemptId);
-  state = refreshDerivedState(manifest, state);
-  await writeState(workspace.stateFile, state);
-  return {
-    ref: options.ref,
-    reviewAttemptId: attemptId,
-    verdict: "needs_changes",
-    feedbackId,
-    status: "in_progress",
-    feedbackCreated: true
-  };
 }

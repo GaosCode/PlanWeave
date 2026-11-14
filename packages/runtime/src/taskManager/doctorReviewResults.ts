@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { resolveResultsPath } from "./resultPaths.js";
 import { optionalStat } from "../fs/optionalFile.js";
 import { requireMapValue } from "../graph/requireMapValue.js";
 import type {
@@ -24,7 +24,7 @@ export async function diagnoseReviewResults(options: {
   const issues: DoctorIssue[] = [];
   const refs = requireMapValue(graph.blocksByTask, taskId, "blocksByTask");
   const reviewRefs = new Set(refs.filter((ref) => graph.blocksByRef.get(ref)?.type === "review"));
-  const indexPath = join(workspace.resultsDir, taskId, "index.json");
+  const indexPath = await resolveResultsPath(workspace.resultsDir, taskId, "index.json");
   for (const ref of Object.keys(index.latestReviewAttemptByBlock ?? {})) {
     if (!reviewRefs.has(ref)) {
       issues.push({
@@ -64,7 +64,7 @@ export async function diagnoseReviewResults(options: {
         continue;
       }
       const blockId = requireMapValue(graph.blocksByRef, ref, "blocksByRef").id;
-      const attemptDir = join(
+      const attemptDir = await resolveResultsPath(
         workspace.resultsDir,
         taskId,
         "reviews",
@@ -72,8 +72,8 @@ export async function diagnoseReviewResults(options: {
         "attempts",
         attemptId
       );
-      const metadataPath = join(attemptDir, "metadata.json");
-      const resultPath = join(attemptDir, "review-result.json");
+      const metadataPath = await resolveResultsPath(attemptDir, "metadata.json");
+      const resultPath = await resolveResultsPath(attemptDir, "review-result.json");
       let matches = false;
       if ((await optionalStat(metadataPath)) && (await optionalStat(resultPath))) {
         const metadata = await readReviewAttemptMetadataFile(metadataPath);

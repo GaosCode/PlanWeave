@@ -16,6 +16,7 @@ export type AcpSessionRun = {
   kind: AcpSessionRunKind;
   identity: Omit<ActiveAgentRunIdentity, "sessionId">;
   runDir: string;
+  startedAt?: string;
   metadataPath: string;
   prompt: string;
   cwd: string;

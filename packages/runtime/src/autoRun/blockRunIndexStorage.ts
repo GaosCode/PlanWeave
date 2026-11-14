@@ -1,3 +1,4 @@
+import { resolveResultsPath } from "../taskManager/resultPaths.js";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -29,6 +30,7 @@ import {
 } from "./blockRunIndexSchema.js";
 import {
   buildBlockRunIndexV5Tree,
+  blockRunIndexV5NodePath,
   blockRunIndexV5TreeReferencesObject,
   readAllBlockRunIndexV5Descriptors,
   readBlockRunIndexV5DescriptorAt,
@@ -150,20 +152,41 @@ function indexRoot(runRoot: string): string {
   return join(runRoot, indexDirectoryName);
 }
 
-function pointerPath(runRoot: string): string {
-  return join(indexRoot(runRoot), "current.json");
+function pointerPath(runRoot: string): Promise<string> {
+  return resolveResultsPath(runRoot, indexDirectoryName, "current.json");
 }
 
-function v4ManifestPath(runRoot: string, generation: string): string {
-  return join(indexRoot(runRoot), "generations", generation, "manifest.json");
+function v4ManifestPath(runRoot: string, generation: string): Promise<string> {
+  return resolveResultsPath(
+    runRoot,
+    indexDirectoryName,
+    "generations",
+    generation,
+    "manifest.json"
+  );
 }
 
-function objectPath(runRoot: string, objectId: string): string {
-  return join(indexRoot(runRoot), "objects", `${objectId}.json`);
+function objectPath(runRoot: string, objectId: string): Promise<string> {
+  return resolveResultsPath(runRoot, indexDirectoryName, "objects", `${objectId}.json`);
 }
 
-function retirementPath(runRoot: string, generation: string): string {
-  return join(indexRoot(runRoot), "generations", generation, "retirement.json");
+function retirementPath(runRoot: string, generation: string): Promise<string> {
+  return resolveResultsPath(
+    runRoot,
+    indexDirectoryName,
+    "generations",
+    generation,
+    "retirement.json"
+  );
+}
+
+export async function assertBlockRunIndexStoragePaths(runRoot: string): Promise<void> {
+  await Promise.all([
+    pointerPath(runRoot),
+    ...["generations", "nodes", "objects"].map((segment) =>
+      resolveResultsPath(runRoot, indexDirectoryName, segment)
+    )
+  ]);
 }
 
 async function readParsed<T>(path: string, schema: z.ZodType<T>): Promise<T | null> {
@@ -200,7 +223,7 @@ async function readV4Manifest(
   generation: string
 ): Promise<BlockRunIndexV4Manifest> {
   const manifest = await readParsed(
-    v4ManifestPath(runRoot, generation),
+    await v4ManifestPath(runRoot, generation),
     blockRunIndexV4ManifestSchema
   );
   if (!manifest || manifest.generation !== generation) {
@@ -224,7 +247,7 @@ async function readV5Manifest(
   generation: string
 ): Promise<BlockRunIndexV5Manifest> {
   const manifest = await readParsed(
-    v4ManifestPath(runRoot, generation),
+    await v4ManifestPath(runRoot, generation),
     blockRunIndexV5ManifestSchema
   );
   if (!manifest || manifest.generation !== generation) {
@@ -247,7 +270,7 @@ async function readV4PageObject(
   descriptor: BlockRunIndexV4PageDescriptor
 ): Promise<BlockRunIndexEntry[]> {
   const page = await readParsed(
-    objectPath(runRoot, descriptor.objectId),
+    await objectPath(runRoot, descriptor.objectId),
     blockRunIndexV4PageSchema
   );
   if (!page) {
@@ -283,7 +306,7 @@ export async function readBlockRunIndexSnapshot(
   runRoot: string
 ): Promise<BlockRunIndexReadSnapshot | null> {
   const root = indexRoot(runRoot);
-  const pointerText = await optionalReadFile(pointerPath(runRoot), "utf8");
+  const pointerText = await optionalReadFile(await pointerPath(runRoot), "utf8");
   if (pointerText === null) return null;
   const pointerResult = supportedPointerSchema.safeParse(JSON.parse(pointerText) as unknown);
   if (!pointerResult.success) {
@@ -291,9 +314,14 @@ export async function readBlockRunIndexSnapshot(
   }
   const pointer = pointerResult.data;
   if (pointer.version === 3) {
-    const generationRoot = join(root, "generations", pointer.generation);
+    const generationRoot = await resolveResultsPath(
+      runRoot,
+      indexDirectoryName,
+      "generations",
+      pointer.generation
+    );
     const manifest = await readParsed(
-      join(generationRoot, "manifest.json"),
+      await resolveResultsPath(generationRoot, "manifest.json"),
       blockRunIndexV3ManifestSchema
     );
     if (!manifest || manifest.generation !== pointer.generation) {
@@ -312,7 +340,10 @@ export async function readBlockRunIndexSnapshot(
         }
         const pageNumber = pageIndex + 1;
         const page = await readParsed(
-          join(generationRoot, `page-${String(pageNumber).padStart(6, "0")}.json`),
+          await resolveResultsPath(
+            generationRoot,
+            `page-${String(pageNumber).padStart(6, "0")}.json`
+          ),
           blockRunIndexV3PageSchema
         );
         if (!page || page.generation !== pointer.generation || page.page !== pageNumber) {
@@ -348,7 +379,7 @@ export async function readBlockRunIndexSnapshot(
           );
           return await readV4PageObject(runRoot, descriptor);
         } catch (error) {
-          const latestPointerText = await optionalReadFile(pointerPath(runRoot), "utf8");
+          const latestPointerText = await optionalReadFile(await pointerPath(runRoot), "utf8");
           const latestPointer = latestPointerText
             ? blockRunIndexV5PointerSchema.safeParse(JSON.parse(latestPointerText) as unknown)
             : null;
@@ -383,7 +414,7 @@ export async function readBlockRunIndexSnapshot(
       try {
         return await readV4PageObject(runRoot, descriptor);
       } catch (error) {
-        const latestPointerText = await optionalReadFile(pointerPath(runRoot), "utf8");
+        const latestPointerText = await optionalReadFile(await pointerPath(runRoot), "utf8");
         const latestPointer = latestPointerText
           ? blockRunIndexV4PointerSchema.safeParse(JSON.parse(latestPointerText) as unknown)
           : null;
@@ -416,9 +447,9 @@ async function writePageObject(
   runRoot: string,
   objectId: string,
   entries: readonly BlockRunIndexEntry[],
+  path: string,
   options: BlockRunIndexStorageOptions
 ): Promise<void> {
-  const path = objectPath(runRoot, objectId);
   if (await optionalStat(path)) {
     await readV4PageObject(runRoot, pageDescriptor(entries));
     return;
@@ -447,7 +478,7 @@ async function verifyLiveClosure(
     if (generation === null || manifests.has(generation)) continue;
     const manifest = await readV4Manifest(runRoot, generation);
     for (const page of manifest.pages) {
-      if (!(await optionalStat(objectPath(runRoot, page.objectId)))) {
+      if (!(await optionalStat(await objectPath(runRoot, page.objectId)))) {
         throw indexContractError(
           runRoot,
           `generation '${generation}' references missing page object '${page.objectId}'`
@@ -485,7 +516,7 @@ async function verifyV5LiveClosure(
       throw indexContractError(runRoot, `generation '${generation}' tree totals are invalid`);
     }
     for (const descriptor of descriptors) {
-      if (!(await optionalStat(objectPath(runRoot, descriptor.objectId)))) {
+      if (!(await optionalStat(await objectPath(runRoot, descriptor.objectId)))) {
         throw indexContractError(
           runRoot,
           `generation '${generation}' references missing page object '${descriptor.objectId}'`
@@ -506,13 +537,13 @@ async function garbageCollect(
   liveNodes: Set<string>,
   options: BlockRunIndexStorageOptions
 ): Promise<void> {
-  const generationsRoot = join(indexRoot(runRoot), "generations");
+  const generationsRoot = await resolveResultsPath(runRoot, indexDirectoryName, "generations");
   await options.instrumentation?.atFaultPoint?.("generation-gc");
   for (const entry of (await optionalReaddir(generationsRoot, { withFileTypes: true })) ?? []) {
     if (!entry.isDirectory() || liveGenerations.has(entry.name)) continue;
     await rm(join(generationsRoot, entry.name), { recursive: true, force: true });
   }
-  const objectsRoot = join(indexRoot(runRoot), "objects");
+  const objectsRoot = await resolveResultsPath(runRoot, indexDirectoryName, "objects");
   await options.instrumentation?.atFaultPoint?.("object-gc");
   for (const entry of (await optionalReaddir(objectsRoot, { withFileTypes: true })) ?? []) {
     if (!(entry.isFile() && entry.name.endsWith(".json"))) continue;
@@ -520,7 +551,7 @@ async function garbageCollect(
     if (liveObjects.has(objectId)) continue;
     await rm(join(objectsRoot, entry.name), { force: true });
   }
-  const nodesRoot = join(indexRoot(runRoot), "nodes");
+  const nodesRoot = await resolveResultsPath(runRoot, indexDirectoryName, "nodes");
   for (const entry of (await optionalReaddir(nodesRoot, { withFileTypes: true })) ?? []) {
     if (!(entry.isFile() && entry.name.endsWith(".json"))) continue;
     const objectId = entry.name.slice(0, -".json".length);
@@ -528,7 +559,7 @@ async function garbageCollect(
     await rm(join(nodesRoot, entry.name), { force: true });
   }
   const publishedPointer = supportedPointerSchema.parse(
-    JSON.parse((await optionalReadFile(pointerPath(runRoot), "utf8")) ?? "null") as unknown
+    JSON.parse((await optionalReadFile(await pointerPath(runRoot), "utf8")) ?? "null") as unknown
   );
   if (
     publishedPointer.version !== pointer.version ||
@@ -545,7 +576,7 @@ async function assertPublishedV5Pointer(
   pointer: BlockRunIndexV5Pointer
 ): Promise<void> {
   const publishedPointer = blockRunIndexV5PointerSchema.parse(
-    JSON.parse((await optionalReadFile(pointerPath(runRoot), "utf8")) ?? "null") as unknown
+    JSON.parse((await optionalReadFile(await pointerPath(runRoot), "utf8")) ?? "null") as unknown
   );
   if (
     publishedPointer.currentGeneration !== pointer.currentGeneration ||
@@ -555,75 +586,83 @@ async function assertPublishedV5Pointer(
   }
 }
 
-async function incrementallyMaintainPublishedGeneration(
+async function prepareV5Retirement(
   runRoot: string,
   pointer: BlockRunIndexV5Pointer,
   currentManifest: BlockRunIndexV5Manifest,
   previousManifest: BlockRunIndexV5Manifest,
-  retirement: BlockRunIndexV5Retirement,
-  options: BlockRunIndexStorageOptions
-): Promise<void> {
-  await assertPublishedV5Pointer(runRoot, pointer);
-  const generationsRoot = join(indexRoot(runRoot), "generations");
-  await options.instrumentation?.atFaultPoint?.("generation-gc");
-  for (const entry of (await optionalReaddir(generationsRoot, { withFileTypes: true })) ?? []) {
-    if (
-      !entry.isDirectory() ||
-      entry.name === pointer.currentGeneration ||
-      entry.name === pointer.previousGeneration
-    ) {
-      continue;
-    }
-    await rm(join(generationsRoot, entry.name), { recursive: true, force: true });
-  }
-
-  await options.instrumentation?.atFaultPoint?.("object-gc");
+  retirementPath: string,
+  retirement: BlockRunIndexV5Retirement | null,
+  options: BlockRunIndexStorageOptions,
+  plannedNodes?: BlockRunIndexV5TreeBuild["nodes"]
+): Promise<() => Promise<void>> {
+  const generationsRoot = await resolveResultsPath(runRoot, indexDirectoryName, "generations");
   const cache = new Map<string, BlockRunIndexV5TreeNode>();
-  for (const candidate of retirement.objects) {
+  const readNode = async (objectId: string): Promise<BlockRunIndexV5TreeNode> => {
+    const cached = plannedNodes?.get(objectId) ?? cache.get(objectId);
+    if (cached) return cached;
+    const node = await readBlockRunIndexV5TreeNode(indexRoot(runRoot), objectId);
+    cache.set(objectId, node);
+    return node;
+  };
+  const retiredPaths: string[] = [];
+  for (const candidate of retirement?.objects ?? []) {
     const referencedByCurrent = await blockRunIndexV5TreeReferencesObject(
-      indexRoot(runRoot),
       currentManifest.rootNodeId,
       candidate,
-      cache
+      readNode
     );
     const referencedByPrevious = await blockRunIndexV5TreeReferencesObject(
-      indexRoot(runRoot),
       previousManifest.rootNodeId,
       candidate,
-      cache
+      readNode
     );
     if (referencedByCurrent || referencedByPrevious) continue;
-    const directory = candidate.level === -1 ? "objects" : "nodes";
-    await rm(join(indexRoot(runRoot), directory, `${candidate.objectId}.json`), {
-      force: true
-    });
+    retiredPaths.push(
+      candidate.level === -1
+        ? await objectPath(runRoot, candidate.objectId)
+        : await blockRunIndexV5NodePath(indexRoot(runRoot), candidate.objectId)
+    );
   }
 
-  await assertPublishedV5Pointer(runRoot, pointer);
-  await rm(retirementPath(runRoot, previousManifest.generation), { force: true });
+  return async () => {
+    await assertPublishedV5Pointer(runRoot, pointer);
+    await options.instrumentation?.atFaultPoint?.("generation-gc");
+    for (const entry of (await optionalReaddir(generationsRoot, { withFileTypes: true })) ?? []) {
+      if (
+        !entry.isDirectory() ||
+        entry.name === pointer.currentGeneration ||
+        entry.name === pointer.previousGeneration
+      ) {
+        continue;
+      }
+      await rm(join(generationsRoot, entry.name), { recursive: true, force: true });
+    }
+    await options.instrumentation?.atFaultPoint?.("object-gc");
+    for (const path of retiredPaths) await rm(path, { force: true });
+    await assertPublishedV5Pointer(runRoot, pointer);
+    await rm(retirementPath, { force: true });
+  };
 }
 
-async function maintainPendingV5Retirement(
+async function preparePendingV5Retirement(
   runRoot: string,
-  pointer: BlockRunIndexV5Pointer,
-  currentManifest: BlockRunIndexV5Manifest,
-  options: BlockRunIndexStorageOptions,
-  force = false
-): Promise<void> {
-  const previousGeneration = pointer.previousGeneration;
-  if (previousGeneration === null) return;
-  const retirement = await readParsed(
-    retirementPath(runRoot, previousGeneration),
-    blockRunIndexV5RetirementSchema
-  );
-  if (!(retirement || force)) return;
-  const previousManifest = await readV5Manifest(runRoot, previousGeneration);
-  await incrementallyMaintainPublishedGeneration(
+  snapshot: BlockRunIndexV5ReadSnapshot,
+  options: BlockRunIndexStorageOptions
+): Promise<(() => Promise<void>) | null> {
+  const { pointer, manifest } = snapshot;
+  if (pointer.previousGeneration === null) return null;
+  const path = await retirementPath(runRoot, pointer.previousGeneration);
+  const retirement = await readParsed(path, blockRunIndexV5RetirementSchema);
+  if (!retirement) return null;
+  const previousManifest = await readV5Manifest(runRoot, pointer.previousGeneration);
+  return prepareV5Retirement(
     runRoot,
     pointer,
-    currentManifest,
+    manifest,
     previousManifest,
-    retirement ?? { version: 1, objects: [] },
+    path,
+    retirement,
     options
   );
 }
@@ -632,7 +671,7 @@ export async function maintainBlockRunIndex(
   runRoot: string,
   options: BlockRunIndexStorageOptions = {}
 ): Promise<void> {
-  const pointerText = await optionalReadFile(pointerPath(runRoot), "utf8");
+  const pointerText = await optionalReadFile(await pointerPath(runRoot), "utf8");
   if (pointerText === null) return;
   const pointer = supportedPointerSchema.parse(JSON.parse(pointerText) as unknown);
   if (pointer.version === 3) return;
@@ -655,93 +694,142 @@ export async function maintainBlockRunIndex(
   );
 }
 
-async function publishGeneration(
+async function prepareGenerationPublication(
   runRoot: string,
   previous: BlockRunIndexReadSnapshot | null,
   draft: GenerationDraft,
   options: BlockRunIndexStorageOptions
-): Promise<void> {
+): Promise<() => Promise<void>> {
   const generation = crypto.randomUUID();
-  await mkdir(join(indexRoot(runRoot), "generations", generation), { recursive: true });
-  await options.afterStage?.("generation-created");
-  for (const [objectId, entries] of draft.newPages) {
-    await writePageObject(runRoot, objectId, entries, options);
-  }
+  const generationDir = await resolveResultsPath(
+    runRoot,
+    indexDirectoryName,
+    "generations",
+    generation
+  );
+  const manifestPath = await v4ManifestPath(runRoot, generation);
+  const currentPath = await pointerPath(runRoot);
+  const retiredPath = draft.retirement ? await retirementPath(runRoot, generation) : null;
   const tree = draft.tree ?? buildBlockRunIndexV5Tree(draft.sourcePages ?? []);
+  const pages: Array<{ objectId: string; entries: readonly BlockRunIndexEntry[]; path: string }> =
+    [];
+  for (const [objectId, entries] of draft.newPages) {
+    const path = await objectPath(runRoot, objectId);
+    if (await optionalStat(path)) await readV4PageObject(runRoot, pageDescriptor(entries));
+    pages.push({ objectId, entries, path });
+  }
+  const nodes: Array<{ objectId: string; node: BlockRunIndexV5TreeNode; path: string }> = [];
   for (const [objectId, node] of tree.nodes) {
-    const path = join(indexRoot(runRoot), "nodes", `${objectId}.json`);
-    if (await optionalStat(path)) {
-      await readBlockRunIndexV5TreeNode(indexRoot(runRoot), objectId);
-      continue;
-    }
-    await options.instrumentation?.atFaultPoint?.("tree-node-write");
-    await writeJsonFile(path, node);
-    options.instrumentation?.recordWrite?.({
-      kind: "tree-node",
-      payloadBytes: Buffer.byteLength(`${JSON.stringify(node, null, 2)}\n`, "utf8")
-    });
-    await readBlockRunIndexV5TreeNode(indexRoot(runRoot), objectId);
+    const path = await blockRunIndexV5NodePath(indexRoot(runRoot), objectId);
+    if (await optionalStat(path)) await readBlockRunIndexV5TreeNode(indexRoot(runRoot), objectId);
+    nodes.push({ objectId, node, path });
   }
-  if (draft.retirement) {
-    const retirement = blockRunIndexV5RetirementSchema.parse(draft.retirement);
-    await options.instrumentation?.atFaultPoint?.("retirement-write");
-    await writeJsonFile(retirementPath(runRoot, generation), retirement);
-    options.instrumentation?.recordWrite?.({
-      kind: "retirement",
-      payloadBytes: Buffer.byteLength(`${JSON.stringify(retirement, null, 2)}\n`, "utf8")
-    });
-  }
-  await options.afterStage?.("pages-written");
+  const retirement = draft.retirement
+    ? blockRunIndexV5RetirementSchema.parse(draft.retirement)
+    : null;
   const manifest = blockRunIndexV5ManifestSchema.parse({
     version: 5,
     generation,
     pageSize: BLOCK_RUN_INDEX_PAGE_SIZE,
     treeFanout: BLOCK_RUN_INDEX_TREE_FANOUT,
     treeDepth: BLOCK_RUN_INDEX_TREE_DEPTH,
-    total: draft.manifest.total,
-    pageCount: draft.manifest.pageCount,
-    maxRetryIndex: draft.manifest.maxRetryIndex,
-    head: draft.manifest.head,
-    latestArtifact: draft.manifest.latestArtifact,
+    ...draft.manifest,
     rootNodeId: tree.rootNodeId
   });
-  await options.instrumentation?.atFaultPoint?.("manifest-write");
-  await writeJsonFile(v4ManifestPath(runRoot, generation), manifest);
-  options.instrumentation?.recordWrite?.({
-    kind: "manifest",
-    payloadBytes: Buffer.byteLength(`${JSON.stringify(manifest, null, 2)}\n`, "utf8")
-  });
-  await options.afterStage?.("before-publish");
   const pointer = blockRunIndexV5PointerSchema.parse({
     version: 5,
     currentGeneration: generation,
-    previousGeneration: previous?.version === 5 ? previous.pointer.currentGeneration : null
+    previousGeneration: previous?.version === 5 ? previous.manifest.generation : null
   });
-  await options.instrumentation?.atFaultPoint?.("before-pointer-write");
-  await writeJsonFile(pointerPath(runRoot), pointer);
-  options.instrumentation?.recordWrite?.({
-    kind: "pointer",
-    payloadBytes: Buffer.byteLength(`${JSON.stringify(pointer, null, 2)}\n`, "utf8")
-  });
-  await options.instrumentation?.atFaultPoint?.("after-pointer-write");
-  await options.afterStage?.("published");
-  try {
-    if (draft.retirement && previous?.version === 5) {
-      await maintainPendingV5Retirement(runRoot, pointer, manifest, options, true);
-      return;
-    }
-    const closure = await verifyV5LiveClosure(runRoot, pointer);
-    await garbageCollect(
+  let maintenance: () => Promise<void>;
+  if (retirement && previous?.version === 5) {
+    const previousRetirementPath = await retirementPath(runRoot, previous.manifest.generation);
+    const previousRetirement = await readParsed(
+      previousRetirementPath,
+      blockRunIndexV5RetirementSchema
+    );
+    maintenance = await prepareV5Retirement(
       runRoot,
       pointer,
-      closure.generations,
-      closure.objects,
-      closure.nodes,
-      options
+      manifest,
+      previous.manifest,
+      previousRetirementPath,
+      previousRetirement,
+      options,
+      tree.nodes
     );
-  } catch (error) {
-    throw new BlockRunIndexPartialMaintenanceError(runRoot, error);
+  } else {
+    const closure =
+      previous?.version === 5
+        ? await verifyV5LiveClosure(runRoot, {
+            version: 5,
+            currentGeneration: previous.manifest.generation,
+            previousGeneration: null
+          })
+        : { generations: new Set<string>(), objects: new Set<string>(), nodes: new Set<string>() };
+    closure.generations.add(generation);
+    for (const objectId of draft.newPages.keys()) closure.objects.add(objectId);
+    for (const nodeId of tree.nodes.keys()) closure.nodes.add(nodeId);
+    maintenance = () =>
+      garbageCollect(
+        runRoot,
+        pointer,
+        closure.generations,
+        closure.objects,
+        closure.nodes,
+        options
+      );
   }
+
+  return async () => {
+    await mkdir(generationDir, { recursive: true });
+    await options.afterStage?.("generation-created");
+    for (const { objectId, entries, path } of pages) {
+      await writePageObject(runRoot, objectId, entries, path, options);
+    }
+    for (const { objectId, node, path } of nodes) {
+      if (await optionalStat(path)) {
+        await readBlockRunIndexV5TreeNode(indexRoot(runRoot), objectId);
+        continue;
+      }
+      await options.instrumentation?.atFaultPoint?.("tree-node-write");
+      await writeJsonFile(path, node);
+      options.instrumentation?.recordWrite?.({
+        kind: "tree-node",
+        payloadBytes: Buffer.byteLength(`${JSON.stringify(node, null, 2)}\n`, "utf8")
+      });
+      await readBlockRunIndexV5TreeNode(indexRoot(runRoot), objectId);
+    }
+    if (retirement && retiredPath) {
+      await options.instrumentation?.atFaultPoint?.("retirement-write");
+      await writeJsonFile(retiredPath, retirement);
+      options.instrumentation?.recordWrite?.({
+        kind: "retirement",
+        payloadBytes: Buffer.byteLength(`${JSON.stringify(retirement, null, 2)}\n`, "utf8")
+      });
+    }
+    await options.afterStage?.("pages-written");
+    await options.instrumentation?.atFaultPoint?.("manifest-write");
+    await writeJsonFile(manifestPath, manifest);
+    options.instrumentation?.recordWrite?.({
+      kind: "manifest",
+      payloadBytes: Buffer.byteLength(`${JSON.stringify(manifest, null, 2)}\n`, "utf8")
+    });
+    await options.afterStage?.("before-publish");
+    await options.instrumentation?.atFaultPoint?.("before-pointer-write");
+    await writeJsonFile(currentPath, pointer);
+    options.instrumentation?.recordWrite?.({
+      kind: "pointer",
+      payloadBytes: Buffer.byteLength(`${JSON.stringify(pointer, null, 2)}\n`, "utf8")
+    });
+    await options.instrumentation?.atFaultPoint?.("after-pointer-write");
+    await options.afterStage?.("published");
+    try {
+      await maintenance();
+    } catch (error) {
+      throw new BlockRunIndexPartialMaintenanceError(runRoot, error);
+    }
+  };
 }
 
 function fullGenerationDraft(rawEntries: readonly BlockRunIndexEntry[]): GenerationDraft {
@@ -773,27 +861,17 @@ export async function replaceBlockRunIndexWithV5(
   entries: readonly BlockRunIndexEntry[],
   options: BlockRunIndexStorageOptions = {}
 ): Promise<void> {
-  await publishGeneration(runRoot, previous, fullGenerationDraft(entries), options);
+  const publish = await prepareBlockRunIndexReplacement(runRoot, previous, entries, options);
+  await publish();
 }
 
-async function mutateV5(
+export function prepareBlockRunIndexReplacement(
   runRoot: string,
-  snapshot: BlockRunIndexV5ReadSnapshot,
-  mutation: BlockRunIndexMutation,
-  options: BlockRunIndexStorageOptions
-): Promise<boolean> {
-  await maintainPendingV5Retirement(runRoot, snapshot.pointer, snapshot.manifest, options);
-  const plan = await planBlockRunIndexV5Mutation(
-    {
-      indexRoot: indexRoot(runRoot),
-      manifest: snapshot.manifest,
-      readPage: (descriptor) => readV4PageObject(runRoot, descriptor)
-    },
-    mutation
-  );
-  if (plan.kind === "unchanged") return false;
-  await publishGeneration(runRoot, snapshot, plan.draft, options);
-  return true;
+  previous: BlockRunIndexReadSnapshot | null,
+  entries: readonly BlockRunIndexEntry[],
+  options: BlockRunIndexStorageOptions = {}
+): Promise<() => Promise<void>> {
+  return prepareGenerationPublication(runRoot, previous, fullGenerationDraft(entries), options);
 }
 
 function mutateEntries(
@@ -827,15 +905,52 @@ function mutateEntries(
   return next;
 }
 
+export async function prepareBlockRunIndexMutation(
+  runRoot: string,
+  snapshot: BlockRunIndexReadSnapshot,
+  mutation: BlockRunIndexMutation,
+  options: BlockRunIndexStorageOptions = {}
+): Promise<() => Promise<boolean>> {
+  if (snapshot.version === 5) {
+    const maintain = await preparePendingV5Retirement(runRoot, snapshot, options);
+    const plan = await planBlockRunIndexV5Mutation(
+      {
+        indexRoot: indexRoot(runRoot),
+        manifest: snapshot.manifest,
+        readPage: (descriptor) => readV4PageObject(runRoot, descriptor)
+      },
+      mutation
+    );
+    const publish =
+      plan.kind === "publish"
+        ? await prepareGenerationPublication(runRoot, snapshot, plan.draft, options)
+        : null;
+    return async () => {
+      await maintain?.();
+      if (!publish) return false;
+      await publish();
+      return true;
+    };
+  }
+  const entries = await readAllBlockRunIndexEntries(snapshot);
+  const publish = await prepareBlockRunIndexReplacement(
+    runRoot,
+    snapshot,
+    mutateEntries(entries, mutation),
+    options
+  );
+  return async () => {
+    await publish();
+    return true;
+  };
+}
+
 export async function mutateBlockRunIndex(
   runRoot: string,
   snapshot: BlockRunIndexReadSnapshot,
   mutation: BlockRunIndexMutation,
   options: BlockRunIndexStorageOptions = {}
 ): Promise<boolean> {
-  if (snapshot.version === 5) return mutateV5(runRoot, snapshot, mutation, options);
-  const entries = await readAllBlockRunIndexEntries(snapshot);
-  const next = mutateEntries(entries, mutation);
-  await publishGeneration(runRoot, snapshot, fullGenerationDraft(next), options);
-  return true;
+  const publish = await prepareBlockRunIndexMutation(runRoot, snapshot, mutation, options);
+  return publish();
 }
