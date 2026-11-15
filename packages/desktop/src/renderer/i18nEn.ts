@@ -744,6 +744,7 @@ export const enCatalog = {
   deploymentExported: "Bundle exported. TLS files are not included.",
   deploymentExportNeedsProject: "The Server bundle could not be exported.",
   deploymentExportInvalidProject: "The Server bundle could not be created.",
+  deploymentExportInProgress: "A Server bundle export is already in progress.",
   deploymentExportDestinationNotFile: "Choose a regular file or a new filename.",
   deploymentExportPermissionsUnavailable:
     "Choose a location that supports private file permissions.",

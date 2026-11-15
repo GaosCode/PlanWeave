@@ -707,6 +707,7 @@ export const zhCnCatalog = {
   deploymentExported: "自托管包已导出；其中不包含 TLS 文件。",
   deploymentExportNeedsProject: "无法导出 Server 部署包。",
   deploymentExportInvalidProject: "无法生成 Server 部署包。",
+  deploymentExportInProgress: "已有 Server 部署包正在导出。",
   deploymentExportDestinationNotFile: "请选择普通文件或使用新文件名。",
   deploymentExportPermissionsUnavailable: "请选择支持私有文件权限的保存位置。",
   deploymentExportCleanupFailed: "导出失败，Desktop 未能清除临时数据。",

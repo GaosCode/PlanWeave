@@ -8,7 +8,7 @@ import {
 
 await prepareElectronBuildOutput();
 const options = electronBuildOptions();
-await Promise.all([build(options.main), build(options.preload)]);
+await Promise.all(Object.values(options).map((entry) => build(entry)));
 
 // Parent package.json has "type": "module"; mark the preload dir as CJS so
 // Electron loads dist/preload/preload.js as CommonJS (required for sandbox).

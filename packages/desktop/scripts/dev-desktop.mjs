@@ -19,8 +19,7 @@ let restartTimer = null;
 let lifecycleReady = false;
 let stopping = false;
 let viteServer;
-let mainContext;
-let preloadContext;
+let buildContexts = [];
 
 function launchElectron(rendererUrl) {
   const child = spawn(electronPath, [resolve(desktopPackageRoot, "dist", "main", "main.js")], {
@@ -63,8 +62,7 @@ async function shutdown(exitCode) {
   if (electronProcess) electronProcess.kill();
   await Promise.allSettled([
     viteServer?.close(),
-    mainContext?.dispose(),
-    preloadContext?.dispose()
+    ...buildContexts.map((buildContext) => buildContext.dispose())
   ]);
   process.exitCode = exitCode;
 }
@@ -77,13 +75,10 @@ const onBuildEnd = (_name, result) => {
   restartTimer = setTimeout(() => requestElectronRestart(rendererUrl), 120);
 };
 const buildOptions = electronBuildOptions(onBuildEnd);
-[mainContext, preloadContext] = await Promise.all([
-  context(buildOptions.main),
-  context(buildOptions.preload)
-]);
-await Promise.all([mainContext.rebuild(), preloadContext.rebuild()]);
+buildContexts = await Promise.all(Object.values(buildOptions).map((entry) => context(entry)));
+await Promise.all(buildContexts.map((buildContext) => buildContext.rebuild()));
 await writePreloadModuleMetadata();
-await Promise.all([mainContext.watch(), preloadContext.watch()]);
+await Promise.all(buildContexts.map((buildContext) => buildContext.watch()));
 
 viteServer = await createServer({
   configFile: resolve(desktopPackageRoot, "vite.config.ts"),

@@ -9,7 +9,8 @@ import {
   deploymentTargetDraftSchema,
   type DeploymentTargetDraft,
   type DeploymentGuidanceView,
-  type ConnectivityValidationView
+  type ConnectivityValidationView,
+  type DeploymentBundleExportView
 } from "@planweave-ai/collaboration-protocol/deployment";
 import { operatorTokenSchema } from "@planweave-ai/agent-host-protocol";
 import {
@@ -19,15 +20,19 @@ import {
   serverConfigSchema,
   type ServerConfig
 } from "@planweave-ai/server";
-import { lstat, readdir, readFile } from "node:fs/promises";
-import { basename, isAbsolute, relative, resolve } from "node:path";
-import { zipSync, strToU8 } from "fflate";
+import { basename, resolve } from "node:path";
+import { deploymentArchiveFailureCodes as archiveFailureCodes } from "../../shared/deploymentArchiveFailureCodes.js";
+import {
+  buildDeploymentArchive,
+  deploymentArchiveError,
+  resolveDeploymentArchiveWorkerEntry
+} from "./deploymentArchiveClient.js";
+import type { DeploymentArchiveInput } from "./deploymentArchiveMessages.js";
 import { publishDeploymentArchive } from "./deploymentArchivePublisher.js";
 import { writeDesktopConnectionScript } from "./writeDesktopConnectionScript.js";
 
 const composePreview =
   "test -f tls/server.crt && test -f tls/server.key && docker compose -f compose.yaml up --build --detach --wait";
-const maxBundleInputBytes = 256 * 1024 * 1024;
 
 export type DeploymentBundleSource = {
   config: ServerConfig;
@@ -49,6 +54,7 @@ export type DeploymentActionsOptions = {
   writeClipboard?: (value: string) => void;
   now?: () => Date;
   resourceDirectory?: string;
+  archiveWorkerEntry?: URL;
   resolveBundleSource?: (target: DeploymentTargetDraft) => Promise<DeploymentBundleSource>;
   showSaveDialog?: (options: {
     defaultPath: string;
@@ -155,6 +161,10 @@ export class DeploymentActions {
   private readonly writeClipboard?: (value: string) => void;
   private readonly now: () => Date;
   private readonly resourceDirectory?: string;
+  private readonly archiveWorkerEntry: URL;
+  private readonly archiveShutdown = new AbortController();
+  private exportInProgress = false;
+  private activeArchiveExport?: Promise<DeploymentBundleExportView>;
   private readonly resolveBundleSource?: (
     target: DeploymentTargetDraft
   ) => Promise<DeploymentBundleSource>;
@@ -165,6 +175,7 @@ export class DeploymentActions {
     this.writeClipboard = options.writeClipboard;
     this.now = options.now ?? (() => new Date());
     this.resourceDirectory = options.resourceDirectory;
+    this.archiveWorkerEntry = options.archiveWorkerEntry ?? resolveDeploymentArchiveWorkerEntry();
     this.resolveBundleSource = options.resolveBundleSource;
     this.showSaveDialog = options.showSaveDialog;
   }
@@ -206,40 +217,71 @@ export class DeploymentActions {
     if (!this.resolveBundleSource || !this.resourceDirectory || !this.showSaveDialog) {
       return unavailableBundleView("needs_project");
     }
-    const save = await this.showSaveDialog({
-      defaultPath: "planweave-self-host-bundle.zip",
-      filters: [{ name: "PlanWeave self-host bundle", extensions: ["zip"] }]
-    });
-    if (save.canceled || !save.filePath) {
-      return deploymentBundleExportViewSchema.parse({
-        state: "cancelled",
-        fileName: null,
-        tls: "required_after_export"
-      });
+    const signal = this.archiveShutdown.signal;
+    signal.throwIfAborted();
+    if (this.exportInProgress) {
+      throw deploymentArchiveError(archiveFailureCodes.exportInProgress);
     }
-    let source: DeploymentBundleSource;
+
+    this.exportInProgress = true;
     try {
-      source = await this.resolveBundleSource(target);
-    } catch (error) {
-      if (error instanceof DeploymentBundleUnavailableError)
-        return unavailableBundleView(error.state);
-      throw error;
-    }
-    try {
-      const archive = await createBundleArchive({
-        resourceDirectory: this.resourceDirectory,
-        source,
-        target
+      const save = await this.showSaveDialog({
+        defaultPath: "planweave-self-host-bundle.zip",
+        filters: [{ name: "PlanWeave self-host bundle", extensions: ["zip"] }]
       });
-      await publishDeploymentArchive(save.filePath, archive);
+      signal.throwIfAborted();
+      if (save.canceled || !save.filePath) {
+        return deploymentBundleExportViewSchema.parse({
+          state: "cancelled",
+          fileName: null,
+          tls: "required_after_export"
+        });
+      }
+      this.activeArchiveExport = this.publishBundle(
+        save.filePath,
+        this.resourceDirectory,
+        target,
+        this.resolveBundleSource
+      );
+      return await this.activeArchiveExport;
+    } finally {
+      this.activeArchiveExport = undefined;
+      this.exportInProgress = false;
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    this.archiveShutdown.abort(deploymentArchiveError(archiveFailureCodes.shuttingDown));
+    await Promise.allSettled([this.activeArchiveExport]);
+  }
+
+  private async publishBundle(
+    destination: string,
+    resourceDirectory: string,
+    target: DeploymentTargetDraft,
+    resolveBundleSource: NonNullable<DeploymentActionsOptions["resolveBundleSource"]>
+  ): Promise<DeploymentBundleExportView> {
+    const signal = this.archiveShutdown.signal;
+    try {
+      const source = await resolveBundleSource(target);
+      signal.throwIfAborted();
+      const archive = await buildDeploymentArchive(
+        this.archiveWorkerEntry,
+        prepareArchiveInput(resourceDirectory, source, target),
+        signal
+      );
+      signal.throwIfAborted();
+      if (!archive) return unavailableBundleView("invalid_project");
+      await publishDeploymentArchive(destination, archive);
     } catch (error) {
-      if (error instanceof DeploymentBundleUnavailableError)
+      if (error instanceof DeploymentBundleUnavailableError) {
         return unavailableBundleView(error.state);
+      }
       throw error;
     }
     return deploymentBundleExportViewSchema.parse({
       state: "exported",
-      fileName: basename(save.filePath),
+      fileName: basename(destination),
       tls: "required_after_export"
     });
   }
@@ -306,68 +348,27 @@ export class DeploymentActions {
   }
 }
 
-async function archiveDirectory(
-  root: string,
-  prefix: string,
-  output: Record<string, Uint8Array>,
-  total: { bytes: number }
-): Promise<void> {
-  const resolvedRoot = resolve(root);
-  if (!isAbsolute(resolvedRoot)) {
-    throw new DeploymentBundleUnavailableError("invalid_project", "deployment_bundle_root_invalid");
-  }
-  const entries = await readdir(resolvedRoot, { withFileTypes: true });
-  for (const entry of entries) {
-    const path = resolve(resolvedRoot, entry.name);
-    if (relative(resolvedRoot, path).startsWith("..")) {
-      throw new DeploymentBundleUnavailableError(
-        "invalid_project",
-        "deployment_bundle_path_escape"
-      );
-    }
-    const metadata = await lstat(path);
-    if (metadata.isSymbolicLink()) {
-      throw new DeploymentBundleUnavailableError(
-        "invalid_project",
-        "deployment_bundle_symlink_rejected"
-      );
-    }
-    const name = `${prefix}/${entry.name}`;
-    if (metadata.isDirectory()) {
-      await archiveDirectory(path, name, output, total);
-      continue;
-    }
-    if (!metadata.isFile()) {
-      throw new DeploymentBundleUnavailableError(
-        "invalid_project",
-        "deployment_bundle_entry_invalid"
-      );
-    }
-    total.bytes += metadata.size;
-    if (total.bytes > maxBundleInputBytes) {
-      throw new DeploymentBundleUnavailableError("invalid_project", "deployment_bundle_too_large");
-    }
-    output[name] = new Uint8Array(await readFile(path));
-  }
-}
-
-async function createBundleArchive(input: {
-  resourceDirectory: string;
-  source: DeploymentBundleSource;
-  target: DeploymentTargetDraft;
-}): Promise<Uint8Array> {
-  const config = serverConfigSchema.parse(input.source.config);
+function prepareArchiveInput(
+  resourceDirectory: string,
+  source: DeploymentBundleSource,
+  target: DeploymentTargetDraft
+): DeploymentArchiveInput {
+  const result = serverConfigSchema.safeParse(source.config);
+  if (!result.success) throw deploymentArchiveError("deployment_bundle_config_invalid");
+  const config = result.data;
   if (
     config.transport.mode !== "direct_https" ||
     config.trustedProjects.length !== 0 ||
-    config.deployment?.serverOrigin !== input.target.endpoint.serverOrigin
+    config.deployment?.serverOrigin !== target.endpoint.serverOrigin
   ) {
     throw new DeploymentBundleUnavailableError(
       "invalid_project",
       "deployment_bundle_scope_invalid"
     );
   }
-  const operatorToken = operatorTokenSchema.parse(input.source.operatorToken);
+  const credential = operatorTokenSchema.safeParse(source.operatorToken);
+  if (!credential.success) throw deploymentArchiveError("deployment_bundle_operator_invalid");
+  const operatorToken = credential.data;
   const tokenDigest = hashOperatorToken(operatorToken);
   if (
     !config.operatorCredentials.some(
@@ -379,40 +380,17 @@ async function createBundleArchive(input: {
       "deployment_bundle_operator_mismatch"
     );
   }
-  const configInput = serverConfigFileInput(config);
   const connectionScript = writeDesktopConnectionScript.endsWith("\n")
     ? writeDesktopConnectionScript
     : `${writeDesktopConnectionScript}\n`;
   const restoreScript = restoreServerDataScript.endsWith("\n")
     ? restoreServerDataScript
     : `${restoreServerDataScript}\n`;
-  const files: Record<string, Uint8Array> = {
-    "server.json": strToU8(`${JSON.stringify(configInput)}\n`),
-    ".operator-token": strToU8(`${operatorToken}\n`),
-    "write-desktop-connection.sh": strToU8(connectionScript),
-    "restore-server-data.sh": strToU8(restoreScript),
-    "tls/.gitkeep": new Uint8Array()
+  return {
+    resourceDirectory: resolve(resourceDirectory),
+    serverJson: `${JSON.stringify(serverConfigFileInput(config))}\n`,
+    operatorTokenFile: `${operatorToken}\n`,
+    connectionScript,
+    restoreScript
   };
-  const total = {
-    bytes:
-      Buffer.byteLength(JSON.stringify(configInput)) +
-      Buffer.byteLength(operatorToken) +
-      Buffer.byteLength(connectionScript) +
-      Buffer.byteLength(restoreScript)
-  };
-  const composePath = resolve(input.resourceDirectory, "compose.yaml");
-  const composeMetadata = await lstat(composePath);
-  if (composeMetadata.isSymbolicLink() || !composeMetadata.isFile()) {
-    throw new DeploymentBundleUnavailableError(
-      "invalid_project",
-      "deployment_bundle_compose_invalid"
-    );
-  }
-  total.bytes += composeMetadata.size;
-  if (total.bytes > maxBundleInputBytes) {
-    throw new DeploymentBundleUnavailableError("invalid_project", "deployment_bundle_too_large");
-  }
-  files["compose.yaml"] = new Uint8Array(await readFile(composePath));
-  await archiveDirectory(resolve(input.resourceDirectory, "image"), "image", files, total);
-  return zipSync(files, { level: 6 });
 }

@@ -61,6 +61,7 @@ import {
 } from "../../shared/collaborationRuntimeAvailability.js";
 import { LocalCollaborationCoordinatorControl } from "./CollaborationCoordinatorControl.js";
 import { DeploymentActions } from "./deploymentActions.js";
+import { resolveDeploymentArchiveWorkerEntry } from "./deploymentArchiveClient.js";
 import { runCollaborationCommand } from "./collaborationCommandHandler.js";
 import { createLocalCollaborationActivationCommand } from "./localCollaborationSelectionActivation.js";
 import { CollaborationInvitationHandoffCoordinator } from "./CollaborationInvitationHandoffCoordinator.js";
@@ -86,6 +87,7 @@ import { ServerDataMigration } from "./serverDataMigration.js";
 let service: CollaborationService | null = null;
 let coordinator: LocalCollaborationCoordinatorControl | null = null;
 let handlerLifecycle: CollaborationHandlerLifecycle | null = null;
+let activeDeploymentActions: DeploymentActions | null = null;
 
 export type CollaborationHandlerOptions = CollaborationServiceOptions & {
   coordinatorCredentialsPath?: string;
@@ -296,6 +298,9 @@ export function registerCollaborationHandlers(
   };
   const deploymentActions = new DeploymentActions({
     writeClipboard: (value) => clipboard.writeText(value),
+    archiveWorkerEntry: resolveDeploymentArchiveWorkerEntry(
+      app.isPackaged ? process.resourcesPath : undefined
+    ),
     resourceDirectory: resolveSelfHostServerResourceDirectory({
       packaged: app.isPackaged,
       resourcesPath: process.resourcesPath
@@ -303,6 +308,7 @@ export function registerCollaborationHandlers(
     resolveBundleSource: (target) => local.createSelfHostedDeploymentSource(target),
     showSaveDialog: (options) => dialog.showSaveDialog(options)
   });
+  activeDeploymentActions = deploymentActions;
   const invitationHandoff = new CollaborationInvitationHandoffCoordinator(active, local);
   const serverDataMigration = new ServerDataMigration({
     dataDirectory: () => desktopHomePaths().localCollaborationServerDir,
@@ -901,7 +907,12 @@ export function registerCollaborationHandlers(
 export async function shutdownCollaborationHandlers(): Promise<void> {
   const activeLifecycle = handlerLifecycle;
   handlerLifecycle = null;
-  await activeLifecycle?.closeAndDrain();
+  const deploymentActions = activeDeploymentActions;
+  activeDeploymentActions = null;
+  const lifecycleResults = await Promise.allSettled([
+    activeLifecycle?.closeAndDrain(),
+    deploymentActions?.shutdown()
+  ]);
 
   const activeService = service;
   service = null;
@@ -911,8 +922,8 @@ export async function shutdownCollaborationHandlers(): Promise<void> {
   coordinator = null;
   setLocalOperatorBackendPort(null);
   const coordinatorResult = await Promise.allSettled([activeCoordinator?.stop()]);
-  const failures = [...serviceResult, ...coordinatorResult].flatMap((result) =>
-    result.status === "rejected" ? [result.reason] : []
+  const failures = [...lifecycleResults, ...serviceResult, ...coordinatorResult].flatMap(
+    (result) => (result.status === "rejected" ? [result.reason] : [])
   );
   if (failures.length > 1) throw new AggregateError(failures, "collaboration_shutdown_failed");
   if (failures.length === 1) throw failures[0];

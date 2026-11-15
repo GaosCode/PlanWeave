@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,8 +13,10 @@ import {
 
 const packageRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const repoRoot = resolve(packageRoot, "../..");
+const deploymentArchiveWorkerEntry = "dist/main/deploymentArchiveWorker.cjs";
 const requiredAsarEntries = [
   "/dist/main/main.js",
+  `/${deploymentArchiveWorkerEntry}`,
   "/dist/preload/preload.js",
   "/node_modules/electron-updater",
   "/node_modules/builder-util-runtime",
@@ -334,6 +336,10 @@ async function verifyAsarContents(appAsarPath) {
     throw new Error(
       `Packaged app.asar is missing runtime entries:\n${missing.map((entry) => `- ${entry}`).join("\n")}`
     );
+  }
+  const worker = await stat(join(`${appAsarPath}.unpacked`, deploymentArchiveWorkerEntry));
+  if (!worker.isFile() || worker.size === 0) {
+    throw new Error("Packaged deployment archive worker is not a nonempty file.");
   }
   const unexpectedDistEntry = entries.find(
     (entry) =>

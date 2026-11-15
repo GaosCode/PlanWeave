@@ -140,6 +140,7 @@
       }
     ],
     "asarUnpack": [
+      "dist/main/deploymentArchiveWorker.cjs",
       "**/node_modules/electron-liquid-glass/**"
     ],
     "mac": {

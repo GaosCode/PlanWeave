@@ -193,6 +193,8 @@ function exportErrorLabel(
   t: ReturnType<typeof createTranslator>
 ): string {
   switch (code) {
+    case archiveFailureCodes.exportInProgress:
+      return t("deploymentExportInProgress");
     case archiveFailureCodes.destinationNotFile:
       return t("deploymentExportDestinationNotFile");
     case archiveFailureCodes.permissionsUnavailable:

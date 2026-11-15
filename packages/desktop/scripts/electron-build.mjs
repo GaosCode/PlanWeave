@@ -37,7 +37,7 @@ function buildEndPlugin(name, onBuildEnd) {
 }
 
 export function electronBuildOptions(onBuildEnd) {
-  const { banner: _mainBanner, ...preloadCommonOptions } = commonOptions;
+  const { banner: _mainBanner, ...cjsCommonOptions } = commonOptions;
   return {
     main: {
       ...commonOptions,
@@ -46,11 +46,20 @@ export function electronBuildOptions(onBuildEnd) {
       outfile: resolve(distMainDir, "main.js")
     },
     preload: {
-      ...preloadCommonOptions,
+      ...cjsCommonOptions,
       format: "cjs",
       plugins: buildEndPlugin("preload", onBuildEnd),
       entryPoints: [resolve(desktopPackageRoot, "src", "preload", "preload.ts")],
       outfile: resolve(distPreloadDir, "preload.js")
+    },
+    deploymentArchiveWorker: {
+      ...cjsCommonOptions,
+      format: "cjs",
+      plugins: buildEndPlugin("deployment-archive-worker", onBuildEnd),
+      entryPoints: [
+        resolve(desktopPackageRoot, "src", "main", "collaboration", "deploymentArchiveWorker.ts")
+      ],
+      outfile: resolve(distMainDir, "deploymentArchiveWorker.cjs")
     }
   };
 }

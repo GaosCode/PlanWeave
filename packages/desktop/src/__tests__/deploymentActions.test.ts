@@ -14,12 +14,14 @@ import {
   rmdir,
   stat,
   symlink,
+  truncate,
   unlink,
   writeFile
 } from "node:fs/promises";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { WindowsPrivateStorageSecurity } from "@planweave-ai/agent-host";
 import {
   hashOperatorToken,
@@ -27,12 +29,14 @@ import {
   restoreServerDataScript
 } from "@planweave-ai/server";
 import { unzipSync } from "fflate";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { build, type BuildOptions } from "esbuild";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   DeploymentActions,
   DeploymentBundleUnavailableError
 } from "../main/collaboration/deploymentActions.js";
 import { writeDesktopConnectionScript } from "../main/collaboration/writeDesktopConnectionScript.js";
+import { deploymentArchiveFailureCodes } from "../shared/deploymentArchiveFailureCodes.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof fs>();
@@ -60,6 +64,25 @@ const target = {
 };
 
 const roots: string[] = [];
+let workerBuildRoot: string;
+let archiveWorkerEntry: URL;
+
+beforeAll(async () => {
+  const {
+    electronBuildOptions
+  }: {
+    electronBuildOptions: () => { deploymentArchiveWorker: BuildOptions };
+  } = await import(new URL("../../scripts/electron-build.mjs", import.meta.url).href);
+  workerBuildRoot = await mkdtemp(join(tmpdir(), "planweave-deployment-worker-"));
+  const worker = electronBuildOptions().deploymentArchiveWorker;
+  const outfile = join(workerBuildRoot, "deploymentArchiveWorker.cjs");
+  await build({ ...worker, outfile, sourcemap: false, logLevel: "silent" });
+  archiveWorkerEntry = pathToFileURL(outfile);
+});
+
+afterAll(async () => {
+  if (workerBuildRoot) await rm(workerBuildRoot, { recursive: true, force: true });
+});
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -115,20 +138,39 @@ async function exportFixture(token = operatorToken, credential = token) {
       ]
     })
   };
+  const actions = (
+    showSaveDialog = async () => ({ canceled: false, filePath: bundlePath }),
+    workerEntry = archiveWorkerEntry
+  ) =>
+    new DeploymentActions({
+      resourceDirectory,
+      archiveWorkerEntry: workerEntry,
+      resolveBundleSource: async () => source,
+      showSaveDialog
+    });
   return {
     root,
+    resourceDirectory,
     bundlePath,
+    actions,
     exportBundle: (destination = bundlePath) =>
-      new DeploymentActions({
-        resourceDirectory,
-        resolveBundleSource: async () => source,
-        showSaveDialog: async () => ({ canceled: false, filePath: destination })
-      }).exportComposeBundle(request("export_supported_compose_bundle"))
+      actions(async () => ({ canceled: false, filePath: destination })).exportComposeBundle(
+        request("export_supported_compose_bundle")
+      )
   };
 }
 
 const oldBundle = Buffer.from("previous deployment archive\n");
 const otherToken = `pw_operator_${"B".repeat(43)}`;
+
+async function archiveWorkerWithFileSystem(root: string, source: string): Promise<URL> {
+  const entry = join(root, "archive-fixture-worker.cjs");
+  await writeFile(
+    entry,
+    `${source}\nrequire(${JSON.stringify(fileURLToPath(archiveWorkerEntry))});\n`
+  );
+  return pathToFileURL(entry);
+}
 
 const fsFailure = (code: string) => Object.assign(new Error(code), { code });
 
@@ -246,6 +288,30 @@ describe("DeploymentActions", () => {
     expect(resolveBundleSource).not.toHaveBeenCalled();
   });
 
+  it("rejects a second request while an export is active and admits the next one after it settles", async () => {
+    const fixture = await exportFixture();
+    const pendingDialog = Promise.withResolvers<{ canceled: boolean; filePath: string }>();
+    const save = { canceled: false, filePath: fixture.bundlePath };
+    const showSaveDialog = vi
+      .fn()
+      .mockReturnValueOnce(pendingDialog.promise)
+      .mockResolvedValue(save);
+    const actions = fixture.actions(showSaveDialog);
+    const input = request("export_supported_compose_bundle");
+    const first = actions.exportComposeBundle(input);
+    const second = actions.exportComposeBundle(input);
+    pendingDialog.resolve(save);
+    const results = await Promise.allSettled([first, second]);
+
+    expect(results).toMatchObject([
+      { status: "fulfilled", value: { state: "exported" } },
+      { status: "rejected", reason: { code: "deployment_archive_export_in_progress" } }
+    ]);
+    expect(showSaveDialog).toHaveBeenCalledTimes(1);
+    await expect(actions.exportComposeBundle(input)).resolves.toMatchObject({ state: "exported" });
+    expect(showSaveDialog).toHaveBeenCalledTimes(2);
+  });
+
   it("returns only explicit deployment unavailability and surfaces credential failures", async () => {
     const unavailable = new DeploymentActions({
       resourceDirectory: "/unused",
@@ -329,6 +395,240 @@ describe("DeploymentActions", () => {
     expect(await readFile(bundlePath)).toEqual(oldBundle);
     expect((await readdir(root)).sort()).toEqual(["bundle.zip", "resource"]);
   });
+
+  it.each([
+    { name: "missing entry", code: deploymentArchiveFailureCodes.workerFailed },
+    { name: "invalid Worker URL", code: deploymentArchiveFailureCodes.workerStartFailed },
+    {
+      name: "uncaught Worker error",
+      source: 'throw new Error("controlled worker error");',
+      code: deploymentArchiveFailureCodes.workerFailed
+    },
+    {
+      name: "clean exit before a reply",
+      source: "process.exit(0);",
+      code: deploymentArchiveFailureCodes.workerExited
+    },
+    {
+      name: "nonzero exit after a ready reply",
+      source: 'parentPort.postMessage({ state: "ready", bytes }); process.exit(1);',
+      code: deploymentArchiveFailureCodes.workerExited
+    },
+    {
+      name: "duplicate ready replies",
+      source: 'for (let i = 0; i < 2; i++) parentPort.postMessage({ state: "ready", bytes });',
+      code: deploymentArchiveFailureCodes.workerProtocolInvalid
+    },
+    {
+      name: "malformed reply",
+      source: 'parentPort.postMessage({ state: "ready", bytes: new ArrayBuffer(0) });',
+      code: deploymentArchiveFailureCodes.workerProtocolInvalid
+    }
+  ])("preserves a previous export after $name", async ({ name, source, code }) => {
+    const { root, bundlePath, actions } = await exportFixture();
+    const entry = join(root, "faulty-worker.cjs");
+    if (source) {
+      await writeFile(
+        entry,
+        `const { parentPort } = require("node:worker_threads");\nconst bytes = new ArrayBuffer(1);\n${source}\n`
+      );
+    }
+    const archiveEntry =
+      name === "invalid Worker URL"
+        ? new URL("https://invalid.example.test/")
+        : pathToFileURL(entry);
+    await writeFile(bundlePath, oldBundle);
+    await expect(
+      actions(undefined, archiveEntry).exportComposeBundle(
+        request("export_supported_compose_bundle")
+      )
+    ).rejects.toMatchObject({ code });
+    expect(await readFile(bundlePath)).toEqual(oldBundle);
+    expect((await readdir(root)).sort()).toEqual(
+      source ? ["bundle.zip", "faulty-worker.cjs", "resource"] : ["bundle.zip", "resource"]
+    );
+  });
+
+  it("terminates an active Worker on shutdown even after it replies ready", async () => {
+    const { root, bundlePath, actions } = await exportFixture();
+    const entry = join(root, "holding-worker.cjs");
+    const ready = join(root, "worker-ready");
+    await writeFile(bundlePath, oldBundle);
+    await writeFile(
+      entry,
+      [
+        'const { parentPort } = require("node:worker_threads");',
+        'const { writeFileSync } = require("node:fs");',
+        'parentPort.postMessage({ state: "ready", bytes: new ArrayBuffer(1) });',
+        `writeFileSync(${JSON.stringify(ready)}, "ready");`,
+        "setInterval(() => undefined, 1000);"
+      ].join("\n")
+    );
+    const owner = actions(undefined, pathToFileURL(entry));
+    const input = request("export_supported_compose_bundle");
+    const outcome = expect(owner.exportComposeBundle(input)).rejects.toMatchObject({
+      code: deploymentArchiveFailureCodes.shuttingDown
+    });
+    try {
+      await vi.waitFor(async () => expect(await readFile(ready, "utf8")).toBe("ready"));
+    } finally {
+      await owner.shutdown();
+    }
+    await outcome;
+    await expect(owner.exportComposeBundle(input)).rejects.toMatchObject({
+      code: deploymentArchiveFailureCodes.shuttingDown
+    });
+    expect(await readFile(bundlePath)).toEqual(oldBundle);
+    expect((await readdir(root)).sort()).toEqual([
+      "bundle.zip",
+      "holding-worker.cjs",
+      "resource",
+      "worker-ready"
+    ]);
+  });
+
+  it.skipIf(process.platform === "win32").each([".", "compose.yaml", "image", "image/Dockerfile"])(
+    "rejects a symbolic link used as an archive input at %s",
+    async (relativePath) => {
+      const { root, bundlePath, resourceDirectory, exportBundle } = await exportFixture();
+      const entry = join(resourceDirectory, relativePath);
+      const relocated = join(root, "relocated");
+      await rename(entry, relocated);
+      await symlink(relocated, entry);
+      await writeFile(bundlePath, oldBundle);
+      await expect(exportBundle()).resolves.toMatchObject({ state: "invalid_project" });
+      expect(await readFile(bundlePath)).toEqual(oldBundle);
+      expect((await readdir(root)).sort()).toEqual(["bundle.zip", "relocated", "resource"]);
+    }
+  );
+
+  it("counts generated files and resources toward a single byte budget", async () => {
+    const { root, bundlePath, resourceDirectory, exportBundle } = await exportFixture();
+    await truncate(join(resourceDirectory, "image", "Dockerfile"), 256 * 1024 * 1024);
+    await writeFile(bundlePath, oldBundle);
+    await expect(exportBundle()).resolves.toMatchObject({ state: "invalid_project" });
+    expect(await readFile(bundlePath)).toEqual(oldBundle);
+    expect((await readdir(root)).sort()).toEqual(["bundle.zip", "resource"]);
+  });
+
+  it.each([
+    ["resource root", ""],
+    ["nested image directory", "image/nested"]
+  ])("preserves a previous export when %s changes after discovery", async (_, subdirectory) => {
+    const { root, bundlePath, resourceDirectory, actions } = await exportFixture();
+    const affected = join(resourceDirectory, subdirectory);
+    if (subdirectory) {
+      await mkdir(affected);
+      await writeFile(join(affected, "sample.txt"), "local fixture\n");
+    }
+    const timestamp = 946684800;
+    const entry = await archiveWorkerWithFileSystem(
+      root,
+      `
+const fs = require("node:fs");
+const asyncFs = require("node:fs/promises");
+const { workerData } = require("node:worker_threads");
+const lstat = asyncFs.lstat;
+const lstatSync = fs.lstatSync;
+const affected = ${subdirectory ? `fs.realpathSync.native(${JSON.stringify(affected)})` : "workerData.resourceDirectory"};
+let changed = false;
+const observe = (path, metadata) => {
+  if (!changed && path === affected) {
+    changed = true;
+    fs.utimesSync(path, ${timestamp}, ${timestamp});
+  }
+  return metadata;
+};
+fs.lstatSync = (path, ...args) => observe(path, lstatSync(path, ...args));
+asyncFs.lstat = async (path, ...args) => observe(path, await lstat(path, ...args));
+`
+    );
+    await writeFile(bundlePath, oldBundle);
+    await expect(
+      actions(undefined, entry).exportComposeBundle(request("export_supported_compose_bundle"))
+    ).resolves.toMatchObject({ state: "invalid_project" });
+    expect((await stat(affected)).mtimeMs).toBe(timestamp * 1000);
+    expect(await readFile(bundlePath)).toEqual(oldBundle);
+    expect((await readdir(root)).sort()).toEqual([
+      "archive-fixture-worker.cjs",
+      "bundle.zip",
+      "resource"
+    ]);
+  });
+
+  it("rejects an incomplete resource directory without creating an export", async () => {
+    const { root, resourceDirectory, exportBundle } = await exportFixture();
+    await rename(join(resourceDirectory, "image"), join(root, "incomplete-image"));
+    await expect(exportBundle()).resolves.toMatchObject({ state: "invalid_project" });
+    expect((await readdir(root)).sort()).toEqual(["incomplete-image", "resource"]);
+  });
+
+  it("exports the last representable ZIP entry and rejects one more before publishing", async () => {
+    const { root, bundlePath, resourceDirectory, actions } = await exportFixture();
+    const emptyFile = join(root, "empty.bin");
+    const extraEntry = join(root, "append-entry");
+    await writeFile(emptyFile, "");
+    const entry = await archiveWorkerWithFileSystem(
+      root,
+      `
+const fs = require("node:fs/promises");
+const syncFs = require("node:fs");
+const { existsSync, lstatSync, realpathSync } = syncFs;
+const { dirname, join, basename } = require("node:path");
+const canonicalPath = realpathSync.native;
+const image = canonicalPath(${JSON.stringify(join(resourceDirectory, "image"))});
+const empty = ${JSON.stringify(emptyFile)};
+const extra = existsSync(${JSON.stringify(extraEntry)});
+const entries = Array.from({ length: 65535 - 6 + Number(extra) }, (_, n) => "resource-" + n);
+const isVirtualFile = path => dirname(path) === image && basename(path).startsWith("resource-");
+const lstat = fs.lstat;
+const open = fs.open;
+const readdir = fs.readdir;
+const opendir = fs.opendir;
+const directorySnapshots = new Map([image, dirname(image)].map(path => [
+  path, lstatSync(path, { bigint: true })
+]));
+const metadata = lstatSync(empty);
+const bigintMetadata = lstatSync(empty, { bigint: true });
+const fileStats = options => options?.bigint ? bigintMetadata : metadata;
+fs.lstat = async (path, options) => isVirtualFile(path) ? fileStats(options)
+  : lstat(path, options);
+syncFs.lstatSync = (path, options) => isVirtualFile(path) ? fileStats(options)
+  : (options?.bigint ? directorySnapshots.get(path) : undefined) ?? lstatSync(path, options);
+fs.open = async (path, ...args) => isVirtualFile(path) ? {
+  stat: async options => fileStats(options),
+  read: async () => ({ bytesRead: 0 }),
+  [Symbol.asyncDispose]: async () => undefined
+} : open(path, ...args);
+realpathSync.native = (path, ...args) => directorySnapshots.has(path) ? path : canonicalPath(path, ...args);
+fs.readdir = async (path, ...args) => path === image ? entries : readdir(path, ...args);
+fs.opendir = async (path, ...args) => path === image ? {
+  async *[Symbol.asyncIterator]() {
+    for (const name of entries) yield { name };
+  }
+} : opendir(path, ...args);
+`
+    );
+    const exportBundle = () =>
+      actions(undefined, entry).exportComposeBundle(request("export_supported_compose_bundle"));
+    await expect(exportBundle()).resolves.toMatchObject({ state: "exported" });
+    const previous = await readFile(bundlePath);
+    const archive = unzipSync(previous);
+    expect(Object.keys(archive)).toHaveLength(65_535);
+    expect(new TextDecoder().decode(archive["compose.yaml"])).toBe("services: {}\n");
+    expect(archive["image/resource-65528"]).toHaveLength(0);
+
+    await writeFile(extraEntry, "");
+    await expect(exportBundle()).resolves.toMatchObject({ state: "invalid_project" });
+    expect(await readFile(bundlePath)).toEqual(previous);
+    expect((await readdir(root)).sort()).toEqual([
+      "append-entry",
+      "archive-fixture-worker.cjs",
+      "bundle.zip",
+      "empty.bin",
+      "resource"
+    ]);
+  }, 30_000);
 
   it.skipIf(process.platform === "win32")(
     "replaces a readable archive with a private ZIP",

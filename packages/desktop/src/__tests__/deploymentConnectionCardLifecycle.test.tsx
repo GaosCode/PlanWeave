@@ -247,6 +247,7 @@ describe("DeploymentConnectionCard target lifecycle", () => {
   });
 
   it.each([
+    ["deployment_archive_export_in_progress", "A Server bundle export is already in progress."],
     ["deployment_archive_destination_not_file", "Choose a regular file or a new filename."],
     [
       "deployment_archive_permissions_unavailable",
