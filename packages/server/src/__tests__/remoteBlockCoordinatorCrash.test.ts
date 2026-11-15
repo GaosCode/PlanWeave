@@ -1,5 +1,5 @@
 import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { appendFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -44,6 +44,7 @@ import {
 } from "./support/remoteAgentOwnerFixture.js";
 import { exactHostRuntimeRouteFixture } from "./support/exactHostRuntimeRoute.js";
 import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
+import { CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
@@ -426,7 +427,11 @@ function diagnosticCode(database: PlanweaveServer["database"], operationId: stri
     .get(operationId)?.code;
 }
 
-async function prepareInterruptedAction(harness: CoordinatorHarness, resumable: boolean) {
+async function prepareInterruptedAction(
+  harness: CoordinatorHarness,
+  resumable: boolean,
+  blockRef = "T-001#B-001"
+) {
   const hostId = harness.registerHost();
   const coordination = harness.requireCoordination();
   if (resumable) {
@@ -448,7 +453,6 @@ async function prepareInterruptedAction(harness: CoordinatorHarness, resumable: 
       }
     );
   }
-  const blockRef = "T-001#B-001";
   const candidate = workspaceExecutionCandidate(
     await canonicalRemoteRuntimePort(harness.requireRuntime(), harness.locator.workspaceId).inspect(
       { ref: blockRef }
@@ -459,7 +463,7 @@ async function prepareInterruptedAction(harness: CoordinatorHarness, resumable: 
     operations: coordination.operations,
     locator: harness.locator,
     candidate,
-    idempotencyKey: `action-crash-${resumable}`,
+    idempotencyKey: `action-crash-${blockRef}-${resumable}`,
     endpointSelection: workspaceEndpointSelection({
       agentEndpoints: coordination.agentEndpoints,
       candidate,
@@ -623,6 +627,11 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
     await expect(coordination.coordinator.executeAction(request)).rejects.toThrowError(
       "injected_crash:after_action_side_effect"
     );
+    await expect(coordination.coordinator.executeAction(request)).rejects.toThrow(
+      "remote_action_in_progress"
+    );
+    await coordination.reconcile();
+    expect(coordination.actions.getRequired(request.actionId).state).toBe("recorded");
     coordination = await harness.restart();
     await coordination.reconcile({
       serverInstanceOwnerToken: harness.requireServer().serverInstanceOwnerToken
@@ -634,6 +643,193 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
         .database.prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE message_id=?")
         .get(request.actionId)?.count
     ).toBe(1);
+  });
+
+  it.each([
+    { retry: "execute", committed: false },
+    { retry: "maintenance", committed: false },
+    { retry: "concurrent", committed: true }
+  ] as const)("resumes on the same Server after apply and recovery fail ($retry, committed=$committed)", async ({
+    retry,
+    committed
+  }) => {
+    const harness = await CoordinatorHarness.create(true);
+    const { outcome, hostId } = await prepareInterruptedAction(harness, true);
+    const later = await prepareInterruptedAction(harness, false, "T-002#B-001");
+    const thirdStarted = Promise.withResolvers<void>();
+    const releaseThird = Promise.withResolvers<void>();
+    let calls = 0;
+    const coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      resumeAttempt: async (input) => {
+        calls += 1;
+        if (calls <= 2 && committed) {
+          await runtime.resumeAttempt(input);
+          throw new CanvasRuntimeRpcError("canvas_runtime_reconcile_required", true, true);
+        }
+        if (calls <= 2) throw new CanvasRuntimeUnavailableError("host_offline");
+        if (retry !== "execute") {
+          thirdStarted.resolve();
+          await releaseThird.promise;
+        }
+        return runtime.resumeAttempt(input);
+      }
+    }));
+    const interrupted = coordination.operations.getRequired(outcome.operation.id);
+    const { capability } = coordination.coordinator.readResume(interrupted);
+    if (!capability.available) throw new Error(capability.reason);
+    const action = {
+      ...capability.target,
+      actionId: "resume-online",
+      kind: "resume_same_session",
+      reason: "Resume the original session."
+    } as const;
+    await expect(coordination.coordinator.executeHumanAction(action)).rejects.toThrow(
+      committed ? "canvas_runtime_reconcile_required" : CanvasRuntimeUnavailableError
+    );
+    const recorded = coordination.actions.getRequired(action.actionId);
+    if (recorded.request.kind !== "resume_same_session") throw new Error("resume_request_required");
+    expect(recorded.state).toBe("recorded");
+    await expect(coordination.coordinator.executeHumanAction(action)).rejects.toThrow(
+      committed ? "canvas_runtime_reconcile_required" : CanvasRuntimeUnavailableError
+    );
+    expect(mailboxContains(harness, action.actionId)).toBe(false);
+    const laterOperation = coordination.operations.getRequired(later.outcome.operation.id);
+    const laterAction = coordination.actions.record({
+      ...cancelAction(laterOperation, "z-later-block"),
+      kind: "block"
+    });
+    const checkMaintenance = async () => {
+      const outcomes = await coordination.reconcile();
+      expect(outcomes).toContainEqual(
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            id: laterOperation.id,
+            attempt: expect.objectContaining({ status: "action_required" })
+          })
+        })
+      );
+      expect(coordination.actions.getRequired(laterAction.request.actionId).state).toBe("settled");
+    };
+    if (retry === "concurrent") {
+      const execution = coordination.coordinator.executeHumanAction(action);
+      try {
+        await Promise.race([thirdStarted.promise, execution]);
+        const duplicate = coordination.coordinator.executeHumanAction(action);
+        const both = Promise.all([execution, duplicate]);
+        void both.catch(() => undefined);
+        await checkMaintenance();
+        expect(mailboxContains(harness, action.actionId)).toBe(false);
+        releaseThird.resolve();
+        await expect(both).resolves.toMatchObject([{ state: "delivered" }, { state: "delivered" }]);
+      } finally {
+        releaseThird.resolve();
+      }
+    } else if (retry === "maintenance") {
+      const maintenance = checkMaintenance();
+      try {
+        await Promise.race([thirdStarted.promise, maintenance]);
+        await expect(
+          coordination.coordinator.executeAction(laterAction.request)
+        ).resolves.toMatchObject({
+          state: "settled"
+        });
+      } finally {
+        releaseThird.resolve();
+      }
+      await maintenance;
+    } else {
+      await expect(coordination.coordinator.executeHumanAction(action)).resolves.toMatchObject({
+        state: "delivered"
+      });
+      await checkMaintenance();
+    }
+    expect(calls).toBe(3);
+    const deliveredAction = coordination.actions.getRequired(action.actionId);
+    expect(deliveredAction).toMatchObject({ state: "delivered", request: recorded.request });
+    const resumeCommand = coordination.mailbox
+      .listAfter(hostId, 0)
+      .filter((message) => message.command.type === "resume_execution");
+    expect(resumeCommand).toMatchObject([
+      {
+        messageId: action.actionId,
+        command: {
+          type: "resume_execution",
+          dispatchId: interrupted.dispatchId,
+          executionAttemptId: interrupted.executionAttemptId,
+          leaseId: recorded.request.leaseId,
+          priorRecovery: {
+            acpSessionId: "session-action-crash",
+            recoveryId: "recovery-action-crash"
+          }
+        }
+      }
+    ]);
+    expect(coordination.operations.getRequired(interrupted.id).attempt).toMatchObject({
+      executionAttemptId: interrupted.executionAttemptId,
+      leaseId: recorded.request.leaseId,
+      stateVersion: interrupted.attempt.stateVersion + 1
+    });
+    await expect(
+      harness.requireRuntime().query({ ref: interrupted.blockRef, operationId: interrupted.id })
+    ).resolves.toMatchObject({ status: "in_progress" });
+    const database = harness.requireServer().database;
+    expect(count(database, "remote_operations")).toBe(2);
+    expect(count(database, "remote_execution_attempts")).toBe(2);
+    expect(count(database, "remote_execution_actions")).toBe(2);
+    expect(count(database, "host_capacity_reservations")).toBe(3);
+  });
+
+  it("leaves a late Runtime response for the Server owner that took over the resume claim", async () => {
+    const harness = await CoordinatorHarness.create();
+    const { outcome } = await prepareInterruptedAction(harness, true);
+    const runtimeCommitted = Promise.withResolvers<void>();
+    const returnResponse = Promise.withResolvers<void>();
+    let coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      resumeAttempt: async (input) => {
+        const result = await runtime.resumeAttempt(input);
+        runtimeCommitted.resolve();
+        await returnResponse.promise;
+        return result;
+      }
+    }));
+    const operation = coordination.operations.getRequired(outcome.operation.id);
+    const { capability } = coordination.coordinator.readResume(operation);
+    if (!capability.available) throw new Error(capability.reason);
+    const action = {
+      ...capability.target,
+      actionId: "resume-after-ownership-loss",
+      kind: "resume_same_session",
+      reason: "Resume the original session."
+    } as const;
+    const { database, serverInstanceOwnerToken } = harness.requireServer();
+    const replaceOwner = database.prepare(
+      "UPDATE server_instance_ownership SET owner_token=? WHERE singleton=1 AND owner_token=?"
+    );
+    const replacement = randomUUID();
+    const execution = coordination.coordinator.executeHumanAction(action);
+    try {
+      await Promise.race([runtimeCommitted.promise, execution]);
+      replaceOwner.run(replacement, serverInstanceOwnerToken);
+      coordination.actions.claimApplication(action.actionId, replacement, {
+        takeoverExistingClaim: true
+      });
+      returnResponse.resolve();
+      await expect(execution).rejects.toThrow("server_instance_ownership_lost");
+      expect(mailboxContains(harness, action.actionId)).toBe(false);
+      expect(coordination.actions.getRequired(action.actionId).state).toBe("recorded");
+    } finally {
+      returnResponse.resolve();
+      replaceOwner.run(serverInstanceOwnerToken, replacement);
+    }
+
+    coordination = await harness.restart();
+    await coordination.reconcile({
+      serverInstanceOwnerToken: harness.requireServer().serverInstanceOwnerToken
+    });
+    expect(coordination.actions.getRequired(action.actionId).state).toBe("delivered");
+    expect(mailboxContains(harness, action.actionId)).toBe(true);
   });
 
   it.each([

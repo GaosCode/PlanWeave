@@ -545,8 +545,15 @@ describe("RemoteExecutionActionRepository", () => {
 
     const winning = winner.execute(cancelAction);
     await entered.promise;
-    await expect(loser.execute(cancelAction)).rejects.toThrow("remote_action_in_progress");
-    resume.resolve();
+    try {
+      await expect(loser.reconcile(undefined, () => true)).resolves.toEqual([]);
+      await expect(loser.reconcile({ serverInstanceOwnerToken })).rejects.toThrow(
+        "remote_action_in_progress"
+      );
+      await expect(loser.execute(cancelAction)).rejects.toThrow("remote_action_in_progress");
+    } finally {
+      resume.resolve();
+    }
     await expect(winning).resolves.toMatchObject({ state: "delivered" });
   });
 

@@ -143,6 +143,18 @@ export class RemoteExecutionActionRejectedError extends Error {
   }
 }
 
+class RemoteExecutionActionInProgressError extends Error {
+  constructor() {
+    super("remote_action_in_progress");
+  }
+}
+
+class RemoteExecutionActionNotRecordedError extends Error {
+  constructor(readonly action: RemoteExecutionActionRecord) {
+    super("remote_action_not_recorded");
+  }
+}
+
 export class RemoteExecutionActionRepository {
   constructor(
     private readonly database: SqliteDatabase,
@@ -236,7 +248,7 @@ export class RemoteExecutionActionRepository {
     return inWriteTransaction(this.database, () => {
       assertServerInstanceOwnership(this.database, ownerToken);
       const action = this.getRequired(actionId);
-      if (action.state !== "recorded") throw new Error("remote_action_not_recorded");
+      if (action.state !== "recorded") throw new RemoteExecutionActionNotRecordedError(action);
       const row = actionRowSchema.parse(
         this.database
           .prepare("SELECT * FROM remote_execution_actions WHERE action_id=?")
@@ -244,7 +256,7 @@ export class RemoteExecutionActionRepository {
       );
       const now = this.clock().toISOString();
       const claimed = row.application_owner_token
-        ? options.takeoverExistingClaim === true
+        ? options.takeoverExistingClaim === true && row.application_owner_token !== ownerToken
           ? this.database
               .prepare(
                 `UPDATE remote_execution_actions
@@ -260,11 +272,29 @@ export class RemoteExecutionActionRepository {
                WHERE action_id=? AND state='recorded' AND application_owner_token IS NULL`
             )
             .run(ownerToken, now, actionId);
-      if (claimed.changes !== 1) throw new Error("remote_action_in_progress");
+      if (claimed.changes !== 1) throw new RemoteExecutionActionInProgressError();
       const plan = row.application_decision_json
         ? applicationPlanSchema.parse(JSON.parse(row.application_decision_json))
         : undefined;
       return { action: this.getRequired(actionId), ...plan };
+    });
+  }
+
+  assertApplicationClaim(actionId: string, ownerToken: string): void {
+    assertServerInstanceOwnership(this.database, ownerToken);
+    const claim = this.database
+      .prepare(
+        `SELECT 1 FROM remote_execution_actions
+         WHERE action_id=? AND state='recorded' AND application_owner_token=?`
+      )
+      .get(actionId, ownerToken);
+    if (!claim) throw new Error("remote_action_application_claim_lost");
+  }
+
+  writeWithApplicationClaim<T>(actionId: string, ownerToken: string, write: () => T): T {
+    return inWriteTransaction(this.database, () => {
+      this.assertApplicationClaim(actionId, ownerToken);
+      return write();
     });
   }
 
@@ -363,25 +393,11 @@ export class RemoteExecutionActionRepository {
         .prepare(
           `UPDATE remote_execution_actions
            SET application_owner_token=NULL,application_claimed_at=NULL
-           WHERE action_id=? AND state='recorded' AND application_owner_token=?
-             AND application_decision_json IS NOT NULL`
+           WHERE action_id=? AND state='recorded' AND application_owner_token=?`
         )
         .run(actionId, ownerToken);
       if (updated.changes !== 1) throw new Error("remote_action_application_claim_lost");
       return this.getRequired(actionId);
-    });
-  }
-
-  releaseApplicationClaimIfOwned(actionId: string, ownerToken: string): void {
-    inWriteTransaction(this.database, () => {
-      assertServerInstanceOwnership(this.database, ownerToken);
-      this.database
-        .prepare(
-          `UPDATE remote_execution_actions
-           SET application_owner_token=NULL,application_claimed_at=NULL
-           WHERE action_id=? AND state='recorded' AND application_owner_token=?`
-        )
-        .run(actionId, ownerToken);
     });
   }
 
@@ -459,6 +475,7 @@ export interface RemoteExecutionActionApplicationPort {
   recover?(
     request: RemoteExecutionActionRequest
   ): "delivered" | "settled" | undefined | Promise<"delivered" | "settled" | undefined>;
+  canRetryRecovery?(request: RemoteExecutionActionRequest, error: unknown): boolean;
   isAppliedDespiteFailure?(request: RemoteExecutionActionRequest): boolean;
   snapshot(
     request: RemoteExecutionActionRequest
@@ -527,8 +544,6 @@ export class RemoteExecutionActionService {
         takeoverExistingClaim
       }
     );
-    // Recovery may perform idempotent side effects; a failure retains the durable claim so
-    // only a later startup owner can inspect and resume it.
     let recovered: "delivered" | "settled" | undefined;
     try {
       recovered = await this.application.recover?.(action.request);
@@ -539,8 +554,14 @@ export class RemoteExecutionActionService {
           this.serverInstanceOwnerToken,
           error.code
         );
-      } else {
-        this.settleAppliedFailure(action.request);
+      } else if (
+        !this.settleAppliedFailure(action.request) &&
+        this.application.canRetryRecovery?.(action.request, error)
+      ) {
+        this.actions.releaseApplicationPreservingPlan(
+          action.request.actionId,
+          this.serverInstanceOwnerToken
+        );
       }
       throw error;
     }
@@ -638,18 +659,20 @@ export class RemoteExecutionActionService {
     const reconciled: RemoteExecutionActionRecord[] = [];
     for (const action of this.actions.listUnsettled()) {
       if (action.state === "recorded") {
+        if (!startupContext && this.inFlight.has(action.request.actionId)) continue;
         try {
           reconciled.push(await this.runSingleFlight(action, startupContext !== undefined));
         } catch (error) {
+          if (!startupContext && error instanceof RemoteExecutionActionInProgressError) continue;
+          if (error instanceof RemoteExecutionActionNotRecordedError) {
+            reconciled.push(error.action);
+            continue;
+          }
           if (error instanceof RemoteExecutionActionRejectedError) {
             reconciled.push(this.actions.getRequired(action.request.actionId));
             continue;
           }
           if (!onFailure || !(await onFailure(action, error))) throw error;
-          this.actions.releaseApplicationClaimIfOwned(
-            action.request.actionId,
-            this.serverInstanceOwnerToken
-          );
         }
       } else {
         reconciled.push(action);

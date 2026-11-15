@@ -804,11 +804,16 @@ describe("Fail action recovery owns terminal cleanup", () => {
     mutation.mockClear();
     release.mockClear();
     releaseFixtureClaims.push(() => {
-      for (const request of requests)
-        coordination.actions.releaseApplicationClaimIfOwned(
-          request.actionId,
-          fixture.server.serverInstanceOwnerToken
-        );
+      const ownerToken = fixture.server.serverInstanceOwnerToken;
+      const ownedClaim = fixture.server.database.prepare(
+        `SELECT 1 FROM remote_execution_actions
+         WHERE action_id=? AND state='recorded' AND application_owner_token=?`
+      );
+      for (const request of requests) {
+        if (ownedClaim.get(request.actionId, ownerToken)) {
+          coordination.actions.releaseApplicationPreservingPlan(request.actionId, ownerToken);
+        }
+      }
     });
     return { fixture, coordination, requests, mutation, release, cleanup };
   }
