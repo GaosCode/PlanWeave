@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { autoRunEventMatchesInspectorCanvas } from "../autoRunEvents";
+import type { DesktopAutoRunActivityScope } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 import type { LocalAutoRunActivity } from "../collaboration/remoteRunViewModels";
 
@@ -24,26 +24,46 @@ export function useBlockLocalAutoRunActivity(
     const { projectRoot, canvasId, blockRef } = selection;
     let active = true;
     let generation = 0;
+    let scope: DesktopAutoRunActivityScope | null = null;
+    let reading = false;
+    let changedBeforeFirstRead = false;
     const refresh = async () => {
       const request = ++generation;
       const isCurrent = () => active && request === generation;
+      reading = true;
       try {
-        const refs = await runtime.listActiveAutoRunBlockRefs({ projectRoot, canvasId });
-        if (isCurrent()) {
-          setSnapshot({ selection, activity: refs.includes(blockRef) ? "active" : "inactive" });
+        const activity = await runtime.getAutoRunActivity({ projectRoot, canvasId });
+        if (!isCurrent()) return;
+        scope = activity.scope;
+        if (changedBeforeFirstRead) {
+          changedBeforeFirstRead = false;
+          await refresh();
+          return;
         }
+        setSnapshot({
+          selection,
+          activity: activity.activeBlockRefs.includes(blockRef) ? "active" : "inactive"
+        });
       } catch (error) {
         if (!isCurrent()) return;
+        changedBeforeFirstRead = false;
         console.error("Could not read local Auto Run activity.", error);
         setSnapshot({ selection, activity: "unavailable" });
+      } finally {
+        if (isCurrent()) reading = false;
       }
     };
     refreshRef.current = refresh;
     const unsubscribe = runtime.onAutoRunActivityChanged((event) => {
+      if (!active) return;
+      if (!scope) {
+        if (reading) changedBeforeFirstRead = true;
+        else void refresh();
+        return;
+      }
       if (
-        active &&
-        (autoRunEventMatchesInspectorCanvas(event, projectRoot, canvasId) ||
-          (event.projectRoot === projectRoot && (event.canvasId === null || canvasId === null)))
+        event.scope.projectId === scope.projectId &&
+        (event.scope.canvasKey === scope.canvasKey || canvasId === null)
       )
         void refresh();
     });

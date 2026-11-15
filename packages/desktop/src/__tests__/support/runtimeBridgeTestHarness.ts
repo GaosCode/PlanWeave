@@ -504,6 +504,7 @@ const runtimeMock = vi.hoisted(() => {
       autoRunEventListeners.add(listener);
       return () => autoRunEventListeners.delete(listener);
     }),
+    subscribeAutoRunActivityEvents: vi.fn(() => () => undefined),
     subscribeRunRecord: vi.fn(
       async (
         _workspace: unknown,
@@ -581,6 +582,7 @@ vi.mock("@planweave-ai/runtime", async () => {
     saveDesktopLayout: runtimeMock.saveDesktopLayout,
     startAutoRun: runtimeMock.startAutoRun,
     subscribeAutoRunEvents: runtimeMock.subscribeAutoRunEvents,
+    subscribeAutoRunActivityEvents: runtimeMock.subscribeAutoRunActivityEvents,
     subscribeRunRecord: runtimeMock.subscribeRunRecord
   };
 });

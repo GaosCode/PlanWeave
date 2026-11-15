@@ -1,7 +1,15 @@
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
-import { resolvePlanweaveHome, subscribeAutoRunEvents } from "@planweave-ai/runtime";
+import {
+  resolvePlanweaveHome,
+  subscribeAutoRunActivityEvents,
+  subscribeAutoRunEvents
+} from "@planweave-ai/runtime";
 import type { DesktopBridgeMainInvokeMethod } from "../shared/ipcChannels.js";
-import { autoRunChangedChannel, desktopBridgeInvokeChannels } from "../shared/ipcChannels.js";
+import {
+  autoRunActivityChangedChannel,
+  autoRunChangedChannel,
+  desktopBridgeInvokeChannels
+} from "../shared/ipcChannels.js";
 import { runtimeBridgeHandlers } from "./runtimeBridgeHandlerRegistry.js";
 import { registerRunnerRecordBridgeHandlers } from "./runnerRecordBridge.js";
 import {
@@ -26,15 +34,23 @@ function registerAutoRunEventBroadcast(): void {
   if (unsubscribeAutoRunBroadcast) {
     return;
   }
-  unsubscribeAutoRunBroadcast = subscribeAutoRunEvents((event) => {
+  const broadcast = (channel: string, event: { planweaveHome: string }) => {
     if (event.planweaveHome !== resolvePlanweaveHome()) return;
     for (const window of BrowserWindow.getAllWindows()) {
       const { webContents } = window;
       if (!webContents.isDestroyed() && isDesktopInspectorHomeCurrent(webContents)) {
-        webContents.send(autoRunChangedChannel, event);
+        webContents.send(channel, event);
       }
     }
-  });
+  };
+  const stopRunEvents = subscribeAutoRunEvents((event) => broadcast(autoRunChangedChannel, event));
+  const stopActivity = subscribeAutoRunActivityEvents((event) =>
+    broadcast(autoRunActivityChangedChannel, event)
+  );
+  unsubscribeAutoRunBroadcast = () => {
+    stopRunEvents();
+    stopActivity();
+  };
 }
 
 export function registerRuntimeBridgeHandlers(): void {

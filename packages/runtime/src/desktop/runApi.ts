@@ -23,6 +23,7 @@ import {
 import { loadPackage } from "../package/loadPackage.js";
 import { withCurrentRunSessionStorage } from "../runSessions/storageMutation.js";
 import { resolveTaskCanvasWorkspace } from "./canvasApi.js";
+import { autoRunActivityScope, publishAutoRunActivityChange } from "./autoRunActivity.js";
 import {
   assertDesktopAgentRunControlAccepted,
   executeDesktopAgentRunControl
@@ -30,6 +31,7 @@ import {
 import type { AgentRunControlRespondOutcome } from "../autoRun/agentRunControlContract.js";
 import type { PackageWorkspaceRef, ProjectWorkspace, ValidationIssue } from "../types.js";
 import type {
+  DesktopAutoRunActivity,
   DesktopAutoRunEventLog,
   DesktopAutoRunEventListener,
   DesktopAutoRunOptions,
@@ -328,14 +330,7 @@ function updateActiveStepBlocks(
   if (blocks.size === count) return;
   if (blocks.size === 0) activeStepBlockRefs.delete(runId);
   else activeStepBlockRefs.set(runId, blocks);
-  const state = runs.get(runId);
-  if (state) {
-    emitAutoRunChanged(
-      { ...state, projectRoot: workspace.rootPath },
-      "active_blocks_changed",
-      workspace
-    );
-  }
+  publishAutoRunActivityChange(workspace);
 }
 
 export function activeAutoRunBlockRefsInWorkspace(workspace: ProjectWorkspace): string[] {
@@ -354,8 +349,17 @@ export function activeAutoRunBlockRefsInWorkspace(workspace: ProjectWorkspace): 
 }
 
 export async function listActiveAutoRunBlockRefs(ref: DesktopCanvasReference): Promise<string[]> {
+  return (await getAutoRunActivity(ref)).activeBlockRefs;
+}
+
+export async function getAutoRunActivity(
+  ref: DesktopCanvasReference
+): Promise<DesktopAutoRunActivity> {
   const workspace = await resolveTaskCanvasWorkspace(ref.projectRoot, ref.canvasId);
-  return activeAutoRunBlockRefsInWorkspace(workspace);
+  return {
+    scope: autoRunActivityScope(workspace),
+    activeBlockRefs: activeAutoRunBlockRefsInWorkspace(workspace)
+  };
 }
 
 async function runLoop(runId: string): Promise<void> {

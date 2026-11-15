@@ -98,6 +98,21 @@ export type DesktopAutoRunEvent = {
 
 export type DesktopAutoRunEventListener = (event: DesktopAutoRunEvent) => void;
 
+export type DesktopAutoRunActivityScope = {
+  projectId: string;
+  canvasKey: string;
+};
+
+export type DesktopAutoRunActivity = {
+  scope: DesktopAutoRunActivityScope;
+  activeBlockRefs: string[];
+};
+
+export type DesktopAutoRunActivityEvent = {
+  scope: DesktopAutoRunActivityScope;
+  planweaveHome: string;
+};
+
 export type DesktopAutoRunLogEvent = {
   line: number;
   timestamp: string | null;

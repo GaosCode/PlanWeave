@@ -1,19 +1,22 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getAutoRunState,
   createTaskCanvas,
+  getAutoRunActivity,
   getLatestAutoRunSummary,
   listActiveAutoRunBlockRefs,
   listAutoRunEvents,
   pauseAutoRun,
   resetDesktopRuntimeState,
   resumeAutoRun,
+  selectTaskCanvas,
   shutdownDesktopAutoRuns,
   startAutoRun,
-  stopAutoRun
+  stopAutoRun,
+  subscribeAutoRunActivityEvents
 } from "../desktop/index.js";
 import type { DesktopAutoRunPhase } from "../desktop/index.js";
 import * as activeAgentRunRegistryApi from "../autoRun/activeAgentRunRegistry.js";
@@ -1047,9 +1050,11 @@ describe("desktop auto run API", () => {
     });
   });
 
-  it("uses manifest parallel mode for project-level Auto Run", async () => {
+  it("reports project-level parallel Auto Run for the same workspace through aliases", async () => {
     const barrierDir = await mkdtemp(join(tmpdir(), "planweave-auto-run-parallel-"));
     const releases = [join(barrierDir, "release-a"), join(barrierDir, "release-b")];
+    const notifications = vi.fn();
+    const unsubscribe = subscribeAutoRunActivityEvents(notifications);
     const executor = (release: string) => ({
       adapter: "codex-exec" as const,
       command: process.execPath,
@@ -1080,16 +1085,29 @@ describe("desktop auto run API", () => {
         .withBlock("T-002", "B-001", (block) => ({ ...block, executor: "second-codex" }))
         .build();
       const { root } = await createTestWorkspace(manifest);
+      const alias = join(barrierDir, "project-alias");
+      await symlink(root, alias, "junction");
       const otherCanvas = await createTaskCanvas(root, { name: "Second canvas" });
+      await selectTaskCanvas(root, "default");
       const canvas = { projectRoot: root, canvasId: "default" };
       const activity = () => listActiveAutoRunBlockRefs(canvas);
 
-      const run = await startAutoRun(root, canvas.canvasId, { kind: "project" }, 1, noTmux);
+      const run = await startAutoRun(alias, null, { kind: "project" }, 1, noTmux);
       startedRunIds.add(run.runId);
       await expect.poll(activity).toEqual(["T-001#B-001", "T-002#B-001"]);
-      await expect(
-        listActiveAutoRunBlockRefs({ projectRoot: root, canvasId: otherCanvas.canvasId })
-      ).resolves.toEqual([]);
+      const running = await getAutoRunActivity(canvas);
+      await expect(getAutoRunActivity({ projectRoot: alias, canvasId: null })).resolves.toEqual(
+        running
+      );
+      const other = await getAutoRunActivity({
+        projectRoot: alias,
+        canvasId: otherCanvas.canvasId
+      });
+      expect(other.scope).not.toEqual(running.scope);
+      expect(other.activeBlockRefs).toEqual([]);
+      expect(notifications).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ scope: running.scope })
+      );
       await writeFile(releases[0], "release");
       await expect.poll(activity).toEqual(["T-002#B-001"]);
       await writeFile(releases[1], "release");
@@ -1103,7 +1121,13 @@ describe("desktop auto run API", () => {
         stepCount: 1
       });
       await expect(activity()).resolves.toEqual([]);
+      expect(notifications.mock.calls.map(([event]) => event.scope)).toEqual([
+        running.scope,
+        running.scope,
+        running.scope
+      ]);
     } finally {
+      unsubscribe();
       await Promise.all(releases.map((release) => writeFile(release, "release")));
     }
   });

@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   claimBlock,
   getAutoRunRetrospective,
+  getAutoRunActivity,
   getAutoRunState,
   getLatestAutoRunRetrospective,
   getLatestAutoRunSummary,
@@ -85,6 +86,7 @@ export const runtimeBridgeAutoRunHandlers = {
   getLatestAutoRunSummary: (_event, ref) => getLatestAutoRunSummary(ref.projectRoot, ref.canvasId),
   listActiveAutoRunBlockRefs: (_event, ref) =>
     listActiveAutoRunBlockRefs(desktopCanvasReferenceSchema.parse(ref)),
+  getAutoRunActivity: (_event, ref) => getAutoRunActivity(desktopCanvasReferenceSchema.parse(ref)),
   getLatestAutoRunSummaryWithDiagnostics: (_event, ref) =>
     getLatestAutoRunSummaryWithDiagnostics(ref.projectRoot, ref.canvasId),
   getAutoRunRetrospective: (_event, ref, runId) =>

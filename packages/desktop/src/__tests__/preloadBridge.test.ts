@@ -1,4 +1,5 @@
 import type {
+  DesktopAutoRunActivityEvent,
   DesktopAutoRunEvent,
   DesktopBridgeApi,
   DesktopPackageFileChangeEvent,
@@ -28,6 +29,7 @@ import {
   type CredentialStorageSettingsStatus
 } from "../shared/credentialStorageSettings";
 import {
+  autoRunActivityChangedChannel,
   autoRunChangedChannel,
   desktopBridgeInvokeChannels,
   packageFileChangedChannel,
@@ -432,7 +434,7 @@ describe("preload bridge invocation", () => {
     await import("../preload/preload");
     const api = electronMock.exposed.get("planweave") as {
       onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
-      onAutoRunActivityChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
+      onAutoRunActivityChanged(callback: (event: DesktopAutoRunActivityEvent) => void): () => void;
     };
     const callback = vi.fn();
     const activityCallback = vi.fn();
@@ -450,7 +452,7 @@ describe("preload bridge invocation", () => {
       IpcRendererListener
     ];
     expect(channel).toBe(autoRunChangedChannel);
-    expect(activityChannel).toBe(autoRunChangedChannel);
+    expect(activityChannel).toBe(autoRunActivityChangedChannel);
     const event: DesktopAutoRunEvent = {
       projectRoot: "/tmp/project",
       workspaceRoot: "/tmp/home/projects/project",
@@ -502,9 +504,10 @@ describe("preload bridge invocation", () => {
       triggeredAt: "2026-06-16T00:00:01.000Z"
     };
     listener({}, event);
-    activityListener({}, event);
-    const activityEvent = { ...event, eventType: "active_blocks_changed" };
-    listener({}, activityEvent);
+    const activityEvent = {
+      scope: { projectId: "project", canvasKey: "canvases/canvas-a/state.json" },
+      planweaveHome: "/tmp/home"
+    };
     activityListener({}, activityEvent);
 
     expect(callback).toHaveBeenCalledExactlyOnceWith(event);
@@ -513,7 +516,7 @@ describe("preload bridge invocation", () => {
     unsubscribeActivity();
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(autoRunChangedChannel, listener);
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(
-      autoRunChangedChannel,
+      autoRunActivityChangedChannel,
       activityListener
     );
   });

@@ -24,6 +24,10 @@ const ports = vi.hoisted(() => ({
     getBlockDetail: vi.fn(),
     listBlockRunRecords: vi.fn(async () => []),
     listActiveAutoRunBlockRefs: vi.fn(async () => []),
+    getAutoRunActivity: vi.fn(async () => ({
+      scope: { projectId: "project", canvasKey: "state.json" },
+      activeBlockRefs: []
+    })),
     getReviewAttempts: vi.fn(async () => []),
     getFeedbackRecords: vi.fn(async () => []),
     listProjects: vi.fn(async () => []),

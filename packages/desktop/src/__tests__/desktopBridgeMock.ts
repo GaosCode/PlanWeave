@@ -19,6 +19,10 @@ export function createDesktopBridgeMock(
       .fn()
       .mockResolvedValue({ state: null, diagnostics: [] }),
     listActiveAutoRunBlockRefs: vi.fn().mockResolvedValue([]),
+    getAutoRunActivity: vi.fn().mockResolvedValue({
+      scope: { projectId: "project", canvasKey: "state.json" },
+      activeBlockRefs: []
+    }),
     // Match DesktopBridgeApi contract (non-null pipeline). Proxy null defaults break App load.
     getReviewPipeline: vi.fn().mockResolvedValue({
       taskId: "",

@@ -34,6 +34,10 @@ const ports = vi.hoisted(() => ({
     onRuntimeStateChanged: vi.fn(() => () => undefined),
     onAutoRunChanged: vi.fn(() => () => undefined),
     onAutoRunActivityChanged: vi.fn(() => () => undefined),
+    getAutoRunActivity: vi.fn(async () => ({
+      scope: { projectId: "project", canvasKey: "state.json" },
+      activeBlockRefs: []
+    })),
     detectTerminalApps: vi.fn(async () => []),
     getTerminalPreferences: vi.fn(async () => ({ defaultTerminalAppId: null })),
     detectRuntimeTools: vi.fn(async () => ({ tmux: { available: false } }))

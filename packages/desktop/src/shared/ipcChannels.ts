@@ -46,6 +46,7 @@ export const desktopBridgeInvokeChannels = {
   detectDevelopmentTools: "planweave:detectDevelopmentTools",
   duplicateTaskCanvas: "planweave:duplicateTaskCanvas",
   getAutoRunRetrospective: "planweave:getAutoRunRetrospective",
+  getAutoRunActivity: "planweave:getAutoRunActivity",
   getAgentPromptTurn: "planweave:getAgentPromptTurn",
   getCurrentAgentPromptTurn: "planweave:getCurrentAgentPromptTurn",
   getAutoRunState: "planweave:getAutoRunState",
@@ -158,6 +159,7 @@ export const desktopBridgeInvokeChannels = {
 export const packageFileChangedChannel = "planweave:packageFileChanged";
 export const runtimeStateChangedChannel = "planweave:runtimeStateChanged";
 export const autoRunChangedChannel = "planweave:autoRunChanged";
+export const autoRunActivityChangedChannel = "planweave:autoRunActivityChanged";
 export const runnerRecordSubscribeChannel = "planweave:runnerRecordSubscribe";
 export const runnerRecordUnsubscribeChannel = "planweave:runnerRecordUnsubscribe";
 export const runnerRecordEventChannel = "planweave:runnerRecordEvent";

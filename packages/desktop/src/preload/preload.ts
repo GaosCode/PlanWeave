@@ -32,6 +32,7 @@ import {
 } from "@planweave-ai/collaboration-protocol/identity/workspace";
 import { collaborationInvitationHandoffResponseSchema } from "@planweave-ai/collaboration-protocol/handoff/invitation";
 import type {
+  DesktopAutoRunActivityEvent,
   DesktopAutoRunEvent,
   DesktopBridgeApi,
   DesktopPackageFileChangeEvent,
@@ -50,6 +51,7 @@ import {
 import type { PlanWeaveCredentialStorageSettingsApi } from "../shared/credentialStorageSettings.js";
 import { credentialStorageSettingsInvokeChannels } from "../shared/credentialStorageSettings.js";
 import {
+  autoRunActivityChangedChannel,
   autoRunChangedChannel,
   packageFileChangedChannel,
   runnerRecordEventChannel,
@@ -134,18 +136,15 @@ const api: DesktopBridgeApi = {
     return () => ipcRenderer.off(runtimeStateChangedChannel, listener);
   },
   onAutoRunChanged: (callback) => {
-    const listener = (_event: IpcRendererEvent, payload: DesktopAutoRunEvent) => {
-      if (payload.eventType !== "active_blocks_changed") callback(payload);
-    };
+    const listener = (_event: IpcRendererEvent, payload: DesktopAutoRunEvent) => callback(payload);
     ipcRenderer.on(autoRunChangedChannel, listener);
     return () => ipcRenderer.off(autoRunChangedChannel, listener);
   },
   onAutoRunActivityChanged: (callback) => {
-    const listener = (_event: IpcRendererEvent, payload: DesktopAutoRunEvent) => {
-      if (payload.eventType === "active_blocks_changed") callback(payload);
-    };
-    ipcRenderer.on(autoRunChangedChannel, listener);
-    return () => ipcRenderer.off(autoRunChangedChannel, listener);
+    const listener = (_event: IpcRendererEvent, payload: DesktopAutoRunActivityEvent) =>
+      callback(payload);
+    ipcRenderer.on(autoRunActivityChangedChannel, listener);
+    return () => ipcRenderer.off(autoRunActivityChangedChannel, listener);
   },
   subscribeRunnerRecord: async (input, callback) => {
     runnerRecordSubscriptionSequence += 1;

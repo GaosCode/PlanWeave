@@ -45,6 +45,8 @@ import type {
   DesktopPackageFileSnapshotRef
 } from "./syncTypes.js";
 import type {
+  DesktopAutoRunActivity,
+  DesktopAutoRunActivityEvent,
   DesktopAutoRunEvent,
   DesktopLatestAutoRunSummary,
   DesktopAutoRunOptions,
@@ -495,7 +497,7 @@ export type DesktopBridgeApi = {
   onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void;
   onRuntimeStateChanged(callback: (event: DesktopRuntimeStateChangeEvent) => void): () => void;
   onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
-  onAutoRunActivityChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
+  onAutoRunActivityChanged(callback: (event: DesktopAutoRunActivityEvent) => void): () => void;
   subscribeRunnerRecord(
     input: Omit<DesktopRunnerRecordSubscriptionInput, "subscriptionId">,
     callback: (update: DesktopRunnerRecordSubscriptionUpdate) => void
@@ -577,6 +579,7 @@ export type DesktopBridgeApi = {
   getAutoRunState(runId: string): Promise<DesktopAutoRunState>;
   getLatestAutoRunSummary(ref: DesktopCanvasReference): Promise<DesktopAutoRunState | null>;
   listActiveAutoRunBlockRefs(ref: DesktopCanvasReference): Promise<string[]>;
+  getAutoRunActivity(ref: DesktopCanvasReference): Promise<DesktopAutoRunActivity>;
   getLatestAutoRunSummaryWithDiagnostics(
     ref: DesktopCanvasReference
   ): Promise<DesktopLatestAutoRunSummary>;

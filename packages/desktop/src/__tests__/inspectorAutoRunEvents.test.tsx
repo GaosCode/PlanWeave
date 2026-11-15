@@ -3,17 +3,32 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type {
   AutoRunExplanation,
+  DesktopAutoRunActivity,
+  DesktopAutoRunActivityEvent,
   DesktopAutoRunEvent,
   DesktopAutoRunState,
   DesktopBlockDetail,
   DesktopBlockRunRecordSummary,
+  DesktopBridgeApi,
   DesktopGraphViewModel,
   DesktopRunRecord,
   DesktopTaskDetail
 } from "@planweave-ai/runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { autoRunActivityChangedChannel, desktopBridgeInvokeChannels } from "../shared/ipcChannels";
 import { createDesktopBridgeMock } from "./desktopBridgeMock";
-import { autoRunState } from "./helpers/autoRunControlHarness";
+
+const electron = vi.hoisted(() => ({
+  exposed: new Map<string, unknown>(),
+  ipcRenderer: { invoke: vi.fn(), on: vi.fn(), off: vi.fn() }
+}));
+
+vi.mock("electron", () => ({
+  contextBridge: {
+    exposeInMainWorld: (key: string, api: unknown) => electron.exposed.set(key, api)
+  },
+  ipcRenderer: electron.ipcRenderer
+}));
 
 const initialTask: DesktopTaskDetail = {
   taskId: "T-ALPHA",
@@ -149,6 +164,10 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  electron.exposed.clear();
+  electron.ipcRenderer.invoke.mockReset();
+  electron.ipcRenderer.on.mockReset();
+  electron.ipcRenderer.off.mockReset();
 });
 
 describe("inspector auto-run event refresh", () => {
@@ -196,18 +215,40 @@ describe("inspector auto-run event refresh", () => {
     expect(screen.queryByTestId("remote-run-local-coexistence")).toBeNull();
   });
 
-  it("uses the current Block's confirmed activity across notifications and navigation", async () => {
-    const pendingInitial = deferred<string[]>();
-    const pendingOldRefresh = deferred<string[]>();
-    let listener: (event: DesktopAutoRunEvent) => void = () => undefined;
+  it.each([
+    "/tmp/demo",
+    "/private/tmp/demo"
+  ])("updates the open Inspector at %s across activity and navigation", async (projectRoot) => {
+    const pendingInitial = deferred<DesktopAutoRunActivity>();
+    const pendingOldRefresh = deferred<DesktopAutoRunActivity>();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     const getActivity = vi.fn().mockReturnValueOnce(pendingInitial.promise);
     const nextRef = "T-BETA#B-001";
-    const canvas = { projectRoot: "/tmp/demo", canvasId: "canvas-main" };
-    const notify = () =>
-      listener({
-        ...autoRunEvent(autoRunState({ ...canvas, currentRef: null })),
-        eventType: "active_blocks_changed"
-      });
+    const canvas = { projectRoot, canvasId: "canvas-main" };
+    const scope = { projectId: graph.projectId, canvasKey: "canvases/canvas-main/state.json" };
+    const activity = (activeBlockRefs: string[]): DesktopAutoRunActivity => ({
+      scope,
+      activeBlockRefs
+    });
+    type ActivityListener = (event: object, payload: DesktopAutoRunActivityEvent) => void;
+    const activeListeners = new Set<ActivityListener>();
+    electron.ipcRenderer.invoke.mockImplementation((channel, ...args) => {
+      expect(channel).toBe(desktopBridgeInvokeChannels.getAutoRunActivity);
+      return getActivity(...args);
+    });
+    electron.ipcRenderer.on.mockImplementation((channel, listener) => {
+      if (channel === autoRunActivityChangedChannel) activeListeners.add(listener);
+    });
+    electron.ipcRenderer.off.mockImplementation((channel, listener) => {
+      if (channel === autoRunActivityChangedChannel) activeListeners.delete(listener);
+    });
+    vi.resetModules();
+    await import("../preload/preload");
+    const preload = electron.exposed.get("planweave") as DesktopBridgeApi;
+    const notify = (source = scope) => {
+      for (const listener of activeListeners)
+        listener({}, { scope: source, planweaveHome: "/tmp/home" });
+    };
     const bridge = createDesktopBridgeMock({
       getGraphViewModel: vi.fn().mockResolvedValue(graph),
       getBlockDetail: vi.fn(async (_canvas, ref) => ({
@@ -219,11 +260,8 @@ describe("inspector auto-run event refresh", () => {
       listBlockRunRecords: vi.fn().mockResolvedValue([]),
       getReviewAttempts: vi.fn().mockResolvedValue([]),
       getFeedbackRecords: vi.fn().mockResolvedValue([]),
-      listActiveAutoRunBlockRefs: getActivity,
-      onAutoRunActivityChanged: (callback) => {
-        listener = callback;
-        return () => undefined;
-      }
+      getAutoRunActivity: preload.getAutoRunActivity,
+      onAutoRunActivityChanged: preload.onAutoRunActivityChanged
     });
     function navigate(projectRoot: string, canvasId: string, blockRef: string) {
       window.history.replaceState(
@@ -234,32 +272,52 @@ describe("inspector auto-run event refresh", () => {
     }
     navigate(canvas.projectRoot, canvas.canvasId, initialBlock.ref);
     vi.stubGlobal("planweave", bridge);
-    vi.resetModules();
     const { BlockInspectorWindow } = await import("../renderer/BlockInspectorWindow");
     const { rerender } = render(<BlockInspectorWindow />);
 
     await screen.findByTestId("remote-run-local-activity");
     expect(screen.queryByTestId("remote-run-local-coexistence")).toBeNull();
-    getActivity.mockResolvedValueOnce([initialBlock.ref]);
-    await act(async () => notify());
+    await waitFor(() => expect(getActivity).toHaveBeenCalledExactlyOnceWith(canvas));
+    getActivity.mockResolvedValueOnce(activity([initialBlock.ref]));
+    await act(async () => {
+      notify();
+      notify();
+    });
+    expect(getActivity).toHaveBeenCalledTimes(1);
+    await act(async () => pendingInitial.resolve(activity([])));
     await screen.findByTestId("remote-run-local-coexistence");
-    await act(async () => pendingInitial.resolve([]));
+    expect(getActivity).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      notify({ ...scope, projectId: "different-project" });
+      notify({ ...scope, canvasKey: "canvases/other/state.json" });
+    });
+    expect(getActivity).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("remote-run-local-coexistence")).toBeTruthy();
 
+    getActivity.mockResolvedValueOnce(activity([]));
+    await act(async () => notify());
+    expect(screen.queryByTestId("remote-run-local-coexistence")).toBeNull();
+
+    const newScope = { projectId: "P-002", canvasKey: "canvases/canvas-other/state.json" };
     getActivity
       .mockReturnValueOnce(pendingOldRefresh.promise)
-      .mockResolvedValue([initialBlock.ref]);
+      .mockRejectedValueOnce(new Error("Workspace activity read failed"))
+      .mockResolvedValue({ scope: newScope, activeBlockRefs: [nextRef] });
     await act(async () => notify());
     navigate("/tmp/other", "canvas-other", nextRef);
     rerender(<BlockInspectorWindow />);
     await screen.findByDisplayValue(nextRef);
-    await waitFor(() => expect(screen.queryByTestId("remote-run-local-activity")).toBeNull());
-    await act(async () => pendingOldRefresh.resolve([nextRef]));
+    await screen.findByText("Could not check local Auto Run activity. Refresh to try again.");
+    await act(async () => pendingOldRefresh.resolve(activity([nextRef])));
     expect(getActivity).toHaveBeenLastCalledWith({
       projectRoot: "/tmp/other",
       canvasId: "canvas-other"
     });
     expect(screen.queryByTestId("remote-run-local-coexistence")).toBeNull();
+    await act(async () => notify(newScope));
+    await screen.findByTestId("remote-run-local-coexistence");
+    expect(screen.queryByTestId("remote-run-local-activity")).toBeNull();
   });
 
   it("does not commit a task auto-refresh result after the draft becomes dirty", async () => {
