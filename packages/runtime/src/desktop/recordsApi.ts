@@ -1,4 +1,4 @@
-import { resolveResultsPath } from "../taskManager/resultPaths.js";
+import { ResultsPathError, resolveResultsPath } from "../taskManager/resultPaths.js";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
@@ -165,6 +165,9 @@ async function listFeedbackRunIds(resultsDir: string): Promise<string[]> {
   );
 }
 
+const acpRunPathEscapeMessage =
+  "ACP run record path escapes the selected canvas results directory.";
+
 function assertContainedPath(root: string, candidate: string): void {
   if (!(isAbsolute(root) && isAbsolute(candidate))) {
     throw new Error("ACP run record paths must be absolute.");
@@ -173,7 +176,7 @@ function assertContainedPath(root: string, candidate: string): void {
   if (nested === "" || (!nested.startsWith(`..${sep}`) && nested !== ".." && !isAbsolute(nested))) {
     return;
   }
-  throw new Error("ACP run record path escapes the selected canvas results directory.");
+  throw new Error(acpRunPathEscapeMessage);
 }
 
 async function blockRunDirectory(
@@ -183,7 +186,14 @@ async function blockRunDirectory(
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(parsed.runId)) {
     throw new Error(`Run id '${parsed.runId}' is invalid.`);
   }
-  const runDir = await blockRunRoot(workspace.resultsDir, parsed.blockRef, parsed.runId);
+  const runDir = await blockRunRoot(workspace.resultsDir, parsed.blockRef, parsed.runId).catch(
+    (error: unknown) => {
+      if (error instanceof ResultsPathError) {
+        throw new Error(acpRunPathEscapeMessage, { cause: error });
+      }
+      throw error;
+    }
+  );
   assertContainedPath(workspace.resultsDir, runDir);
   return runDir;
 }

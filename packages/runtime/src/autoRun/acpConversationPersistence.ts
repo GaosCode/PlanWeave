@@ -11,16 +11,16 @@ export async function writeAcpConversationProjection(
   const markdown = items
     .map((item) => `## ${item.role ?? item.kind} · ${item.sequence}\n\n${item.content}`)
     .join("\n\n");
+  const [jsonPath, markdownPath] = await Promise.all([
+    resolveResultsPath(runDir, "conversation.json"),
+    resolveResultsPath(runDir, "conversation.md")
+  ]);
   await Promise.all([
     writeFile(
-      await resolveResultsPath(runDir, "conversation.json"),
+      jsonPath,
       `${JSON.stringify({ version: "planweave.conversation/v1", items }, null, 2)}\n`,
       "utf8"
     ),
-    writeFile(
-      await resolveResultsPath(runDir, "conversation.md"),
-      markdown ? `${markdown}\n` : "",
-      "utf8"
-    )
+    writeFile(markdownPath, markdown ? `${markdown}\n` : "", "utf8")
   ]);
 }

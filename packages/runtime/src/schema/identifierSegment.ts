@@ -25,4 +25,5 @@ export function isIdentifierSegment(value: string | undefined): value is string 
 
 export const identifierSegmentSchema = z
   .string()
+  .min(1, { abort: true })
   .refine(isIdentifierSegment, identifierSegmentRequirement);

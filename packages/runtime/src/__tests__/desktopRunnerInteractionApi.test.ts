@@ -1,6 +1,6 @@
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, symlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -87,6 +87,7 @@ async function createPendingRun(options: { feedbackId?: string } = {}) {
   });
   return {
     root,
+    resultsDir: init.workspace.resultsDir,
     runDir,
     identity,
     recordId: options.feedbackId
@@ -175,6 +176,57 @@ describe("desktop runner interaction API", () => {
     await expect(
       new PersistentRunnerInteractionStore(fixture.runDir).readSnapshot(fixture.identity.requestId)
     ).resolves.toMatchObject({ status: "pending", response: null });
+  });
+
+  it.runIf(process.platform !== "win32")(
+    "keeps exact block responses scoped when the feedback run directory escapes Results",
+    async () => {
+      const fixture = await createPendingRun();
+      const outside = join(fixture.root, "outside-feedback-runs");
+      await mkdir(outside);
+      await symlink(outside, join(fixture.resultsDir, "feedback-runs"), "dir");
+      const ref = { projectRoot: fixture.root, canvasId: "default" };
+
+      await expect(
+        respondToRunnerInteractionAction(
+          ref,
+          {
+            recordId: fixture.recordId,
+            requestId: fixture.identity.requestId,
+            ownerLeaseId: fixture.identity.ownerLeaseId
+          },
+          { kind: "select", optionId: "allow_once" },
+          { decisionSource: "scheduler-alpha", reason: null },
+          { now: () => now }
+        )
+      ).rejects.toMatchObject<RunnerInteractionApiError>({ code: "interaction_owner_unavailable" });
+      await expect(
+        listPendingRunnerInteractions(ref)
+      ).rejects.toMatchObject<RunnerInteractionApiError>({ code: "interaction_path_unsafe" });
+    }
+  );
+
+  it.skipIf(process.platform === "win32").each([
+    { kind: "block", feedbackId: undefined },
+    { kind: "feedback", feedbackId: "FE-001" }
+  ])("rejects a linked $kind run as a non-canonical directory", async ({ feedbackId }) => {
+    const fixture = await createPendingRun(feedbackId === undefined ? {} : { feedbackId });
+    const outside = join(fixture.root, "outside-run");
+    await mkdir(outside);
+    await symlink(outside, join(dirname(fixture.runDir), "RUN-002"), "dir");
+
+    await expect(
+      respondToRunnerInteractionAction(
+        { projectRoot: fixture.root, canvasId: "default" },
+        {
+          recordId: `${feedbackId ?? fixture.identity.claimRef}::RUN-002`,
+          requestId: fixture.identity.requestId,
+          ownerLeaseId: fixture.identity.ownerLeaseId
+        },
+        { kind: "select", optionId: "allow_once" },
+        { decisionSource: "scheduler-alpha", reason: null }
+      )
+    ).rejects.toMatchObject<RunnerInteractionApiError>({ code: "interaction_path_invalid" });
   });
 
   it("rejects stale owners and refuses an unpersisted receipt after heartbeat recovery", async () => {

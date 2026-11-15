@@ -1,4 +1,4 @@
-import { resolveResultsPath } from "../taskManager/resultPaths.js";
+import { ResultsPathError, resolveResultsPath } from "../taskManager/resultPaths.js";
 import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
@@ -76,6 +76,11 @@ function canvasIdForResultsDir(resultsDir: string): string {
   return basename(dirname(resultsDir));
 }
 
+const unsafeInteractionPathMessage =
+  "Runner interaction path escapes the selected canvas results directory.";
+const nonCanonicalRunDirectoryMessage =
+  "Runner interaction run path must be a canonical directory.";
+
 function assertContained(root: string, candidate: string): void {
   if (!(isAbsolute(root) && isAbsolute(candidate))) {
     throw new RunnerInteractionApiError(
@@ -87,23 +92,19 @@ function assertContained(root: string, candidate: string): void {
   if (nested === "" || (!nested.startsWith(`..${sep}`) && nested !== ".." && !isAbsolute(nested))) {
     return;
   }
-  throw new RunnerInteractionApiError(
-    "interaction_path_unsafe",
-    "Runner interaction path escapes the selected canvas results directory."
-  );
+  throw new RunnerInteractionApiError("interaction_path_unsafe", unsafeInteractionPathMessage);
 }
 
-async function existingRunDirectories(ref: RunnerInteractionCanvasRef): Promise<{
-  projectId: string;
-  canvasId: string;
-  resultsDir: string;
-  runs: Array<{ runDir: string; blockRef: string | null }>;
-}> {
-  let workspace: Awaited<ReturnType<typeof resolveTaskCanvasWorkspace>>;
-  let manifest: Awaited<ReturnType<typeof loadPackage>>["manifest"];
+async function resolveRunnerInteractionScope(ref: RunnerInteractionCanvasRef) {
   try {
-    workspace = await resolveTaskCanvasWorkspace(ref.projectRoot, ref.canvasId);
-    ({ manifest } = await loadPackage(workspace));
+    const workspace = await resolveTaskCanvasWorkspace(ref.projectRoot, ref.canvasId);
+    const { manifest } = await loadPackage(workspace);
+    return {
+      projectId: workspace.id,
+      canvasId: canvasIdForResultsDir(workspace.resultsDir),
+      resultsDir: workspace.resultsDir,
+      manifest
+    };
   } catch (error) {
     throw new RunnerInteractionApiError(
       "interaction_not_found",
@@ -111,32 +112,62 @@ async function existingRunDirectories(ref: RunnerInteractionCanvasRef): Promise<
       { cause: error instanceof Error ? error.name : "unknown" }
     );
   }
+}
+
+type RunnerInteractionScope = Awaited<ReturnType<typeof resolveRunnerInteractionScope>>;
+
+function interactionRunPath(
+  resultsDir: string,
+  blockRef: string | null,
+  ...segments: string[]
+): Promise<string> {
+  return blockRef === null
+    ? resolveResultsPath(resultsDir, "feedback-runs", ...segments)
+    : blockRunRoot(resultsDir, blockRef, ...segments);
+}
+
+async function interactionRunDirectory(
+  resultsDir: string,
+  blockRef: string | null,
+  runId: string
+): Promise<string> {
+  try {
+    return await interactionRunPath(resultsDir, blockRef, runId);
+  } catch (error) {
+    if (error instanceof ResultsPathError) {
+      await interactionRunPath(resultsDir, blockRef);
+      throw new RunnerInteractionApiError(
+        "interaction_path_invalid",
+        nonCanonicalRunDirectoryMessage
+      );
+    }
+    throw error;
+  }
+}
+
+async function existingRunDirectories({ manifest, resultsDir }: RunnerInteractionScope) {
   const runs: Array<{ runDir: string; blockRef: string | null }> = [];
   for (const node of manifest.nodes) {
     if (node.type !== "task") continue;
     for (const block of node.blocks) {
-      const root = await blockRunRoot(workspace.resultsDir, `${node.id}#${block.id}`);
+      const blockRef = `${node.id}#${block.id}`;
+      const root = await interactionRunPath(resultsDir, blockRef);
       const entries = await optionalReaddir(root, { withFileTypes: true });
       for (const entry of entries ?? []) {
         if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
-          runs.push({ runDir: join(root, entry.name), blockRef: `${node.id}#${block.id}` });
+          runs.push({ runDir: join(root, entry.name), blockRef });
         }
       }
     }
   }
-  const feedbackRoot = await resolveResultsPath(workspace.resultsDir, "feedback-runs");
+  const feedbackRoot = await interactionRunPath(resultsDir, null);
   const feedbackEntries = await optionalReaddir(feedbackRoot, { withFileTypes: true });
   for (const entry of feedbackEntries ?? []) {
     if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
       runs.push({ runDir: join(feedbackRoot, entry.name), blockRef: null });
     }
   }
-  return {
-    projectId: workspace.id,
-    canvasId: canvasIdForResultsDir(workspace.resultsDir),
-    resultsDir: workspace.resultsDir,
-    runs
-  };
+  return runs;
 }
 
 async function validateRunDirectory(resultsDir: string, runDir: string): Promise<void> {
@@ -149,7 +180,7 @@ async function validateRunDirectory(resultsDir: string, runDir: string): Promise
     if (!runEntry.isDirectory() || runEntry.isSymbolicLink()) {
       throw new RunnerInteractionApiError(
         "interaction_path_invalid",
-        "Runner interaction run path must be a canonical directory."
+        nonCanonicalRunDirectoryMessage
       );
     }
     assertContained(realResultsDir, realRunDir);
@@ -163,19 +194,21 @@ async function validateRunDirectory(resultsDir: string, runDir: string): Promise
 }
 
 async function locateRunDirectory(
-  scope: Awaited<ReturnType<typeof existingRunDirectories>>,
+  scope: RunnerInteractionScope,
   identity: RunnerInteractionIdentity
 ): Promise<{ runDir: string; kind: "block" | "feedback"; metadata: unknown }> {
   parseBlockRef(identity.claimRef);
-  const blockCandidate = await blockRunRoot(
-    scope.resultsDir,
-    identity.claimRef,
-    identity.executorRunId
-  );
   const candidates: Array<{ runDir: string; kind: "block" | "feedback" }> = [
-    { runDir: blockCandidate, kind: "block" },
     {
-      runDir: await resolveResultsPath(scope.resultsDir, "feedback-runs", identity.executorRunId),
+      runDir: await interactionRunDirectory(
+        scope.resultsDir,
+        identity.claimRef,
+        identity.executorRunId
+      ),
+      kind: "block"
+    },
+    {
+      runDir: await interactionRunDirectory(scope.resultsDir, null, identity.executorRunId),
       kind: "feedback"
     }
   ];
@@ -242,14 +275,15 @@ function parseActionRecordId(recordId: string): ParsedRunRecordId {
 }
 
 async function locateRunDirectoryForAction(
-  scope: Awaited<ReturnType<typeof existingRunDirectories>>,
+  scope: RunnerInteractionScope,
   action: RunnerInteractionActionIdentity
 ): Promise<{ runDir: string; metadata: unknown }> {
   const parsed = parseActionRecordId(action.recordId);
-  const candidate =
-    parsed.kind === "block"
-      ? await blockRunRoot(scope.resultsDir, parsed.blockRef, parsed.runId)
-      : await resolveResultsPath(scope.resultsDir, "feedback-runs", parsed.runId);
+  const candidate = await interactionRunDirectory(
+    scope.resultsDir,
+    parsed.kind === "block" ? parsed.blockRef : null,
+    parsed.runId
+  );
   if (!(await optionalStat(candidate))?.isDirectory()) {
     throw new RunnerInteractionApiError(
       "interaction_not_found",
@@ -288,9 +322,9 @@ export async function listPendingRunnerInteractionActions(
 ): Promise<RunnerInteractionActionEntry[]> {
   return apiBoundary(async () => {
     const ref = runnerInteractionCanvasRefSchema.parse(rawRef);
-    const scope = await existingRunDirectories(ref);
+    const scope = await resolveRunnerInteractionScope(ref);
     const pending: RunnerInteractionActionEntry[] = [];
-    for (const { runDir, blockRef } of scope.runs) {
+    for (const { runDir, blockRef } of await existingRunDirectories(scope)) {
       await validateRunDirectory(scope.resultsDir, runDir);
       const projection = await readRunnerInteractionMailboxProjection({
         runDir,
@@ -385,6 +419,9 @@ async function apiBoundary<T>(operation: () => Promise<T>): Promise<T> {
     return await operation();
   } catch (error) {
     if (error instanceof RunnerInteractionApiError) throw error;
+    if (error instanceof ResultsPathError) {
+      throw new RunnerInteractionApiError("interaction_path_unsafe", unsafeInteractionPathMessage);
+    }
     if (error instanceof RunnerInteractionStoreError) {
       throw new RunnerInteractionApiError(error.code, error.message, error.details);
     }
@@ -413,7 +450,7 @@ export async function respondToRunnerInteraction(
     const identity = runnerInteractionIdentitySchema.parse(rawIdentity);
     const decision = runnerPermissionInteractionDecisionSchema.parse(rawDecision);
     const audit = runnerInteractionAuditSchema.parse(rawAudit);
-    const scope = await existingRunDirectories(ref);
+    const scope = await resolveRunnerInteractionScope(ref);
     const { runDir, kind, metadata } = await locateRunDirectory(scope, identity);
     const recordId = canonicalRunRecordId(
       kind === "feedback"
@@ -442,7 +479,7 @@ export async function respondToRunnerInteraction(
 async function respondAtRunDirectory(
   ref: RunnerInteractionCanvasRef,
   recordId: string,
-  scope: Awaited<ReturnType<typeof existingRunDirectories>>,
+  scope: RunnerInteractionScope,
   runDir: string,
   metadataInput: unknown,
   identity: RunnerInteractionIdentity,
@@ -572,7 +609,7 @@ export async function respondToRunnerInteractionAction(
     const action = runnerInteractionActionIdentitySchema.parse(rawAction);
     const decision = runnerPermissionInteractionDecisionSchema.parse(rawDecision);
     const audit = runnerInteractionAuditSchema.parse(rawAudit);
-    const scope = await existingRunDirectories(ref);
+    const scope = await resolveRunnerInteractionScope(ref);
     const { runDir, metadata } = await locateRunDirectoryForAction(scope, action);
     const snapshot = await new PersistentRunnerInteractionStore(runDir).readSnapshot(
       action.requestId
