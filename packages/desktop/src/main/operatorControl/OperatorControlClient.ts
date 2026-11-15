@@ -643,6 +643,31 @@ export class OperatorControlClient {
     );
   }
 
+  async readRemoteResumeStatus(operationId: string, humanPrincipalId: string, actionId?: string) {
+    const { remoteResumeQuerySchema, remoteResumeStatusSchema } = await import(
+      "@planweave-ai/collaboration-protocol/remote-run"
+    );
+    const id = opaqueIdentifierSchema.parse(operationId);
+    const query = remoteResumeQuerySchema.parse({ actionId });
+    const suffix = query.actionId ? `?actionId=${encodeURIComponent(query.actionId)}` : "";
+    try {
+      return await this.json(
+        "GET",
+        `/api/v1/remote-operations/${encodeURIComponent(id)}/actions${suffix}`,
+        remoteResumeStatusSchema,
+        { humanPrincipalId }
+      );
+    } catch (error) {
+      if (
+        error instanceof OperatorControlError &&
+        error.httpStatus === 404 &&
+        error.code === "route_not_found"
+      )
+        return null;
+      throw error;
+    }
+  }
+
   async executeRemoteOperationAction(
     operationId: string,
     action: import("@planweave-ai/collaboration-protocol/remote-run").RemoteHumanExecutionActionCommand,

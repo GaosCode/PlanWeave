@@ -17,6 +17,7 @@ import type { TransportAdmissionPolicy } from "./insecureTransport.js";
 import type { WorkspaceIdentityRepository } from "./identity/workspaceRepository.js";
 import { DispatchAssignmentError } from "./work/dispatchIntegration.js";
 import { RemoteExecutionActionRejectedError } from "./remoteExecutionActions.js";
+import { remoteResumeHttpError } from "./remoteResumeHttpErrors.js";
 import {
   HumanRemoteControlError,
   type HumanRemoteControlService
@@ -42,6 +43,7 @@ type HumanRemoteRoute =
       kind:
         | "get"
         | "action"
+        | "resume_status"
         | "events"
         | "interactions"
         | "settle_interaction"
@@ -91,6 +93,9 @@ function route(request: IncomingMessage, pathname: string): HumanRemoteRoute | u
   if (request.method === "GET" && !match[3]) return { kind: "get", projectId, operationId };
   if (request.method === "POST" && match[3] === "actions" && !match[4]) {
     return { kind: "action", projectId, operationId };
+  }
+  if (request.method === "GET" && match[3] === "actions" && !match[4]) {
+    return { kind: "resume_status", projectId, operationId };
   }
   if (request.method === "GET" && match[3] === "events" && !match[4]) {
     return { kind: "events", projectId, operationId };
@@ -216,6 +221,8 @@ function safeError(error: unknown): { status: number; code: string } {
     return { status: 404, code: "human_remote_block_not_found" };
   }
   if (!(error instanceof Error)) return { status: 500, code: "human_remote_request_failed" };
+  const resumeFailure = remoteResumeHttpError(error);
+  if (resumeFailure) return resumeFailure;
   if (error.message === "remote_action_attempt_version_conflict") {
     return { status: 409, code: error.message };
   }
@@ -345,6 +352,13 @@ export async function handleHumanRemoteHttpRequest(
           response,
           202,
           await options.service.executeAction(scope, matched.operationId, await readJson(request))
+        );
+        break;
+      case "resume_status":
+        respond(
+          response,
+          200,
+          options.service.readResumeStatus(scope, matched.operationId, query(url, ["actionId"]))
         );
         break;
       case "events": {

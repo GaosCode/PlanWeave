@@ -12,6 +12,8 @@ import {
   desktopWorkspaceExecutionResponseSchema,
   desktopWorkspaceExecutionFollowInputSchema,
   desktopWorkspaceExecutionRespondInputSchema,
+  desktopWorkspaceExecutionResumeInputSchema,
+  desktopWorkspaceExecutionResumeResultSchema,
   desktopWorkspaceExecutionStartInputSchema
 } from "../shared/workspaceExecution.js";
 import {
@@ -72,6 +74,16 @@ export function createWorkspaceExecutionPreloadApi(
         workspaceExecutionInvokeChannels.follow,
         desktopWorkspaceExecutionFollowInputSchema.parse(input)
       ),
+    resumeWorkspaceExecution: async (input) => {
+      const result = workspaceExecutionIpcResultSchema.parse(
+        await invoke(
+          workspaceExecutionInvokeChannels.resume,
+          desktopWorkspaceExecutionResumeInputSchema.parse(input)
+        )
+      );
+      if (!result.ok) throw new Error(result.error.code);
+      return desktopWorkspaceExecutionResumeResultSchema.parse(result.value);
+    },
     respondWorkspaceExecution: (input) =>
       invokeWorkspaceExecution(
         invoke,

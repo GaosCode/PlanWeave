@@ -6,7 +6,9 @@ import {
 } from "./remoteExecutionActions.js";
 import {
   remoteHumanExecutionActionCommandSchema,
-  type RemoteHumanExecutionActionCommand
+  type RemoteHumanExecutionActionCommand,
+  type RemoteHumanResumeCommand,
+  type RemoteResumeStatus
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type {
   RemoteExecutionActionDecision,
@@ -14,6 +16,8 @@ import type {
 } from "./remoteExecutionLifecycle.js";
 import {
   decideRemoteExecutionAction,
+  remoteResumeEligibility,
+  requireRemoteResumeRecovery,
   remoteExecutionActionRequestSchema
 } from "./remoteExecutionLifecycle.js";
 import { remoteBlockIdentity } from "./remoteBlockIdentity.js";
@@ -22,7 +26,15 @@ import type {
   RemoteBlockCoordinatorOptions,
   RemoteDispatchOutcome
 } from "./remoteBlockCoordinator.js";
-import { RemoteOwnershipConflictError, type RemoteBlockRuntimePort } from "@planweave-ai/runtime";
+import {
+  RemoteBlockRuntimeError,
+  RemoteOwnershipConflictError,
+  type RemoteBlockRuntimePort
+} from "@planweave-ai/runtime";
+import { RemoteAgentAuthorizationError } from "./remoteAgent/errors.js";
+import { retryTarget } from "./remoteAgent/dispatchTarget.js";
+import { AgentEndpointCatalogError } from "./agentEndpointCatalog.js";
+import { RemoteResumeLeaseExpiredError, type HostCapacityReservation } from "./hostReservations.js";
 import type { MailboxMessage } from "./mailbox.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 import type { PersistedRemoteAgentAccessSnapshot } from "./remoteAgent/schema.js";
@@ -42,6 +54,25 @@ import {
   isReplacedActiveOwnership
 } from "./remoteReenterRecovery.js";
 
+type ResumeAction = Extract<RemoteExecutionActionRequest, { kind: "resume_same_session" }>;
+type CancelAction = Extract<RemoteExecutionActionRequest, { kind: "cancel" }>;
+
+class RemoteCancelResumePendingError extends Error {
+  constructor() {
+    super("remote_cancel_resume_pending");
+    this.name = "RemoteCancelResumePendingError";
+  }
+}
+
+function matchesCancelAttempt(action: CancelAction, operation: RemoteOperation): boolean {
+  return (
+    operation.dispatchId === action.dispatchId &&
+    operation.executionAttemptId === action.executionAttemptId &&
+    operation.attempt.stateVersion === action.expectedAttemptVersion &&
+    operation.attempt.leaseId === action.leaseId
+  );
+}
+
 export class RemoteBlockActionCoordinator {
   private readonly actionService: RemoteExecutionActionService;
 
@@ -51,7 +82,10 @@ export class RemoteBlockActionCoordinator {
       reenter(operationId: string): Promise<RemoteDispatchOutcome>;
       fail(operationId: string): Promise<void>;
       sealOperationLocalFailure(operation: RemoteOperation, error: unknown): Promise<void>;
-      authorizeEndpointOperation(operation: RemoteOperation): void;
+      authorizeEndpointOperation(
+        operation: RemoteOperation,
+        reservation?: HostCapacityReservation
+      ): void;
       reauthorizeAgentAccessForRetry(
         operation: RemoteOperation
       ): PersistedRemoteAgentAccessSnapshot;
@@ -63,7 +97,9 @@ export class RemoteBlockActionCoordinator {
       {
         snapshot: (action) => {
           const operation = this.options.operations.getRequired(action.operationId);
-          return this.options.dispatches.actionSnapshot(operation);
+          return action.kind === "resume_same_session"
+            ? this.requireResumeSnapshot(action, operation)
+            : this.options.dispatches.actionSnapshot(operation);
         },
         recover: (action) => this.recover(action),
         isAppliedDespiteFailure: (action) => this.retryAdmissionError(action) !== undefined,
@@ -77,29 +113,90 @@ export class RemoteBlockActionCoordinator {
 
   async execute(rawAction: unknown): Promise<RemoteExecutionActionRecord> {
     const action = remoteExecutionActionRequestSchema.parse(rawAction);
-    const record = await this.actionService
-      .execute(action)
-      .catch(throwRemoteDispatchAdmissionError);
+    if (action.kind === "cancel" && !this.options.actions.get(action.actionId)) {
+      const operation = this.options.operations.getRequired(action.operationId);
+      if (matchesCancelAttempt(action, operation)) this.assertCancelResumePublished(action);
+    }
+    const record = await this.actionService.execute(action).catch((error: unknown) => {
+      if (
+        error instanceof RemoteExecutionActionRejectedError &&
+        (error.cause instanceof RemoteAgentAuthorizationError ||
+          (error.cause instanceof Error &&
+            error.cause.message === "remote_preparation_action_requires_retry"))
+      ) {
+        throw error.cause;
+      }
+      throwRemoteDispatchAdmissionError(error);
+    });
     const denial = this.retryAdmissionError(record.request);
     if (denial) throw denial;
     return record;
   }
 
-  executeHuman(rawCommand: unknown): Promise<RemoteExecutionActionRecord> {
+  async executeHuman(rawCommand: unknown) {
     const command = remoteHumanExecutionActionCommandSchema.parse(rawCommand);
     const existing = this.options.actions.get(command.actionId);
-    if (existing) {
-      assertHumanActionMatches(command, existing.request);
-      return this.execute(existing.request);
+    if (existing) assertHumanActionMatches(command, existing.request);
+    const request =
+      existing?.request ??
+      (command.kind === "resume_same_session" ? this.materializeResumeAction(command) : command);
+    const { requestFingerprint: _fingerprint, ...receipt } = await this.execute(request);
+    if (receipt.request.kind !== "resume_same_session" || receipt.request.leaseExpiresAt)
+      return receipt;
+    const delivery = this.options.dispatches.readResumeDelivery(receipt.request);
+    if (!delivery) throw new Error("remote_resume_delivery_missing");
+    return {
+      ...receipt,
+      request: { ...receipt.request, leaseExpiresAt: delivery.command.leaseExpiresAt }
+    };
+  }
+
+  readResume(operation: RemoteOperation, actionId?: string): RemoteResumeStatus {
+    const action = actionId === undefined ? undefined : this.options.actions.get(actionId);
+    const request = action?.request;
+    const receipt =
+      request?.kind === "resume_same_session" && request.operationId === operation.id && action
+        ? {
+            actionId: request.actionId,
+            leaseId: request.leaseId,
+            target: {
+              operationId: request.operationId,
+              dispatchId: request.dispatchId,
+              executionAttemptId: request.executionAttemptId,
+              expectedAttemptVersion: request.expectedAttemptVersion,
+              priorLeaseId: request.priorLeaseId
+            },
+            state: action.state,
+            ...(action.rejectionCode === undefined ? {} : { rejectionCode: action.rejectionCode })
+          }
+        : null;
+    if (operation.attempt.status !== "interrupted") {
+      return { capability: { available: false, reason: "not_interrupted" }, receipt };
     }
-    if (command.kind !== "resume_same_session") return this.execute(command);
-    return this.execute(this.materializeResumeAction(command));
+    let eligibility: ReturnType<typeof remoteResumeEligibility>;
+    try {
+      eligibility = remoteResumeEligibility(this.options.dispatches.actionSnapshot(operation));
+    } catch (error) {
+      if (!isMissingResumeDispatch(error)) throw error;
+      return { capability: { available: false, reason: "recovery_evidence_missing" }, receipt };
+    }
+    if (!eligibility.available) return { capability: eligibility, receipt };
+    this.authorizeResume(operation);
+    return { capability: { available: true, target: eligibility.target }, receipt };
   }
 
   reconcile(startupContext?: {
     serverInstanceOwnerToken: string;
   }): Promise<RemoteExecutionActionRecord[]> {
     return this.actionService.reconcile(startupContext, (action, error) => {
+      if (error instanceof RemoteCancelResumePendingError) return true;
+      if (
+        action.request.kind === "resume_same_session" &&
+        error instanceof Error &&
+        (error.message === "remote_resume_host_unavailable" ||
+          error.message === "remote_resume_host_capacity_exhausted")
+      )
+        return true;
       const decision = classifyReenterFailure(error);
       if (decision === "admission_denied") return true;
       if (decision !== "defer_host" && decision !== "defer_authorization") return false;
@@ -148,30 +245,33 @@ export class RemoteBlockActionCoordinator {
       return "settled";
     }
     if (action.kind === "resume_same_session") {
-      if (
-        !this.options.reservations.isResumeApplied({
-          priorLeaseId: action.priorLeaseId,
-          leaseId: action.leaseId,
-          executionAttemptId: action.executionAttemptId,
-          leaseExpiresAt: action.leaseExpiresAt
-        })
-      ) {
-        return undefined;
+      const delivery = this.options.dispatches.readResumeDelivery(action);
+      if (delivery) {
+        this.publish(delivery);
+        return "delivered";
       }
-      const operation = this.options.operations.getRequired(action.operationId);
-      const message = this.options.dispatches.enqueueResume({ operation, action });
-      this.publish(message);
+      const reservation = this.options.reservations.findAppliedResume(action);
+      if (!reservation) return undefined;
+      const operation = this.requireAppliedResume(action);
+      await this.withRuntime(operation, (runtime) => this.commitResumeRuntime(action, runtime));
+      await this.deliverCommittedResume(action);
       return "delivered";
     }
     const operation = this.options.operations.getRequired(action.operationId);
     const persisted = this.options.dispatches.inspect(operation).dispatch;
-    if (action.kind === "cancel" && !persisted && operation.state === "cancelled") {
-      return "settled";
-    }
-    if (action.kind === "cancel" && persisted?.status === "cancelling") {
-      const message = this.options.dispatches.enqueueCancel({ operation, action });
-      this.publish(message);
-      return "delivered";
+    if (action.kind === "cancel") {
+      const delivery = this.options.dispatches.readCancelDelivery(action);
+      if (delivery) {
+        this.publish(delivery);
+        return "delivered";
+      }
+      if (
+        !matchesCancelAttempt(action, operation) &&
+        this.options.actions.hasResumeLeaseForCancel(action)
+      ) {
+        throw new RemoteExecutionActionRejectedError("remote_resume_attempt_conflict");
+      }
+      if (!persisted && operation.state === "cancelled") return "settled";
     }
     if (action.kind === "block" && operation.attempt.status === "action_required") {
       return "settled";
@@ -247,35 +347,26 @@ export class RemoteBlockActionCoordinator {
     return terminal;
   }
 
-  private materializeResumeAction(
-    command: Extract<RemoteHumanExecutionActionCommand, { kind: "resume_same_session" }>
-  ): RemoteExecutionActionRequest {
+  private materializeResumeAction(command: RemoteHumanResumeCommand): RemoteExecutionActionRequest {
     const operation = this.options.operations.getRequired(command.operationId);
     const snapshot = this.options.dispatches.actionSnapshot(operation);
-    const recovery = snapshot.interruption?.recovery;
-    if (!recovery) throw new Error("remote_resume_recovery_evidence_missing");
-
-    // Validate the human intent against the authoritative interruption/CAS snapshot before
-    // issuing a fresh lease. The placeholder is never persisted or sent to a Host mailbox.
-    const validationLeaseId =
-      command.priorLeaseId === "lease-resume-validation"
-        ? "lease-resume-validation-2"
-        : "lease-resume-validation";
-    const provisional = remoteExecutionActionRequestSchema.parse({
-      ...command,
-      leaseId: validationLeaseId,
-      leaseExpiresAt: "1970-01-01T00:00:00.000Z",
-      recovery
-    });
-    decideRemoteExecutionAction(provisional, snapshot);
-
-    const lease = this.options.reservations.createResumeLease();
+    const recovery = requireRemoteResumeRecovery(command, snapshot);
+    this.authorizeResume(operation);
     return remoteExecutionActionRequestSchema.parse({
       ...command,
-      leaseId: lease.leaseId,
-      leaseExpiresAt: lease.leaseExpiresAt,
+      leaseId: this.options.reservations.createResumeLeaseId(),
       recovery
     });
+  }
+
+  private authorizeResume(operation: RemoteOperation): void {
+    if (operation.agentAccess) this.lifecycle.reauthorizeAgentAccessForRetry(operation);
+  }
+
+  private assertCancelResumePublished(action: CancelAction): void {
+    if (this.options.reservations.isUnpublishedResumeLease(action.leaseId)) {
+      throw new RemoteCancelResumePendingError();
+    }
   }
 
   private async apply(
@@ -283,12 +374,12 @@ export class RemoteBlockActionCoordinator {
     decision: RemoteExecutionActionDecision,
     context?: unknown
   ): Promise<"delivered" | "settled"> {
-    let operation = this.options.operations.getRequired(action.operationId);
+    const operation = this.options.operations.getRequired(action.operationId);
     switch (decision.transition) {
       case "cancel": {
         if (action.kind !== "cancel") throw new Error("remote_action_decision_mismatch");
-        this.options.operations.recordDiagnosticStage(operation.id, "cancelling");
         if (!decision.sendsCommand) {
+          this.options.operations.recordDiagnosticStage(operation.id, "cancelling");
           await this.withRuntime(operation, async (runtime) => {
             let binding: Awaited<ReturnType<RemoteBlockRuntimePort["query"]>>;
             try {
@@ -321,6 +412,11 @@ export class RemoteBlockActionCoordinator {
           this.options.operations.recordDiagnosticStage(operation.id, "terminal");
           return "settled";
         }
+        if (!matchesCancelAttempt(action, operation)) {
+          throw new RemoteExecutionActionRejectedError("remote_resume_attempt_conflict");
+        }
+        this.assertCancelResumePublished(action);
+        this.options.operations.recordDiagnosticStage(operation.id, "cancelling");
         const message = this.options.dispatches.enqueueCancel({ operation, action });
         this.publish(message);
         return "delivered";
@@ -342,18 +438,25 @@ export class RemoteBlockActionCoordinator {
       case "resume": {
         if (action.kind !== "resume_same_session")
           throw new Error("remote_action_decision_mismatch");
-        await this.withRuntime(operation, (runtime) =>
-          runtime.resumeAttempt(remoteBlockIdentity(operation))
-        );
-        this.options.reservations.resumeSameAttempt({
-          priorLeaseId: action.priorLeaseId,
-          leaseId: action.leaseId,
-          leaseExpiresAt: action.leaseExpiresAt,
-          expectedAttemptVersion: action.expectedAttemptVersion
-        });
-        operation = this.options.operations.getRequired(operation.id);
-        const message = this.options.dispatches.enqueueResume({ operation, action });
-        this.publish(message);
+        this.requireResumeSnapshot(action, operation);
+        try {
+          this.options.reservations.assertResumeLeaseNotExpired(action.leaseExpiresAt);
+          this.authorizeRecordedResume(operation);
+          await this.withRuntime(operation, async (runtime) => {
+            await runtime.query({ ref: operation.blockRef, operationId: operation.id });
+            const current = this.options.operations.getRequired(action.operationId);
+            this.requireResumeSnapshot(action, current);
+            this.authorizeRecordedResume(current);
+            this.options.reservations.resumeSameAttempt(action);
+            await this.commitResumeRuntime(action, runtime);
+          });
+        } catch (error) {
+          if (!(error instanceof RemoteResumeLeaseExpiredError)) throw error;
+          throw new RemoteExecutionActionRejectedError("remote_resume_attempt_conflict", {
+            cause: error
+          });
+        }
+        await this.deliverCommittedResume(action);
         return "delivered";
       }
       case "retry": {
@@ -407,6 +510,175 @@ export class RemoteBlockActionCoordinator {
         return "settled";
       }
     }
+  }
+
+  private requireResumeSnapshot(action: ResumeAction, operation: RemoteOperation) {
+    if (
+      operation.dispatchId !== action.dispatchId ||
+      operation.executionAttemptId !== action.executionAttemptId ||
+      operation.attempt.stateVersion !== action.expectedAttemptVersion ||
+      operation.attempt.leaseId !== action.priorLeaseId ||
+      operation.attempt.status !== "interrupted"
+    ) {
+      throw new RemoteExecutionActionRejectedError("remote_resume_attempt_conflict");
+    }
+    try {
+      const snapshot = this.options.dispatches.actionSnapshot(operation);
+      decideRemoteExecutionAction(action, snapshot);
+      return snapshot;
+    } catch (error) {
+      if (
+        isMissingResumeDispatch(error) ||
+        (error instanceof Error &&
+          [
+            "remote_preparation_action_requires_retry",
+            "remote_resume_attempt_not_interrupted_and_fenced",
+            "remote_resume_recovery_evidence_missing",
+            "remote_resume_recovery_identity_mismatch"
+          ].includes(error.message))
+      ) {
+        throw new RemoteExecutionActionRejectedError("remote_resume_attempt_conflict", {
+          cause: error
+        });
+      }
+      throw error;
+    }
+  }
+
+  private authorizeRecordedResume(operation: RemoteOperation): void {
+    try {
+      this.authorizeResume(operation);
+    } catch (error) {
+      if (!(error instanceof RemoteAgentAuthorizationError)) throw error;
+      throw new RemoteExecutionActionRejectedError("remote_resume_authorization_changed", {
+        cause: error
+      });
+    }
+  }
+
+  private authorizeAppliedResume(
+    operation: RemoteOperation,
+    reservation: HostCapacityReservation
+  ): void {
+    const access = operation.agentAccess;
+    if (!access) return;
+    try {
+      this.options.assertRemoteAgentAccess({
+        principal: { humanPrincipalId: access.callerHumanPrincipalId },
+        endpointId: access.authorized.remoteAgent.endpointId,
+        target: retryTarget(operation, access.authorized)
+      });
+      this.lifecycle.authorizeEndpointOperation(operation, reservation);
+    } catch (error) {
+      if (
+        error instanceof AgentEndpointCatalogError &&
+        error.unavailableReason === "host_offline"
+      ) {
+        throw new Error("remote_resume_host_unavailable", { cause: error });
+      }
+      if (
+        !(error instanceof RemoteAgentAuthorizationError) &&
+        !(error instanceof DispatchAssignmentError) &&
+        !(error instanceof AgentEndpointCatalogError)
+      )
+        throw error;
+      throw new RemoteExecutionActionRejectedError("remote_resume_authorization_changed", {
+        cause: error
+      });
+    }
+  }
+
+  private requireAppliedResume(action: ResumeAction): RemoteOperation {
+    const operation = this.options.operations.getRequired(action.operationId);
+    if (
+      operation.dispatchId !== action.dispatchId ||
+      operation.executionAttemptId !== action.executionAttemptId ||
+      operation.attempt.stateVersion !== action.expectedAttemptVersion + 1 ||
+      operation.attempt.leaseId !== action.leaseId ||
+      operation.attempt.status !== "activated"
+    ) {
+      throw new RemoteExecutionActionRejectedError("remote_resume_attempt_conflict");
+    }
+    return operation;
+  }
+
+  private validateAppliedResume(action: ResumeAction, operation: RemoteOperation): void {
+    const reservation = this.options.reservations.getRequired(action.leaseId);
+    this.authorizeAppliedResume(operation, reservation);
+    if (
+      reservation.status !== "active" ||
+      (action.leaseExpiresAt !== undefined &&
+        !this.options.reservations.isActiveForAttempt(reservation))
+    ) {
+      throw new RemoteExecutionActionRejectedError("remote_resume_attempt_conflict");
+    }
+  }
+
+  private async discardAppliedResume(
+    action: ResumeAction,
+    runtime: RemoteBlockRuntimePort
+  ): Promise<void> {
+    const current = this.requireAppliedResume(action);
+    const interruption = this.options.dispatches.inspect(current).dispatch?.interruption;
+    if (!interruption?.resumable) throw new Error("remote_resume_interruption_missing");
+    try {
+      await runtime.markInterrupted({ ...remoteBlockIdentity(current), interruption });
+    } catch (error) {
+      if (
+        !isMissingActiveOwnership(error) &&
+        !isReplacedActiveOwnership(error) &&
+        !(error instanceof RemoteBlockRuntimeError && error.code === "remote_block_source_changed")
+      ) {
+        throw error;
+      }
+    }
+    this.options.reservations.discardUnpublishedResume(action);
+  }
+
+  private async commitResumeRuntime(
+    action: ResumeAction,
+    runtime: RemoteBlockRuntimePort
+  ): Promise<void> {
+    const operation = this.requireAppliedResume(action);
+    try {
+      this.validateAppliedResume(action, operation);
+      await runtime.resumeAttempt(remoteBlockIdentity(operation));
+    } catch (error) {
+      if (error instanceof RemoteExecutionActionRejectedError) {
+        await this.discardAppliedResume(action, runtime);
+        throw error;
+      }
+      if (
+        error instanceof RemoteOwnershipConflictError ||
+        (error instanceof RemoteBlockRuntimeError && error.code === "remote_block_source_changed")
+      ) {
+        this.options.reservations.discardUnpublishedResume(action);
+        throw new RemoteExecutionActionRejectedError("remote_resume_attempt_conflict", {
+          cause: error
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async deliverCommittedResume(action: ResumeAction): Promise<void> {
+    const operation = this.requireAppliedResume(action);
+    try {
+      this.validateAppliedResume(action, operation);
+    } catch (error) {
+      if (error instanceof RemoteExecutionActionRejectedError) {
+        await this.withRuntime(operation, (runtime) => this.discardAppliedResume(action, runtime));
+      }
+      throw error;
+    }
+    const message = this.options.dispatches.enqueueResume({
+      operation,
+      action,
+      leaseExpiresAt:
+        action.leaseExpiresAt ??
+        this.options.reservations.refreshUnpublishedResume(action).leaseExpiresAt
+    });
+    this.publish(message);
   }
 
   private async withRuntime<T>(
@@ -468,6 +740,14 @@ export class RemoteBlockActionCoordinator {
     this.options.mailbox.publish(message);
     this.options.dispatches.markMailboxPublished(message.messageId);
   }
+}
+
+function isMissingResumeDispatch(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === "remote_dispatch_not_found" ||
+      error.message === "remote_dispatch_host_not_found")
+  );
 }
 
 function assertHumanActionMatches(

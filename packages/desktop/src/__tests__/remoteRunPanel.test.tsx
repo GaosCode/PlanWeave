@@ -5,7 +5,11 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
 import { defaultDesktopSettings } from "../shared/desktopSettings";
-import { endpoint as windowEndpoint } from "./helpers/remoteRunPanelControllerFixtures";
+import {
+  apiReturning,
+  endpoint as windowEndpoint,
+  remoteView
+} from "./helpers/remoteRunPanelControllerFixtures";
 import type { AcpPermissionOption } from "@planweave-ai/agent-host-protocol/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AvailableAgentEndpoint } from "../renderer/collaboration/agentEndpointViewModel";
@@ -211,12 +215,170 @@ function renderPanel(api: PlanWeaveWorkspaceExecutionApi) {
   return render(panel(api));
 }
 
+function withLoadedAcpSession(running: ReturnType<typeof remoteView>) {
+  if (running.handle.target !== "remote") throw new Error("remote_handle_required");
+  return desktopWorkspaceExecutionResponseSchema.parse({
+    ...running,
+    handle: {
+      ...running.handle,
+      cursor: { ...running.handle.cursor, eventCursor: 2 }
+    },
+    events: [
+      ...running.events,
+      {
+        ...running.events[0],
+        eventId: "session-loaded",
+        source: { ...running.events[0].source, cursor: 2 },
+        type: "runner_event",
+        data: {
+          eventProtocolVersion: 2,
+          event: {
+            eventVersion: 2,
+            cursor: 2,
+            sourceSequence: 2,
+            timestamp: "2030-01-01T00:00:02.000Z",
+            fragment: {
+              kind: "engine_evidence",
+              evidence: { kind: "session_started", loaded: true, sessionId: "acp-session-1" }
+            }
+          }
+        }
+      }
+    ]
+  });
+}
+
 afterEach(cleanup);
 
 describe("Block Inspector Window remote execution reads", () =>
   registerBlockInspectorRemoteExecutionCases(ports));
 
 describe("RemoteRunPanel", () => {
+  it("offers recovery from authority, supports retry, and confirms only Host-observed progress", async () => {
+    const user = userEvent.setup();
+    const interrupted = remoteView({ phase: "blocked", remoteResume: { available: true } });
+    const { api, follow, resume } = apiReturning(interrupted);
+    resume.mockRejectedValueOnce(new Error("remote_resume_host_unavailable"));
+    resume.mockImplementation(async (input) =>
+      input.mode === "observe"
+        ? { state: "not_recorded" }
+        : { state: "delivered", leaseId: "lease-2" }
+    );
+    renderPanel(api);
+
+    const button = await screen.findByRole("button", { name: "Resume session" });
+    expect(screen.getByTestId("remote-run-phase")).toHaveTextContent("Interrupted");
+    await user.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent("The Host is unavailable.");
+    await waitFor(() => expect(button).toBeEnabled());
+
+    follow.mockResolvedValueOnce(
+      remoteView({
+        observation: {
+          state: "activated",
+          attemptStatus: "activated",
+          revision: 3,
+          leaseId: "lease-2"
+        }
+      })
+    );
+    const running = remoteView({
+      observation: { state: "running", attemptStatus: "running", revision: 4, leaseId: "lease-2" }
+    });
+    follow.mockResolvedValue(running);
+    await user.click(button);
+    expect(screen.getByRole("status")).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent("Resuming the ACP session");
+    expect(follow).toHaveBeenLastCalledWith({
+      locator,
+      blockRef: "T-1#B-1",
+      operationId: "operation-1"
+    });
+    await user.click(screen.getByTestId("remote-run-refresh"));
+    await waitFor(() =>
+      expect(screen.getByTestId("remote-run-phase")).toHaveTextContent("Running")
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Resuming the ACP session");
+
+    follow.mockResolvedValue(withLoadedAcpSession(running));
+    await waitFor(
+      () =>
+        expect(screen.getByRole("status")).toHaveTextContent("The original ACP session resumed."),
+      { timeout: 2500 }
+    );
+    follow.mockResolvedValue(running);
+    await user.click(screen.getByTestId("remote-run-refresh"));
+    expect(screen.getByRole("status")).toHaveTextContent("The original ACP session resumed.");
+    const submissions = resume.mock.calls.filter(([input]) => input.mode !== "observe");
+    expect(submissions).toHaveLength(2);
+    expect(submissions[0]).toEqual(submissions[1]);
+    expect(screen.queryByRole("button", { name: "Resume session" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "follow",
+    "receipt"
+  ] as const)("observes the original resume after a transient %s failure in the same Inspector", async (failure) => {
+    const user = userEvent.setup();
+    const interrupted = remoteView({ phase: "blocked", remoteResume: { available: true } });
+    const { api, follow, resume } = apiReturning(interrupted);
+    renderPanel(api);
+    const button = await screen.findByRole("button", { name: "Resume session" });
+    const running = withLoadedAcpSession(
+      remoteView({
+        observation: { state: "running", attemptStatus: "running", revision: 4, leaseId: "lease-2" }
+      })
+    );
+    const readReceipt = failure === "receipt";
+    if (readReceipt) {
+      resume.mockRejectedValueOnce(new Error("remote_resume_status_unavailable"));
+      resume.mockRejectedValueOnce(new Error("remote_resume_status_unavailable"));
+    } else {
+      follow.mockRejectedValueOnce(new Error("workspace_execution_request_failed"));
+    }
+    follow.mockResolvedValue(running);
+    await user.click(button);
+    await waitFor(
+      () =>
+        expect(screen.getByRole("status")).toHaveTextContent("The original ACP session resumed."),
+      { timeout: 4500 }
+    );
+    expect(resume.mock.calls.filter(([request]) => request.mode !== "observe")).toHaveLength(1);
+    if (readReceipt) {
+      expect(
+        resume.mock.calls.filter(([request]) => request.mode === "observe").length
+      ).toBeGreaterThanOrEqual(1);
+    }
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not attribute loaded evidence from a different lease to the original action", async () => {
+    const interrupted = remoteView({ phase: "blocked", remoteResume: { available: true } });
+    const { api, follow } = apiReturning(interrupted);
+    renderPanel(api);
+    const button = await screen.findByRole("button", { name: "Resume session" });
+    follow.mockResolvedValue(
+      withLoadedAcpSession(
+        remoteView({
+          observation: {
+            state: "running",
+            attemptStatus: "running",
+            revision: 4,
+            leaseId: "lease-later"
+          }
+        })
+      )
+    );
+    await userEvent.setup().click(button);
+    await waitFor(() =>
+      expect(screen.getByTestId("remote-run-phase")).toHaveTextContent("Running")
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      createTranslator("en")("remoteRunResumeChanged")
+    );
+    expect(screen.getByRole("status")).not.toHaveTextContent("The original ACP session resumed.");
+  });
+
   it("renders Coordinator identity, events, and pending interaction", async () => {
     const { api } = createApi();
     renderPanel(api);
@@ -225,6 +387,7 @@ describe("RemoteRunPanel", () => {
     expect(screen.getByText("operation-1")).toBeInTheDocument();
     expect(screen.getByText(/remote hello/)).toBeInTheDocument();
     expect(screen.getByTestId("remote-run-interaction")).toBeInTheDocument();
+    expect(screen.queryByTestId("remote-run-action-resume_same_session")).not.toBeInTheDocument();
     expect(screen.queryByTestId("remote-run-action-fail_interruption")).not.toBeInTheDocument();
     expect(screen.queryByTestId("remote-run-action-retry_new_attempt")).not.toBeInTheDocument();
   });

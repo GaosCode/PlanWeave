@@ -148,6 +148,21 @@ describe("CollaborationClient remote operations process integration", () => {
     const fixture = await listen(async (req, res) => {
       expect(req.headers.authorization).toBe(`Bearer ${exampleHumanDeviceToken}`);
       const url = req.url ?? "";
+      if (
+        req.method === "GET" &&
+        url ===
+          "/api/v1/projects/project-demo-001/remote-operations/op-process-1/actions?actionId=recover"
+      ) {
+        json(res, 404, { error: "route_not_found" });
+        return;
+      }
+      if (
+        req.method === "GET" &&
+        url === "/api/v1/projects/project-demo-001/remote-operations/missing/actions"
+      ) {
+        json(res, 404, { error: "human_remote_resource_not_found" });
+        return;
+      }
       if (req.method === "GET" && url.includes("/remote-operations/op-process-1/events")) {
         json(res, 200, eventReplay);
         return;
@@ -203,6 +218,12 @@ describe("CollaborationClient remote operations process integration", () => {
     const observed = await client.observeRemoteOperation("op-process-1");
     expect(observed.operationId).toBe("op-process-1");
     expect(observed.attempt.leaseId).toBe("lease-1");
+    await expect(
+      client.remoteOperations().readRemoteResumeStatus("op-process-1", "recover")
+    ).resolves.toBeNull();
+    await expect(client.remoteOperations().readRemoteResumeStatus("missing")).rejects.toMatchObject(
+      { code: "human_remote_resource_not_found", httpStatus: 404 }
+    );
 
     const events = await client.replayRemoteOperationEvents("op-process-1", { afterCursor: 0 });
     expect(events.events[0]).toMatchObject({ cursor: 1, kind: "agent_message" });

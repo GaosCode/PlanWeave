@@ -66,6 +66,7 @@ function remoteOperationsPort(response: unknown): CollaborationRemoteOperationsP
     dispatchRemoteOperation: unused,
     observeRemoteOperation: vi.fn(async () => parsed),
     lookupRemoteOperation: vi.fn(async () => parsed),
+    readRemoteResumeStatus: unused,
     executeRemoteOperationAction: unused,
     replayRemoteOperationEvents: unused,
     listRemoteOperationInteractions: unused,

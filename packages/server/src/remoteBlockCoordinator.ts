@@ -217,6 +217,13 @@ export class RemoteBlockCoordinator {
     ) {
       return { operation, status: "wait_for_action" };
     }
+    if (
+      operation.attempt.status === "activated" &&
+      operation.attempt.leaseId &&
+      this.options.reservations.isUnpublishedResumeLease(operation.attempt.leaseId)
+    ) {
+      return { operation, status: "awaiting_host" };
+    }
     const candidate = this.options.candidates.get(operation.id);
     if (!candidate) throw new Error("remote_operation_candidate_missing");
     if (persisted.dispatch) {
@@ -798,8 +805,12 @@ export class RemoteBlockCoordinator {
     return this.actionCoordinator().execute(rawAction);
   }
 
-  async executeHumanAction(rawCommand: unknown): Promise<RemoteExecutionActionRecord> {
+  async executeHumanAction(rawCommand: unknown) {
     return this.actionCoordinator().executeHuman(rawCommand);
+  }
+
+  readResume(operation: RemoteOperation, actionId?: string) {
+    return this.actionCoordinator().readResume(operation, actionId);
   }
 
   async reconcileActions(startupContext?: {
@@ -819,7 +830,8 @@ export class RemoteBlockCoordinator {
       sealOperationLocalFailure: async (operation, error) => {
         await this.writebackCoordinator().sealOperationLocalFailure(operation, error);
       },
-      authorizeEndpointOperation: (operation) => this.authorizeEndpointOperation(operation),
+      authorizeEndpointOperation: (operation, reservation) =>
+        this.authorizeEndpointOperation(operation, reservation),
       reauthorizeAgentAccessForRetry: (operation) => this.reauthorizeAgentAccessForRetry(operation),
       checkpoint: () => this.checkpoint("after_action_side_effect")
     });

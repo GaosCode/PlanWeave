@@ -9,8 +9,10 @@ import {
   desktopWorkspaceExecutionStartInputSchema,
   desktopWorkspaceExecutionFollowInputSchema,
   desktopWorkspaceExecutionCancelInputSchema,
-  desktopWorkspaceExecutionRespondInputSchema
+  desktopWorkspaceExecutionRespondInputSchema,
+  desktopWorkspaceExecutionResumeInputSchema
 } from "../shared/workspaceExecution.js";
+import { coordinatorView } from "./helpers/workspaceExecutionConversationFixture";
 import { desktopRemoteAcpConversationInputSchema } from "../shared/remoteAcpConversation.js";
 import {
   desktopBridgeInvokeChannels,
@@ -473,6 +475,14 @@ describe("Inspector Home admission through Main IPC", () => {
               outcome: "accepted",
               response: "continue"
             }
+          })
+        ],
+        [
+          workspaceExecutionInvokeChannels.resume,
+          desktopWorkspaceExecutionResumeInputSchema.parse({
+            locator: start.locator,
+            blockRef: start.blockRef,
+            expectedRemoteHandle: coordinatorView("operation-one", start.blockRef).handle
           })
         ],
         [

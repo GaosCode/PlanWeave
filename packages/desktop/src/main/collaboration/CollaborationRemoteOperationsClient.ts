@@ -16,6 +16,8 @@ import {
   remoteEndpointOperationObservationSchema,
   remoteOperationLookupQuerySchema,
   remoteOperationObservationSchema,
+  remoteResumeQuerySchema,
+  remoteResumeStatusSchema,
   type RemoteActionView,
   type RemoteDispatchIntentV3,
   type RemoteEventReplay,
@@ -24,7 +26,8 @@ import {
   type RemoteInteractionResponse,
   type RemoteInteractionView,
   type RemoteOperationLookupQuery,
-  type RemoteOperationObservation
+  type RemoteOperationObservation,
+  type RemoteResumeStatus
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import {
   remoteAgentEndpointListSchema,
@@ -73,6 +76,11 @@ export interface CollaborationRemoteOperationsPort {
     action: RemoteHumanExecutionActionCommand,
     signal?: AbortSignal
   ): Promise<RemoteActionView>;
+  readRemoteResumeStatus(
+    operationId: string,
+    actionId?: string,
+    signal?: AbortSignal
+  ): Promise<RemoteResumeStatus | null>;
   replayRemoteOperationEvents(
     operationId: string,
     query?: z.input<typeof remoteEventQuerySchema>,
@@ -189,6 +197,31 @@ export class CollaborationRemoteOperationsClient implements CollaborationRemoteO
       remoteOperationObservationSchema.nullable(),
       { signal }
     );
+  }
+
+  async readRemoteResumeStatus(
+    operationId: string,
+    actionId?: string,
+    signal?: AbortSignal
+  ): Promise<RemoteResumeStatus | null> {
+    const query = remoteResumeQuerySchema.parse({ actionId });
+    const suffix = query.actionId ? `?actionId=${encodeURIComponent(query.actionId)}` : "";
+    try {
+      return await this.transport.json(
+        "GET",
+        `/api/v1/projects/${encodeURIComponent(this.projectId)}/remote-operations/${encodeURIComponent(operationId)}/actions${suffix}`,
+        remoteResumeStatusSchema,
+        { signal }
+      );
+    } catch (error) {
+      if (
+        error instanceof CollaborationClientError &&
+        error.httpStatus === 404 &&
+        error.code === "route_not_found"
+      )
+        return null;
+      throw error;
+    }
   }
 
   executeRemoteOperationAction(

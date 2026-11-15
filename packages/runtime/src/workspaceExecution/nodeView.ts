@@ -11,6 +11,7 @@ export function projectWorkspaceExecutionCoordinatorView(
   return workspaceExecutionCoordinatorViewSchema.parse({
     version: "planweave.workspace-execution-view/v1",
     handle: result.handle,
+    ...(result.remoteResume === undefined ? {} : { remoteResume: result.remoteResume }),
     session: {
       sessionId: result.session.sessionId,
       stateVersion: result.session.stateVersion,

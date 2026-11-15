@@ -31,6 +31,7 @@ import type { HumanIdentityCredentialStore } from "./identity/humanIdentityCrede
 import { serverReadinessSchema, type ServerReadiness } from "./readiness.js";
 import { DispatchAssignmentError } from "./work/dispatchIntegration.js";
 import { RemoteExecutionActionRejectedError } from "./remoteExecutionActions.js";
+import { remoteResumeHttpError } from "./remoteResumeHttpErrors.js";
 import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
 import { readOwnerCanvasMaterializationUpload } from "./canvas/ownerCanvasMaterializationHttp.js";
@@ -122,6 +123,11 @@ export type OperatorControlPort = {
     operationId: string,
     request: unknown
   ): Promise<unknown>;
+  readResumeStatus(
+    principal: OperatorRequestPrincipal,
+    operationId: string,
+    query: unknown
+  ): unknown;
   conversation(
     principal: OperatorRequestPrincipal,
     operationId: string,
@@ -167,6 +173,7 @@ type OperatorRoute =
         | "get_operation"
         | "terminal_result"
         | "action"
+        | "resume_status"
         | "conversation"
         | "converse"
         | "events"
@@ -271,6 +278,9 @@ function route(request: IncomingMessage, pathname: string): OperatorRoute | unde
   }
   if (request.method === "POST" && operation[2] === "actions" && !operation[3]) {
     return { kind: "action", operationId };
+  }
+  if (request.method === "GET" && operation[2] === "actions" && !operation[3]) {
+    return { kind: "resume_status", operationId };
   }
   if (request.method === "GET" && operation[2] === "events" && !operation[3]) {
     return { kind: "events", operationId };
@@ -443,6 +453,8 @@ function safeError(error: unknown): { status: number; code: string } {
     return { status: 400, code: error.code };
   }
   if (!(error instanceof Error)) return { status: 500, code: "operator_request_failed" };
+  const resumeFailure = remoteResumeHttpError(error);
+  if (resumeFailure) return resumeFailure;
   if (error.message === "remote_run_v3_required") {
     return { status: 400, code: error.message };
   }
@@ -763,6 +775,13 @@ export async function handleOperatorHttpRequest(
             matched.operationId,
             await readJson(request)
           )
+        );
+        break;
+      case "resume_status":
+        respond(
+          response,
+          200,
+          options.service.readResumeStatus(principal, matched.operationId, query(url, ["actionId"]))
         );
         break;
       case "conversation": {

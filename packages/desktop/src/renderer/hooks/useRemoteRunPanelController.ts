@@ -27,6 +27,7 @@ import {
   desktopWorkspaceExecutionFollowInputSchema,
   desktopWorkspaceExecutionCancelInputSchema,
   desktopWorkspaceExecutionRespondInputSchema,
+  desktopWorkspaceExecutionResumeInputSchema,
   type DesktopWorkspaceExecutionResponse,
   type DesktopWorkspaceExecutionStartInput,
   type PlanWeaveWorkspaceExecutionApi
@@ -39,12 +40,25 @@ import {
   type LogicalAgentEndpointInput
 } from "../collaboration/agentEndpointViewModel";
 import {
+  projectRemoteLifecyclePhase,
   projectRemoteRunPanelViewModel,
   type RemoteRunActionAvailability,
   type RemoteRunAuthorizedActionKind,
   type RemoteRunPanelViewModel
 } from "../collaboration/remoteRunViewModels";
+import {
+  remoteRunOperationObservation,
+  remoteRunResumeAvailabilityLabel,
+  remoteRunResumeFailure,
+  remoteRunResumeOutcome,
+  remoteRunResumeProgress,
+  type RemoteRunResumeObservation
+} from "../collaboration/remoteRunResume";
+import { workspaceExecutionSuccessPollDelay } from "../task-workspace/workspaceExecutionPollingCadence";
 import type { createTranslator } from "../i18n";
+
+const resumePollLimit = 14;
+const resumePollMaxDelayMs = 5_000;
 
 export function logicalExecutorsFromLocalAgentEndpoints(
   local: readonly LocalAgentEndpointInput[]
@@ -96,6 +110,8 @@ export type UseRemoteRunPanelControllerResult = {
   loadingInteractions: boolean;
   actionInFlight: RemoteRunAuthorizedActionKind | null;
   actionError: string | null;
+  resumePending: boolean;
+  resumeNotice: string | null;
   agentEndpoints: readonly AvailableAgentEndpoint[];
   selectedAgentEndpointId: string | null;
   setSelectedAgentEndpointId: (endpointId: string) => void;
@@ -108,7 +124,7 @@ export type UseRemoteRunPanelControllerResult = {
   loadMoreEvents: () => Promise<void>;
   dispatch: () => Promise<void>;
   cancel: (reason: string) => Promise<void>;
-  resume: (reason: string) => Promise<void>;
+  resume: () => Promise<void>;
   answerInteraction: (response: RemoteInteractionResponse) => Promise<void>;
 };
 
@@ -125,7 +141,13 @@ function descriptor(
   return { agentEndpointId, effectiveExecutor: { name, agentId } };
 }
 
-function phase(view: DesktopWorkspaceExecutionResponse) {
+function phase(
+  view: DesktopWorkspaceExecutionResponse,
+  observation: ReturnType<typeof remoteRunOperationObservation>
+) {
+  if (view.remoteResume) return "interrupted";
+  if (observation)
+    return projectRemoteLifecyclePhase({ observation, runtime: null, canDispatch: false });
   return {
     created: "preparing",
     running: "running",
@@ -138,7 +160,8 @@ function phase(view: DesktopWorkspaceExecutionResponse) {
 
 function actions(
   view: DesktopWorkspaceExecutionResponse,
-  pending: number
+  pending: number,
+  canResume: boolean
 ): RemoteRunActionAvailability[] {
   const active = view.session.phase === "running" || view.session.phase === "blocked";
   return [
@@ -149,9 +172,9 @@ function actions(
     active
       ? { kind: "cancel", available: true, requiresConfirm: true }
       : { kind: "cancel", available: false, reason: "wrong_lifecycle" },
-    view.session.phase === "blocked"
+    canResume
       ? { kind: "resume_same_session", available: true, requiresConfirm: false }
-      : { kind: "resume_same_session", available: false, reason: "wrong_lifecycle" },
+      : { kind: "resume_same_session", available: false, reason: "not_resumable" },
     { kind: "fail_interruption", available: false, reason: "wrong_lifecycle" },
     { kind: "retry_new_attempt", available: false, reason: "wrong_lifecycle" }
   ];
@@ -226,6 +249,8 @@ export function useRemoteRunPanelController(
   const [loading, setLoading] = useState(false);
   const [actionInFlight, setActionInFlight] = useState<RemoteRunAuthorizedActionKind | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [resumeTarget, setResumeTarget] = useState<RemoteRunResumeObservation | null>(null);
+  const [resumeRequiresRefresh, setResumeRequiresRefresh] = useState(false);
   const [confirmKind, setConfirmKind] = useState<"cancel" | null>(null);
   const existingOperationId = args.runtimeRemoteExecution?.identity.operationId ?? null;
   const executionScopeKey = JSON.stringify([
@@ -292,6 +317,8 @@ export function useRemoteRunPanelController(
     if (retireIdentity) {
       setView(null);
       setActionError(null);
+      setResumeTarget(null);
+      setResumeRequiresRefresh(false);
       setLoading(false);
       setActionInFlight(null);
       setConfirmKind(null);
@@ -351,6 +378,28 @@ export function useRemoteRunPanelController(
   }, [args.open]);
 
   const currentRemoteEndpointId = remoteEndpointId(view);
+  const resumeOutcome = resumeTarget && view ? remoteRunResumeOutcome(resumeTarget, view) : null;
+  if (
+    !retireIdentity &&
+    resumeOutcome === "resumed" &&
+    resumeTarget &&
+    !resumeTarget.observedLoad
+  ) {
+    setResumeTarget({ ...resumeTarget, observedLoad: true });
+  }
+  const canRetryResume =
+    resumeTarget?.receipt === "not_recorded" ||
+    (resumeTarget?.paused && resumeTarget.receipt === "recorded");
+  const resumePending =
+    actionInFlight === "resume_same_session" ||
+    (resumeOutcome === "awaiting" && !canRetryResume && !resumeTarget?.paused);
+  const bridgeSupportsResume = typeof executionApi?.resumeWorkspaceExecution === "function";
+  const canResume =
+    bridgeSupportsResume &&
+    args.open &&
+    Boolean(args.executionLocator && view?.remoteResume?.available) &&
+    !resumeRequiresRefresh &&
+    (resumeOutcome !== "awaiting" || canRetryResume || resumePending);
   const endpointForView = currentRemoteEndpointId
     ? (agentEndpoints.find((item) => item.remoteEndpointId === currentRemoteEndpointId) ??
       selectedEndpoint)
@@ -370,21 +419,27 @@ export function useRemoteRunPanelController(
     setLoading(true);
     setActionError(null);
     try {
-      const next = view
+      const operationToObserve =
+        view?.handle.target === "remote" && (view.remoteResume || resumeOutcome === "awaiting")
+          ? view.handle.operationId
+          : !view
+            ? existingOperationId
+            : null;
+      const next = operationToObserve
         ? await executionApi.followWorkspaceExecution(
             desktopWorkspaceExecutionFollowInputSchema.parse({
               locator: args.executionLocator,
               blockRef: args.workItem.blockRef,
-              ...descriptor(endpointForView, args, currentRemoteEndpointId),
-              sessionId: view.session.sessionId
+              operationId: operationToObserve
             })
           )
-        : existingOperationId
+        : view
           ? await executionApi.followWorkspaceExecution(
               desktopWorkspaceExecutionFollowInputSchema.parse({
                 locator: args.executionLocator,
                 blockRef: args.workItem.blockRef,
-                operationId: existingOperationId
+                ...descriptor(endpointForView, args, currentRemoteEndpointId),
+                sessionId: view.session.sessionId
               })
             )
           : null;
@@ -392,11 +447,23 @@ export function useRemoteRunPanelController(
         next &&
         scopeGenerationRef.current === scopeGeneration &&
         responseOwnerRef.current === owner
-      )
+      ) {
         setView(next);
+        setResumeRequiresRefresh(false);
+      }
     } catch (error) {
       if (scopeGenerationRef.current === scopeGeneration && responseOwnerRef.current === owner) {
-        setActionError(error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        if (resumeOutcome === "awaiting") {
+          const failure = remoteRunResumeFailure(message, args.t);
+          if (failure.requiresRefresh) {
+            setResumeTarget(null);
+            setResumeRequiresRefresh(true);
+            setActionError(failure.message);
+          }
+        } else {
+          setActionError(message);
+        }
       }
     } finally {
       if (scopeGenerationRef.current === scopeGeneration && followOwnerRef.current === owner) {
@@ -404,7 +471,15 @@ export function useRemoteRunPanelController(
         setLoading(false);
       }
     }
-  }, [args, currentRemoteEndpointId, endpointForView, executionApi, existingOperationId, view]);
+  }, [
+    args,
+    currentRemoteEndpointId,
+    endpointForView,
+    executionApi,
+    existingOperationId,
+    resumeOutcome,
+    view
+  ]);
   const refresh = useCallback(async () => {
     if (actionOwnerRef.current) return;
     const generation = scopeGenerationRef.current;
@@ -419,7 +494,10 @@ export function useRemoteRunPanelController(
         )
           return;
       }
-      if (scopeGenerationRef.current === generation) await follow();
+      if (scopeGenerationRef.current === generation) {
+        setResumeTarget((current) => (current?.paused ? { ...current, paused: false } : current));
+        await follow();
+      }
     } catch (caught) {
       if (scopeGenerationRef.current === generation && responseOwnerRef.current === responseOwner)
         setActionError(caught instanceof Error ? caught.message : String(caught));
@@ -432,21 +510,105 @@ export function useRemoteRunPanelController(
   useEffect(() => {
     if (autoFollowKey) void followRef.current();
   }, [autoFollowKey]);
+  const resumeLocator = args.executionLocator;
+  const resumeBlockRef = args.workItem?.kind === "block" ? args.workItem.blockRef : null;
+  const resumeWorkspaceExecution = executionApi?.resumeWorkspaceExecution;
+  const resumePollInputs = useRef({ locator: resumeLocator, blockRef: resumeBlockRef, t: args.t });
+  useEffect(() => {
+    resumePollInputs.current = { locator: resumeLocator, blockRef: resumeBlockRef, t: args.t };
+  }, [resumeLocator, resumeBlockRef, args.t]);
+  useEffect(() => {
+    if (
+      !args.open ||
+      resumeOutcome !== "awaiting" ||
+      !resumeTarget ||
+      resumeTarget.paused ||
+      !resumeWorkspaceExecution
+    )
+      return;
+    const generation = identity.generation;
+    let stopped = false;
+    let pollCount = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const isCurrent = () => !stopped && scopeGenerationRef.current === generation;
+    const poll = async () => {
+      if (!isCurrent()) return;
+      const { locator, blockRef, t } = resumePollInputs.current;
+      if (!locator || !blockRef) return;
+      if (!actionOwnerRef.current && !followOwnerRef.current) {
+        if (typeof resumeTarget.receipt === "object") {
+          await followRef.current();
+        } else {
+          try {
+            const receipt = await resumeWorkspaceExecution(
+              desktopWorkspaceExecutionResumeInputSchema.parse({
+                locator,
+                blockRef,
+                mode: "observe",
+                expectedRemoteHandle: resumeTarget.expected
+              })
+            );
+            if (!isCurrent()) return;
+            const progress = remoteRunResumeProgress(receipt);
+            if (progress !== resumeTarget.receipt) {
+              setResumeTarget((current) =>
+                current === resumeTarget ? { ...current, receipt: progress } : current
+              );
+              return;
+            }
+          } catch (error) {
+            if (!isCurrent()) return;
+            const failure = remoteRunResumeFailure(
+              error instanceof Error ? error.message : String(error),
+              t
+            );
+            if (failure.requiresRefresh) {
+              setResumeTarget(null);
+              setResumeRequiresRefresh(true);
+              setActionError(failure.message);
+              return;
+            }
+          }
+        }
+      }
+      if (!isCurrent()) return;
+      if (pollCount >= resumePollLimit - 1) {
+        setResumeTarget((current) =>
+          current === resumeTarget ? { ...current, paused: true } : current
+        );
+        return;
+      }
+      timer = setTimeout(
+        poll,
+        Math.min(
+          workspaceExecutionSuccessPollDelay(pollCount++, resumeTarget.expected.operationId),
+          resumePollMaxDelayMs
+        )
+      );
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [args.open, identity.generation, resumeOutcome, resumeTarget, resumeWorkspaceExecution]);
   const run = useCallback(
     async (
       kind: RemoteRunAuthorizedActionKind,
-      call: () => Promise<DesktopWorkspaceExecutionResponse | undefined>
+      call: (isCurrent: () => boolean) => Promise<DesktopWorkspaceExecutionResponse | undefined>
     ) => {
       if (actionOwnerRef.current) return;
       const owner = { kind };
       actionOwnerRef.current = owner;
       responseOwnerRef.current = owner;
       const scopeGeneration = scopeGenerationRef.current;
+      const isCurrent = () =>
+        scopeGenerationRef.current === scopeGeneration && responseOwnerRef.current === owner;
       setActionInFlight(kind);
       setActionError(null);
       try {
-        const next = await call();
-        if (scopeGenerationRef.current === scopeGeneration && responseOwnerRef.current === owner) {
+        const next = await call(isCurrent);
+        if (isCurrent()) {
           if (next) {
             setView(next);
             if (kind === "dispatch" && next.handle.target === "remote") {
@@ -464,8 +626,15 @@ export function useRemoteRunPanelController(
           setConfirmKind(null);
         }
       } catch (error) {
-        if (scopeGenerationRef.current === scopeGeneration && responseOwnerRef.current === owner) {
-          setActionError(error instanceof Error ? error.message : String(error));
+        if (isCurrent()) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (kind === "resume_same_session") {
+            const failure = remoteRunResumeFailure(message, args.t);
+            setResumeRequiresRefresh(failure.requiresRefresh);
+            setActionError(failure.message);
+          } else {
+            setActionError(message);
+          }
         }
       } finally {
         if (scopeGenerationRef.current === scopeGeneration && actionOwnerRef.current === owner) {
@@ -474,7 +643,7 @@ export function useRemoteRunPanelController(
         }
       }
     },
-    []
+    [args.t]
   );
   const dispatch = useCallback(async () => {
     const workItem = args.workItem;
@@ -523,12 +692,58 @@ export function useRemoteRunPanelController(
     },
     [args, currentRemoteEndpointId, endpointForView, executionApi, run, view]
   );
-  const resume = useCallback(
-    async (_reason: string) => {
-      await follow();
-    },
-    [follow]
-  );
+  const resume = useCallback(async () => {
+    const api = executionApi;
+    const locator = args.executionLocator;
+    const item = args.workItem;
+    const handle = view?.handle;
+    if (
+      !canResume ||
+      resumePending ||
+      !api?.resumeWorkspaceExecution ||
+      !locator ||
+      item?.kind !== "block" ||
+      handle?.target !== "remote"
+    )
+      return;
+    const resumeWorkspaceExecution = api.resumeWorkspaceExecution;
+    return run("resume_same_session", async (isCurrent) => {
+      const expected =
+        resumeOutcome === "awaiting" && resumeTarget ? resumeTarget.expected : handle;
+      setResumeTarget(null);
+      try {
+        const receipt = await resumeWorkspaceExecution(
+          desktopWorkspaceExecutionResumeInputSchema.parse({
+            locator,
+            blockRef: item.blockRef,
+            expectedRemoteHandle: expected
+          })
+        );
+        const progress = remoteRunResumeProgress(receipt);
+        if (isCurrent()) {
+          setResumeTarget({ expected, observedLoad: false, receipt: progress, paused: false });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (isCurrent() && !remoteRunResumeFailure(message, args.t).requiresRefresh) {
+          setResumeTarget({ expected, observedLoad: false, receipt: "unknown", paused: false });
+        }
+        throw error;
+      }
+      return undefined;
+    });
+  }, [
+    args.executionLocator,
+    args.workItem,
+    args.t,
+    canResume,
+    executionApi,
+    resumeOutcome,
+    resumePending,
+    resumeTarget,
+    run,
+    view
+  ]);
   const answerInteraction = useCallback(
     async (response: RemoteInteractionResponse) => {
       const workItem = args.workItem;
@@ -592,11 +807,12 @@ export function useRemoteRunPanelController(
       } as const
     )[view.session.phase];
     const h = view.handle;
+    const observation = remoteRunOperationObservation(view);
     return {
       ...base,
-      phase: phase(view),
-      operationState: state,
-      attemptStatus: attempt,
+      phase: phase(view, observation),
+      operationState: observation?.state ?? state,
+      attemptStatus: observation?.attemptStatus ?? attempt,
       identity:
         h.executionAttemptId && h.attemptStateVersion !== null
           ? {
@@ -623,13 +839,29 @@ export function useRemoteRunPanelController(
       events,
       eventCursor: h.cursor.eventCursor,
       eventsHasMore: false,
-      actions: actions(view, pending.length),
+      actions: actions(view, pending.length, canResume),
       actionRequired: view.session.phase === "blocked" || pending.length > 0,
-      interruptionResumable: view.session.phase === "blocked",
+      interruptionResumable: canResume,
       runtimeBindingSummary: `${view.session.phase}/${view.session.evidence.status}`,
       diagnostics: view.session.evidence.diagnostics.map((item) => item.code)
     };
-  }, [args.executionLocator, args.workItem, base, view]);
+  }, [args.executionLocator, args.workItem, base, canResume, view]);
+  const resumeNotice =
+    resumeOutcome === "awaiting" && resumeTarget?.paused
+      ? args.t("remoteRunResumeObservationFailed")
+      : resumeOutcome === "awaiting" && resumeTarget?.receipt === "not_recorded"
+        ? args.t("remoteRunResumeNotRecorded")
+        : resumePending
+          ? args.t("remoteRunResumePending")
+          : resumeOutcome === "resumed"
+            ? args.t("remoteRunResumeSucceeded")
+            : resumeOutcome === "failed"
+              ? args.t("remoteRunResumeInterruptedAgain")
+              : resumeOutcome === "changed"
+                ? args.t("remoteRunResumeChanged")
+                : viewModel.phase === "interrupted" && !canResume && !actionError
+                  ? remoteRunResumeAvailabilityLabel(view, bridgeSupportsResume, args.t)
+                  : null;
   return {
     viewModel,
     loading,
@@ -637,6 +869,8 @@ export function useRemoteRunPanelController(
     loadingInteractions: loading,
     actionInFlight,
     actionError,
+    resumePending,
+    resumeNotice,
     agentEndpoints,
     selectedAgentEndpointId,
     setSelectedAgentEndpointId,

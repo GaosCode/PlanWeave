@@ -39,6 +39,7 @@ describe("WorkspaceExecutionCoordinator", () => {
     const started = await f.coordinator.execute(request(root));
     const followed = await f.coordinator.follow(request(root), started.handle.runSessionId);
     expect(followed.session.phase).toBe("blocked");
+    expect(followed.remoteResume).toEqual({ available: false, reason: "unsupported" });
     expect(followed.events).toContainEqual(
       expect.objectContaining({
         type: "action_required",

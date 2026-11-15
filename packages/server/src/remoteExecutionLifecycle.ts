@@ -6,6 +6,12 @@ import {
   normalizedFailureSchema,
   opaqueIdentifierSchema
 } from "@planweave-ai/agent-host-protocol";
+import {
+  remoteResumeTargetSchema,
+  remoteExecutionActionRejectionCodeSchema,
+  type RemoteResumeCapability,
+  type RemoteResumeTarget
+} from "@planweave-ai/collaboration-protocol/remote-run";
 import { z } from "zod";
 import { remoteAttemptStatusSchema } from "./remoteOperations.js";
 
@@ -28,7 +34,7 @@ export const remoteExecutionActionRequestSchema = z.discriminatedUnion("kind", [
       kind: z.literal("resume_same_session"),
       priorLeaseId: leaseIdSchema,
       leaseId: leaseIdSchema,
-      leaseExpiresAt: z.iso.datetime(),
+      leaseExpiresAt: z.iso.datetime().optional(),
       recovery: acpRecoveryIdentitySchema,
       reason: actionReasonSchema
     })
@@ -90,7 +96,7 @@ export const remoteExecutionActionStateSchema = z.enum([
   "rejected"
 ]);
 
-export const remoteExecutionActionRejectionCodeSchema = z.enum(["work_not_agent_assigned"]);
+export { remoteExecutionActionRejectionCodeSchema } from "@planweave-ai/collaboration-protocol/remote-run";
 
 export type RemoteExecutionActionRequest = z.infer<typeof remoteExecutionActionRequestSchema>;
 export type RemoteExecutionActionState = z.infer<typeof remoteExecutionActionStateSchema>;
@@ -122,7 +128,10 @@ export type RemoteExecutionActionDecision =
   | { transition: "cancel"; sendsCommand: boolean };
 
 function assertCommonIdentity(
-  action: RemoteExecutionActionRequest,
+  action: Pick<
+    RemoteExecutionActionRequest,
+    "operationId" | "dispatchId" | "executionAttemptId" | "expectedAttemptVersion"
+  >,
   snapshot: RemoteExecutionLifecycleSnapshot
 ): void {
   if (
@@ -143,6 +152,54 @@ function assertLease(actionLeaseId: string, snapshot: RemoteExecutionLifecycleSn
   }
 }
 
+export function remoteResumeEligibility(snapshot: RemoteExecutionLifecycleSnapshot):
+  | Extract<RemoteResumeCapability, { available: false }>
+  | (Extract<RemoteResumeCapability, { available: true }> & {
+      recovery: z.infer<typeof acpRecoveryIdentitySchema>;
+    }) {
+  if (snapshot.attemptStatus !== "interrupted") {
+    return { available: false, reason: "not_interrupted" };
+  }
+  if (!snapshot.leaseId || !snapshot.leaseFenced) {
+    return { available: false, reason: "prior_lease_not_fenced" };
+  }
+  if (
+    snapshot.dispatchState !== "persisted" ||
+    !snapshot.interruption?.resumable ||
+    !snapshot.interruption.recovery
+  ) {
+    return { available: false, reason: "recovery_evidence_missing" };
+  }
+  return {
+    available: true,
+    target: remoteResumeTargetSchema.parse({
+      operationId: snapshot.operationId,
+      dispatchId: snapshot.dispatchId,
+      executionAttemptId: snapshot.executionAttemptId,
+      expectedAttemptVersion: snapshot.attemptVersion,
+      priorLeaseId: snapshot.leaseId
+    }),
+    recovery: snapshot.interruption.recovery
+  };
+}
+
+export function requireRemoteResumeRecovery(
+  target: RemoteResumeTarget,
+  snapshot: RemoteExecutionLifecycleSnapshot
+) {
+  assertCommonIdentity(target, snapshot);
+  if (snapshot.dispatchState === "preparation") {
+    throw new Error("remote_preparation_action_requires_retry");
+  }
+  assertLease(target.priorLeaseId, snapshot);
+  const eligibility = remoteResumeEligibility(snapshot);
+  if (eligibility.available) return eligibility.recovery;
+  if (eligibility.reason === "recovery_evidence_missing") {
+    throw new Error("remote_resume_recovery_evidence_missing");
+  }
+  throw new Error("remote_resume_attempt_not_interrupted_and_fenced");
+}
+
 export function decideRemoteExecutionAction(
   rawAction: unknown,
   snapshot: RemoteExecutionLifecycleSnapshot
@@ -150,6 +207,16 @@ export function decideRemoteExecutionAction(
   const action = remoteExecutionActionRequestSchema.parse(rawAction);
   z.enum(["persisted", "preparation"]).parse(snapshot.dispatchState);
   remoteAttemptStatusSchema.parse(snapshot.attemptStatus);
+  if (action.kind === "resume_same_session") {
+    const recovery = requireRemoteResumeRecovery(action, snapshot);
+    if (
+      recovery.acpSessionId !== action.recovery.acpSessionId ||
+      recovery.recoveryId !== action.recovery.recoveryId
+    ) {
+      throw new Error("remote_resume_recovery_identity_mismatch");
+    }
+    return { transition: "resume", sendsCommand: true };
+  }
   assertCommonIdentity(action, snapshot);
   if (
     snapshot.dispatchState === "preparation" &&
@@ -160,23 +227,6 @@ export function decideRemoteExecutionAction(
   }
 
   switch (action.kind) {
-    case "resume_same_session": {
-      assertLease(action.priorLeaseId, snapshot);
-      if (snapshot.attemptStatus !== "interrupted" || !snapshot.leaseFenced) {
-        throw new Error("remote_resume_attempt_not_interrupted_and_fenced");
-      }
-      const recovery = snapshot.interruption?.recovery;
-      if (!snapshot.interruption?.resumable || !recovery) {
-        throw new Error("remote_resume_recovery_evidence_missing");
-      }
-      if (
-        recovery.acpSessionId !== action.recovery.acpSessionId ||
-        recovery.recoveryId !== action.recovery.recoveryId
-      ) {
-        throw new Error("remote_resume_recovery_identity_mismatch");
-      }
-      return { transition: "resume", sendsCommand: true };
-    }
     case "retry_new_attempt":
       assertLease(action.priorLeaseId, snapshot);
       if (

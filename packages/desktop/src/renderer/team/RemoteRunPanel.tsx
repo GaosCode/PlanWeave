@@ -1,7 +1,7 @@
 import type { RemoteAgentEndpoint } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
 import type { DesktopCanvasReference, RemoteBlockExecutionReadModel } from "@planweave-ai/runtime";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -123,6 +123,7 @@ export function RemoteRunPanel({
     selectedAgentEndpointId,
     t
   });
+  const resumeStatusRef = useRef<HTMLParagraphElement>(null);
 
   const availableActions = useMemo(
     () =>
@@ -384,6 +385,15 @@ export function RemoteRunPanel({
           {controller.actionError}
         </p>
       ) : null}
+      <p
+        ref={resumeStatusRef}
+        tabIndex={-1}
+        role="status"
+        data-testid="remote-run-resume-status"
+        className={cn("text-[11px] text-muted-foreground", !controller.resumeNotice && "sr-only")}
+      >
+        {controller.resumeNotice}
+      </p>
 
       {controller.confirmKind ? (
         <div
@@ -421,7 +431,11 @@ export function RemoteRunPanel({
             size="sm"
             variant={action.kind === "dispatch" ? "default" : "secondary"}
             data-testid={`remote-run-action-${action.kind}`}
-            disabled={controller.actionInFlight !== null || controller.loading}
+            disabled={
+              controller.actionInFlight !== null ||
+              controller.loading ||
+              (action.kind === "resume_same_session" && controller.resumePending)
+            }
             onClick={() => {
               if (!action.available) return;
               if (action.requiresConfirm) {
@@ -430,9 +444,8 @@ export function RemoteRunPanel({
               }
               if (action.kind === "dispatch") void controller.dispatch();
               if (action.kind === "resume_same_session") {
-                // Recovery + prior lease come from observation inside the controller;
-                // do not mint recoveryId/leaseId in the renderer.
-                void controller.resume(t("remoteRunDefaultResumeReason"));
+                resumeStatusRef.current?.focus();
+                void controller.resume();
               }
             }}
           >

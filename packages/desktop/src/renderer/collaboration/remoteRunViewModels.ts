@@ -224,7 +224,7 @@ function tableRowFor(
 }
 
 export function projectRemoteLifecyclePhase(input: {
-  observation: RemoteOperationObservation | null;
+  observation: Pick<RemoteOperationObservation, "state"> | null;
   runtime: RemoteBlockExecutionReadModel | null;
   canDispatch: boolean;
 }): RemoteRunLifecyclePhase {

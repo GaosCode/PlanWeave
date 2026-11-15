@@ -119,6 +119,20 @@ function createOwnerCanvasCoordinator(input: {
             response,
             input.locator.humanPrincipalId
           )
+      },
+      resume: {
+        read: ({ operationId, actionId }) =>
+          input.client.readRemoteResumeStatus(
+            operationId,
+            input.locator.humanPrincipalId,
+            actionId
+          ),
+        execute: ({ command }) =>
+          input.client.executeRemoteOperationAction(
+            command.operationId,
+            command,
+            input.locator.humanPrincipalId
+          )
       }
     }),
     sessions: input.sessions,

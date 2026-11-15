@@ -368,6 +368,24 @@ const actionIdentityShape = {
   expectedAttemptVersion: expectedAttemptVersionSchema
 };
 
+export const remoteResumeTargetSchema = z
+  .object({
+    operationId: actionIdentityShape.operationId,
+    dispatchId: actionIdentityShape.dispatchId,
+    executionAttemptId: actionIdentityShape.executionAttemptId,
+    expectedAttemptVersion: actionIdentityShape.expectedAttemptVersion,
+    priorLeaseId: leaseIdSchema
+  })
+  .strict();
+export type RemoteResumeTarget = z.infer<typeof remoteResumeTargetSchema>;
+
+export const remoteHumanResumeCommandSchema = remoteResumeTargetSchema.extend({
+  kind: z.literal("resume_same_session"),
+  actionId: actionIdentityShape.actionId,
+  reason: actionReasonSchema
+});
+export type RemoteHumanResumeCommand = z.infer<typeof remoteHumanResumeCommandSchema>;
+
 export const remoteExecutionActionWireRequestSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -438,14 +456,7 @@ export type RemoteExecutionActionWireRequest = z.infer<
  * after revalidating the observed operation state.
  */
 export const remoteHumanExecutionActionCommandSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      ...actionIdentityShape,
-      kind: z.literal("resume_same_session"),
-      priorLeaseId: leaseIdSchema,
-      reason: actionReasonSchema
-    })
-    .strict(),
+  remoteHumanResumeCommandSchema,
   z
     .object({
       ...actionIdentityShape,
@@ -502,10 +513,52 @@ export const remoteExecutionActionStateSchema = z.enum([
   "rejected"
 ]);
 export type RemoteExecutionActionState = z.infer<typeof remoteExecutionActionStateSchema>;
-export const remoteExecutionActionRejectionCodeSchema = z.enum(["work_not_agent_assigned"]);
+export const remoteExecutionActionRejectionCodeSchema = z.enum([
+  "work_not_agent_assigned",
+  "remote_resume_attempt_conflict",
+  "remote_resume_authorization_changed"
+]);
 export type RemoteExecutionActionRejectionCode = z.infer<
   typeof remoteExecutionActionRejectionCodeSchema
 >;
+
+export const remoteResumeQuerySchema = z.object({ actionId: actionIdSchema.optional() }).strict();
+
+export const remoteResumeCapabilitySchema = z.discriminatedUnion("available", [
+  z.object({ available: z.literal(true), target: remoteResumeTargetSchema }).strict(),
+  z
+    .object({
+      available: z.literal(false),
+      reason: z.enum(["not_interrupted", "prior_lease_not_fenced", "recovery_evidence_missing"])
+    })
+    .strict()
+]);
+export type RemoteResumeCapability = z.infer<typeof remoteResumeCapabilitySchema>;
+
+export const remoteResumeReceiptSchema = z
+  .object({
+    actionId: actionIdSchema,
+    target: remoteResumeTargetSchema,
+    leaseId: leaseIdSchema,
+    state: remoteExecutionActionStateSchema,
+    rejectionCode: remoteExecutionActionRejectionCodeSchema.optional()
+  })
+  .strict()
+  .refine((receipt) => (receipt.state === "rejected") === (receipt.rejectionCode !== undefined), {
+    message: "remote_action_rejection_state_mismatch"
+  })
+  .refine((receipt) => receipt.leaseId !== receipt.target.priorLeaseId, {
+    message: "remote_resume_requires_fresh_lease"
+  });
+export type RemoteResumeReceipt = z.infer<typeof remoteResumeReceiptSchema>;
+
+export const remoteResumeStatusSchema = z
+  .object({
+    capability: remoteResumeCapabilitySchema,
+    receipt: remoteResumeReceiptSchema.nullable()
+  })
+  .strict();
+export type RemoteResumeStatus = z.infer<typeof remoteResumeStatusSchema>;
 
 export const remoteActionViewSchema = z
   .object({

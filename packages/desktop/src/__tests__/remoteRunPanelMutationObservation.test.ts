@@ -73,7 +73,7 @@ function expectSettled(
 
 describe("Remote Run mutation and observation ownership", () => {
   const observationCases = mutations.flatMap((kind) =>
-    (["refresh", "autoFollow", "loadMoreEvents", "resume"] as const).flatMap((entry) =>
+    (["refresh", "autoFollow", "loadMoreEvents"] as const).flatMap((entry) =>
       settlements.flatMap((settlement) =>
         orders.map((order) => ({ kind, entry, settlement, order }))
       )
@@ -121,8 +121,7 @@ describe("Remote Run mutation and observation ownership", () => {
       });
     } else {
       act(() => {
-        observationCall =
-          entry === "resume" ? result.current.resume("continue") : result.current[entry]();
+        observationCall = result.current[entry]();
       });
     }
     expect(result.current.actionInFlight).toBe(kind);

@@ -11,7 +11,11 @@ import {
   workspaceExecutionCoordinatorViewSchema
 } from "@planweave-ai/runtime/browser";
 import { z } from "zod";
-import { remoteInteractionResponseSchema } from "@planweave-ai/collaboration-protocol/remote-run";
+import {
+  remoteExecutionActionRejectionCodeSchema,
+  remoteExecutionActionStateSchema,
+  remoteInteractionResponseSchema
+} from "@planweave-ai/collaboration-protocol/remote-run";
 import { workspaceCanvasLocatorSchema } from "./canvasLocator.js";
 
 const identifierSchema = z.string().trim().min(1).max(256);
@@ -77,6 +81,31 @@ const desktopWorkspaceExecutionExistingFollowInputSchema = z.union([
 export const desktopWorkspaceExecutionFollowInputSchema = z.union([
   desktopWorkspaceExecutionSessionFollowInputSchema,
   desktopWorkspaceExecutionExistingFollowInputSchema
+]);
+
+export const desktopWorkspaceExecutionResumeInputSchema = z
+  .object({
+    locator: z.union([workspaceCanvasLocatorSchema, desktopOwnerCanvasExecutionLocatorSchema]),
+    blockRef: z.string().trim().min(3).max(512),
+    mode: z.literal("observe").optional(),
+    expectedRemoteHandle: remoteWorkspaceExecutionHandleSchema
+  })
+  .strict();
+
+export const desktopWorkspaceExecutionResumeResultSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.enum(["not_recorded", "recorded"]) }).strict(),
+  z
+    .object({
+      state: remoteExecutionActionStateSchema.extract(["delivered", "acknowledged", "settled"]),
+      leaseId: identifierSchema
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal("rejected"),
+      rejectionCode: remoteExecutionActionRejectionCodeSchema
+    })
+    .strict()
 ]);
 
 const cancellationShape = {
@@ -149,6 +178,12 @@ export type DesktopOwnerCanvasExecutionLocator = z.infer<
 export type DesktopWorkspaceExecutionFollowInput = z.infer<
   typeof desktopWorkspaceExecutionFollowInputSchema
 >;
+export type DesktopWorkspaceExecutionResumeInput = z.infer<
+  typeof desktopWorkspaceExecutionResumeInputSchema
+>;
+export type DesktopWorkspaceExecutionResumeResult = z.infer<
+  typeof desktopWorkspaceExecutionResumeResultSchema
+>;
 export type DesktopWorkspaceExecutionCancelInput = z.infer<
   typeof desktopWorkspaceExecutionCancelInputSchema
 >;
@@ -175,6 +210,9 @@ export interface PlanWeaveWorkspaceExecutionApi {
   followWorkspaceExecution(
     input: DesktopWorkspaceExecutionFollowInput
   ): Promise<DesktopWorkspaceExecutionResponse>;
+  resumeWorkspaceExecution?(
+    input: DesktopWorkspaceExecutionResumeInput
+  ): Promise<DesktopWorkspaceExecutionResumeResult>;
   cancelWorkspaceExecution(
     input: DesktopWorkspaceExecutionCancelInput
   ): Promise<DesktopWorkspaceExecutionResponse>;

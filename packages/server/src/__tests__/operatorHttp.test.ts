@@ -89,6 +89,7 @@ function control(): OperatorControlPort {
       return { operationId: "operation-1" };
     }),
     observeOperation: vi.fn(),
+    readResumeStatus: vi.fn(),
     readOwnerOperationTerminalResult: vi.fn(),
     inspectOwnerCanvasMaterializationHead: vi.fn(),
     materializeOwnerCanvas: vi.fn(),
@@ -504,6 +505,20 @@ describe("operator HTTP boundary", () => {
     const body = await response.json();
     expect(body).toEqual(expectedError("agent_endpoint_incompatible"));
     expect(JSON.stringify(body)).not.toContain("private-endpoint-id");
+  });
+
+  it("returns a recoverable cancellation conflict while resume delivery is pending", async () => {
+    const fixture = await setup(true);
+    vi.mocked(fixture.service.executeAction).mockRejectedValueOnce(
+      new Error("remote_cancel_resume_pending")
+    );
+    const response = await fetch(`${fixture.origin}/api/v1/remote-operations/operation-1/actions`, {
+      method: "POST",
+      headers: { ...authorization, "content-type": "application/json" },
+      body: "{}"
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual(expectedError("remote_cancel_resume_pending"));
   });
 
   it("returns a stable conflict when an ACP replay cursor is ahead", async () => {

@@ -22,6 +22,7 @@ import { WorkspaceExecutionError, workspaceExecutionPortError } from "./errors.j
 import type {
   RemoteOperationCommandPort,
   RemoteOperationQueryPort,
+  RemoteOperationResumePort,
   RemoteWorkspaceAdapterSnapshot,
   RemoteWorkspaceEvidenceSnapshot,
   RemoteWorkspaceExecutionAdapter,
@@ -29,6 +30,11 @@ import type {
   WorkspaceExecutionInteractionPort,
   WorkspaceExecutionTerminal
 } from "./ports.js";
+import {
+  readWorkspaceRemoteResumeCapability,
+  observeWorkspaceResumeAction,
+  resumeWorkspaceRemoteAttempt
+} from "./remoteResume.js";
 
 type ValidatedRemoteBinding = ValidatedWorkspaceAuthorityBinding & RemoteWorkspaceAuthorityBinding;
 
@@ -247,6 +253,7 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
   command: RemoteOperationCommandPort;
   query: RemoteOperationQueryPort;
   interaction: WorkspaceExecutionInteractionPort;
+  resume?: RemoteOperationResumePort;
 }): RemoteWorkspaceExecutionAdapter {
   async function snapshotFromObservation(args: {
     observation: RemoteOperationObservation;
@@ -255,6 +262,7 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
     endpointId: string;
     prior?: RemoteWorkspaceExecutionHandle;
     readCompletedHistory?: boolean;
+    signal?: AbortSignal;
   }): Promise<RemoteWorkspaceAdapterSnapshot> {
     assertObservationIdentity({
       observation: args.observation,
@@ -270,13 +278,37 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
       agentEndpointId: args.endpointId,
       observation: args.observation
     });
+    const remoteResume =
+      args.observation.state === "interrupted"
+        ? await readWorkspaceRemoteResumeCapability(input.resume, {
+            binding: args.binding,
+            handle,
+            signal: args.signal
+          })
+        : undefined;
     return {
       handle,
       observation: args.observation,
       replays: [],
       interactions: { items: [], nextCursor: null },
-      terminal: terminalForObservation(args.observation)
+      terminal: terminalForObservation(args.observation),
+      ...(remoteResume === undefined ? {} : { remoteResume })
     };
+  }
+
+  async function observeHandle(
+    handle: RemoteWorkspaceExecutionHandle,
+    binding: ValidatedRemoteBinding,
+    signal?: AbortSignal
+  ) {
+    if (handle.authorityBindingId !== binding.bindingId) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    try {
+      return await input.query.observe({ binding, operationId: handle.operationId }, signal);
+    } catch (error) {
+      throw workspaceExecutionPortError(error, "remote_observation_unavailable");
+    }
   }
 
   async function readInteractions(args: {
@@ -330,14 +362,15 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
       });
       return { observation, agentEndpointId: endpointId };
     },
-    async attachExisting({ binding, session, observation, agentEndpointId }) {
+    async attachExisting({ binding, session, observation, agentEndpointId, signal }) {
       assertRemoteBinding(binding);
       return snapshotFromObservation({
         observation,
         binding,
         runSessionId: session.sessionId,
         endpointId: agentEndpointId,
-        readCompletedHistory: true
+        readCompletedHistory: true,
+        signal
       });
     },
     async launch({
@@ -369,7 +402,8 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
         observation,
         binding,
         runSessionId: session.sessionId,
-        endpointId: target.agentEndpointId
+        endpointId: target.agentEndpointId,
+        signal
       });
     },
     async recover({ binding, session, intent, signal }) {
@@ -388,30 +422,43 @@ export function createRemoteWorkspaceExecutionAdapter(input: {
         observation,
         binding,
         runSessionId: session.sessionId,
-        endpointId: intent.agentEndpointId
+        endpointId: intent.agentEndpointId,
+        signal
       });
     },
     async follow({ handle, binding, signal }) {
       assertRemoteBinding(binding);
-      if (handle.authorityBindingId !== binding.bindingId) {
-        throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
-      }
-      let observation: RemoteOperationObservation;
-      try {
-        observation = await input.query.observe(
-          { binding, operationId: handle.operationId },
-          signal
-        );
-      } catch (error) {
-        throw workspaceExecutionPortError(error, "remote_observation_unavailable");
-      }
+      const observation = await observeHandle(handle, binding, signal);
       return snapshotFromObservation({
         observation,
         binding,
         runSessionId: handle.runSessionId,
         endpointId: handle.agentEndpointId,
+        prior: handle,
+        signal
+      });
+    },
+    async observeResume({ handle, binding, signal }) {
+      assertRemoteBinding(binding);
+      return observeWorkspaceResumeAction(input.resume, { handle, binding, signal });
+    },
+    async resume({ handle, binding, signal }) {
+      assertRemoteBinding(binding);
+      const observation = await observeHandle(handle, binding, signal);
+      assertObservationIdentity({
+        observation,
+        binding,
+        operationId: handle.operationId,
+        endpointId: handle.agentEndpointId
+      });
+      const current = handleFromObservation({
+        observation,
+        binding,
+        runSessionId: handle.runSessionId,
+        agentEndpointId: handle.agentEndpointId,
         prior: handle
       });
+      return resumeWorkspaceRemoteAttempt(input.resume, { handle, binding, signal }, current);
     },
     async collectEvidence({ handle, binding, signal }): Promise<RemoteWorkspaceEvidenceSnapshot> {
       assertRemoteBinding(binding);

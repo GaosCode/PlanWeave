@@ -525,7 +525,10 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
       attemptStatus: operation.attempt.status,
       attemptVersion: operation.attempt.stateVersion,
       leaseId: operation.attempt.leaseId,
-      leaseFenced: reservation?.status !== "active",
+      leaseFenced:
+        reservation?.status === "expired" &&
+        reservation.host_id === hostId &&
+        reservation.execution_attempt_id === operation.executionAttemptId,
       interruption: preparationRecovery
         ? { resumable: false as const }
         : dispatch?.interruption_resumable === null ||
@@ -552,8 +555,10 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
         )
         .run(input.operation.dispatchId, leaseId, input.operation.executionAttemptId);
       const current = this.database
-        .prepare("SELECT status FROM dispatches WHERE id=?")
-        .get(input.operation.dispatchId);
+        .prepare(
+          "SELECT status FROM dispatches WHERE id=? AND lease_id=? AND execution_attempt_id=?"
+        )
+        .get(input.operation.dispatchId, leaseId, input.operation.executionAttemptId);
       if (updated.changes !== 1 && current?.status !== "cancelling") {
         throw new Error("remote_cancel_dispatch_conflict");
       }
@@ -572,9 +577,26 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
     });
   }
 
+  readCancelDelivery(action: Extract<RemoteExecutionActionRequest, { kind: "cancel" }>) {
+    const message = this.mailbox.get(action.actionId);
+    if (!message) return undefined;
+    const { command } = message;
+    if (
+      command.type !== "cancel_execution" ||
+      command.dispatchId !== action.dispatchId ||
+      command.executionAttemptId !== action.executionAttemptId ||
+      command.leaseId !== action.leaseId ||
+      command.reason !== action.reason
+    ) {
+      throw new Error("mailbox_message_identity_conflict");
+    }
+    return message;
+  }
+
   enqueueResume(input: {
     operation: RemoteOperation;
     action: Extract<RemoteExecutionActionRequest, { kind: "resume_same_session" }>;
+    leaseExpiresAt: string;
   }) {
     const attempt = input.operation.attempt;
     if (!attempt.hostId || attempt.leaseId !== input.action.leaseId) {
@@ -590,7 +612,7 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
         )
         .run(
           input.action.leaseId,
-          input.action.leaseExpiresAt,
+          input.leaseExpiresAt,
           input.operation.dispatchId,
           input.operation.executionAttemptId
         );
@@ -612,10 +634,30 @@ export class SqliteRemoteDispatchPersistence implements RemoteDispatchPersistenc
           leaseId: input.action.leaseId,
           executionAttemptId: input.operation.executionAttemptId,
           priorRecovery: input.action.recovery,
-          leaseExpiresAt: input.action.leaseExpiresAt
+          leaseExpiresAt: input.leaseExpiresAt
         })
       ).message;
     });
+  }
+
+  readResumeDelivery(
+    action: Extract<RemoteExecutionActionRequest, { kind: "resume_same_session" }>
+  ) {
+    const message = this.mailbox.get(action.actionId);
+    if (!message) return undefined;
+    const { command } = message;
+    if (
+      command.type !== "resume_execution" ||
+      command.dispatchId !== action.dispatchId ||
+      command.executionAttemptId !== action.executionAttemptId ||
+      command.leaseId !== action.leaseId ||
+      (action.leaseExpiresAt !== undefined && command.leaseExpiresAt !== action.leaseExpiresAt) ||
+      command.priorRecovery.acpSessionId !== action.recovery.acpSessionId ||
+      command.priorRecovery.recoveryId !== action.recovery.recoveryId
+    ) {
+      throw new Error("mailbox_message_identity_conflict");
+    }
+    return { ...message, command };
   }
 
   markActionRequired(operation: RemoteOperation): void {

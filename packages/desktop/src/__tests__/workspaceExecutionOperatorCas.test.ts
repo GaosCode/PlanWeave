@@ -2,6 +2,73 @@ import { agentHostProtocolVersion } from "@planweave-ai/agent-host-protocol";
 import { expect, it } from "vitest";
 import { setupOperatorCas } from "./workspaceExecutionOperatorCasTestFixture.js";
 
+it("resumes the interrupted owner operation after Desktop restart without requiring an executor selection", async () => {
+  const h = await setupOperatorCas();
+  const started = await h.create().start(h.input);
+  if (started.handle.target !== "remote") throw new Error("remote_handle_required");
+  const operation = h.f.operations.getRequired(started.handle.operationId);
+  const dispatch = h.f.dispatches.getRequired(operation.dispatchId);
+  h.f.dispatches.accept(
+    h.f.host.id,
+    "host-started",
+    dispatch.id,
+    dispatch.leaseId,
+    dispatch.executionAttemptId
+  );
+  const reservation = h.f.reservations.getRequired(dispatch.leaseId);
+  h.f.reservations.transition({
+    leaseId: dispatch.leaseId,
+    fencingToken: reservation.fencingToken,
+    expectedAttemptVersion: operation.attempt.stateVersion,
+    status: "running"
+  });
+  h.f.dispatches.interrupt(h.f.host.id, "host-interrupted", {
+    type: "dispatch.interrupted",
+    protocolVersion: agentHostProtocolVersion,
+    messageId: "host-interrupted",
+    dispatchId: dispatch.id,
+    leaseId: dispatch.leaseId,
+    executionAttemptId: dispatch.executionAttemptId,
+    reason: "acp_session_lost",
+    resumable: true,
+    recovery: { acpSessionId: "interrupted-acp-session", recoveryId: "persisted-recovery" }
+  });
+  await h.f.coordinator.reenter(operation.id);
+  const restarted = h.create();
+  const scope = { locator: h.input.locator, blockRef: h.input.blockRef };
+  const observe = () => restarted.follow({ ...scope, operationId: operation.id });
+  expect((await observe()).remoteResume?.available).not.toBe(true);
+  h.f.reservations.release({
+    leaseId: dispatch.leaseId,
+    fencingToken: reservation.fencingToken,
+    expectedVersion: reservation.version,
+    reason: "expired"
+  });
+  await h.f.coordinator.reenter(operation.id);
+  expect(h.f.operations.getRequired(operation.id).state).toBe("interrupted");
+  const interrupted = await observe();
+  expect(interrupted.remoteResume).toEqual({ available: true });
+  if (interrupted.handle.target !== "remote") throw new Error("remote_handle_required");
+  const resume = { ...scope, expectedRemoteHandle: interrupted.handle };
+  h.loseNextActionResponse();
+  const receipt = await restarted.resume(resume);
+  expect(receipt).toEqual({
+    state: "delivered",
+    leaseId: h.f.operations.getRequired(operation.id).attempt.leaseId
+  });
+  expect(await h.create().resume(resume)).toEqual(receipt);
+  expect(h.actions).toHaveLength(1);
+  expect(
+    h.f.mailbox
+      .listAfter(h.f.host.id, 0)
+      .filter((entry) => entry.command.type === "resume_execution")
+  ).toHaveLength(1);
+  const resumed = h.f.operations.getRequired(operation.id);
+  expect(resumed.dispatchId).toBe(operation.dispatchId);
+  expect(resumed.executionAttemptId).toBe(operation.executionAttemptId);
+  expect(resumed.attempt.leaseId).not.toBe(dispatch.leaseId);
+});
+
 it.each([
   false,
   true

@@ -1,4 +1,9 @@
-import { remoteOperationLookupQuerySchema } from "@planweave-ai/collaboration-protocol/remote-run";
+import {
+  remoteHumanResumeCommandSchema,
+  remoteOperationLookupQuerySchema,
+  remoteResumeQuerySchema,
+  remoteResumeStatusSchema
+} from "@planweave-ai/collaboration-protocol/remote-run";
 import {
   acpConversationActionSchema,
   type AcpConversationPageVersion
@@ -526,9 +531,14 @@ export class RemoteControlService {
     rawAction: unknown
   ) {
     const operation = this.operationFor(principal, operationId);
-    const action = operatorActionRequestSchema.parse(rawAction);
+    const humanResume = remoteHumanResumeCommandSchema.safeParse(rawAction);
+    const action = humanResume.success
+      ? humanResume.data
+      : operatorActionRequestSchema.parse(rawAction);
     if (action.operationId !== operation.id) throw new Error("operator_action_operation_mismatch");
-    const record = await this.options.coordinator.executeAction(action);
+    const record = humanResume.success
+      ? await this.options.coordinator.executeHumanAction(humanResume.data)
+      : await this.options.coordinator.executeAction(action);
     return operatorActionViewSchema.parse({
       request: record.request,
       state: record.state,
@@ -539,6 +549,12 @@ export class RemoteControlService {
       rejectedAt: record.rejectedAt,
       rejectionCode: record.rejectionCode
     });
+  }
+
+  readResumeStatus(principal: OperatorRequestPrincipal, operationId: string, rawQuery: unknown) {
+    const operation = this.operationFor(principal, operationId);
+    const { actionId } = remoteResumeQuerySchema.parse(rawQuery);
+    return remoteResumeStatusSchema.parse(this.options.coordinator.readResume(operation, actionId));
   }
 
   conversation(

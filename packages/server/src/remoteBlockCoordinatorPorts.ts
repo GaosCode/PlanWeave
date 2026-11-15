@@ -190,10 +190,21 @@ export interface RemoteDispatchPersistencePort {
     operation: RemoteOperation;
     action: Extract<RemoteExecutionActionRequest, { kind: "cancel" }>;
   }): MailboxMessage;
+  readCancelDelivery(
+    action: Extract<RemoteExecutionActionRequest, { kind: "cancel" }>
+  ): MailboxMessage | undefined;
   enqueueResume(input: {
     operation: RemoteOperation;
     action: Extract<RemoteExecutionActionRequest, { kind: "resume_same_session" }>;
+    leaseExpiresAt: string;
   }): MailboxMessage;
+  readResumeDelivery(
+    action: Extract<RemoteExecutionActionRequest, { kind: "resume_same_session" }>
+  ):
+    | (MailboxMessage & {
+        command: Extract<MailboxMessage["command"], { type: "resume_execution" }>;
+      })
+    | undefined;
   markActionRequired(operation: RemoteOperation): void;
   prepareManualFailure(input: { operation: RemoteOperation; failure: NormalizedFailure }): void;
   markMailboxPublished(messageId: string): void;

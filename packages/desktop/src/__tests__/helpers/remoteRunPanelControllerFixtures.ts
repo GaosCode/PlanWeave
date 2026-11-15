@@ -2,6 +2,10 @@ import { renderHook } from "@testing-library/react";
 import { vi } from "vitest";
 import type { RemoteBlockExecutionReadModel } from "@planweave-ai/runtime";
 import type { WorkItemRef } from "@planweave-ai/collaboration-protocol/core/primitives";
+import type {
+  RemoteAttemptStatus,
+  RemoteOperationState
+} from "@planweave-ai/collaboration-protocol/remote-run";
 import type { AvailableAgentEndpoint } from "../../renderer/collaboration/agentEndpointViewModel";
 import {
   type RemoteRunExecutionLocator,
@@ -13,6 +17,7 @@ import {
   desktopWorkspaceExecutionResponseSchema,
   type DesktopOwnerCanvasExecutionLocator,
   type DesktopWorkspaceExecutionResponse,
+  type DesktopWorkspaceExecutionResumeResult,
   type PlanWeaveWorkspaceExecutionApi
 } from "../../shared/workspaceExecution";
 
@@ -59,6 +64,13 @@ export function remoteView(input?: {
   operationId?: string;
   blockRef?: string;
   includeInteraction?: boolean;
+  remoteResume?: DesktopWorkspaceExecutionResponse["remoteResume"];
+  observation?: {
+    state: RemoteOperationState;
+    attemptStatus: RemoteAttemptStatus;
+    revision: number;
+    leaseId: string;
+  };
 }): DesktopWorkspaceExecutionResponse {
   const operationId = input?.operationId ?? "operation-1";
   const sessionId = input?.sessionId ?? "SESSION-0001";
@@ -88,11 +100,11 @@ export function remoteView(input?: {
       target: "remote",
       phase: "acp_session",
       operationId,
-      operationRevision: 2,
+      operationRevision: input?.observation?.revision ?? 2,
       dispatchId: "dispatch-1",
       executionAttemptId: "attempt-1",
       attemptStateVersion: 1,
-      leaseId: "lease-1",
+      leaseId: input?.observation?.leaseId ?? "lease-1",
       agentEndpointId: "endpoint-vps",
       cursor: { target: "remote", executionAttemptId: "attempt-1", eventCursor: 1 }
     },
@@ -112,6 +124,7 @@ export function remoteView(input?: {
         : [],
       evidence: { status: "pending", diagnostics: [] }
     },
+    remoteResume: input?.remoteResume,
     events: [
       {
         ...eventBase,
@@ -122,6 +135,20 @@ export function remoteView(input?: {
           event: { cursor: 1, kind: "agent_message", text: "remote hello" }
         }
       },
+      ...(input?.observation
+        ? [
+            {
+              ...eventBase,
+              eventId: `observation-${input.observation.revision}`,
+              type: "operation_observed",
+              data: {
+                state: input.observation.state,
+                attemptStatus: input.observation.attemptStatus,
+                operationRevision: input.observation.revision
+              }
+            }
+          ]
+        : []),
       ...(input?.includeInteraction
         ? [
             {
@@ -152,13 +179,20 @@ export function apiReturning(view: DesktopWorkspaceExecutionResponse) {
   const follow = vi.fn().mockResolvedValue(view);
   const cancel = vi.fn().mockResolvedValue(view);
   const respond = vi.fn().mockResolvedValue(view);
+  const resume = vi
+    .fn<NonNullable<PlanWeaveWorkspaceExecutionApi["resumeWorkspaceExecution"]>>()
+    .mockResolvedValue({
+      state: "delivered",
+      leaseId: "lease-2"
+    } satisfies DesktopWorkspaceExecutionResumeResult);
   const api: PlanWeaveWorkspaceExecutionApi = {
     startWorkspaceExecution: start,
     followWorkspaceExecution: follow,
+    resumeWorkspaceExecution: resume,
     cancelWorkspaceExecution: cancel,
     respondWorkspaceExecution: respond
   };
-  return { api, start, follow, cancel, respond };
+  return { api, start, follow, cancel, respond, resume };
 }
 
 export function renderController(input: {

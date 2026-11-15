@@ -15,6 +15,8 @@ import {
   remoteEndpointOperationObservationSchema,
   remoteOperationLookupQuerySchema,
   remoteOperationObservationSchema,
+  remoteResumeQuerySchema,
+  remoteResumeStatusSchema,
   remoteRuntimeBindingProjectionSchema,
   type RemoteRuntimeBindingProjection
 } from "@planweave-ai/collaboration-protocol/remote-run";
@@ -336,6 +338,12 @@ export class HumanRemoteControlService {
       acknowledgedAt: record.acknowledgedAt,
       settledAt: record.settledAt
     });
+  }
+
+  readResumeStatus(scope: AuthenticatedCollaborationScope, operationId: string, rawQuery: unknown) {
+    const operation = this.operationFor(scope, operationId);
+    const { actionId } = remoteResumeQuerySchema.parse(rawQuery);
+    return remoteResumeStatusSchema.parse(this.options.coordinator.readResume(operation, actionId));
   }
 
   replayEvents(scope: AuthenticatedCollaborationScope, operationId: string, rawQuery: unknown) {

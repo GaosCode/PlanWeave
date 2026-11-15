@@ -48,10 +48,12 @@ export type {
 export {
   projectWorkspaceExecutionTimeline,
   workspaceExecutionCoordinatorViewSchema,
+  workspaceExecutionRemoteResumeCapabilitySchema,
   workspaceExecutionSessionViewSchema,
   workspaceExecutionTimelineSchema
 } from "./view.js";
 export type {
   WorkspaceExecutionCoordinatorView,
+  WorkspaceExecutionRemoteResumeCapability,
   WorkspaceExecutionTimeline
 } from "./view.js";

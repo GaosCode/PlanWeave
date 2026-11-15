@@ -1,11 +1,15 @@
 import type { RemoteAgentEndpointList } from "@planweave-ai/collaboration-protocol/agent-endpoint";
 import type {
+  RemoteActionView,
   RemoteDispatchIntentV3,
   RemoteEventReplay,
+  RemoteHumanResumeCommand,
   RemoteInteractionPage,
   RemoteInteractionResponse,
   RemoteInteractionView,
-  RemoteOperationObservation
+  RemoteOperationObservation,
+  RemoteResumeReceipt,
+  RemoteResumeStatus
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type { WorkAuthorityProjection } from "@planweave-ai/collaboration-protocol/work/authority";
 import type { RunSessionState } from "../runSessions/types.js";
@@ -20,6 +24,7 @@ import type {
   WorkspaceExecutionTarget
 } from "./contracts.js";
 import type { ValidatedWorkspaceAuthorityBinding } from "./authorityBinding.js";
+import type { WorkspaceExecutionRemoteResumeCapability } from "./view.js";
 
 export interface RemoteAgentCatalogPort {
   list(
@@ -81,6 +86,24 @@ export interface RemoteOperationQueryPort {
   ): Promise<RemoteInteractionPage>;
 }
 
+export interface RemoteOperationResumePort {
+  read(
+    input: {
+      binding: ValidatedWorkspaceAuthorityBinding & RemoteWorkspaceAuthorityBinding;
+      operationId: string;
+      actionId?: string;
+    },
+    signal?: AbortSignal
+  ): Promise<RemoteResumeStatus | null>;
+  execute(
+    input: {
+      binding: ValidatedWorkspaceAuthorityBinding & RemoteWorkspaceAuthorityBinding;
+      command: RemoteHumanResumeCommand;
+    },
+    signal?: AbortSignal
+  ): Promise<RemoteActionView>;
+}
+
 export interface WorkspaceExecutionInteractionPort {
   respond(
     input: {
@@ -112,6 +135,7 @@ export type RemoteWorkspaceAdapterSnapshot = {
   replays: RemoteEventReplay[];
   interactions: RemoteInteractionPage;
   terminal: WorkspaceExecutionTerminal;
+  remoteResume?: WorkspaceExecutionRemoteResumeCapability;
 };
 
 export type RemoteWorkspaceEvidenceSnapshot = {
@@ -129,6 +153,16 @@ export interface LocalWorkspaceExecutionAdapter {
 }
 
 export interface RemoteWorkspaceExecutionAdapter {
+  resume?(input: {
+    handle: RemoteWorkspaceExecutionHandle;
+    binding: ValidatedWorkspaceAuthorityBinding;
+    signal?: AbortSignal;
+  }): Promise<RemoteResumeReceipt>;
+  observeResume?(input: {
+    handle: RemoteWorkspaceExecutionHandle;
+    binding: ValidatedWorkspaceAuthorityBinding;
+    signal?: AbortSignal;
+  }): Promise<RemoteResumeReceipt | null>;
   readInteractions(input: {
     handle: RemoteWorkspaceExecutionHandle;
     binding: ValidatedWorkspaceAuthorityBinding;

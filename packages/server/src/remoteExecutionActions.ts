@@ -395,6 +395,29 @@ export class RemoteExecutionActionRepository {
       .map(toRecord);
   }
 
+  hasResumeLeaseForCancel(
+    action: Extract<RemoteExecutionActionRequest, { kind: "cancel" }>
+  ): boolean {
+    return (
+      this.database
+        .prepare(
+          `SELECT 1 FROM remote_execution_actions resume
+           JOIN host_capacity_reservations reservation
+             ON reservation.execution_attempt_id=resume.execution_attempt_id AND reservation.lease_id=?
+           WHERE resume.kind='resume_same_session' AND resume.operation_id=? AND resume.dispatch_id=?
+             AND resume.execution_attempt_id=? AND json_extract(resume.request_json,'$.leaseId')=reservation.lease_id
+             AND json_extract(resume.request_json,'$.expectedAttemptVersion')=? LIMIT 1`
+        )
+        .get(
+          action.leaseId,
+          action.operationId,
+          action.dispatchId,
+          action.executionAttemptId,
+          action.expectedAttemptVersion - 1
+        ) !== undefined
+    );
+  }
+
   acknowledgeMailbox(messageId: string): RemoteExecutionActionRecord | undefined {
     const action = this.get(messageId);
     if (
@@ -510,7 +533,15 @@ export class RemoteExecutionActionService {
     try {
       recovered = await this.application.recover?.(action.request);
     } catch (error) {
-      this.settleAppliedFailure(action.request);
+      if (error instanceof RemoteExecutionActionRejectedError) {
+        this.actions.rejectApplication(
+          action.request.actionId,
+          this.serverInstanceOwnerToken,
+          error.code
+        );
+      } else {
+        this.settleAppliedFailure(action.request);
+      }
       throw error;
     }
     if (recovered) {
@@ -610,6 +641,10 @@ export class RemoteExecutionActionService {
         try {
           reconciled.push(await this.runSingleFlight(action, startupContext !== undefined));
         } catch (error) {
+          if (error instanceof RemoteExecutionActionRejectedError) {
+            reconciled.push(this.actions.getRequired(action.request.actionId));
+            continue;
+          }
           if (!onFailure || !(await onFailure(action, error))) throw error;
           this.actions.releaseApplicationClaimIfOwned(
             action.request.actionId,

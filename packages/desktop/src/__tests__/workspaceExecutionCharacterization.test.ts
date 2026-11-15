@@ -90,6 +90,7 @@ function fixture() {
     throw new Error("unused_remote_operation_port_method");
   };
   const client: CollaborationRemoteOperationsPort = {
+    readRemoteResumeStatus: async () => null,
     listAgentEndpoints,
     dispatchRemoteOperation,
     observeRemoteOperation: unused,

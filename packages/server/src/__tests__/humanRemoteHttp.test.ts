@@ -285,6 +285,7 @@ async function setup() {
     host,
     authority,
     coordination,
+    canonicalRuntime,
     executionTargetRevision: executionTarget.revision,
     dispatchAuthority: {
       expectedResponsibilityRevision: authorityRevisions.responsibilityRevision,
@@ -1017,6 +1018,11 @@ describe("human remote operation HTTP", () => {
     };
     expect(operation.dispatchId).toBeTruthy();
     const dispatch = fixture.coordination.dispatches.getRequired(operation.dispatchId);
+    const actionsUrl = `${collection}/${operation.operationId}/actions`;
+    const readResume = (actionId?: string) =>
+      fetch(actionId ? `${actionsUrl}?actionId=${encodeURIComponent(actionId)}` : actionsUrl, {
+        headers: headers(token)
+      });
     fixture.coordination.dispatches.accept(
       fixture.host.id,
       "human-resume-accept",
@@ -1024,6 +1030,17 @@ describe("human remote operation HTTP", () => {
       dispatch.leaseId,
       dispatch.executionAttemptId
     );
+    const activeCapability = await readResume();
+    expect(activeCapability.status).toBe(200);
+    await expect(activeCapability.json()).resolves.toEqual({
+      capability: { available: false, reason: "not_interrupted" },
+      receipt: null
+    });
+    const unauthenticatedCapability = await fetch(actionsUrl);
+    expect(unauthenticatedCapability.status).toBe(401);
+    await expect(unauthenticatedCapability.json()).resolves.toEqual({
+      error: "human_auth_unauthenticated"
+    });
     fixture.coordination.dispatches.interrupt(fixture.host.id, "human-resume-interrupt", {
       type: "dispatch.interrupted",
       protocolVersion: agentHostProtocolVersion,
@@ -1055,6 +1072,50 @@ describe("human remote operation HTTP", () => {
       priorLeaseId: operation.attempt.leaseId,
       reason: "resume after transport loss"
     };
+    const before = await readResume(command.actionId);
+    expect(before.status).toBe(200);
+    const target = {
+      operationId: command.operationId,
+      dispatchId: command.dispatchId,
+      executionAttemptId: command.executionAttemptId,
+      expectedAttemptVersion: command.expectedAttemptVersion,
+      priorLeaseId: command.priorLeaseId
+    };
+    await expect(before.json()).resolves.toEqual({
+      capability: { available: true, target },
+      receipt: null
+    });
+    const resumeAttempt = fixture.canonicalRuntime.resumeAttempt;
+    let cancellation: Record<string, unknown> | undefined;
+    let pendingConflict: { status: number; body: unknown } | undefined;
+    let admittedPendingCancel = false;
+    vi.spyOn(fixture.canonicalRuntime, "resumeAttempt").mockImplementationOnce(async (input) => {
+      const binding = await resumeAttempt(input);
+      const current = fixture.coordination.operations.getRequired(operation.operationId);
+      cancellation = {
+        kind: "cancel",
+        actionId: "human-cancel-during-resume",
+        operationId: current.id,
+        dispatchId: current.dispatchId,
+        executionAttemptId: current.executionAttemptId,
+        expectedAttemptVersion: current.attempt.stateVersion,
+        leaseId: current.attempt.leaseId,
+        reason: "Cancel from the current attempt observation."
+      };
+      const pending = await fetch(actionsUrl, {
+        method: "POST",
+        headers: headers(token),
+        body: JSON.stringify(cancellation)
+      });
+      pendingConflict = { status: pending.status, body: await pending.json() };
+      admittedPendingCancel =
+        fixture.coordination.actions.get("human-cancel-during-resume") !== undefined;
+      expect(fixture.coordination.dispatches.getRequired(current.dispatchId)).toMatchObject({
+        status: "interrupted",
+        leaseId: reservation.leaseId
+      });
+      return binding;
+    });
     const resumed = await fetch(`${collection}/${operation.operationId}/actions`, {
       method: "POST",
       headers: headers(token),
@@ -1065,6 +1126,11 @@ describe("human remote operation HTTP", () => {
       state: string;
     };
     expect(resumed.status).toBe(202);
+    expect(pendingConflict).toEqual({
+      status: 409,
+      body: { error: "remote_cancel_resume_pending" }
+    });
+    expect(admittedPendingCancel).toBe(false);
     expect(resumedBody.state).toBe("delivered");
     expect(resumedBody.request).toMatchObject({
       kind: "resume_same_session",
@@ -1074,6 +1140,18 @@ describe("human remote operation HTTP", () => {
     expect(resumedBody.request.leaseId).not.toBe(reservation.leaseId);
     expect(resumedBody.request.leaseExpiresAt).toEqual(expect.any(String));
     expect(resumedBody.request).not.toHaveProperty("leaseTtlMs");
+
+    const receipt = await readResume(command.actionId);
+    expect(receipt.status).toBe(200);
+    await expect(receipt.json()).resolves.toEqual({
+      capability: { available: false, reason: "not_interrupted" },
+      receipt: {
+        actionId: command.actionId,
+        target,
+        state: "delivered",
+        leaseId: resumedBody.request.leaseId
+      }
+    });
 
     const replay = await fetch(`${collection}/${operation.operationId}/actions`, {
       method: "POST",
@@ -1092,5 +1170,19 @@ describe("human remote operation HTTP", () => {
     await expect(conflict.json()).resolves.toMatchObject({
       error: "human_remote_operation_conflict"
     });
+
+    const cancelled = await fetch(actionsUrl, {
+      method: "POST",
+      headers: headers(token),
+      body: JSON.stringify(cancellation)
+    });
+    expect(cancelled.status).toBe(202);
+    await expect(cancelled.json()).resolves.toMatchObject({
+      state: "delivered",
+      request: { leaseId: resumedBody.request.leaseId }
+    });
+    expect(fixture.coordination.dispatches.getRequired(operation.dispatchId).status).toBe(
+      "cancelling"
+    );
   });
 });

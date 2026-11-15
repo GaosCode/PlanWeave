@@ -43,9 +43,11 @@ import {
   TEST_REMOTE_AGENT_OWNER_ID
 } from "./support/remoteAgentOwnerFixture.js";
 import { exactHostRuntimeRouteFixture } from "./support/exactHostRuntimeRoute.js";
+import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
 import { ContentVersionRepository } from "../canvas/contentVersionRepository.js";
 import { readStableCanvasRuntimeEvidence } from "../canvas/contentFingerprint.js";
 import { AuthorityRepository } from "../work/authorityRepository.js";
+import type { RemoteOperation } from "../remoteOperations.js";
 
 type Coordination = ReturnType<typeof createRemoteBlockCoordination>;
 
@@ -98,6 +100,7 @@ class CoordinatorHarness {
   runtimeAcquireCount = 0;
   runtimeInspectCount = 0;
   materializeCount = 0;
+  clockOffsetMs = 0;
 
   private constructor(
     readonly workspace: Awaited<ReturnType<typeof createTestWorkspace>>,
@@ -196,6 +199,7 @@ class CoordinatorHarness {
     const options: RemoteBlockCoordinationOptions = {
       leaseDurationMs: 60_000,
       hostOfflineAfterMs: 60_000,
+      clock: () => new Date(Date.now() + this.clockOffsetMs),
       runtimeLeases: exactHostRuntimeRouteFixture(registry, () => {
         this.runtimeAcquireCount += 1;
       }),
@@ -394,6 +398,28 @@ function count(database: PlanweaveServer["database"], table: string): number {
   return Number(database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()?.count ?? 0);
 }
 
+function cancelAction(operation: RemoteOperation, actionId: string) {
+  return {
+    actionId,
+    kind: "cancel",
+    operationId: operation.id,
+    dispatchId: operation.dispatchId,
+    executionAttemptId: operation.executionAttemptId,
+    expectedAttemptVersion: operation.attempt.stateVersion,
+    leaseId: operation.attempt.leaseId,
+    reason: "Cancel the observed attempt."
+  } as const;
+}
+
+function mailboxContains(harness: CoordinatorHarness, actionId: string): boolean {
+  return Boolean(
+    harness
+      .requireServer()
+      .database.prepare("SELECT 1 FROM mailbox_messages WHERE message_id=?")
+      .get(actionId)
+  );
+}
+
 function diagnosticCode(database: PlanweaveServer["database"], operationId: string): unknown {
   return database
     .prepare("SELECT diagnostic_code AS code FROM remote_operations WHERE id=?")
@@ -482,7 +508,7 @@ async function prepareInterruptedAction(harness: CoordinatorHarness, resumable: 
   return { hostId, outcome, dispatch };
 }
 
-async function prepareInterruptedV3Action(harness: CoordinatorHarness) {
+async function prepareInterruptedV3Action(harness: CoordinatorHarness, resumable = false) {
   const hostId = harness.registerHost();
   const coordination = harness.requireCoordination();
   const access = new ProjectAccessRepository(harness.requireServer().database);
@@ -521,8 +547,11 @@ async function prepareInterruptedV3Action(harness: CoordinatorHarness) {
     dispatchId: dispatch.id,
     leaseId: dispatch.leaseId,
     executionAttemptId: dispatch.executionAttemptId,
-    reason: "acp_session_lost",
-    resumable: false
+    reason: resumable ? "host_restart" : "acp_session_lost",
+    resumable,
+    ...(resumable
+      ? { recovery: { acpSessionId: "session-action-crash", recoveryId: "recovery-action-crash" } }
+      : {})
   });
   await coordination.coordinator.reenter(outcome.operation.id);
   const lease = coordination.reservations.getRequired(dispatch.leaseId);
@@ -605,6 +634,475 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
         .database.prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE message_id=?")
         .get(request.actionId)?.count
     ).toBe(1);
+  });
+
+  it.each([
+    "before",
+    "after"
+  ] as const)("replays a winning resume after losing the Runtime response %s its write", async (when) => {
+    const harness = await CoordinatorHarness.create();
+    const { hostId, outcome } = await prepareInterruptedAction(harness, true);
+    let coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      resumeAttempt: async (input) => {
+        if (when === "after") await runtime.resumeAttempt(input);
+        throw new Error("fixture_runtime_response_lost");
+      }
+    }));
+    const interrupted = coordination.operations.getRequired(outcome.operation.id);
+    const { capability } = coordination.coordinator.readResume(interrupted);
+    if (!capability.available) throw new Error(capability.reason);
+    const action = {
+      ...capability.target,
+      actionId: "resume-runtime-cut",
+      kind: "resume_same_session",
+      reason: "Recover the original session across the Runtime RPC."
+    } as const;
+    const identity = { ref: interrupted.blockRef, operationId: interrupted.id };
+    await expect(coordination.coordinator.executeHumanAction(action)).rejects.toThrow(
+      "fixture_runtime_response_lost"
+    );
+    const recorded = coordination.actions.getRequired(action.actionId);
+    if (recorded.request.kind !== "resume_same_session") throw new Error("resume_request_required");
+    expect(recorded.state).toBe("recorded");
+    const reserved = coordination.operations.getRequired(interrupted.id);
+    expect(reserved.attempt.leaseId).toBe(recorded.request.leaseId);
+    const database = harness.requireServer().database;
+    expect(
+      database.prepare("SELECT 1 FROM mailbox_messages WHERE message_id=?").get(action.actionId)
+    ).toBeUndefined();
+    expect((await harness.runtime?.query(identity))?.status).toBe(
+      when === "before" ? "diverged" : "in_progress"
+    );
+
+    const host = coordination.hosts.getRequired(hostId);
+    harness.clockOffsetMs = 61_000;
+    let offline = true;
+    coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      resumeAttempt: (input) => {
+        if (offline) throw new CanvasRuntimeUnavailableError("host_offline");
+        return runtime.resumeAttempt(input);
+      }
+    }));
+    coordination.hosts.reportProtocolIncompatible(hostId);
+    await coordination.reconcile({
+      serverInstanceOwnerToken: harness.requireServer().serverInstanceOwnerToken
+    });
+    expect(coordination.actions.getRequired(action.actionId).state).toBe("recorded");
+    expect((await harness.runtime?.query(identity))?.status).toBe(
+      when === "before" ? "diverged" : "in_progress"
+    );
+    offline = false;
+    coordination.hosts.reportOnline(
+      hostId,
+      host.capabilities,
+      host.capacity,
+      host.readinessObservation
+    );
+    await coordination.reconcile({
+      serverInstanceOwnerToken: harness.requireServer().serverInstanceOwnerToken
+    });
+    const delivered = await coordination.coordinator.executeHumanAction(action);
+    expect(delivered).toMatchObject({
+      state: "delivered",
+      request: { leaseId: recorded.request.leaseId }
+    });
+    expect((await harness.runtime?.query(identity))?.status).toBe("in_progress");
+    const restartedDatabase = harness.requireServer().database;
+    expect(count(restartedDatabase, "remote_execution_attempts")).toBe(1);
+    expect(
+      restartedDatabase
+        .prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE message_id=?")
+        .get(action.actionId)?.count
+    ).toBe(1);
+    const attempt = coordination.operations.getRequired(interrupted.id).attempt;
+    expect(attempt.leaseId).toBe(reserved.attempt.leaseId);
+    expect(Date.parse(attempt.leaseExpiresAt ?? "")).toBeGreaterThan(Date.now() + 61_000);
+  });
+
+  it("applies the same recorded human resume after its Host returns past the lease duration", async () => {
+    const harness = await CoordinatorHarness.create();
+    const { hostId, outcome } = await prepareInterruptedAction(harness, true);
+    let coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      query: async () => {
+        throw new Error("fixture_runtime_temporarily_unavailable");
+      }
+    }));
+    const interrupted = coordination.operations.getRequired(outcome.operation.id);
+    const { capability } = coordination.coordinator.readResume(interrupted);
+    if (!capability.available) throw new Error(capability.reason);
+    const command = {
+      ...capability.target,
+      actionId: "recorded-human-resume",
+      kind: "resume_same_session",
+      reason: "Resume the original ACP session."
+    } as const;
+    await expect(coordination.coordinator.executeHumanAction(command)).rejects.toThrow(
+      "fixture_runtime_temporarily_unavailable"
+    );
+    const recorded = coordination.actions.getRequired(command.actionId);
+    expect(recorded.state).toBe("recorded");
+    expect(coordination.operations.getRequired(outcome.operation.id).attempt.leaseId).toBe(
+      command.priorLeaseId
+    );
+
+    harness.clockOffsetMs = 61_000;
+    coordination = await harness.restart();
+    coordination.hosts.reportOnline(hostId, ["acp.codex", "acp.session.load"], 1);
+    const applied = await coordination.coordinator.executeHumanAction(command);
+    const replayed = await coordination.coordinator.executeHumanAction(command);
+    expect(replayed).toEqual(applied);
+    expect(applied.state).toBe("delivered");
+    const database = harness.requireServer().database;
+    expect(count(database, "remote_execution_attempts")).toBe(1);
+    expect(count(database, "dispatches")).toBe(1);
+    expect(count(database, "remote_execution_actions")).toBe(1);
+    expect(
+      database
+        .prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE message_id=?")
+        .get(command.actionId)?.count
+    ).toBe(1);
+    const attempt = coordination.operations.getRequired(outcome.operation.id).attempt;
+    expect(attempt.leaseId).not.toBe(command.priorLeaseId);
+    expect(Date.parse(attempt.leaseExpiresAt ?? "")).toBeGreaterThan(Date.now() + 61_000);
+  });
+
+  it.each([
+    "before",
+    "during"
+  ] as const)("rejects an Operator resume whose fixed deadline expires %s Runtime preparation after restart", async (when) => {
+    const harness = await CoordinatorHarness.create(true);
+    const { hostId, outcome, dispatch } = await prepareInterruptedAction(harness, true);
+    let coordination = harness.requireCoordination();
+    const identity = { ref: outcome.operation.blockRef, operationId: outcome.operation.id };
+    const runtimeBefore = await harness.requireRuntime().query(identity);
+    const dispatchBefore = coordination.dispatches.getRequired(dispatch.id);
+    const leaseBefore = coordination.reservations.getRequired(dispatch.leaseId);
+    const later = await coordination.coordinator.dispatch(
+      harness.request("T-002#B-001", "after-expired-resume")
+    );
+    const nextAction = cancelAction(later.operation, "z-later-cancel");
+    const host = coordination.hosts.getRequired(hostId);
+    coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      query: async () => {
+        throw new CanvasRuntimeUnavailableError("host_offline");
+      }
+    }));
+    const interrupted = coordination.operations.getRequired(outcome.operation.id);
+    const request = {
+      actionId: "operator-resume-expires-before-reservation",
+      operationId: interrupted.id,
+      dispatchId: interrupted.dispatchId,
+      executionAttemptId: interrupted.executionAttemptId,
+      expectedAttemptVersion: interrupted.attempt.stateVersion,
+      kind: "resume_same_session",
+      priorLeaseId: interrupted.attempt.leaseId,
+      leaseId: "lease-operator-resume-expires",
+      leaseExpiresAt: new Date(Date.now() + 10_000).toISOString(),
+      recovery: { acpSessionId: "session-action-crash", recoveryId: "recovery-action-crash" },
+      reason: "Resume before the fixed deadline."
+    } as const;
+    await expect(coordination.coordinator.executeAction(request)).rejects.toThrow(
+      CanvasRuntimeUnavailableError
+    );
+    expect(coordination.actions.getRequired(request.actionId)).toMatchObject({
+      state: "recorded",
+      request
+    });
+    expect(coordination.operations.getRequired(interrupted.id).attempt).toEqual(
+      interrupted.attempt
+    );
+    coordination.actions.record(nextAction);
+
+    if (when === "before") harness.clockOffsetMs = 30_000;
+    coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      query: async (input) => {
+        const binding = await runtime.query(input);
+        if (when === "during") harness.clockOffsetMs = 30_000;
+        return binding;
+      }
+    }));
+    coordination.hosts.reportOnline(
+      hostId,
+      host.capabilities,
+      host.capacity,
+      host.readinessObservation
+    );
+    await coordination.reconcile({
+      serverInstanceOwnerToken: harness.requireServer().serverInstanceOwnerToken
+    });
+
+    expect(coordination.actions.getRequired(request.actionId)).toMatchObject({
+      state: "rejected",
+      rejectionCode: "remote_resume_attempt_conflict",
+      request
+    });
+    await expect(coordination.coordinator.executeAction(request)).rejects.toMatchObject({
+      code: "remote_resume_attempt_conflict"
+    });
+    expect(coordination.operations.getRequired(interrupted.id).attempt).toEqual(
+      interrupted.attempt
+    );
+    expect(runtimeBefore).toMatchObject({ status: "diverged", interruption: { resumable: true } });
+    expect(await harness.requireRuntime().query(identity)).toEqual(runtimeBefore);
+    expect(coordination.dispatches.getRequired(dispatch.id)).toEqual(dispatchBefore);
+    expect(coordination.reservations.getRequired(dispatch.leaseId)).toEqual(leaseBefore);
+    expect(coordination.reservations.get(request.leaseId)).toBeUndefined();
+    expect(mailboxContains(harness, request.actionId)).toBe(false);
+    expect(coordination.actions.getRequired(nextAction.actionId).state).toBe("delivered");
+    expect(mailboxContains(harness, nextAction.actionId)).toBe(true);
+  });
+
+  it.each([
+    "saved plan",
+    "row only"
+  ] as const)("rejects a stale persisted cancel with %s after resume compensation and reconciles a later cancel", async (legacyState) => {
+    const harness = await CoordinatorHarness.create(true);
+    const { hostId, outcome, endpoint } = await prepareInterruptedV3Action(harness, true);
+    let coordination = harness.requireCoordination();
+    const host = coordination.hosts.getRequired(hostId);
+    coordination.hosts.reportOnline(hostId, host.capabilities, 2, host.readinessObservation);
+    const later = await coordination.coordinator.dispatch(
+      harness.request("T-002#B-001", "after-stale-cancel")
+    );
+    const nextAction = cancelAction(later.operation, "z-later-cancel");
+    const staleActionId = "v82-recorded-cancel";
+    let staleCancel: ReturnType<typeof cancelAction> | undefined;
+    coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      resumeAttempt: async (input) => {
+        const binding = await runtime.resumeAttempt(input);
+        const current = coordination.operations.getRequired(outcome.operation.id);
+        const newCancel = cancelAction(current, "operator-cancel-during-resume");
+        await expect(coordination.coordinator.executeAction(newCancel)).rejects.toThrow(
+          "remote_cancel_resume_pending"
+        );
+        expect(coordination.actions.get(newCancel.actionId)).toBeUndefined();
+        staleCancel = cancelAction(current, staleActionId);
+        coordination.actions.record(staleCancel);
+        if (legacyState === "saved plan") {
+          const token = harness.requireServer().serverInstanceOwnerToken;
+          coordination.actions.claimApplication(staleActionId, token);
+          coordination.actions.recordApplicationPlan(staleActionId, token, {
+            transition: "cancel",
+            sendsCommand: true
+          });
+          coordination.actions.releaseApplicationPreservingPlan(staleActionId, token);
+        }
+        coordination.remoteAgents.revokeAgent(endpoint.endpointId);
+        return binding;
+      }
+    }));
+    const interrupted = coordination.operations.getRequired(outcome.operation.id);
+    const { capability } = coordination.coordinator.readResume(interrupted);
+    if (!capability.available) throw new Error(capability.reason);
+    const resume = {
+      ...capability.target,
+      actionId: "resume-before-cancel-compensation",
+      kind: "resume_same_session",
+      reason: "Resume the interrupted session."
+    } as const;
+    const identity = { ref: interrupted.blockRef, operationId: interrupted.id };
+    const runtimeBefore = await harness.requireRuntime().query(identity);
+    await expect(coordination.coordinator.executeHumanAction(resume)).rejects.toThrow(
+      RemoteAgentAuthorizationError
+    );
+    if (!staleCancel?.leaseId) throw new Error("expected_recorded_cancel");
+    expect(coordination.actions.getRequired(staleActionId).state).toBe("recorded");
+    expect(coordination.actions.getRequired(resume.actionId).state).toBe("rejected");
+    coordination.actions.record(nextAction);
+
+    coordination = await harness.restart();
+    await coordination.reconcile({
+      serverInstanceOwnerToken: harness.requireServer().serverInstanceOwnerToken
+    });
+
+    expect(coordination.actions.getRequired(staleActionId)).toMatchObject({
+      state: "rejected",
+      rejectionCode: "remote_resume_attempt_conflict",
+      request: staleCancel
+    });
+    await expect(coordination.coordinator.executeHumanAction(staleCancel)).rejects.toMatchObject({
+      code: "remote_resume_attempt_conflict"
+    });
+    expect(coordination.operations.getRequired(interrupted.id).attempt).toMatchObject({
+      status: "interrupted",
+      leaseId: resume.priorLeaseId
+    });
+    expect(coordination.reservations.getRequired(staleCancel.leaseId).status).toBe("expired");
+    expect(await harness.requireRuntime().query(identity)).toEqual(runtimeBefore);
+    expect(mailboxContains(harness, resume.actionId)).toBe(false);
+    expect(mailboxContains(harness, staleActionId)).toBe(false);
+    expect(coordination.actions.getRequired(nextAction.actionId).state).toBe("delivered");
+    expect(mailboxContains(harness, nextAction.actionId)).toBe(true);
+  });
+
+  it("does not issue a resume lease or command when Agent access is revoked during Runtime preparation", async () => {
+    const harness = await CoordinatorHarness.create();
+    const { outcome, endpoint } = await prepareInterruptedV3Action(harness, true);
+    const coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      query: async (input) => {
+        const binding = await runtime.query(input);
+        harness.requireCoordination().remoteAgents.revokeAgent(endpoint.endpointId);
+        return binding;
+      }
+    }));
+    const interrupted = coordination.operations.getRequired(outcome.operation.id);
+    const { capability } = coordination.coordinator.readResume(interrupted);
+    if (!capability.available) throw new Error(capability.reason);
+    const command = {
+      ...capability.target,
+      actionId: "resume-access-revoked",
+      kind: "resume_same_session",
+      reason: "Resume the original ACP session."
+    } as const;
+
+    const identity = { ref: interrupted.blockRef, operationId: interrupted.id };
+    await expect(coordination.coordinator.executeHumanAction(command)).rejects.toThrow(
+      RemoteAgentAuthorizationError
+    );
+    expect(coordination.operations.getRequired(interrupted.id).attempt).toEqual(
+      interrupted.attempt
+    );
+    const database = harness.requireServer().database;
+    expect(count(database, "host_capacity_reservations")).toBe(1);
+    expect(
+      database.prepare("SELECT 1 FROM mailbox_messages WHERE message_id=?").get(command.actionId)
+    ).toBeUndefined();
+    expect(await harness.runtime?.query(identity)).toMatchObject({
+      status: "diverged",
+      interruption: { resumable: true }
+    });
+  });
+
+  it("restores the original interruption when the Agent is revoked after the Runtime write", async () => {
+    const harness = await CoordinatorHarness.create();
+    const { outcome, endpoint } = await prepareInterruptedV3Action(harness, true);
+    const coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      resumeAttempt: async (input) => {
+        const binding = await runtime.resumeAttempt(input);
+        harness.requireCoordination().remoteAgents.revokeAgent(endpoint.endpointId);
+        return binding;
+      }
+    }));
+    const interrupted = coordination.operations.getRequired(outcome.operation.id);
+    const { capability } = coordination.coordinator.readResume(interrupted);
+    if (!capability.available) throw new Error(capability.reason);
+    const command = {
+      ...capability.target,
+      actionId: "resume-revoked-after-runtime-write",
+      kind: "resume_same_session",
+      reason: "Resume the original ACP session."
+    } as const;
+    const identity = { ref: interrupted.blockRef, operationId: interrupted.id };
+    const prior = await harness.runtime?.query(identity);
+    await expect(coordination.coordinator.executeHumanAction(command)).rejects.toThrow(
+      RemoteAgentAuthorizationError
+    );
+
+    const database = harness.requireServer().database;
+    expect(
+      database.prepare("SELECT 1 FROM mailbox_messages WHERE message_id=?").get(command.actionId)
+    ).toBeUndefined();
+    expect(
+      database
+        .prepare("SELECT COUNT(*) AS count FROM host_capacity_reservations WHERE status='active'")
+        .get()?.count
+    ).toBe(0);
+    expect(coordination.operations.getRequired(interrupted.id).attempt).toMatchObject({
+      status: "interrupted",
+      leaseId: command.priorLeaseId
+    });
+    expect(await harness.runtime?.query(identity)).toEqual(prior);
+    expect(coordination.actions.getRequired(command.actionId)).toMatchObject({
+      state: "rejected",
+      rejectionCode: "remote_resume_authorization_changed"
+    });
+  });
+
+  it.each([
+    "live",
+    "after restart"
+  ] as const)("rejects a recorded resume %s after a competing block wins and reconciles subsequent actions", async (when) => {
+    const harness = await CoordinatorHarness.create();
+    const { outcome } = await prepareInterruptedV3Action(harness, true);
+    let compete = true;
+    let coordination = await harness.restart(undefined, (runtime) => ({
+      ...runtime,
+      query: async (input) => {
+        const binding = await runtime.query(input);
+        if (compete) {
+          compete = false;
+          const current = coordination.operations.getRequired(outcome.operation.id);
+          await coordination.coordinator.executeAction({
+            actionId: "winning-block",
+            kind: "block",
+            operationId: current.id,
+            dispatchId: current.dispatchId,
+            executionAttemptId: current.executionAttemptId,
+            expectedAttemptVersion: current.attempt.stateVersion,
+            leaseId: current.attempt.leaseId,
+            reason: "Block the interrupted attempt during resume validation."
+          });
+          if (when === "after restart") throw new CanvasRuntimeUnavailableError("host_offline");
+        }
+        return binding;
+      }
+    }));
+    const interrupted = coordination.operations.getRequired(outcome.operation.id);
+    const { capability } = coordination.coordinator.readResume(interrupted);
+    if (!capability.available) throw new Error(capability.reason);
+    const command = {
+      ...capability.target,
+      actionId: "stale-resume",
+      kind: "resume_same_session",
+      reason: "Resume the original ACP session."
+    } as const;
+
+    await expect(coordination.coordinator.executeHumanAction(command)).rejects.toThrow(
+      when === "live" ? "remote_resume_attempt_conflict" : CanvasRuntimeUnavailableError
+    );
+    expect(coordination.operations.getRequired(interrupted.id).attempt.status).toBe(
+      "action_required"
+    );
+    expect(coordination.actions.getRequired(command.actionId).state).toBe(
+      when === "live" ? "rejected" : "recorded"
+    );
+    expect(
+      await harness.runtime?.query({ ref: interrupted.blockRef, operationId: interrupted.id })
+    ).toMatchObject({ status: "diverged", interruption: { resumable: true } });
+    const later = {
+      actionId: "pending-fail",
+      kind: "fail",
+      operationId: interrupted.id,
+      dispatchId: interrupted.dispatchId,
+      executionAttemptId: interrupted.executionAttemptId,
+      expectedAttemptVersion: interrupted.attempt.stateVersion + 1,
+      leaseId: interrupted.attempt.leaseId,
+      reason: "Finish the interrupted attempt.",
+      failure: { code: "operator_failed", message: "Stopped manually.", retryable: false }
+    };
+    coordination.actions.record(later);
+    coordination = await harness.restart();
+    await coordination.reconcile({
+      serverInstanceOwnerToken: harness.requireServer().serverInstanceOwnerToken
+    });
+    expect(coordination.actions.getRequired(command.actionId)).toMatchObject({
+      state: "rejected",
+      rejectionCode: "remote_resume_attempt_conflict"
+    });
+    expect(coordination.actions.getRequired(later.actionId).state).toBe("settled");
+    const database = harness.requireServer().database;
+    expect(count(database, "host_capacity_reservations")).toBe(1);
+    expect(
+      database.prepare("SELECT 1 FROM mailbox_messages WHERE message_id=?").get(command.actionId)
+    ).toBeUndefined();
   });
 
   it("fails closed when retrying a legacy operation without agent access snapshot", async () => {
@@ -1235,7 +1733,7 @@ describe("RemoteBlockCoordinator crash reconciliation", () => {
       actions
         .map((action) => ({
           action_id: action.actionId,
-          state: "recorded",
+          state: action.kind === "resume_same_session" ? "rejected" : "recorded",
           application_owner_token: null,
           application_claimed_at: null,
           application_decision_json: null

@@ -10,6 +10,7 @@ import {
 import { createTranslator } from "../renderer/i18n";
 import type {
   DesktopWorkspaceExecutionResponse,
+  DesktopWorkspaceExecutionResumeResult,
   PlanWeaveWorkspaceExecutionApi
 } from "../shared/workspaceExecution";
 import {
@@ -24,6 +25,48 @@ import {
 } from "./helpers/remoteRunPanelControllerFixtures";
 
 describe("useRemoteRunPanelController", () => {
+  it.each([
+    "resolve",
+    "reject"
+  ] as const)("ignores a previous operation's late resume %s and sends one command per activation", async (settlement) => {
+    const interrupted = remoteView({ phase: "blocked", remoteResume: { available: true } });
+    const fixture = apiReturning(interrupted);
+    const receipt = deferred<DesktopWorkspaceExecutionResumeResult>();
+    fixture.resume.mockImplementation(() => receipt.promise);
+    const { result, rerender } = renderController({
+      api: fixture.api,
+      runtime: runtimeRemoteExecution
+    });
+    await waitFor(() => expect(result.current.viewModel.phase).toBe("interrupted"));
+    let first!: Promise<void>;
+    await act(async () => {
+      first = result.current.resume();
+      await result.current.resume();
+    });
+    expect(fixture.resume).toHaveBeenCalledExactlyOnceWith({
+      locator,
+      blockRef: blockItem.blockRef,
+      expectedRemoteHandle: interrupted.handle
+    });
+    expect(result.current.resumePending).toBe(true);
+    fixture.follow.mockResolvedValue(remoteView({ operationId: "operation-2" }));
+    rerender({
+      executionLocator: locator,
+      workItem: blockItem,
+      runtime: { ...runtimeRemoteExecution, identity: { operationId: "operation-2" } }
+    });
+    await waitFor(() => expect(result.current.viewModel.identity?.operationId).toBe("operation-2"));
+    await act(async () => {
+      if (settlement === "resolve") receipt.resolve({ state: "delivered", leaseId: "lease-2" });
+      else receipt.reject(new Error("remote_resume_host_unavailable"));
+      await first;
+    });
+    expect(result.current.viewModel.phase).toBe("running");
+    expect(result.current.actionError).toBeNull();
+    expect(result.current.resumeNotice).toBeNull();
+    expect(fixture.follow).toHaveBeenCalledTimes(2);
+  });
+
   it("dispatches an ordinary owner Canvas through the shared Coordinator API", async () => {
     const fixture = apiReturning(remoteView());
     const { result } = renderController({ api: fixture.api });

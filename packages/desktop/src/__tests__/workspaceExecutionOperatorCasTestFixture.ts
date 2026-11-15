@@ -170,7 +170,7 @@ export async function setupOperatorCas() {
     credential: { getOperatorToken: () => token, getHumanIdentityToken: () => identityToken },
     request: async (input, init) => {
       const response = await fetch(input, init);
-      if (new URL(String(input)).pathname.endsWith("/actions")) {
+      if (init?.method === "POST" && new URL(String(input)).pathname.endsWith("/actions")) {
         actions.push({
           request: JSON.parse(String(init?.body)),
           status: response.status,

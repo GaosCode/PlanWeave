@@ -24,6 +24,8 @@ import type {
   DesktopWorkspaceExecutionCancelInput,
   DesktopWorkspaceExecutionFollowInput,
   DesktopWorkspaceExecutionRespondInput,
+  DesktopWorkspaceExecutionResumeInput,
+  DesktopWorkspaceExecutionResumeResult,
   DesktopWorkspaceExecutionStartInput
 } from "../shared/workspaceExecution.js";
 import type { WorkspaceCanvasLocator } from "../shared/canvasLocator.js";
@@ -450,52 +452,18 @@ export class WorkspaceExecutionDesktopService {
 
   follow(input: DesktopWorkspaceExecutionFollowInput) {
     if ("operationId" in input) {
-      if (input.locator.kind === "owner_canvas") {
-        const locator = input.locator;
-        return withOwnerCanvasExistingExecutionCoordinator({
-          blockRef: input.blockRef,
-          locator,
-          operationId: input.operationId,
-          operatorControl: this.operatorControl,
-          sessions: this.sessions,
-          operation: ({ coordinator, expected, serverOrigin }) =>
-            coordinator
-              .observeExisting({
-                authority: {
-                  kind: "owner_canvas",
-                  packageWorkspace: locator.projectRoot,
-                  expected,
-                  connectionProfileId: locator.operatorProfileId,
-                  serverOrigin,
-                  humanPrincipalId: locator.humanPrincipalId,
-                  projectId: locator.projectId,
-                  canvasId: locator.canvasId
-                },
-                scope: { kind: "block", blockRef: input.blockRef },
-                operationId: input.operationId,
-                evidenceCursor: input.evidenceCursor
-              })
-              .then(projectWorkspaceExecutionCoordinatorView)
-        });
-      }
-      const locator = input.locator;
-      return this.withBoundCoordinator(locator, async ({ coordinator, serverOrigin }) =>
-        projectWorkspaceExecutionCoordinatorView(
-          await coordinator.observeExisting({
-            authority: {
-              kind: "workspace_canvas",
-              contentAuthority: { kind: "server_canvas" },
-              connectionProfileId: locator.connectionProfileId,
-              serverOrigin,
-              workspaceId: locator.workspaceId,
-              projectId: locator.projectId,
-              canvasId: locator.canvasId
-            },
-            scope: { kind: "block", blockRef: input.blockRef },
-            operationId: input.operationId,
-            evidenceCursor: input.evidenceCursor
-          })
-        )
+      return this.withExistingOperationCoordinator(
+        input.locator,
+        input.blockRef,
+        input.operationId,
+        async (coordinator, request) =>
+          projectWorkspaceExecutionCoordinatorView(
+            await coordinator.observeExisting({
+              ...request,
+              operationId: input.operationId,
+              evidenceCursor: input.evidenceCursor
+            })
+          )
       );
     }
     return this.withRequestCoordinator(
@@ -514,6 +482,81 @@ export class WorkspaceExecutionDesktopService {
         return view;
       },
       input
+    );
+  }
+
+  resume(
+    input: DesktopWorkspaceExecutionResumeInput
+  ): Promise<DesktopWorkspaceExecutionResumeResult> {
+    const expected = input.expectedRemoteHandle;
+    return this.withExistingOperationCoordinator(
+      input.locator,
+      input.blockRef,
+      expected.operationId,
+      async (coordinator, request) => {
+        const receipt = await coordinator.resume({
+          request,
+          sessionId: expected.runSessionId,
+          expectedRemoteHandle: expected,
+          mode: input.mode
+        });
+        if (!receipt) return { state: "not_recorded" };
+        if (receipt.state === "recorded") return { state: receipt.state };
+        if (receipt.state === "rejected") {
+          if (!receipt.rejectionCode) throw new Error("remote_resume_receipt_identity_mismatch");
+          return { state: receipt.state, rejectionCode: receipt.rejectionCode };
+        }
+        return { state: receipt.state, leaseId: receipt.leaseId };
+      }
+    );
+  }
+
+  private withExistingOperationCoordinator<T>(
+    locator: DesktopWorkspaceExecutionStartInput["locator"],
+    blockRef: string,
+    operationId: string,
+    operation: (
+      coordinator: WorkspaceExecutionCoordinator,
+      request: Pick<WorkspaceExecutionRequest, "authority" | "scope">
+    ) => Promise<T>
+  ): Promise<T> {
+    const scope = { kind: "block", blockRef } as const;
+    if (locator.kind === "owner_canvas") {
+      return withOwnerCanvasExistingExecutionCoordinator({
+        blockRef,
+        locator,
+        operationId,
+        operatorControl: this.operatorControl,
+        sessions: this.sessions,
+        operation: ({ coordinator, expected, serverOrigin }) =>
+          operation(coordinator, {
+            authority: {
+              kind: "owner_canvas",
+              packageWorkspace: locator.projectRoot,
+              expected,
+              connectionProfileId: locator.operatorProfileId,
+              serverOrigin,
+              humanPrincipalId: locator.humanPrincipalId,
+              projectId: locator.projectId,
+              canvasId: locator.canvasId
+            },
+            scope
+          })
+      });
+    }
+    return this.withBoundCoordinator(locator, ({ coordinator, serverOrigin }) =>
+      operation(coordinator, {
+        authority: {
+          kind: "workspace_canvas",
+          contentAuthority: { kind: "server_canvas" },
+          connectionProfileId: locator.connectionProfileId,
+          serverOrigin,
+          workspaceId: locator.workspaceId,
+          projectId: locator.projectId,
+          canvasId: locator.canvasId
+        },
+        scope
+      })
     );
   }
 
@@ -856,6 +899,12 @@ export class WorkspaceExecutionDesktopService {
           interaction: {
             respond: ({ operationId, response }, signal) =>
               remote.settleRemoteOperationInteraction(operationId, response, signal)
+          },
+          resume: {
+            read: ({ operationId, actionId }, signal) =>
+              remote.readRemoteResumeStatus(operationId, actionId, signal),
+            execute: ({ command }, signal) =>
+              remote.executeRemoteOperationAction(command.operationId, command, signal)
           }
         }),
         sessions: this.sessions,

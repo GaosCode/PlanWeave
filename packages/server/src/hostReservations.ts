@@ -34,6 +34,18 @@ const capacityManagedReservationSql = `
   )
 `;
 
+const unpublishedResumeLeaseSql = `EXISTS (
+  SELECT 1 FROM remote_execution_attempts attempt
+  JOIN dispatches dispatch ON dispatch.id=attempt.dispatch_id
+  JOIN remote_execution_actions action ON action.operation_id=attempt.operation_id
+    AND action.dispatch_id=dispatch.id AND action.execution_attempt_id=attempt.execution_attempt_id
+  WHERE attempt.execution_attempt_id=reservation.execution_attempt_id
+    AND attempt.lease_id=reservation.lease_id AND attempt.status='activated'
+    AND dispatch.status='interrupted' AND dispatch.lease_id<>reservation.lease_id
+    AND action.state='recorded' AND action.kind='resume_same_session'
+    AND json_extract(action.request_json,'$.leaseId')=reservation.lease_id
+)`;
+
 function reservationOccupiesHostCapacity(operation: RemoteOperation): boolean {
   if (operation.agentAccess) {
     return occupiesHostCapacity(operation.agentAccess.authorized);
@@ -42,6 +54,13 @@ function reservationOccupiesHostCapacity(operation: RemoteOperation): boolean {
 }
 
 const timestampSchema = z.iso.datetime();
+
+export class RemoteResumeLeaseExpiredError extends Error {
+  constructor() {
+    super("remote_resume_lease_expiry_invalid");
+    this.name = "RemoteResumeLeaseExpiredError";
+  }
+}
 const hostCandidateRowSchema = z
   .object({
     id: opaqueIdentifierSchema,
@@ -163,17 +182,8 @@ export class HostReservationRepository {
     this.workspaceIdentity = new WorkspaceIdentityRepository(database);
   }
 
-  /**
-   * Materialize the Server-owned lease identity used by a same-attempt resume.
-   * The identity is persisted with the action before reservation application; the
-   * reservation transition later reuses this exact expiry and fencing identity.
-   */
-  createResumeLease(): { leaseId: string; leaseExpiresAt: string } {
-    const now = this.clock();
-    return {
-      leaseId: leaseIdSchema.parse(`lease-${randomUUID()}`),
-      leaseExpiresAt: new Date(now.getTime() + this.options.leaseDurationMs).toISOString()
-    };
+  createResumeLeaseId(): string {
+    return leaseIdSchema.parse(`lease-${randomUUID()}`);
   }
 
   /** Snapshot collaboration-capacity reservations for a specific Host set in one query. */
@@ -380,11 +390,24 @@ export class HostReservationRepository {
     );
   }
 
+  isUnpublishedResumeLease(leaseId: string): boolean {
+    return (
+      this.database
+        .prepare(
+          `SELECT 1 FROM host_capacity_reservations reservation
+       WHERE reservation.lease_id=? AND reservation.status='active' AND ${unpublishedResumeLeaseSql}`
+        )
+        .get(leaseId) !== undefined
+    );
+  }
+
   expireDue(now = this.clock()): HostCapacityReservation[] {
     const leaseIds = this.database
       .prepare(
-        `SELECT lease_id FROM host_capacity_reservations
-         WHERE status='active' AND lease_expires_at<=? ORDER BY lease_expires_at,lease_id`
+        `SELECT reservation.lease_id FROM host_capacity_reservations reservation
+         WHERE reservation.status='active' AND reservation.lease_expires_at<=?
+           AND NOT ${unpublishedResumeLeaseSql}
+         ORDER BY reservation.lease_expires_at,reservation.lease_id`
       )
       .all(now.toISOString())
       .map((row) => leaseIdSchema.parse(row.lease_id));
@@ -409,15 +432,21 @@ export class HostReservationRepository {
     return expired;
   }
 
+  assertResumeLeaseNotExpired(leaseExpiresAt: string | undefined, now = this.clock()): void {
+    if (leaseExpiresAt !== undefined && Date.parse(leaseExpiresAt) <= now.getTime()) {
+      throw new RemoteResumeLeaseExpiredError();
+    }
+  }
+
   resumeSameAttempt(input: {
     priorLeaseId: string;
     leaseId: string;
-    leaseExpiresAt: string;
+    leaseExpiresAt?: string;
     expectedAttemptVersion: number;
   }): HostCapacityReservation {
     const priorLeaseId = leaseIdSchema.parse(input.priorLeaseId);
     const leaseId = leaseIdSchema.parse(input.leaseId);
-    const leaseExpiresAt = timestampSchema.parse(input.leaseExpiresAt);
+    const requestedExpiry = timestampSchema.optional().parse(input.leaseExpiresAt);
     if (priorLeaseId === leaseId) throw new Error("remote_resume_lease_identity_reused");
     return inWriteTransaction(this.database, () => {
       const prior = this.getRequired(priorLeaseId);
@@ -428,7 +457,7 @@ export class HostReservationRepository {
           existing.hostId === prior.hostId &&
           existing.fencingToken === prior.fencingToken + 1 &&
           existing.status === "active" &&
-          existing.leaseExpiresAt === leaseExpiresAt
+          (requestedExpiry === undefined || existing.leaseExpiresAt === requestedExpiry)
         ) {
           return existing;
         }
@@ -436,11 +465,10 @@ export class HostReservationRepository {
       }
       if (prior.status !== "expired") throw new Error("remote_resume_prior_lease_not_fenced");
       const now = this.clock();
-      const expiryTime = Date.parse(leaseExpiresAt);
-      if (
-        expiryTime <= now.getTime() ||
-        expiryTime > now.getTime() + this.options.leaseDurationMs
-      ) {
+      this.assertResumeLeaseNotExpired(requestedExpiry, now);
+      const leaseExpiresAt =
+        requestedExpiry ?? new Date(now.getTime() + this.options.leaseDurationMs).toISOString();
+      if (Date.parse(leaseExpiresAt) > now.getTime() + this.options.leaseDurationMs) {
         throw new Error("remote_resume_lease_expiry_invalid");
       }
       const operationRow = this.database
@@ -526,28 +554,107 @@ export class HostReservationRepository {
     });
   }
 
-  isResumeApplied(input: {
+  private requireUnpublishedResume(input: {
+    operationId: string;
+    dispatchId: string;
+    executionAttemptId: string;
+    priorLeaseId: string;
+    leaseId: string;
+    expectedAttemptVersion: number;
+  }): HostCapacityReservation {
+    const row = this.database
+      .prepare(
+        `SELECT 1 FROM remote_execution_attempts attempt
+       JOIN dispatches dispatch ON dispatch.id=attempt.dispatch_id
+       WHERE attempt.operation_id=? AND attempt.dispatch_id=? AND attempt.execution_attempt_id=?
+         AND attempt.lease_id=? AND attempt.state_version=? AND attempt.status='activated'
+         AND dispatch.lease_id=? AND dispatch.status='interrupted'`
+      )
+      .get(
+        input.operationId,
+        input.dispatchId,
+        input.executionAttemptId,
+        input.leaseId,
+        input.expectedAttemptVersion + 1,
+        input.priorLeaseId
+      );
+    if (!row) throw new Error("remote_resume_attempt_conflict");
+    return this.getRequired(input.leaseId);
+  }
+
+  refreshUnpublishedResume(
+    input: Parameters<HostReservationRepository["requireUnpublishedResume"]>[0]
+  ): HostCapacityReservation {
+    return inWriteTransaction(this.database, () => {
+      const reservation = this.requireUnpublishedResume(input);
+      const now = this.clock();
+      const expiry = new Date(now.getTime() + this.options.leaseDurationMs).toISOString();
+      this.database
+        .prepare(
+          "UPDATE host_capacity_reservations SET lease_expires_at=? WHERE lease_id=? AND status='active'"
+        )
+        .run(expiry, reservation.leaseId);
+      this.database
+        .prepare(
+          "UPDATE remote_execution_attempts SET lease_expires_at=? WHERE execution_attempt_id=? AND lease_id=?"
+        )
+        .run(expiry, reservation.executionAttemptId, reservation.leaseId);
+      return this.getRequired(reservation.leaseId);
+    });
+  }
+
+  discardUnpublishedResume(
+    input: Parameters<HostReservationRepository["requireUnpublishedResume"]>[0]
+  ): void {
+    inWriteTransaction(this.database, () => {
+      const reservation = this.requireUnpublishedResume(input);
+      this.release({
+        leaseId: reservation.leaseId,
+        fencingToken: reservation.fencingToken,
+        expectedVersion: reservation.version,
+        reason: "expired"
+      });
+      const prior = this.getRequired(input.priorLeaseId);
+      this.database
+        .prepare(
+          `UPDATE remote_execution_attempts SET lease_id=?,lease_fencing_token=?,lease_expires_at=?
+         WHERE execution_attempt_id=? AND lease_id=?`
+        )
+        .run(
+          prior.leaseId,
+          prior.fencingToken,
+          prior.leaseExpiresAt,
+          input.executionAttemptId,
+          input.leaseId
+        );
+    });
+  }
+
+  findAppliedResume(input: {
     priorLeaseId: string;
     leaseId: string;
     executionAttemptId: string;
-    leaseExpiresAt: string;
-  }): boolean {
+    leaseExpiresAt?: string;
+  }): HostCapacityReservation | undefined {
     const prior = this.getRequired(input.priorLeaseId);
     const current = this.get(input.leaseId);
-    if (!current) return false;
+    if (!current) return undefined;
     const operationRow = this.database
       .prepare("SELECT status,lease_id FROM remote_execution_attempts WHERE execution_attempt_id=?")
       .get(input.executionAttemptId);
-    return (
+    if (
       prior.executionAttemptId === input.executionAttemptId &&
       current.executionAttemptId === input.executionAttemptId &&
       current.hostId === prior.hostId &&
       current.fencingToken === prior.fencingToken + 1 &&
       current.status === "active" &&
-      current.leaseExpiresAt === input.leaseExpiresAt &&
+      (input.leaseExpiresAt === undefined || current.leaseExpiresAt === input.leaseExpiresAt) &&
       operationRow?.lease_id === current.leaseId &&
       (operationRow.status === "activated" || operationRow.status === "running")
-    );
+    ) {
+      return current;
+    }
+    return undefined;
   }
 
   finalizeFencedAttempt(input: {

@@ -49,6 +49,7 @@ export type {
   RemoteAgentCatalogPort,
   RemoteOperationCommandPort,
   RemoteOperationQueryPort,
+  RemoteOperationResumePort,
   RemoteWorkspaceAdapterSnapshot,
   RemoteWorkspaceExecutionAdapter,
   WorkAuthorityPort,

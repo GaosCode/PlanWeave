@@ -1,3 +1,4 @@
+import { remoteResumeActionRejectionMigration } from "./remoteResumeActionRejection.js";
 import { runtimeArtifactRetentionMigration } from "./runtimeArtifactRetention.js";
 import { packageSnapshotCleanupMigration } from "./packageSnapshotCleanup.js";
 import { operatorManagementDevicesMigration } from "./operatorManagementDevices.js";
@@ -66,6 +67,7 @@ const observerMigrations: MigrationModule = {
 };
 
 export const migrationModules: readonly MigrationModule[] = [
+  { name: "remote-resume-action-rejection", migrations: [remoteResumeActionRejectionMigration] },
   { name: "runtime-artifact-retention", migrations: [runtimeArtifactRetentionMigration] },
   { name: "package-snapshot-cleanup", migrations: [packageSnapshotCleanupMigration] },
   {

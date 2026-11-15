@@ -3,6 +3,7 @@ import {
   remoteAcpTelemetrySchema
 } from "../autoRun/remoteAcpTelemetry.js";
 import { z } from "zod";
+import type { RemoteResumeCapability } from "@planweave-ai/collaboration-protocol/remote-run";
 import { acpTimelineItemSchema } from "../autoRun/acpConversationProjection.js";
 import {
   projectRemoteAcpProjectedTimeline,
@@ -57,11 +58,36 @@ export const workspaceExecutionSessionViewSchema = z
   })
   .strict();
 
+export const workspaceExecutionRemoteResumeCapabilitySchema = z.discriminatedUnion("available", [
+  z.object({ available: z.literal(true) }).strict(),
+  z
+    .object({
+      available: z.literal(false),
+      reason: z.enum([
+        "not_interrupted",
+        "prior_lease_not_fenced",
+        "recovery_evidence_missing",
+        "unsupported",
+        "request_failed"
+      ] as const satisfies readonly (
+        | Extract<RemoteResumeCapability, { available: false }>["reason"]
+        | "unsupported"
+        | "request_failed"
+      )[]),
+      code: identifierSchema.optional()
+    })
+    .strict()
+]);
+export type WorkspaceExecutionRemoteResumeCapability = z.infer<
+  typeof workspaceExecutionRemoteResumeCapabilitySchema
+>;
+
 export const workspaceExecutionCoordinatorViewSchema = z
   .object({
     version: z.literal("planweave.workspace-execution-view/v1"),
     handle: workspaceExecutionHandleSchema,
     session: workspaceExecutionSessionViewSchema,
+    remoteResume: workspaceExecutionRemoteResumeCapabilitySchema.optional(),
     events: z.array(workspaceExecutionEventSchema).max(50_000)
   })
   .strict();

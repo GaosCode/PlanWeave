@@ -13,6 +13,7 @@ import { workAuthorityProjectionSchema } from "@planweave-ai/collaboration-proto
 import { createWorkspaceAuthorityBindingResolver } from "../workspaceExecution/authorityBinding.js";
 import { WorkspaceExecutionCoordinator } from "../workspaceExecution/coordinator.js";
 import { createRemoteWorkspaceExecutionAdapter } from "../workspaceExecution/remoteExecutionAdapter.js";
+import type { RemoteOperationResumePort } from "../workspaceExecution/ports.js";
 import { createPackageWorkspaceExecutionSessionRepository } from "../workspaceExecution/sessionRepository.js";
 export const fingerprint = `pkg-${"a".repeat(64)}`;
 export const revisions = {
@@ -206,6 +207,7 @@ export function fixture(input: {
   replay?: (afterCursor: number) => Promise<ReturnType<typeof emptyReplay>>;
   interactions?: (cursor: number) => Promise<ReturnType<typeof emptyInteractions>>;
   respond?: (response: RemoteInteractionResponse) => Promise<RemoteInteractionView>;
+  resume?: RemoteOperationResumePort;
   clock?: () => Date;
   sessions?: ConstructorParameters<typeof WorkspaceExecutionCoordinator>[0]["sessions"];
 }) {
@@ -250,7 +252,8 @@ export function fixture(input: {
     workAuthority: workAuthorityPort,
     command: { dispatch },
     query: { recover, observe, replay, interactions },
-    interaction: { respond }
+    interaction: { respond },
+    resume: input.resume
   });
   const coordinator = new WorkspaceExecutionCoordinator({
     authority: input.authority ?? authorityResolver(input.packageWorkspace),

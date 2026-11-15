@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decideRemoteExecutionAction,
   nextRemoteExecutionActionState,
+  remoteResumeEligibility,
   type RemoteExecutionLifecycleSnapshot
 } from "../remoteExecutionLifecycle.js";
 
@@ -60,6 +61,19 @@ describe("remote execution lifecycle policy", () => {
         snapshot()
       )
     ).toThrowError("remote_resume_recovery_identity_mismatch");
+  });
+
+  it("withholds recovery capability without an interrupted, fenced attempt and recovery evidence", () => {
+    const cases = [
+      [snapshot({ attemptStatus: "action_required" }), "not_interrupted"],
+      [snapshot({ leaseFenced: false }), "prior_lease_not_fenced"],
+      [snapshot({ leaseId: undefined }), "prior_lease_not_fenced"],
+      [snapshot({ interruption: { resumable: true } }), "recovery_evidence_missing"],
+      [snapshot({ interruption: { resumable: false, recovery } }), "recovery_evidence_missing"]
+    ] as const;
+    for (const [state, reason] of cases) {
+      expect(remoteResumeEligibility(state)).toEqual({ available: false, reason });
+    }
   });
 
   it("requires a fenced prior attempt and a distinct identity for retry", () => {

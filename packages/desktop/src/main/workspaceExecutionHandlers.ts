@@ -8,6 +8,8 @@ import {
   desktopWorkspaceExecutionFollowInputSchema,
   desktopWorkspaceExecutionResponseSchema,
   desktopWorkspaceExecutionRespondInputSchema,
+  desktopWorkspaceExecutionResumeInputSchema,
+  desktopWorkspaceExecutionResumeResultSchema,
   desktopWorkspaceExecutionStartInputSchema
 } from "../shared/workspaceExecution.js";
 import { workspaceExecutionInvokeChannels } from "../shared/workspaceExecutionIpc.js";
@@ -76,6 +78,13 @@ export function registerWorkspaceExecutionHandlers(input: {
     workspaceExecutionHandlerResult(async () =>
       desktopWorkspaceExecutionResponseSchema.parse(
         await service.respond(desktopWorkspaceExecutionRespondInputSchema.parse(rawInput))
+      )
+    )
+  );
+  handleWorkspaceExecution(workspaceExecutionInvokeChannels.resume, async (rawInput) =>
+    workspaceExecutionHandlerResult(async () =>
+      desktopWorkspaceExecutionResumeResultSchema.parse(
+        await service.resume(desktopWorkspaceExecutionResumeInputSchema.parse(rawInput))
       )
     )
   );

@@ -1,9 +1,11 @@
 import { parseInteractionSettlementForRequest } from "@planweave-ai/agent-host-protocol/browser";
 import { stableJson } from "../plangraph/hash.js";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import type {
   RemoteInteractionResponse,
-  RemoteInteractionView
+  RemoteInteractionView,
+  RemoteResumeReceipt
 } from "@planweave-ai/collaboration-protocol/remote-run";
 import type { RunSessionTrigger } from "../runSessions/types.js";
 import {
@@ -57,6 +59,7 @@ import {
   remoteSessionState
 } from "./sessionCheckpoint.js";
 import { resolveWorkspaceExecutionTarget } from "./targetResolution.js";
+import type { WorkspaceExecutionRemoteResumeCapability } from "./view.js";
 import {
   createPackageWorkspaceExecutionSessionRepository,
   packageSessionStorageForBinding,
@@ -69,6 +72,7 @@ export type WorkspaceExecutionCoordinatorResult = {
   handle: WorkspaceExecutionHandle;
   session: WorkspaceExecutionSessionRecord;
   events: WorkspaceExecutionEvent[];
+  remoteResume?: WorkspaceExecutionRemoteResumeCapability;
 };
 
 const terminalPhases = new Set(["completed", "failed", "stopped"]);
@@ -79,10 +83,15 @@ function runSessionTrigger(trigger: WorkspaceExecutionRequest["trigger"]): RunSe
   return "manual";
 }
 
+const workspaceExecutionResumeRequestSchema = z.object({
+  authority: workspaceExecutionAuthorityLocatorSchema,
+  scope: workspaceExecutionScopeSchema
+});
+
 function bindingMatchesSession(
   session: WorkspaceExecutionSessionRecord,
   bindingId: string,
-  request: WorkspaceExecutionRequest
+  request: Pick<WorkspaceExecutionRequest, "scope">
 ): session is WorkspaceExecutionSessionRecord & {
   workspaceExecution: NonNullable<WorkspaceExecutionSessionRecord["workspaceExecution"]>;
 } {
@@ -386,6 +395,56 @@ export class WorkspaceExecutionCoordinator {
       session: persisted,
       events: []
     };
+  }
+
+  async resume(input: {
+    request: unknown;
+    sessionId: string;
+    expectedRemoteHandle: RemoteWorkspaceExecutionHandle;
+    mode?: "observe";
+    signal?: AbortSignal;
+  }): Promise<RemoteResumeReceipt | null> {
+    const request = workspaceExecutionResumeRequestSchema.parse(input.request);
+    const expected = remoteWorkspaceExecutionHandleSchema.parse(input.expectedRemoteHandle);
+    const binding = await this.input.authority.resolve(
+      request.authority,
+      request.scope,
+      input.signal
+    );
+    if (binding.kind !== "remote" || !requestMatchesStoredBinding(request, binding)) {
+      throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+    }
+    const storage = this.sessionStorage(binding);
+    return this.sessions.withScopeLock(storage, request.scope, async () => {
+      input.signal?.throwIfAborted();
+      const detail = await this.sessions.get(storage, input.sessionId);
+      const state = detail.session.workspaceExecution;
+      const current = state?.handle;
+      if (
+        !state ||
+        current?.target !== "remote" ||
+        input.sessionId !== expected.runSessionId ||
+        current.operationId !== expected.operationId ||
+        current.authorityBindingId !== expected.authorityBindingId ||
+        current.agentEndpointId !== expected.agentEndpointId ||
+        !executionScopeEquals(current.scope, expected.scope) ||
+        !bindingMatchesSession(detail.session, binding.bindingId, request)
+      ) {
+        throw new WorkspaceExecutionError("workspace_execution_resume_mismatch");
+      }
+      if (
+        current.dispatchId !== expected.dispatchId ||
+        current.executionAttemptId !== expected.executionAttemptId
+      ) {
+        throw new WorkspaceExecutionError("remote_attempt_changed");
+      }
+      const resume =
+        input.mode === "observe" ? this.input.remote.observeResume : this.input.remote.resume;
+      if (!resume) {
+        throw new WorkspaceExecutionError("remote_resume_unavailable", "unsupported");
+      }
+      return resume.call(this.input.remote, { handle: expected, binding, signal: input.signal });
+    });
   }
 
   async observeExisting(input: {
@@ -812,7 +871,7 @@ export class WorkspaceExecutionCoordinator {
           })
         : [])
     ];
-    return this.collectEvidence(
+    const result = await this.collectEvidence(
       storage,
       binding,
       persisted,
@@ -821,6 +880,16 @@ export class WorkspaceExecutionCoordinator {
       signal,
       evidenceCursor
     );
+    const finalHandle = result.session.workspaceExecution?.handle;
+    return checkpointAccepted &&
+      snapshot.remoteResume !== undefined &&
+      finalHandle?.target === "remote" &&
+      finalHandle.operationRevision === snapshot.handle.operationRevision &&
+      finalHandle.attemptStateVersion === snapshot.handle.attemptStateVersion &&
+      finalHandle.executionAttemptId === snapshot.handle.executionAttemptId &&
+      finalHandle.leaseId === snapshot.handle.leaseId
+      ? { ...result, remoteResume: snapshot.remoteResume }
+      : result;
   }
 
   private async collectEvidence(
