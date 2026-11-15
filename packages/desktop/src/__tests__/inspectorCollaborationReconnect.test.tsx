@@ -27,11 +27,13 @@ const ports = vi.hoisted(() => ({
     getTaskDetail: vi.fn(),
     getBlockDetail: vi.fn(),
     listBlockRunRecords: vi.fn(async () => []),
+    listActiveAutoRunBlockRefs: vi.fn().mockResolvedValue([]),
     getReviewAttempts: vi.fn(async () => []),
     getFeedbackRecords: vi.fn(async () => []),
     listProjects: vi.fn(async () => []),
     onRuntimeStateChanged: vi.fn(() => () => undefined),
     onAutoRunChanged: vi.fn(() => () => undefined),
+    onAutoRunActivityChanged: vi.fn(() => () => undefined),
     detectTerminalApps: vi.fn(async () => []),
     getTerminalPreferences: vi.fn(async () => ({ defaultTerminalAppId: null })),
     detectRuntimeTools: vi.fn(async () => ({ tmux: { available: false } }))
@@ -108,6 +110,7 @@ const block: DesktopBlockDetail = {
   activeFeedbackId: null,
   exceptionReason: null,
   reviewGate: null,
+  remoteDispatchable: false,
   remoteExecution: null
 };
 
