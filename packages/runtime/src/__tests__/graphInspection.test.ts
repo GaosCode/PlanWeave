@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as graphCompiler from "../graph/compileTaskGraph.js";
 import { inspectGraph } from "../graph/inspectGraph.js";
 import { writeJsonFile } from "../json.js";
 import type { ManifestTaskNode, PlanPackageManifest, RuntimeState } from "../types.js";
@@ -193,6 +194,144 @@ describe("inspectGraph", () => {
     ]);
   });
 
+  it.each([
+    { limit: 1, sectionLimit: 1, neighborCount: 1, edgeTotal: 3 },
+    { limit: 3, sectionLimit: 3, neighborCount: 3, edgeTotal: 8 },
+    { limit: undefined, sectionLimit: 50, neighborCount: 3, edgeTotal: 8 }
+  ])("retains bidirectional neighbor and visible edge order at limit $limit", async (testCase) => {
+    const manifest = wideSliceManifest(6, 1);
+    const visibleEdges = [
+      { from: "T-007", to: "T-005", type: "depends_on" },
+      { from: "T-007", to: "T-001", type: "depends_on" },
+      { from: "T-001", to: "T-005", type: "depends_on" },
+      { from: "T-006", to: "T-001", type: "depends_on" },
+      { from: "T-001", to: "T-003", type: "depends_on" },
+      { from: "T-004", to: "T-001", type: "depends_on" },
+      { from: "T-001", to: "T-002", type: "depends_on" },
+      { from: "T-004", to: "T-002", type: "depends_on" }
+    ] satisfies PlanPackageManifest["edges"];
+    manifest.edges = [{ from: "T-001", to: "T-MISSING", type: "depends_on" }, ...visibleEdges];
+    const { root } = await createTestWorkspace(manifest);
+    const { limit, sectionLimit, neighborCount, edgeTotal } = testCase;
+
+    const result = await inspectGraph({ projectRoot: root, view: "slice", taskId: "T-001", limit });
+
+    expect(result).toMatchObject({
+      center: {
+        dependsOn: ["T-005", "T-003", "T-002"],
+        dependents: ["T-007", "T-006", "T-004"]
+      },
+      dependencies: {
+        limit: sectionLimit,
+        total: 3,
+        truncated: neighborCount < 3,
+        items: ["T-005", "T-003", "T-002"].slice(0, neighborCount).map((taskId) => ({ taskId }))
+      },
+      dependents: {
+        limit: sectionLimit,
+        total: 3,
+        truncated: neighborCount < 3,
+        items: ["T-007", "T-006", "T-004"].slice(0, neighborCount).map((taskId) => ({ taskId }))
+      },
+      edges: {
+        limit: sectionLimit,
+        total: edgeTotal,
+        truncated: edgeTotal > sectionLimit,
+        items: visibleEdges.slice(0, Math.min(edgeTotal, sectionLimit))
+      }
+    });
+  });
+
+  it("reports empty neighbor and edge sections for an isolated task", async () => {
+    const { root } = await createTestWorkspace();
+
+    const result = await inspectGraph({
+      projectRoot: root,
+      view: "slice",
+      taskId: "T-001",
+      limit: 1
+    });
+
+    const emptySection = { limit: 1, total: 0, truncated: false, items: [] };
+    expect(result).toMatchObject({
+      dependencies: emptySection,
+      dependents: emptySection,
+      edges: emptySection
+    });
+    await expect(
+      inspectGraph({ projectRoot: root, view: "slice", taskId: "T-UNKNOWN" })
+    ).rejects.toThrow("Task 'T-UNKNOWN' does not exist in the graph.");
+  });
+
+  it("limits slice task lookups to the neighborhood", async () => {
+    const neighborsPerDirection = 32;
+    const neighborCount = neighborsPerDirection * 2;
+    const limit = 1;
+    const taskReadBudget = 2 * (neighborCount + 1 + 2 * limit);
+    const manifest = wideSliceManifest(neighborsPerDirection * 5, 1);
+    manifest.edges = [
+      ...manifest.edges.slice(0, neighborsPerDirection),
+      ...manifest.edges.slice(neighborsPerDirection, neighborCount).map(({ from, to, type }) => ({
+        from: to,
+        to: from,
+        type
+      }))
+    ];
+    const { root } = await createTestWorkspace(manifest);
+    const compilePackageGraph = graphCompiler.compilePackageGraph;
+    const readWholeIndex = new Set<PropertyKey>([
+      Symbol.iterator,
+      "entries",
+      "keys",
+      "values",
+      "forEach"
+    ]);
+    let taskReads = 0;
+    const compile = vi
+      .spyOn(graphCompiler, "compilePackageGraph")
+      .mockImplementation(async (...args) => {
+        const graph = await compilePackageGraph(...args);
+        const taskNodesInManifestOrder = new Proxy(graph.taskNodesInManifestOrder, {
+          get(target, key, receiver) {
+            if (typeof key === "string" && /^\d+$/.test(key)) {
+              taskReads += 1;
+            }
+            return Reflect.get(target, key, receiver);
+          }
+        });
+        const tasksById = new Proxy(graph.tasksById, {
+          get(target, key) {
+            if (key === "get" || key === "has") {
+              return (taskId: string) => {
+                taskReads += 1;
+                return target[key](taskId);
+              };
+            }
+            if (readWholeIndex.has(key)) {
+              taskReads += target.size;
+            }
+            const value: unknown = Reflect.get(target, key, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          }
+        });
+        return { ...graph, taskNodesInManifestOrder, tasksById };
+      });
+    try {
+      const result = await inspectGraph({
+        projectRoot: root,
+        view: "slice",
+        taskId: "T-001",
+        limit
+      });
+      const bounded = { limit, total: neighborsPerDirection, truncated: true };
+      expect(result).toMatchObject({ dependencies: bounded, dependents: bounded });
+      expect(taskReads).toBeGreaterThan(0);
+      expect(taskReads).toBeLessThanOrEqual(taskReadBudget);
+    } finally {
+      compile.mockRestore();
+    }
+  });
+
   it("bounds slice adjacent tasks, edges, and blocks without cursor pagination", async () => {
     const { root } = await createTestWorkspace(wideSliceManifest(6, 5));
 
@@ -214,36 +353,6 @@ describe("inspectGraph", () => {
     expect(first.blocks.items.map((block) => block.blockId)).toEqual(["B-001", "B-002", "B-003"]);
     expect(first.blocks).toMatchObject({ limit: 3, total: 5, truncated: true });
     expect(JSON.stringify(first)).not.toContain("nextCursor");
-  });
-
-  it("only returns slice edges whose endpoints are present in the bounded task sections", async () => {
-    const manifest = wideSliceManifest(6, 1);
-    manifest.edges.unshift({ from: "T-005", to: "T-006", type: "depends_on" });
-    const { root } = await createTestWorkspace(manifest);
-
-    const result = await inspectGraph({
-      projectRoot: root,
-      view: "slice",
-      taskId: "T-001",
-      limit: 2
-    });
-    const visibleTaskIds = new Set([
-      result.center.taskId,
-      ...result.dependencies.items.map((task) => task.taskId),
-      ...result.dependents.items.map((task) => task.taskId)
-    ]);
-
-    expect(result.dependencies.items.map((task) => task.taskId)).toEqual(["T-002", "T-003"]);
-    expect(result.edges.items).not.toContainEqual({
-      from: "T-005",
-      to: "T-006",
-      type: "depends_on"
-    });
-    expect(
-      result.edges.items.every(
-        (edge) => visibleTaskIds.has(edge.from) && visibleTaskIds.has(edge.to)
-      )
-    ).toBe(true);
   });
 
   it("rejects cursor pagination for slice views", async () => {

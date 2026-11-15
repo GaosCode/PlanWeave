@@ -104,6 +104,28 @@ function inspectTasks(graph: CompiledExecutionGraph, state: RuntimeState): Graph
   });
 }
 
+function inspectNeighbors(
+  taskIds: string[],
+  limit: number,
+  graph: CompiledExecutionGraph,
+  state: RuntimeState,
+  missingPromptPaths: Set<string>
+): GraphInspectionBoundedSection<GraphInspectionTask> {
+  let total = 0;
+  const items: GraphInspectionTask[] = [];
+  for (const taskId of taskIds) {
+    const task = graph.tasksById.get(taskId);
+    if (!task) {
+      continue;
+    }
+    total += 1;
+    if (items.length < limit) {
+      items.push(inspectTask(task, graph, state, missingPromptPaths));
+    }
+  }
+  return { limit, total, truncated: total > limit, items };
+}
+
 function countsFor(graph: CompiledExecutionGraph, state: RuntimeState): GraphInspectionCounts {
   return {
     taskCount: graph.taskNodesInManifestOrder.length,
@@ -169,10 +191,14 @@ export async function inspectGraph(input: InspectGraphInput): Promise<GraphInspe
     validatePromptContents: false
   });
   const state = ensureStateForManifest(manifest, await readState(workspace.stateFile));
-  const tasks = inspectTasks(graph, state);
 
-  if (input.view === "summary") {
-    const preview = tasks.slice(offset, offset + limit);
+  if (input.view === "summary" || input.view === "tasks") {
+    const tasks = inspectTasks(graph, state);
+    const items = tasks.slice(offset, offset + limit);
+    const page = pageFor(tasks.length, limit, offset, input.cursor);
+    if (input.view === "tasks") {
+      return { view: "tasks", tasks: items, page };
+    }
     return {
       view: "summary",
       project: {
@@ -185,38 +211,26 @@ export async function inspectGraph(input: InspectGraphInput): Promise<GraphInspe
         title: manifest.project.title
       },
       counts: countsFor(graph, state),
-      tasksPreview: preview,
-      page: pageFor(tasks.length, limit, offset, input.cursor)
-    };
-  }
-
-  if (input.view === "tasks") {
-    return {
-      view: "tasks",
-      tasks: tasks.slice(offset, offset + limit),
-      page: pageFor(tasks.length, limit, offset, input.cursor)
+      tasksPreview: items,
+      page
     };
   }
 
   if (!input.taskId) {
     throw new Error("Graph inspection slice view requires taskId.");
   }
-  const center = tasks.find((task) => task.taskId === input.taskId);
-  if (!center) {
+  const centerTask = graph.tasksById.get(input.taskId);
+  if (!centerTask) {
     throw new Error(`Task '${input.taskId}' does not exist in the graph.`);
   }
-  const dependencies = center.dependsOn
-    .map((taskId) => tasks.find((task) => task.taskId === taskId))
-    .filter((task) => task !== undefined);
-  const dependents = center.dependents
-    .map((taskId) => tasks.find((task) => task.taskId === taskId))
-    .filter((task) => task !== undefined);
-  const boundedDependencies = boundedSection(dependencies, limit);
-  const boundedDependents = boundedSection(dependents, limit);
+  const missingPromptPaths = promptMissingPaths(graph);
+  const center = inspectTask(centerTask, graph, state, missingPromptPaths);
+  const dependencies = inspectNeighbors(center.dependsOn, limit, graph, state, missingPromptPaths);
+  const dependents = inspectNeighbors(center.dependents, limit, graph, state, missingPromptPaths);
   const visibleTaskIds = new Set([
     center.taskId,
-    ...boundedDependencies.items.map((task) => task.taskId),
-    ...boundedDependents.items.map((task) => task.taskId)
+    ...dependencies.items.map((task) => task.taskId),
+    ...dependents.items.map((task) => task.taskId)
   ]);
   const edges = taskEdgesFor(visibleTaskIds, manifest);
   const blocks = requireMapValue(graph.blocksByTask, center.taskId, "blocksByTask").map((ref) =>
@@ -226,8 +240,8 @@ export async function inspectGraph(input: InspectGraphInput): Promise<GraphInspe
     view: "slice",
     taskId: center.taskId,
     center,
-    dependencies: boundedDependencies,
-    dependents: boundedDependents,
+    dependencies,
+    dependents,
     edges: boundedSection(edges, limit),
     blocks: boundedSection(blocks, limit)
   };
