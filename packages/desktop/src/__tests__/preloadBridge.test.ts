@@ -377,6 +377,7 @@ describe("preload bridge invocation", () => {
   it("forwards dedicated agent capability probes through the invoke bridge", async () => {
     const invoke = vi.fn<Parameters<typeof createDesktopBridgeInvokeApi>[0]>(async () => ({
       agentKind: "codex",
+      executionHost: { kind: "native" },
       ok: true,
       message: "ACP capability probe passed.",
       failureCode: null,
@@ -702,6 +703,9 @@ describe("preload bridge invocation", () => {
 
     await expect(api.getDesktopSettings()).resolves.toBe(settings);
     await api.saveDesktopSettings({ appearance: "dark" });
+    const agentHost = { kind: "wsl", distribution: "Ubuntu" } as const;
+    const acpChoice = { agents: { codex: { acp: { modeId: "review" } } } };
+    await api.saveDesktopSettings(acpChoice, agentHost);
     await api.migrateLegacyDesktopSettings('{"appearance":"dark"}');
 
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -712,6 +716,11 @@ describe("preload bridge invocation", () => {
       { appearance: "dark" }
     );
     expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
+      desktopSettingsInvokeChannels.saveDesktopSettings,
+      acpChoice,
+      agentHost
+    );
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenCalledWith(
       desktopSettingsInvokeChannels.migrateLegacyDesktopSettings,
       '{"appearance":"dark"}'
     );
@@ -719,7 +728,6 @@ describe("preload bridge invocation", () => {
     const unsubscribe = api.onAgentHostChanged(receiveHost);
     const [channel, listener] = electronMock.ipcRenderer.on.mock.lastCall ?? [];
     expect(channel).toBe(desktopAgentHostChangedChannel);
-    const agentHost = { kind: "wsl", distribution: "Ubuntu" };
     listener({ sender: "private" }, agentHost);
     expect(receiveHost).toHaveBeenCalledExactlyOnceWith(agentHost);
     unsubscribe();

@@ -1,4 +1,5 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   getRuntimeBridgeMocks,
   resetRuntimeBridgeMocks,
@@ -31,6 +32,7 @@ describe("runtime bridge handlers: graph and project", () => {
 
   afterEach(async () => {
     platformSpy.mockRestore();
+    vi.unstubAllEnvs();
     await restoreRuntimeBridgeEnv();
   });
 
@@ -209,6 +211,14 @@ describe("runtime bridge handlers: graph and project", () => {
   });
 
   it("probes canonical agent capabilities without resolving a canvas or manifest", async () => {
+    const executionHost = { kind: "wsl", distribution: "Ubuntu" };
+    vi.stubEnv("PLANWEAVE_DESKTOP_SMOKE_USER_DATA_DIR", electronMock.userDataDir);
+    const configDir = join(electronMock.userDataDir, "config");
+    await mkdir(configDir);
+    await writeFile(
+      join(configDir, "desktop-settings.json"),
+      JSON.stringify({ execution: { agentHost: executionHost } })
+    );
     const { registerRuntimeBridgeHandlers } = await import("../main/runtimeBridgeHandlers");
     registerRuntimeBridgeHandlers();
 
@@ -222,7 +232,9 @@ describe("runtime bridge handlers: graph and project", () => {
 
     expect(runtimeMock.resolveTaskCanvasWorkspace).not.toHaveBeenCalled();
     expect(runtimeMock.testExecutorProfile).not.toHaveBeenCalled();
-    expect(runtimeMock.probeDesktopAgentCapabilities).toHaveBeenCalledWith(input);
+    expect(runtimeMock.probeDesktopAgentCapabilities).toHaveBeenCalledWith(input, {
+      executionHost
+    });
   });
 
   it("registers handlers for every desktop bridge invoke channel", async () => {

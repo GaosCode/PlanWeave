@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises";
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
+import { executionHostSchema } from "@planweave-ai/runtime";
 import {
   desktopAgentHostChangedChannel,
   desktopSettingsInvokeChannels,
@@ -77,13 +78,19 @@ export function registerDesktopSettingsHandlers(
   ipcMain.handle(desktopSettingsInvokeChannels.getDesktopSettings, () =>
     enqueue(() => settingsStore.read())
   );
-  ipcMain.handle(desktopSettingsInvokeChannels.saveDesktopSettings, (event, patch: unknown) =>
-    enqueueWrite(event, async () => {
-      const normalized = normalizeDesktopSettingsPatch(patch);
-      const saved = await settingsStore.mergePatch(normalized);
-      if (normalized.execution?.agentHost) broadcastAgentHost(saved.execution.agentHost);
-      return saved;
-    })
+  ipcMain.handle(
+    desktopSettingsInvokeChannels.saveDesktopSettings,
+    (event, patch: unknown, rawExpectedAgentHost: unknown) =>
+      enqueueWrite(event, async () => {
+        const normalized = normalizeDesktopSettingsPatch(patch);
+        const expectedAgentHost =
+          rawExpectedAgentHost === undefined
+            ? undefined
+            : executionHostSchema.parse(rawExpectedAgentHost);
+        const saved = await settingsStore.mergePatch(normalized, expectedAgentHost);
+        if (normalized.execution?.agentHost) broadcastAgentHost(saved.execution.agentHost);
+        return saved;
+      })
   );
   ipcMain.handle(
     desktopSettingsInvokeChannels.migrateLegacyDesktopSettings,

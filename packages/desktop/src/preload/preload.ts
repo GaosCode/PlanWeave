@@ -220,8 +220,14 @@ contextBridge.exposeInMainWorld("planweaveWorkspaceExecution", workspaceExecutio
 const desktopSettingsApi: PlanWeaveDesktopSettingsApi = {
   getDesktopSettings: async () =>
     ipcRenderer.invoke(desktopSettingsInvokeChannels.getDesktopSettings),
-  saveDesktopSettings: async (patch) =>
-    ipcRenderer.invoke(desktopSettingsInvokeChannels.saveDesktopSettings, patch),
+  saveDesktopSettings: async (patch, expectedAgentHost) =>
+    expectedAgentHost
+      ? ipcRenderer.invoke(
+          desktopSettingsInvokeChannels.saveDesktopSettings,
+          patch,
+          expectedAgentHost
+        )
+      : ipcRenderer.invoke(desktopSettingsInvokeChannels.saveDesktopSettings, patch),
   migrateLegacyDesktopSettings: async (payload) =>
     ipcRenderer.invoke(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings, payload),
   onAgentHostChanged: (callback) => {

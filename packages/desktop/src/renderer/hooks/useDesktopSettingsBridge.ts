@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { DesktopAgentHost, PlanWeaveDesktopSettingsApi } from "../../shared/desktopSettings";
 import {
   defaultDesktopSettings,
+  desktopAgentHostKey,
   legacyDesktopSettingsKey,
   legacyDesktopSettingsMigrationMarkerKey
 } from "../../shared/desktopSettings";
@@ -72,10 +73,13 @@ export function useDesktopSettingsBridge({
   const mountedRef = useRef(false);
   const initializationRef = useRef<Promise<void>>(Promise.resolve());
   const retainNewerAgentHost = useCallback(
-    (snapshot: DesktopUiSettings, agentHostVersion: number) =>
-      agentHostVersionRef.current === agentHostVersion
-        ? snapshot
-        : withAgentHost(snapshot, lastConfirmedSettingsRef.current.execution.agentHost),
+    (snapshot: DesktopUiSettings, agentHostVersion: number) => {
+      const confirmedHost = lastConfirmedSettingsRef.current.execution.agentHost;
+      return agentHostVersionRef.current !== agentHostVersion ||
+        desktopAgentHostKey(snapshot.execution.agentHost) === desktopAgentHostKey(confirmedHost)
+        ? withAgentHost(snapshot, confirmedHost)
+        : snapshot;
+    },
     []
   );
   useLayoutEffect(() => {
@@ -105,6 +109,12 @@ export function useDesktopSettingsBridge({
     let cancelled = false;
     setSettingsHydrated(false);
     const unsubscribeAgentHost = settingsApi.onAgentHostChanged((agentHost) => {
+      if (
+        desktopAgentHostKey(agentHost) ===
+        desktopAgentHostKey(lastConfirmedSettingsRef.current.execution.agentHost)
+      ) {
+        return;
+      }
       agentHostVersionRef.current += 1;
       lastConfirmedSettingsRef.current = withAgentHost(lastConfirmedSettingsRef.current, agentHost);
       latestSettingsRef.current = withAgentHost(latestSettingsRef.current, agentHost);
@@ -183,7 +193,7 @@ export function useDesktopSettingsBridge({
   }, [allowInMemoryFallback, retainNewerAgentHost, settingsApi]);
 
   const updateSettingsAndWait = useCallback(
-    (update: DesktopSettingsUpdate) => {
+    (update: DesktopSettingsUpdate, expectedAgentHost?: DesktopAgentHost) => {
       if (!settingsApi && !allowInMemoryFallback) {
         setError(missingSettingsBridgeMessage);
         return Promise.reject(new Error(missingSettingsBridgeMessage));
@@ -202,8 +212,10 @@ export function useDesktopSettingsBridge({
         setPendingHomeSaves(pendingHomeSavesRef.current);
         optimisticSettings.planweaveHome = latestSettingsRef.current.planweaveHome;
       }
-      latestSettingsRef.current = optimisticSettings;
-      setSettings(optimisticSettings);
+      if (!expectedAgentHost || !settingsApi) {
+        latestSettingsRef.current = optimisticSettings;
+        setSettings(optimisticSettings);
+      }
 
       if (!settingsApi) {
         return Promise.resolve();
@@ -211,6 +223,9 @@ export function useDesktopSettingsBridge({
       const effectVersion = effectVersionRef.current;
       const isCurrentEffect = () =>
         mountedRef.current && effectVersionRef.current === effectVersion;
+      const isExpectedHostCurrent = () =>
+        !expectedAgentHost ||
+        lastConfirmedSettingsRef.current.execution.agentHost === expectedAgentHost;
       const publishSettings = (nextSettings: DesktopUiSettings) => {
         const visibleSettings =
           pendingHomeSavesRef.current > 0
@@ -224,16 +239,24 @@ export function useDesktopSettingsBridge({
         .then(() => initializationRef.current)
         .then(async () => {
           const agentHostVersion = agentHostVersionRef.current;
-          return { nextSettings: await settingsApi.saveDesktopSettings(patch), agentHostVersion };
+          if (!isExpectedHostCurrent()) {
+            return null;
+          }
+          const nextSettings = expectedAgentHost
+            ? await settingsApi.saveDesktopSettings(patch, expectedAgentHost)
+            : await settingsApi.saveDesktopSettings(patch);
+          return { nextSettings, agentHostVersion };
         });
       const callerSave = save
-        .then(({ nextSettings, agentHostVersion }) => {
-          if (!isCurrentEffect()) {
+        .then((result) => {
+          if (!result || !isCurrentEffect()) {
             return;
           }
+          const { nextSettings, agentHostVersion } = result;
           const confirmed = retainNewerAgentHost(nextSettings, agentHostVersion);
           confirmedVersionRef.current += 1;
           lastConfirmedSettingsRef.current = confirmed;
+          if (!isExpectedHostCurrent()) return;
           if (localRevisionRef.current === nextRevision) {
             publishSettings(confirmed);
           } else if (patch.execution?.agentHost) {
@@ -243,10 +266,14 @@ export function useDesktopSettingsBridge({
           }
         })
         .catch((caught: unknown) => {
-          if (isCurrentEffect() && localRevisionRef.current === nextRevision) {
+          const currentSave =
+            isCurrentEffect() &&
+            isExpectedHostCurrent() &&
+            localRevisionRef.current === nextRevision;
+          if (currentSave) {
             publishSettings(lastConfirmedSettingsRef.current);
           }
-          if (isCurrentEffect()) {
+          if (expectedAgentHost ? currentSave : isCurrentEffect()) {
             setErrorRef.current(errorMessage(caught));
           }
           throw caught;

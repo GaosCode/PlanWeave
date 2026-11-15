@@ -1,10 +1,17 @@
 import { homedir } from "node:os";
-import { resolve } from "node:path";
 import { z } from "zod";
 import { createAcpRunner } from "../autoRun/acpRunner.js";
 import { producedExecutorPreflightResultSchema } from "../autoRun/executorPreflightTypes.js";
 import { resolveAgentDefinition } from "../autoRun/agentRegistry.js";
-import { agentFamilySchema, type AgentExecutorProfile } from "../types.js";
+import { selectedDesktopAgentHost } from "../autoRun/desktopAgentSettings.js";
+import { workspaceExecutionCwd } from "../autoRun/executorShared.js";
+import { locateProjectWorkspace } from "../project.js";
+import {
+  agentFamilySchema,
+  executionHostSchema,
+  isAgentAcpExecutorProfile,
+  type ExecutionHost
+} from "../types.js";
 import type {
   DesktopAgentCapabilityProbeInput,
   DesktopAgentCapabilityProbeResult
@@ -23,7 +30,7 @@ export const desktopAgentCapabilityProbeResultSchema = producedExecutorPreflight
     sessionConfig: true,
     checks: true
   })
-  .extend({ agentKind: desktopAgentKindSchema })
+  .extend({ agentKind: desktopAgentKindSchema, executionHost: executionHostSchema })
   .strict();
 const desktopAgentCapabilityProbeInputSchema = z
   .object({
@@ -35,27 +42,31 @@ const desktopAgentCapabilityProbeInputSchema = z
 const capabilityProbeTimeoutMs = 30_000;
 
 export async function probeDesktopAgentCapabilities(
-  input: DesktopAgentCapabilityProbeInput
+  input: DesktopAgentCapabilityProbeInput,
+  options?: { executionHost: ExecutionHost }
 ): Promise<DesktopAgentCapabilityProbeResult> {
   const parsed = desktopAgentCapabilityProbeInputSchema.parse(input);
+  const executionHost = executionHostSchema.parse(
+    options?.executionHost ?? selectedDesktopAgentHost()
+  );
   const definition = resolveAgentDefinition(parsed.agentKind);
-  const profile: AgentExecutorProfile = {
-    adapter: "agent",
-    agent: parsed.agentKind,
-    runner: { transport: "acp" }
-  };
-  const cwd = resolve(parsed.projectRoot ?? homedir());
+  const profile = Object.values(definition.builtinProfiles).find(isAgentAcpExecutorProfile);
+  if (!profile) throw new Error(`Agent '${parsed.agentKind}' has no built-in ACP executor.`);
+  const workspace = parsed.projectRoot ? await locateProjectWorkspace(parsed.projectRoot) : null;
+  const cwd = workspace ? workspaceExecutionCwd(workspace) : homedir();
   const preflight = await createAcpRunner().preflight({
-    profile,
+    profile: { ...profile, host: executionHost },
     profileSource: "builtin",
     definition,
     cwd,
+    projectRoot: workspace ?? cwd,
     timeoutMs: capabilityProbeTimeoutMs
   });
   const failedCheck = preflight.checks.find((check) => check.status === "failed") ?? null;
   const ok = failedCheck === null && preflight.negotiatedCapabilities !== null;
   return desktopAgentCapabilityProbeResultSchema.parse({
     agentKind: parsed.agentKind,
+    executionHost,
     ok,
     message: ok
       ? `ACP capability probe passed for agent '${parsed.agentKind}'.`

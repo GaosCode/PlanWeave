@@ -7,6 +7,7 @@ import {
 } from "@planweave-ai/runtime";
 import { BrowserWindow, dialog, shell, type OpenDialogOptions } from "electron";
 import { detectAgentTools, detectWslEnvironment } from "./agentTools.js";
+import { DesktopSettingsStore } from "./desktopSettingsStore.js";
 import { openBlockInspectorWindow } from "./blockInspectorWindow.js";
 import {
   detectDevelopmentTools,
@@ -90,7 +91,10 @@ export const runtimeBridgeDesktopShellHandlers = {
   detectDevelopmentTools: () => detectDevelopmentTools(),
   testExecutorProfile: async (_event, ref, executorName) =>
     testExecutorProfile({ projectRoot: await resolveDesktopCanvasReference(ref), executorName }),
-  probeDesktopAgentCapabilities: (_event, input) => probeDesktopAgentCapabilities(input),
+  probeDesktopAgentCapabilities: async (_event, input) => {
+    const { execution } = await new DesktopSettingsStore().read();
+    return probeDesktopAgentCapabilities(input, { executionHost: execution.agentHost });
+  },
   openBlockInspectorWindow: (_event, input) => openBlockInspectorWindow(input),
   openTaskInspectorWindow: (_event, input) => openTaskInspectorWindow(input)
 } satisfies Partial<RuntimeBridgeHandlerMap>;

@@ -1,9 +1,5 @@
-import { useLayoutEffect, useRef, useState } from "react";
-import type {
-  DesktopAgentCapabilityProbeResult,
-  DesktopAgentDetection,
-  DesktopAgentKind
-} from "@planweave-ai/runtime";
+import { useLayoutEffect, useState } from "react";
+import type { DesktopAgentDetection, DesktopAgentKind } from "@planweave-ai/runtime";
 import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -16,16 +12,15 @@ import {
   SelectValue
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { bridge } from "../bridge";
+import {
+  desktopAgentHostKey,
+  type DesktopAcpAgentSettingsPatch,
+  type DesktopAgentHost
+} from "../../shared/desktopSettings";
 import type { RefreshAgentDetections } from "../hooks/useDetectedAgents";
 import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
-import {
-  clearAgentCapabilityProbeSession,
-  readAgentCapabilityProbeSession,
-  writeAgentCapabilityProbeSession,
-  type AcpProbeState
-} from "./agentCapabilityProbeSessionCache";
+import { useAgentCapabilityProbeSession } from "./agentCapabilityProbeSessionCache";
 import { ExecutorPreflightSummary } from "./ExecutorPreflightSummary";
 
 type AgentSettingsPanelProps = {
@@ -53,48 +48,37 @@ type AgentSettingsPanelProps = {
   };
   bridgeUnavailableMessage?: string;
   projectRoot?: string | null;
+  sourceRoot?: string | null;
+  hostUnconfirmed?: boolean;
+  persistSettings?: (
+    update: DesktopSettingsUpdate,
+    expectedAgentHost?: DesktopAgentHost
+  ) => Promise<void>;
   refreshAgentDetections: RefreshAgentDetections;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
 };
 
-function updateAgentSettings(
-  settings: DesktopUiSettings,
-  kind: DesktopAgentKind,
-  patch: Partial<DesktopUiSettings["agents"][DesktopAgentKind]>
-): DesktopUiSettings["agents"] {
-  return {
-    ...settings.agents,
-    [kind]: {
-      ...settings.agents[kind],
-      ...patch
-    }
-  };
-}
-
-function hasSettledAcpProbe(probe: AcpProbeState | undefined) {
-  if (!probe) {
-    return false;
-  }
-  return probe.loading || probe.result !== null || probe.error !== null;
-}
-
-function getCompletedProbeError(result: DesktopAgentCapabilityProbeResult) {
-  if (result.ok) {
-    return null;
-  }
-  if (result.authentication?.status === "action_required") {
-    return null;
-  }
-  return result.message;
-}
-
-function getCaughtProbeError(caught: unknown) {
-  if (caught instanceof Error) {
-    return caught.message;
-  }
-  return String(caught);
+function RemoveSavedAcpOption({
+  name,
+  onRemove,
+  t
+}: {
+  name: string;
+  onRemove: () => void;
+  t: AgentSettingsPanelProps["t"];
+}) {
+  return (
+    <Button
+      aria-label={t("acpRemoveSavedOption").replace("{option}", name)}
+      onClick={onRemove}
+      size="sm"
+      variant="outline"
+    >
+      {t("remove")}
+    </Button>
+  );
 }
 
 export function AgentSettingsPanel({
@@ -102,6 +86,9 @@ export function AgentSettingsPanel({
   agents,
   bridgeUnavailableMessage = "Desktop bridge unavailable.",
   projectRoot = null,
+  sourceRoot = null,
+  hostUnconfirmed = false,
+  persistSettings,
   labels,
   refreshAgentDetections,
   settings,
@@ -111,72 +98,37 @@ export function AgentSettingsPanel({
   const [expandedAgents, setExpandedAgents] = useState<ReadonlySet<DesktopAgentKind>>(
     () => new Set()
   );
-  const [acpProbes, setAcpProbes] = useState<Partial<Record<DesktopAgentKind, AcpProbeState>>>(() =>
-    readAgentCapabilityProbeSession(projectRoot)
+  const executionHost = settings.execution.agentHost;
+  const { probes, probe, refreshProbes, isCurrentProbe } = useAgentCapabilityProbeSession(
+    projectRoot,
+    sourceRoot,
+    executionHost,
+    bridgeUnavailableMessage
   );
-  const probeGenerationRef = useRef(0);
 
   useLayoutEffect(() => {
-    setAcpProbes(readAgentCapabilityProbeSession(projectRoot));
-    return () => {
-      probeGenerationRef.current += 1;
-    };
-  }, [projectRoot]);
-
-  const probeAcpAgent = async (agentKind: DesktopAgentKind, force = false) => {
-    const currentProbe = acpProbes[agentKind];
-    if (!force && hasSettledAcpProbe(currentProbe)) {
-      return;
-    }
-    if (!bridge) {
-      const completedProbe = {
-        error: bridgeUnavailableMessage,
-        loading: false,
-        result: null
-      } satisfies AcpProbeState;
-      writeAgentCapabilityProbeSession(projectRoot, agentKind, completedProbe);
-      setAcpProbes((current) => ({
-        ...current,
-        [agentKind]: completedProbe
-      }));
-      return;
-    }
-    const generation = probeGenerationRef.current;
-    setAcpProbes((current) => ({
-      ...current,
-      [agentKind]: { error: null, loading: true, result: null }
-    }));
-    try {
-      const result = await bridge.probeDesktopAgentCapabilities({ agentKind, projectRoot });
-      if (probeGenerationRef.current !== generation) {
-        return;
+    if (hostUnconfirmed || agentDetectionRefreshing) return;
+    for (const agent of agents) {
+      if (
+        agent.runnerKind === "acp" &&
+        agent.installed &&
+        !probes[agent.kind] &&
+        expandedAgents.has(agent.kind) &&
+        (!agent.executionHost ||
+          desktopAgentHostKey(agent.executionHost) === desktopAgentHostKey(executionHost))
+      ) {
+        void probe(agent.kind);
       }
-      const completedProbe = {
-        error: getCompletedProbeError(result),
-        loading: false,
-        result
-      } satisfies AcpProbeState;
-      writeAgentCapabilityProbeSession(projectRoot, agentKind, completedProbe);
-      setAcpProbes((current) => ({
-        ...current,
-        [agentKind]: completedProbe
-      }));
-    } catch (caught) {
-      if (probeGenerationRef.current !== generation) {
-        return;
-      }
-      const completedProbe = {
-        error: getCaughtProbeError(caught),
-        loading: false,
-        result: null
-      } satisfies AcpProbeState;
-      writeAgentCapabilityProbeSession(projectRoot, agentKind, completedProbe);
-      setAcpProbes((current) => ({
-        ...current,
-        [agentKind]: completedProbe
-      }));
     }
-  };
+  }, [
+    agentDetectionRefreshing,
+    agents,
+    executionHost,
+    expandedAgents,
+    hostUnconfirmed,
+    probe,
+    probes
+  ]);
 
   return (
     <div className="overflow-hidden rounded-lg border bg-background">
@@ -187,23 +139,7 @@ export function AgentSettingsPanel({
           size="sm"
           variant="outline"
           onClick={() => {
-            const generation = probeGenerationRef.current;
-            void refreshAgentDetections((detections) => {
-              if (probeGenerationRef.current !== generation) return;
-              probeGenerationRef.current += 1;
-              clearAgentCapabilityProbeSession(projectRoot);
-              setAcpProbes({});
-              for (const agent of detections) {
-                if (
-                  expandedAgents.has(agent.kind) &&
-                  agent.runnerKind === "acp" &&
-                  settings.execution.agentTransport === "acp" &&
-                  agent.installed
-                ) {
-                  void probeAcpAgent(agent.kind, true);
-                }
-              }
-            });
+            void refreshAgentDetections(refreshProbes);
           }}
         >
           <RefreshCwIcon
@@ -216,19 +152,51 @@ export function AgentSettingsPanel({
         </Button>
       </div>
       {agents.map((agent) => {
-        const agentSettings = settings.agents[agent.kind] ?? { enabled: false, fullAccess: false };
+        const agentSettings = settings.agents[agent.kind];
         const command = `${agent.command} ${agent.execArgs.join(" ")}`;
         const fullAccessCommand = `${agent.command} ${agent.fullAccessArgs.join(" ")}`;
         const supportsFullAccess = agent.runnerKind === "cli";
         const supportsAcpOptions = agent.runnerKind === "acp";
         const expanded = expandedAgents.has(agent.kind);
-        const acpProbe = acpProbes[agent.kind];
+        const acpProbe = probes[agent.kind];
         const acpProbeReady = acpProbe?.result?.ok === true;
         const sessionConfig =
-          supportsAcpOptions && acpProbe?.result?.agentKind === agent.kind
+          !hostUnconfirmed && agent.installed && supportsAcpOptions && acpProbe?.result?.ok
             ? acpProbe.result.sessionConfig
             : null;
-        const acpSettings = agentSettings.acp ?? { modeId: null, configOptions: {} };
+        const acpSettings = agentSettings.acp;
+        const legacyModes = sessionConfig?.modes;
+        const configuredMode = acpSettings.modeId;
+        const protocolModeOptions =
+          sessionConfig?.configOptions.filter((option) => option.category === "mode") ?? [];
+        const configuredProtocolMode = protocolModeOptions.some((option) =>
+          Object.hasOwn(acpSettings.configOptions, option.id)
+        );
+        const incompatibleMode = Boolean(
+          sessionConfig &&
+            configuredMode &&
+            !configuredProtocolMode &&
+            !legacyModes?.availableModes.some(({ id }) => id === configuredMode)
+        );
+        const showLegacyModes =
+          legacyModes &&
+          legacyModes.availableModes.length > 0 &&
+          (protocolModeOptions.length === 0 || (configuredMode && !configuredProtocolMode));
+        const missingOptionIds = sessionConfig
+          ? Object.keys(acpSettings.configOptions).filter(
+              (id) => !sessionConfig.configOptions.some((option) => option.id === id)
+            )
+          : [];
+        const defaultChoiceLabel = (label: string, isDefault: boolean) =>
+          isDefault ? t("acpHostDefaultChoice").replace("{value}", label) : label;
+        const incompatibleValueMessage = (value: string | boolean) =>
+          t("acpSavedValueUnavailable").replace("{value}", String(value));
+        const saveAcpSelection = (acp: DesktopAcpAgentSettingsPatch) => {
+          if (!sessionConfig || !acpProbe || !isCurrentProbe(agent.kind, acpProbe)) return;
+          const update = () => ({ agents: { [agent.kind]: { acp } } });
+          if (persistSettings) void persistSettings(update, executionHost).catch(() => undefined);
+          else updateSettings(update);
+        };
         return (
           <div
             key={`${agent.runnerKind}:${agent.kind}`}
@@ -286,9 +254,6 @@ export function AgentSettingsPanel({
                         }
                         return next;
                       });
-                      if (!expanded && supportsAcpOptions && agent.installed) {
-                        void probeAcpAgent(agent.kind);
-                      }
                     }}
                   >
                     <ChevronDownIcon
@@ -302,10 +267,12 @@ export function AgentSettingsPanel({
                   disabled={!agent.installed}
                   onCheckedChange={(checked) =>
                     updateSettings((current) => ({
-                      agents: updateAgentSettings(current, agent.kind, {
-                        enabled: checked,
-                        fullAccess: checked ? current.agents[agent.kind].fullAccess : false
-                      })
+                      agents: {
+                        [agent.kind]: {
+                          enabled: checked,
+                          fullAccess: checked ? current.agents[agent.kind].fullAccess : false
+                        }
+                      }
                     }))
                   }
                 />
@@ -326,11 +293,7 @@ export function AgentSettingsPanel({
                     disabled={!agent.installed || !agentSettings.enabled}
                     size="sm"
                     onCheckedChange={(checked) =>
-                      updateSettings((current) => ({
-                        agents: updateAgentSettings(current, agent.kind, {
-                          fullAccess: checked
-                        })
-                      }))
+                      updateSettings({ agents: { [agent.kind]: { fullAccess: checked } } })
                     }
                   />
                 </div>
@@ -354,112 +317,159 @@ export function AgentSettingsPanel({
                     loginCommands={agent.loginCommands ?? null}
                   />
                 ) : null}
-                {sessionConfig?.configOptions.map((option) => (
-                  <div className="flex items-center justify-between gap-4" key={option.id}>
+                {missingOptionIds.map((id) => (
+                  <div className="flex items-center justify-between gap-4" key={id}>
+                    <p className="min-w-0 break-words text-sm text-destructive">
+                      {t("acpSavedOptionUnavailable").replace("{option}", id)}
+                    </p>
+                    <RemoveSavedAcpOption
+                      name={id}
+                      onRemove={() => saveAcpSelection({ configOptions: { [id]: null } })}
+                      t={t}
+                    />
+                  </div>
+                ))}
+                {sessionConfig?.configOptions.map((option) => {
+                  const configured = Object.hasOwn(acpSettings.configOptions, option.id)
+                    ? acpSettings.configOptions[option.id]
+                    : undefined;
+                  const incompatible =
+                    configured !== undefined &&
+                    (option.type === "boolean"
+                      ? typeof configured !== "boolean"
+                      : !option.options.some(({ value }) => value === configured));
+                  const chooseValue =
+                    incompatible ||
+                    (incompatibleMode && configured === undefined && option.category === "mode");
+                  return (
+                    <div className="flex items-center justify-between gap-4" key={option.id}>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">{option.name}</div>
+                        {option.description ? (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {option.description}
+                          </div>
+                        ) : null}
+                        {incompatible ? (
+                          <p className="mt-1 break-words text-xs text-destructive">
+                            {incompatibleValueMessage(configured)}
+                          </p>
+                        ) : null}
+                      </div>
+                      {option.type === "boolean" && !chooseValue ? (
+                        <Switch
+                          aria-label={option.name}
+                          checked={
+                            typeof configured === "boolean" ? configured : option.currentValue
+                          }
+                          size="sm"
+                          onCheckedChange={(checked) =>
+                            saveAcpSelection({ configOptions: { [option.id]: checked } })
+                          }
+                        />
+                      ) : option.type === "select" &&
+                        incompatible &&
+                        option.options.length === 0 ? (
+                        <RemoveSavedAcpOption
+                          name={option.name}
+                          onRemove={() =>
+                            saveAcpSelection({ configOptions: { [option.id]: null } })
+                          }
+                          t={t}
+                        />
+                      ) : (
+                        <Select
+                          value={chooseValue ? "" : String(configured ?? option.currentValue)}
+                          onValueChange={(value) => {
+                            if (
+                              option.type === "boolean"
+                                ? value === "true" || value === "false"
+                                : option.options.some((candidate) => candidate.value === value)
+                            ) {
+                              const choice = option.type === "boolean" ? value === "true" : value;
+                              saveAcpSelection({ configOptions: { [option.id]: choice } });
+                            }
+                          }}
+                        >
+                          <SelectTrigger
+                            className="w-56"
+                            aria-label={option.name}
+                            aria-invalid={incompatible || undefined}
+                          >
+                            <SelectValue placeholder={t("acpChooseSupportedValue")} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {option.type === "boolean"
+                                ? [true, false].map((value) => (
+                                    <SelectItem value={String(value)} key={String(value)}>
+                                      {defaultChoiceLabel(
+                                        t(value ? "enabled" : "disabled"),
+                                        option.currentValue === value
+                                      )}
+                                    </SelectItem>
+                                  ))
+                                : option.options.map((value) => (
+                                    <SelectItem value={value.value} key={value.value}>
+                                      {defaultChoiceLabel(
+                                        value.group ? `${value.group} · ${value.name}` : value.name,
+                                        chooseValue && value.value === option.currentValue
+                                      )}
+                                    </SelectItem>
+                                  ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  );
+                })}
+                {showLegacyModes || incompatibleMode ? (
+                  <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium">{option.name}</div>
-                      {option.description ? (
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {option.description}
-                        </div>
+                      <div className="text-sm font-medium">{labels.acpSessionMode}</div>
+                      {incompatibleMode && configuredMode ? (
+                        <p className="mt-1 break-words text-xs text-destructive">
+                          {incompatibleValueMessage(configuredMode)}
+                        </p>
                       ) : null}
                     </div>
-                    {option.type === "boolean" ? (
-                      <Switch
-                        aria-label={option.name}
-                        checked={
-                          typeof acpSettings.configOptions[option.id] === "boolean"
-                            ? Boolean(acpSettings.configOptions[option.id])
-                            : option.currentValue
-                        }
-                        size="sm"
-                        onCheckedChange={(checked) =>
-                          updateSettings((current) => ({
-                            agents: updateAgentSettings(current, agent.kind, {
-                              acp: {
-                                ...(current.agents[agent.kind].acp ?? {
-                                  modeId: null,
-                                  configOptions: {}
-                                }),
-                                configOptions: {
-                                  ...(current.agents[agent.kind].acp?.configOptions ?? {}),
-                                  [option.id]: checked
-                                }
-                              }
-                            })
-                          }))
-                        }
-                      />
-                    ) : (
+                    {showLegacyModes ? (
                       <Select
-                        value={
-                          typeof acpSettings.configOptions[option.id] === "string"
-                            ? String(acpSettings.configOptions[option.id])
-                            : option.currentValue
-                        }
-                        onValueChange={(value) =>
-                          updateSettings((current) => ({
-                            agents: updateAgentSettings(current, agent.kind, {
-                              acp: {
-                                ...(current.agents[agent.kind].acp ?? {
-                                  modeId: null,
-                                  configOptions: {}
-                                }),
-                                configOptions: {
-                                  ...(current.agents[agent.kind].acp?.configOptions ?? {}),
-                                  [option.id]: value
-                                }
-                              }
-                            })
-                          }))
-                        }
+                        value={incompatibleMode ? "" : configuredMode || legacyModes.currentModeId}
+                        onValueChange={(modeId) => {
+                          if (legacyModes.availableModes.some(({ id }) => id === modeId)) {
+                            saveAcpSelection({ modeId });
+                          }
+                        }}
                       >
-                        <SelectTrigger className="w-56" aria-label={option.name}>
-                          <SelectValue />
+                        <SelectTrigger
+                          className="w-56"
+                          aria-label={labels.acpSessionMode}
+                          aria-invalid={incompatibleMode || undefined}
+                        >
+                          <SelectValue placeholder={t("acpChooseSupportedValue")} />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            {option.options.map((value) => (
-                              <SelectItem value={value.value} key={value.value}>
-                                {value.group ? `${value.group} · ${value.name}` : value.name}
+                            {legacyModes.availableModes.map((mode) => (
+                              <SelectItem value={mode.id} key={mode.id}>
+                                {defaultChoiceLabel(
+                                  mode.name,
+                                  incompatibleMode && mode.id === legacyModes.currentModeId
+                                )}
                               </SelectItem>
                             ))}
                           </SelectGroup>
                         </SelectContent>
                       </Select>
+                    ) : (
+                      <RemoveSavedAcpOption
+                        name={labels.acpSessionMode}
+                        onRemove={() => saveAcpSelection({ modeId: null })}
+                        t={t}
+                      />
                     )}
-                  </div>
-                ))}
-                {sessionConfig?.modes &&
-                !sessionConfig.configOptions.some((option) => option.category === "mode") ? (
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="text-sm font-medium">{labels.acpSessionMode}</div>
-                    <Select
-                      value={acpSettings.modeId ?? sessionConfig.modes.currentModeId}
-                      onValueChange={(modeId) =>
-                        updateSettings((current) => ({
-                          agents: updateAgentSettings(current, agent.kind, {
-                            acp: {
-                              ...(current.agents[agent.kind].acp ?? { configOptions: {} }),
-                              modeId
-                            }
-                          })
-                        }))
-                      }
-                    >
-                      <SelectTrigger className="w-56" aria-label={labels.acpSessionMode}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {sessionConfig.modes.availableModes.map((mode) => (
-                            <SelectItem value={mode.id} key={mode.id}>
-                              {mode.name}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
                   </div>
                 ) : null}
                 {!acpProbe?.loading &&

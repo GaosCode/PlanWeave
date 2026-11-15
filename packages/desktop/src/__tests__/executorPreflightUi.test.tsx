@@ -15,7 +15,7 @@ import type {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTranslator } from "../renderer/i18n";
 import { resetAgentCapabilityProbeSessionCache } from "../renderer/components/agentCapabilityProbeSessionCache";
-import { defaultDesktopSettings } from "../renderer/settings";
+import { defaultDesktopSettings, mergeDesktopSettings } from "../renderer/settings";
 import { SettingsAgentsSection } from "../renderer/settings/SettingsAgentsSection";
 import { BlockInspector } from "../renderer/inspector/BlockInspector";
 import { TaskInspector } from "../renderer/inspector/TaskInspector";
@@ -300,8 +300,16 @@ describe("executor preflight desktop UI", () => {
 
   it("renders and persists only ACP options advertised by preflight", async () => {
     installSelectDomStubs();
+    const settings = mergeDesktopSettings(defaultDesktopSettings, {
+      agents: {
+        codex: {
+          acp: { modeId: "another-host-mode", configOptions: { model: "another-host-model" } }
+        }
+      }
+    });
     bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
       agentKind: "codex",
+      executionHost: { kind: "native" },
       ok: true,
       message: "ACP capability probe passed.",
       failureCode: null,
@@ -360,7 +368,7 @@ describe("executor preflight desktop UI", () => {
         canvasRef={canvasRef}
         graph={graph}
         refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
-        settings={defaultDesktopSettings}
+        settings={settings}
         t={t}
         updateSettings={updateSettings}
       />
@@ -371,14 +379,19 @@ describe("executor preflight desktop UI", () => {
       agentKind: "codex",
       projectRoot: canvasRef.projectRoot
     });
-    await screen.findByRole("combobox", { name: "Model" });
-    await userEvent.click(screen.getByRole("combobox", { name: "Model" }));
-    await userEvent.click(screen.getByRole("option", { name: "GPT-5.2 Codex" }));
+    const model = await screen.findByRole("combobox", { name: "Model" });
+    expect(model).toHaveTextContent("Choose a supported value");
+    expect(
+      screen.getByText(/Saved value .*another-host-model.* is unavailable on this host/)
+    ).toBeVisible();
+    expect(updateSettings).not.toHaveBeenCalled();
+    await userEvent.click(model);
+    await userEvent.click(screen.getByRole("option", { name: "GPT-5 (current host default)" }));
 
     const update = updateSettings.mock.calls.at(-1)?.[0];
     expect(typeof update).toBe("function");
-    expect(update(defaultDesktopSettings)).toMatchObject({
-      agents: { codex: { acp: { configOptions: { model: "gpt-5.2-codex" } } } }
+    expect(update(settings)).toEqual({
+      agents: { codex: { acp: { configOptions: { model: "gpt-5" } } } }
     });
     expect(screen.getByRole("combobox", { name: "Mode" })).toBeInTheDocument();
     expect(screen.getByText(t("acpPermissionsManaged"))).toBeInTheDocument();
@@ -428,6 +441,7 @@ describe("executor preflight desktop UI", () => {
     installSelectDomStubs();
     bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
       agentKind: kind,
+      executionHost: { kind: "native" },
       ok: true,
       message: "ACP capability probe passed.",
       failureCode: null,
@@ -482,10 +496,14 @@ describe("executor preflight desktop UI", () => {
     });
   });
 
-  it("shows Pi's advertised current session mode and persists an explicit override", async () => {
+  it("requires a supported session mode and lets the user save the advertised default", async () => {
     installSelectDomStubs();
+    const settings = mergeDesktopSettings(defaultDesktopSettings, {
+      agents: { pi: { acp: { modeId: "another-host-mode" } } }
+    });
     bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
       agentKind: "pi",
+      executionHost: { kind: "native" },
       ok: true,
       message: "ACP capability probe passed.",
       failureCode: null,
@@ -512,7 +530,7 @@ describe("executor preflight desktop UI", () => {
         canvasRef={canvasRef}
         graph={graphWithExecutors(["pi"])}
         refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
-        settings={defaultDesktopSettings}
+        settings={settings}
         t={t}
         updateSettings={updateSettings}
       />
@@ -520,16 +538,96 @@ describe("executor preflight desktop UI", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Pi ACP options" }));
     const select = await screen.findByRole("combobox", { name: "Session mode" });
-    expect(select).toHaveTextContent("Thinking");
-    expect(select).not.toHaveTextContent("Default");
+    expect(select).toHaveTextContent("Choose a supported value");
+    expect(select).toHaveAttribute("aria-invalid", "true");
+    expect(
+      screen.getByText(/Saved value .*another-host-mode.* is unavailable on this host/)
+    ).toBeVisible();
+    expect(updateSettings).not.toHaveBeenCalled();
 
     await userEvent.click(select);
-    await userEvent.click(screen.getByRole("option", { name: "Default" }));
+    await userEvent.click(screen.getByRole("option", { name: "Thinking (current host default)" }));
 
     const update = updateSettings.mock.calls.at(-1)?.[0];
     expect(typeof update).toBe("function");
-    expect(update(defaultDesktopSettings)).toMatchObject({
-      agents: { pi: { acp: { modeId: "default" } } }
+    expect(update(settings)).toEqual({
+      agents: { pi: { acp: { modeId: "thinking" } } }
+    });
+  });
+
+  it("requires explicit repair for missing options, wrong types and an active legacy mode", async () => {
+    installSelectDomStubs();
+    bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
+      agentKind: "codex",
+      executionHost: { kind: "native" },
+      ok: true,
+      message: "ACP capability probe passed.",
+      failureCode: null,
+      agentInfo: null,
+      authentication: { status: "not_advertised" },
+      capabilities: ["session"],
+      checks: successfulAcpChecks,
+      sessionConfig: {
+        modes: null,
+        configOptions: [
+          { id: "flag", type: "boolean", name: "Flag", currentValue: false, description: null },
+          {
+            id: "mode",
+            type: "select",
+            name: "Protocol mode",
+            category: "mode",
+            description: null,
+            currentValue: "build",
+            options: [{ value: "build", name: "Build", description: null, group: null }]
+          }
+        ]
+      }
+    });
+    let settings = mergeDesktopSettings(defaultDesktopSettings, {
+      agents: {
+        codex: { acp: { modeId: "legacy-mode", configOptions: { retired: true, flag: "off" } } }
+      }
+    });
+    const updateSettings = vi.fn();
+    const section = () => (
+      <SettingsAgentsSection
+        agentDetectionRefreshing={false}
+        agents={[acpAgent("codex", "Codex ACP")]}
+        canvasRef={canvasRef}
+        graph={graph}
+        refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
+        settings={settings}
+        t={t}
+        updateSettings={updateSettings}
+      />
+    );
+    const view = render(section());
+    await userEvent.click(screen.getByRole("button", { name: "Codex ACP options" }));
+    expect(await screen.findByText(/Saved option .*retired.* is unavailable/)).toBeVisible();
+    expect(screen.getByText(/Saved value .*off.* is unavailable/)).toBeVisible();
+    expect(screen.getByText(/Saved value .*legacy-mode.* is unavailable/)).toBeVisible();
+    expect(updateSettings).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Protocol mode" }));
+    await userEvent.click(screen.getByRole("option", { name: "Build (current host default)" }));
+    settings = mergeDesktopSettings(settings, updateSettings.mock.lastCall?.[0](settings));
+    view.rerender(section());
+    expect(screen.queryByText(/Saved value .*legacy-mode.* is unavailable/)).toBeNull();
+    expect(settings.agents.codex.acp.modeId).toBe("legacy-mode");
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Flag" }));
+    await userEvent.click(screen.getByRole("option", { name: "Disabled (current host default)" }));
+    settings = mergeDesktopSettings(settings, updateSettings.mock.lastCall?.[0](settings));
+    view.rerender(section());
+    expect(screen.getByRole("switch", { name: "Flag" })).not.toBeChecked();
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove saved option retired" }));
+    settings = mergeDesktopSettings(settings, updateSettings.mock.lastCall?.[0](settings));
+    view.rerender(section());
+    expect(screen.queryByText(/Saved option .*retired.* is unavailable/)).toBeNull();
+    expect(settings.agents.codex.acp).toEqual({
+      modeId: "legacy-mode",
+      configOptions: { mode: "build", flag: false }
     });
   });
 
@@ -537,6 +635,7 @@ describe("executor preflight desktop UI", () => {
     bridgeMock.api.probeDesktopAgentCapabilities.mockImplementation(
       async ({ agentKind }: { agentKind: string }) => ({
         agentKind,
+        executionHost: { kind: "native" },
         ok: agentKind === "codex",
         message:
           agentKind === "codex" ? "Codex capability probe passed." : "OpenCode ACP unavailable.",
@@ -617,6 +716,7 @@ describe("executor preflight desktop UI", () => {
   it("reuses an action-required ACP result after collapsing and reopening the agent", async () => {
     bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
       agentKind: "codex",
+      executionHost: { kind: "native" },
       ok: false,
       message: "Authentication required.",
       failureCode: "auth_required",
@@ -683,6 +783,7 @@ describe("executor preflight desktop UI", () => {
   it("reuses agent detection refresh to rerun the expanded ACP probe", async () => {
     bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
       agentKind: "codex",
+      executionHost: { kind: "native" },
       ok: true,
       message: "ACP capability probe passed.",
       failureCode: null,
@@ -740,6 +841,7 @@ describe("executor preflight desktop UI", () => {
   it("probes ACP capabilities without a graph or canvas", async () => {
     bridgeMock.api.probeDesktopAgentCapabilities.mockResolvedValue({
       agentKind: "codex",
+      executionHost: { kind: "native" },
       ok: true,
       message: "ACP capability probe passed.",
       failureCode: null,

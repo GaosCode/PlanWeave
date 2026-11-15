@@ -363,6 +363,7 @@ const runtimeMock = vi.hoisted(() => {
     rollbackPendingImportRecovery: vi.fn(async () => undefined),
     probeDesktopAgentCapabilities: vi.fn(async (input: unknown) => ({
       agentKind: "codex",
+      executionHost: { kind: "native" },
       ok: true,
       message: "ACP capability probe passed.",
       failureCode: null,

@@ -26,6 +26,7 @@ import type { RefreshAgentDetections } from "../hooks/useDetectedAgents";
 import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 import { bridge } from "../bridge";
+import type { DesktopAgentHost } from "../../shared/desktopSettings";
 
 type SettingsAgentsSectionProps = {
   showHeader?: boolean;
@@ -35,7 +36,11 @@ type SettingsAgentsSectionProps = {
   canvasRef?: DesktopCanvasReference | null;
   graph: DesktopGraphViewModel | null;
   refreshAgentDetections: RefreshAgentDetections;
-  persistSettings?: (update: DesktopSettingsUpdate) => Promise<void>;
+  persistSettings?: (
+    update: DesktopSettingsUpdate,
+    expectedAgentHost?: DesktopAgentHost
+  ) => Promise<void>;
+  sourceRoot?: string | null;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
@@ -122,6 +127,7 @@ export function SettingsAgentsSection({
   persistSettings,
   refreshAgentDetections,
   settings,
+  sourceRoot,
   t,
   updateSettings
 }: SettingsAgentsSectionProps) {
@@ -331,6 +337,9 @@ export function SettingsAgentsSection({
           agents={transportAgents}
           bridgeUnavailableMessage={t("bridgeUnavailable")}
           projectRoot={canvasRef?.projectRoot ?? null}
+          sourceRoot={sourceRoot ?? null}
+          hostUnconfirmed={hostUnconfirmed}
+          {...(persistSettings ? { persistSettings } : {})}
           labels={{
             agentDetected: t("agentDetected"),
             agentInstallStatus: t("agentInstallStatus"),

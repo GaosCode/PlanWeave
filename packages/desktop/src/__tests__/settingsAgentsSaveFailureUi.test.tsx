@@ -3,9 +3,14 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { DesktopAgentDetection, ExecutionHost } from "@planweave-ai/runtime";
+import type {
+  DesktopAgentCapabilityProbeResult,
+  DesktopAgentDetection,
+  ExecutionHost
+} from "@planweave-ai/runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDesktopSettingsBridge } from "../renderer/hooks/useDesktopSettingsBridge";
+import { resetAgentCapabilityProbeSessionCache } from "../renderer/components/agentCapabilityProbeSessionCache";
 import { useDetectedAgents } from "../renderer/hooks/useDetectedAgents";
 import { createTranslator } from "../renderer/i18n";
 import { defaultDesktopSettings, mergeDesktopSettings } from "../renderer/settings";
@@ -17,7 +22,8 @@ import { stubSelectLayoutApis } from "./helpers/rendererTestEnvironment";
 
 const bridgeMock = vi.hoisted(() => ({
   detectAgentTools: vi.fn(),
-  detectWslEnvironment: vi.fn()
+  detectWslEnvironment: vi.fn(),
+  probeDesktopAgentCapabilities: vi.fn()
 }));
 
 vi.mock("../renderer/bridge", () => ({
@@ -50,13 +56,15 @@ function detectedCodex(executionHost: ExecutionHost, installed: boolean): Deskto
 
 function renderSettings(
   saveDesktopSettings: PlanWeaveDesktopSettingsApi["saveDesktopSettings"],
-  savedSettings = initialSettings
+  savedSettings = initialSettings,
+  overrides?: Partial<PlanWeaveDesktopSettingsApi>
 ) {
   const settingsApi: PlanWeaveDesktopSettingsApi = {
     getDesktopSettings: vi.fn().mockResolvedValue(savedSettings),
     onAgentHostChanged: () => () => undefined,
     migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(savedSettings),
-    saveDesktopSettings
+    saveDesktopSettings,
+    ...overrides
   };
   const setError = vi.fn();
   function SettingsHarness() {
@@ -103,9 +111,78 @@ afterEach(() => {
   cleanup();
   bridgeMock.detectAgentTools.mockReset();
   bridgeMock.detectWslEnvironment.mockReset();
+  bridgeMock.probeDesktopAgentCapabilities.mockReset();
+  resetAgentCapabilityProbeSessionCache();
 });
 
 describe("settings agents save failures", () => {
+  it("keeps a probe through same-host settings reads and replaces it after batched cross-window host changes", async () => {
+    const savedSettings = mergeDesktopSettings(initialSettings, {
+      execution: { agentHost: nativeHost, agentTransport: "acp" }
+    });
+    let receiveHost: ((host: ExecutionHost) => void) | undefined;
+    const getDesktopSettings = vi.fn(async () => structuredClone(savedSettings));
+    const earlier = deferred<DesktopAgentCapabilityProbeResult>();
+    const current = deferred<DesktopAgentCapabilityProbeResult>();
+    bridgeMock.detectAgentTools.mockResolvedValue([
+      { ...detectedCodex(nativeHost, true), runnerKind: "acp" }
+    ]);
+    bridgeMock.probeDesktopAgentCapabilities
+      .mockReturnValueOnce(earlier.promise)
+      .mockReturnValueOnce(current.promise);
+    renderSettings(vi.fn(), savedSettings, {
+      getDesktopSettings,
+      onAgentHostChanged: (listener) => {
+        receiveHost = listener;
+        return () => {
+          receiveHost = undefined;
+        };
+      }
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "Codex options" }));
+    expect(bridgeMock.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(getDesktopSettings).toHaveBeenCalledTimes(2);
+    expect(bridgeMock.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      receiveHost?.(ubuntuHost);
+      receiveHost?.(nativeHost);
+    });
+    expect(bridgeMock.probeDesktopAgentCapabilities).toHaveBeenCalledTimes(2);
+    await act(() =>
+      current.resolve({
+        agentKind: "codex",
+        executionHost: nativeHost,
+        ok: true,
+        message: "Ready",
+        failureCode: null,
+        agentInfo: null,
+        authentication: { status: "not_advertised" },
+        capabilities: [],
+        checks: [],
+        sessionConfig: {
+          modes: null,
+          configOptions: [
+            {
+              id: "native",
+              type: "boolean",
+              name: "Current native option",
+              description: null,
+              currentValue: false
+            }
+          ]
+        }
+      })
+    );
+    await act(() => earlier.reject(new Error("Previous Native capability failed")));
+    expect(screen.getByRole("switch", { name: "Current native option" })).toBeVisible();
+    expect(screen.queryByText("Previous Native capability failed")).not.toBeInTheDocument();
+  });
+
   it("hides confirmed Native evidence while choosing or saving WSL and restores it on cancel or failure", async () => {
     const save = deferred<typeof initialSettings>();
     const persistSettings = vi.fn(() => save.promise);

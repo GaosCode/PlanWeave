@@ -4,9 +4,11 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   defaultDesktopSettings,
+  desktopAgentHostKey,
   mergeDesktopSettings,
   normalizeDesktopSettings,
   parseLegacyDesktopSettingsPayload,
+  type DesktopAgentHost,
   type DesktopSettingsPatch,
   type DesktopUiSettings
 } from "../shared/desktopSettings.js";
@@ -173,8 +175,17 @@ export class DesktopSettingsStore {
     return normalized;
   }
 
-  async mergePatch(patch: DesktopSettingsPatch): Promise<DesktopUiSettings> {
+  async mergePatch(
+    patch: DesktopSettingsPatch,
+    expectedAgentHost?: DesktopAgentHost
+  ): Promise<DesktopUiSettings> {
     const current = await this.read();
+    if (
+      expectedAgentHost &&
+      desktopAgentHostKey(expectedAgentHost) !== desktopAgentHostKey(current.execution.agentHost)
+    ) {
+      throw new Error("The confirmed Agent host changed before ACP settings could be saved.");
+    }
     const next = normalizeDesktopSettings(mergeDesktopSettings(current, patch));
     await writeJsonAtomically(this.settingsFile, next);
     applyPlanweaveHomeSetting(next, this.planweaveHomeBaseline);

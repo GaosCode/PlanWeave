@@ -1089,6 +1089,11 @@ export const enCatalog = {
   acpPermissionsManaged:
     "Permission requests are handled individually through ACP interactions while the agent is running.",
   acpSessionMode: "Session mode",
+  acpChooseSupportedValue: "Choose a supported value",
+  acpHostDefaultChoice: "{value} (current host default)",
+  acpSavedValueUnavailable: "Saved value “{value}” is unavailable on this host.",
+  acpSavedOptionUnavailable: "Saved option “{option}” is unavailable on this host.",
+  acpRemoveSavedOption: "Remove saved option {option}",
   acpNotProbed: "Click Refresh to test this agent again.",
   executorPreflight: "Executor preflight",
   executorPreflightSettingsHint:

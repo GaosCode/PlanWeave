@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopAgentDetection, ExecutionHost } from "@planweave-ai/runtime";
+import { desktopAgentHostKey } from "../../shared/desktopSettings";
 import { bridge } from "../bridge";
 
 type DetectionContext = { hostKey: string };
@@ -17,12 +18,8 @@ export type RefreshAgentDetections = (
 
 const noDetections: DesktopAgentDetection[] = [];
 
-function executionHostKey(host: ExecutionHost | null | undefined): string | null {
-  return host?.kind === "wsl" ? `wsl:${host.distribution}` : (host?.kind ?? null);
-}
-
 export function useDetectedAgents(host: ExecutionHost | null) {
-  const hostKey = executionHostKey(host);
+  const hostKey = host ? desktopAgentHostKey(host) : null;
   const contextRef = useRef<DetectionContext | null>(null);
   const generationRef = useRef(0);
   const [state, setState] = useState<DetectionState | null>(null);
@@ -44,7 +41,12 @@ export function useDetectedAgents(host: ExecutionHost | null) {
       let error: string | null = null;
       try {
         const result = await bridge.detectAgentTools();
-        if (result.some((agent) => executionHostKey(agent.executionHost) !== context.hostKey)) {
+        if (
+          result.some(
+            (agent) =>
+              !agent.executionHost || desktopAgentHostKey(agent.executionHost) !== context.hostKey
+          )
+        ) {
           throw new Error("Agent detection returned results for a different execution host.");
         }
         detections = result;

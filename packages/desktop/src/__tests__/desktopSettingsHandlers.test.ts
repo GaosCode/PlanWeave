@@ -326,6 +326,47 @@ describe("desktop settings handlers", () => {
     });
   });
 
+  it("rejects a queued ACP preference on another window's newly confirmed host", async () => {
+    const { registerDesktopSettingsHandlers } = await import("../main/desktopSettingsHandlers");
+    const store = await tempStore();
+    registerDesktopSettingsHandlers(store);
+    const save = handler(desktopSettingsInvokeChannels.saveDesktopSettings);
+    const ubuntu = { kind: "wsl", distribution: "Ubuntu" };
+    const debian = { kind: "wsl", distribution: "Debian" };
+    await save({}, { execution: { agentHost: ubuntu } });
+    await save(
+      {},
+      {
+        agents: {
+          codex: { acp: { modeId: "prior-mode", configOptions: { retired: true, kept: false } } }
+        }
+      },
+      ubuntu
+    );
+
+    const change = save({}, { execution: { agentHost: debian } });
+    const stale = save(
+      {},
+      { agents: { codex: { acp: { configOptions: { kept: null } } } } },
+      ubuntu
+    );
+    await expect(stale).rejects.toThrow("confirmed Agent host changed");
+    await change;
+    await Promise.all([
+      save(
+        {},
+        { agents: { codex: { acp: { configOptions: { model: "debian-model" } } } } },
+        debian
+      ),
+      save({}, { agents: { codex: { acp: { configOptions: { retired: null } } } } }, debian)
+    ]);
+    const persisted = JSON.parse(await readFile(store.settingsFile, "utf8"));
+    expect(persisted.agents.codex.acp).toEqual({
+      modeId: "prior-mode",
+      configOptions: { model: "debian-model", kept: false }
+    });
+  });
+
   it("does not let queued legacy migration overwrite a preceding save", async () => {
     const { registerDesktopSettingsHandlers } = await import("../main/desktopSettingsHandlers");
     const store = await tempStore();

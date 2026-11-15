@@ -128,6 +128,7 @@ export function ExecutorsView({
                   : null
               }
               graph={graph}
+              sourceRoot={selectedProject?.sourceRoot ?? null}
               settings={settings}
               refreshAgentDetections={refreshAgentDetections}
               updateSettings={updateSettings}

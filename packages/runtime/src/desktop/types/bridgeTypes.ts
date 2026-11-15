@@ -160,6 +160,7 @@ export type DesktopAgentCapabilityProbeResult = Pick<
   | "checks"
 > & {
   agentKind: DesktopAgentKind;
+  executionHost: ExecutionHost;
 };
 
 export type DesktopRuntimeToolAvailability = {

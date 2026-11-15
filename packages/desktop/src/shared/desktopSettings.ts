@@ -9,6 +9,10 @@ export type AppearanceMode = "system" | "light" | "dark";
 export type DesktopSettingsLanguage = "system" | "en" | "zh-CN";
 export type DesktopAgentTransport = "cli" | "acp";
 export type DesktopAgentHost = ExecutionHost;
+
+export function desktopAgentHostKey(host: DesktopAgentHost): string {
+  return host.kind === "wsl" ? `wsl:${host.distribution.trim()}` : host.kind;
+}
 export type PaletteComponentKey = "task" | "implementation" | "review";
 export type FloatingControlPosition = { left: number; top: number };
 export type DesktopAcpConfigValue = string | boolean;
@@ -16,6 +20,10 @@ export type DesktopAcpAgentSettings = {
   modeId: string | null;
   configOptions: Record<string, DesktopAcpConfigValue>;
 };
+export type DesktopAcpAgentSettingsPatch = Partial<{
+  modeId: DesktopAcpAgentSettings["modeId"];
+  configOptions: Record<string, DesktopAcpConfigValue | null>;
+}>;
 
 const desktopAgentEndpointPreferenceRemoteSchema = z
   .object({
@@ -145,7 +153,12 @@ export type DesktopSettingsPatch = Partial<{
     defaultBlockSet: BlockType[];
     dragHint: boolean;
   }>;
-  agents: Partial<Record<DesktopAgentKind, Partial<DesktopUiSettings["agents"][DesktopAgentKind]>>>;
+  agents: Partial<
+    Record<
+      DesktopAgentKind,
+      Partial<{ enabled: boolean; fullAccess: boolean; acp: DesktopAcpAgentSettingsPatch }>
+    >
+  >;
 }>;
 
 export const desktopSettingsKey = "planweave.desktop.settings.v1";
@@ -162,7 +175,10 @@ export const desktopAgentHostChangedChannel = "planweave-desktop-settings:agentH
 
 export type PlanWeaveDesktopSettingsApi = {
   getDesktopSettings: () => Promise<DesktopUiSettings>;
-  saveDesktopSettings: (patch: DesktopSettingsPatch) => Promise<DesktopUiSettings>;
+  saveDesktopSettings: (
+    patch: DesktopSettingsPatch,
+    expectedAgentHost?: DesktopAgentHost
+  ) => Promise<DesktopUiSettings>;
   migrateLegacyDesktopSettings: (payload: unknown) => Promise<DesktopUiSettings>;
   onAgentHostChanged: (callback: (agentHost: DesktopAgentHost) => void) => () => void;
 };
@@ -264,6 +280,19 @@ export const defaultDesktopSettings: DesktopUiSettings = {
   }
 };
 
+function mergeAcpConfigOptions(
+  current: DesktopAcpAgentSettings["configOptions"],
+  patch: DesktopAcpAgentSettingsPatch["configOptions"]
+): DesktopAcpAgentSettings["configOptions"] {
+  if (!patch) return { ...current };
+  const configOptions = { ...current, ...patch };
+  return Object.fromEntries(
+    Object.entries(configOptions).filter(
+      (entry): entry is [string, DesktopAcpConfigValue] => entry[1] !== null
+    )
+  );
+}
+
 export function mergeDesktopSettings(
   current: DesktopUiSettings,
   patch: DesktopSettingsPatch
@@ -324,10 +353,10 @@ export function mergeDesktopSettings(
         acp: {
           ...current.agents.codex.acp,
           ...patch.agents?.codex?.acp,
-          configOptions: {
-            ...current.agents.codex.acp.configOptions,
-            ...patch.agents?.codex?.acp?.configOptions
-          }
+          configOptions: mergeAcpConfigOptions(
+            current.agents.codex.acp.configOptions,
+            patch.agents?.codex?.acp?.configOptions
+          )
         }
       },
       "claude-code": {
@@ -336,10 +365,10 @@ export function mergeDesktopSettings(
         acp: {
           ...current.agents["claude-code"].acp,
           ...patch.agents?.["claude-code"]?.acp,
-          configOptions: {
-            ...current.agents["claude-code"].acp.configOptions,
-            ...patch.agents?.["claude-code"]?.acp?.configOptions
-          }
+          configOptions: mergeAcpConfigOptions(
+            current.agents["claude-code"].acp.configOptions,
+            patch.agents?.["claude-code"]?.acp?.configOptions
+          )
         }
       },
       opencode: {
@@ -348,10 +377,10 @@ export function mergeDesktopSettings(
         acp: {
           ...current.agents.opencode.acp,
           ...patch.agents?.opencode?.acp,
-          configOptions: {
-            ...current.agents.opencode.acp.configOptions,
-            ...patch.agents?.opencode?.acp?.configOptions
-          }
+          configOptions: mergeAcpConfigOptions(
+            current.agents.opencode.acp.configOptions,
+            patch.agents?.opencode?.acp?.configOptions
+          )
         }
       },
       pi: {
@@ -360,10 +389,10 @@ export function mergeDesktopSettings(
         acp: {
           ...current.agents.pi.acp,
           ...patch.agents?.pi?.acp,
-          configOptions: {
-            ...current.agents.pi.acp.configOptions,
-            ...patch.agents?.pi?.acp?.configOptions
-          }
+          configOptions: mergeAcpConfigOptions(
+            current.agents.pi.acp.configOptions,
+            patch.agents?.pi?.acp?.configOptions
+          )
         }
       },
       grok: {
@@ -372,10 +401,10 @@ export function mergeDesktopSettings(
         acp: {
           ...current.agents.grok.acp,
           ...patch.agents?.grok?.acp,
-          configOptions: {
-            ...current.agents.grok.acp.configOptions,
-            ...patch.agents?.grok?.acp?.configOptions
-          }
+          configOptions: mergeAcpConfigOptions(
+            current.agents.grok.acp.configOptions,
+            patch.agents?.grok?.acp?.configOptions
+          )
         }
       },
       codebuddy: {
@@ -384,10 +413,10 @@ export function mergeDesktopSettings(
         acp: {
           ...current.agents.codebuddy.acp,
           ...patch.agents?.codebuddy?.acp,
-          configOptions: {
-            ...current.agents.codebuddy.acp.configOptions,
-            ...patch.agents?.codebuddy?.acp?.configOptions
-          }
+          configOptions: mergeAcpConfigOptions(
+            current.agents.codebuddy.acp.configOptions,
+            patch.agents?.codebuddy?.acp?.configOptions
+          )
         }
       }
     }
@@ -470,21 +499,25 @@ function validNonNegativeNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-function normalizeAcpAgentSettings(source: unknown): DesktopAcpAgentSettings | undefined {
+function normalizeAcpAgentSettings(source: unknown): DesktopAcpAgentSettingsPatch | undefined {
   if (!isRecord(source)) return undefined;
-  const configOptions: Record<string, DesktopAcpConfigValue> = {};
-  if (isRecord(source.configOptions)) {
-    for (const [id, value] of Object.entries(source.configOptions)) {
-      if (id && (typeof value === "string" || typeof value === "boolean")) {
-        configOptions[id] = value;
-      }
-    }
-  }
+  const configOptions = isRecord(source.configOptions)
+    ? Object.fromEntries(
+        Object.entries(source.configOptions).filter(
+          (entry): entry is [string, DesktopAcpConfigValue | null] =>
+            entry[0] !== "" &&
+            entry[0] !== "__proto__" &&
+            (entry[1] === null || typeof entry[1] === "string" || typeof entry[1] === "boolean")
+        )
+      )
+    : undefined;
   const hasModeId = source.modeId === null || typeof source.modeId === "string";
-  if (!hasModeId && !isRecord(source.configOptions)) return undefined;
+  if (!hasModeId && !configOptions) return undefined;
   return {
-    modeId: typeof source.modeId === "string" ? source.modeId : null,
-    configOptions
+    ...(source.modeId === null || typeof source.modeId === "string"
+      ? { modeId: source.modeId }
+      : {}),
+    ...(configOptions ? { configOptions } : {})
   };
 }
 
