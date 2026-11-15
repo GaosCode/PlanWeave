@@ -985,7 +985,7 @@ describe("collaboration integration scenarios", () => {
           source: { revision: "rev-1", graphFingerprint: "fp-1" },
           dispatchAttempt: { dispatchId: "dispatch-1", executionAttemptId: "attempt-1" }
         }}
-        localAutoRunActive
+        localAutoRunActivity="active"
         open
         api={scenario.api}
         t={t}

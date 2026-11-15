@@ -18,6 +18,7 @@ export function createDesktopBridgeMock(
     getLatestAutoRunSummaryWithDiagnostics: vi
       .fn()
       .mockResolvedValue({ state: null, diagnostics: [] }),
+    listActiveAutoRunBlockRefs: vi.fn().mockResolvedValue([]),
     // Match DesktopBridgeApi contract (non-null pipeline). Proxy null defaults break App load.
     getReviewPipeline: vi.fn().mockResolvedValue({
       taskId: "",
@@ -31,6 +32,7 @@ export function createDesktopBridgeMock(
     getRunTerminalAvailability: vi.fn().mockResolvedValue([]),
     listPendingImportRecoveries: vi.fn().mockResolvedValue([]),
     onAutoRunChanged: () => () => undefined,
+    onAutoRunActivityChanged: () => () => undefined,
     onPackageFileChanged: () => () => undefined,
     onRuntimeStateChanged: () => () => undefined
   };

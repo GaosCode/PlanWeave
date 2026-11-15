@@ -3,6 +3,9 @@ import type { RemoteHumanExecutionActionCommand } from "@planweave-ai/collaborat
 import { humanPrincipalIdSchema } from "@planweave-ai/collaboration-protocol/core/primitives";
 import {
   WorkspaceExecutionCoordinator,
+  WorkspaceExecutionError,
+  activeAutoRunBlockRefsInWorkspace,
+  assertRemoteBlockDispatchableInWorkspace,
   captureAuthorizedCanvasContent,
   createLocalPackageAuthoritySource,
   createRemoteBlockRuntimePort,
@@ -54,6 +57,7 @@ function createOwnerCanvasCoordinator(input: {
   localAuthority: ReturnType<typeof createLocalPackageAuthoritySource>;
   locator: OwnerCanvasLocator;
   sessions: DesktopWorkspaceExecutionSessionRepository;
+  assertRemoteDispatchReady?: () => Promise<void>;
 }): WorkspaceExecutionCoordinator {
   const workAuthority = { ensure: async () => null };
   const authority = createWorkspaceAuthorityBindingResolver({
@@ -75,6 +79,7 @@ function createOwnerCanvasCoordinator(input: {
         })
     },
     workAuthority,
+    assertRemoteDispatchReady: input.assertRemoteDispatchReady,
     local: {
       async launch() {
         throw new Error("local_execution_unavailable");
@@ -357,7 +362,17 @@ export async function withOwnerCanvasExecutionCoordinator<T>(input: {
       client,
       localAuthority,
       locator,
-      sessions: input.sessions
+      sessions: input.sessions,
+      assertRemoteDispatchReady: async () => {
+        const ref = input.requestInput.blockRef;
+        if (activeAutoRunBlockRefsInWorkspace(workspace).includes(ref)) {
+          throw new WorkspaceExecutionError("local_auto_run_active");
+        }
+        await assertRemoteBlockDispatchableInWorkspace(workspace, ref);
+        if (activeAutoRunBlockRefsInWorkspace(workspace).includes(ref)) {
+          throw new WorkspaceExecutionError("local_auto_run_active");
+        }
+      }
     });
     return input.operation({
       coordinator,

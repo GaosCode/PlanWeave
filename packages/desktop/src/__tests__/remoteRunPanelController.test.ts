@@ -139,12 +139,18 @@ describe("useRemoteRunPanelController", () => {
   });
 
   it("keeps an accepted start across old and empty Runtime echoes until acknowledgement", async () => {
-    const fixture = apiReturning(remoteView({ phase: "completed" }));
+    const fixture = apiReturning(remoteView({ phase: "stopped" }));
     const { result, rerender } = renderController({
       api: fixture.api,
-      runtime: runtimeRemoteExecution
+      runtime: runtimeRemoteExecution,
+      runtimeDispatchable: true
     });
-    await waitFor(() => expect(result.current.viewModel.phase).toBe("terminal_success"));
+    await waitFor(() => expect(result.current.viewModel.phase).toBe("terminal_cancelled"));
+    expect(result.current.viewModel.actions).toContainEqual({
+      kind: "dispatch",
+      available: true,
+      requiresConfirm: false
+    });
     const started = remoteView({ operationId: "operation-2", sessionId: "SESSION-0002" });
     const pendingStart = deferred<DesktopWorkspaceExecutionResponse>();
     fixture.start.mockImplementationOnce(() => pendingStart.promise);

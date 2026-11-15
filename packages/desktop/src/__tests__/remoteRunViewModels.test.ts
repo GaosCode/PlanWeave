@@ -8,7 +8,6 @@ import type { ProjectedRemoteAcpEvent } from "@planweave-ai/runtime";
 import {
   adaptRemoteAcpEvents,
   buildRemoteActionIdentity,
-  isLocalAutoRunActiveFromBlockRecords,
   projectRemoteLifecyclePhase,
   projectRemoteRunActions,
   projectRemoteRunIdentity,
@@ -133,7 +132,7 @@ describe("remoteRunViewModels", () => {
       eventsHasMore: false,
       authorized: true,
       offline: false,
-      localAutoRunActive: true,
+      localAutoRunActivity: "active",
       endpointDispatchAvailable: true
     });
     expect(vm.authority).toBe("remote_dispatch");
@@ -203,7 +202,7 @@ describe("remoteRunViewModels", () => {
       eventsHasMore: false,
       authorized: true,
       offline: false,
-      localAutoRunActive: false,
+      localAutoRunActivity: "inactive",
       hostOnline: true
     };
     const dispatch = (endpointDispatchAvailable: boolean, target = input.assignment) =>
@@ -261,7 +260,7 @@ describe("remoteRunViewModels", () => {
       pendingInteractions: [],
       authorized: true,
       offline: false,
-      localAutoRunActive: false,
+      localAutoRunActivity: "inactive",
       assignmentEligible: true,
       interruptionResumable: true
     });
@@ -297,7 +296,7 @@ describe("remoteRunViewModels", () => {
       pendingInteractions: [],
       authorized: true,
       offline: false,
-      localAutoRunActive: false,
+      localAutoRunActivity: "inactive",
       assignmentEligible: true,
       interruptionResumable: false
     });
@@ -306,7 +305,7 @@ describe("remoteRunViewModels", () => {
       pendingInteractions: [pending],
       authorized: true,
       offline: false,
-      localAutoRunActive: false,
+      localAutoRunActivity: "inactive",
       assignmentEligible: true,
       interruptionResumable: false
     });
@@ -340,7 +339,7 @@ describe("remoteRunViewModels", () => {
       pendingInteractions: [],
       authorized: true,
       offline: true,
-      localAutoRunActive: false,
+      localAutoRunActivity: "inactive",
       assignmentEligible: true,
       interruptionResumable: false
     });
@@ -415,13 +414,5 @@ describe("remoteRunViewModels", () => {
     expect(action).not.toHaveProperty("leaseId");
     expect(action).not.toHaveProperty("leaseExpiresAt");
     expect(action).not.toHaveProperty("recovery");
-  });
-
-  it("detects local Auto Run activity from unfinished block run records", () => {
-    expect(isLocalAutoRunActiveFromBlockRecords([])).toBe(false);
-    expect(isLocalAutoRunActiveFromBlockRecords([{ finishedAt: "2030-01-01T00:00:00.000Z" }])).toBe(
-      false
-    );
-    expect(isLocalAutoRunActiveFromBlockRecords([{ finishedAt: null }])).toBe(true);
   });
 });

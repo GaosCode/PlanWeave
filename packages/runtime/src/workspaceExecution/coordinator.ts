@@ -175,6 +175,7 @@ export class WorkspaceExecutionCoordinator {
       workAuthority: WorkAuthorityPort;
       local: LocalWorkspaceExecutionAdapter;
       remote: RemoteWorkspaceExecutionAdapter;
+      assertRemoteDispatchReady?: () => Promise<void>;
       sessions?: WorkspaceExecutionSessionRepositoryPort;
       sessionStorage?: (
         binding: ValidatedWorkspaceAuthorityBinding
@@ -293,6 +294,7 @@ export class WorkspaceExecutionCoordinator {
       if (target.target !== "remote") {
         throw new WorkspaceExecutionError("agent_endpoint_unavailable");
       }
+      await this.input.assertRemoteDispatchReady?.();
       const intent = remoteIntent({
         binding,
         endpointId: target.agentEndpointId,
@@ -760,6 +762,7 @@ export class WorkspaceExecutionCoordinator {
       throw workspaceExecutionPortError(error, "work_authority_unavailable");
     }
     assertRemoteWorkAuthorityMatchesBinding(binding, currentAuthority);
+    await this.input.assertRemoteDispatchReady?.();
     const relaunched = await this.input.remote.launch({
       request,
       binding,

@@ -200,6 +200,7 @@ export function renderController(input: {
   runtime?: UseRemoteRunPanelControllerArgs["runtimeRemoteExecution"];
   executionLocator?: RemoteRunExecutionLocator;
   refreshRuntimeRemoteExecution?: () => Promise<RemoteBlockExecutionReadModel | null>;
+  runtimeDispatchable?: boolean;
 }) {
   const initialProps: {
     executionLocator: RemoteRunExecutionLocator;
@@ -217,6 +218,7 @@ export function renderController(input: {
         agentEndpoints: [endpoint],
         workItem,
         runtimeRemoteExecution: runtime,
+        runtimeDispatchable: input.runtimeDispatchable,
         refreshRuntimeRemoteExecution: input.refreshRuntimeRemoteExecution,
         executionLocator,
         executionApi: input.api,

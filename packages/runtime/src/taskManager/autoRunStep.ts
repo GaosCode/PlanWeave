@@ -578,6 +578,7 @@ export async function runAutoRunStep(options: {
   parallel?: boolean;
   scope?: ClaimScope;
   session?: ExecutionGraphSession;
+  onClaimActivity?: (refs: readonly string[], active: boolean) => void;
   executionSnapshot?: import("../package/packageExecutionSnapshot.js").PackageExecutionSnapshot;
 }): Promise<AutoRunStepResult> {
   options = {
@@ -610,6 +611,12 @@ export async function runAutoRunStep(options: {
     // Streaming scheduler reports live holders without new work; do not re-dispatch them.
     return { kind: "idle", claim };
   }
+  options.onClaimActivity?.(
+    claim.kind === "batch"
+      ? claim.refs
+      : [claim.kind === "feedback" ? claim.sourceReviewBlockRef : claim.ref],
+    true
+  );
   if (claim.kind === "batch") {
     const executionWaveId = createExecutionWaveId();
     const executor =
@@ -643,6 +650,9 @@ export async function runAutoRunStep(options: {
           session: options.session,
           signal: options.signal,
           executionWaveId
+        }).then((result) => {
+          options.onClaimActivity?.([ref], false);
+          return result;
         })
       )
     );

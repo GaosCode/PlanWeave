@@ -6,6 +6,7 @@ import {
   getLatestAutoRunRetrospective,
   getLatestAutoRunSummary,
   getLatestAutoRunSummaryWithDiagnostics,
+  listActiveAutoRunBlockRefs,
   markBlockBlocked,
   pauseAutoRun,
   previewClaimNext,
@@ -82,6 +83,8 @@ export const runtimeBridgeAutoRunHandlers = {
     stopAutoRun(runId, expectedAutoRunStatePathSchema.parse(expectedStatePath)),
   getAutoRunState: (_event, runId) => getAutoRunState(runId),
   getLatestAutoRunSummary: (_event, ref) => getLatestAutoRunSummary(ref.projectRoot, ref.canvasId),
+  listActiveAutoRunBlockRefs: (_event, ref) =>
+    listActiveAutoRunBlockRefs(desktopCanvasReferenceSchema.parse(ref)),
   getLatestAutoRunSummaryWithDiagnostics: (_event, ref) =>
     getLatestAutoRunSummaryWithDiagnostics(ref.projectRoot, ref.canvasId),
   getAutoRunRetrospective: (_event, ref, runId) =>

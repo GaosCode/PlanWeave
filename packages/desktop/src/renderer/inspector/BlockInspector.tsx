@@ -36,7 +36,7 @@ import {
 } from "../executors/executorOptionViewModel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { createTranslator } from "../i18n";
-import { isLocalAutoRunActiveFromBlockRecords } from "../collaboration/remoteRunViewModels";
+import type { LocalAutoRunActivity } from "../collaboration/remoteRunViewModels";
 import {
   applyAgentEndpointRequirements,
   buildLocalAgentEndpoint,
@@ -66,6 +66,8 @@ type BlockInspectorProps = {
   error: string | null;
   executorOptions: string[];
   graph: DesktopGraphViewModel | null;
+  localAutoRunActivity?: LocalAutoRunActivity;
+  runtimeDispatchable?: boolean;
   handleOpenRunRecord: (recordId: string | null | undefined) => Promise<void>;
   onOpenTerminal?: (recordId: string | null, appId: DesktopTerminalAppId) => Promise<void>;
   onOpenRunTerminal?: (recordId: string, appId: DesktopTerminalAppId) => Promise<void>;
@@ -108,6 +110,8 @@ export function BlockInspector({
   error,
   executorOptions,
   graph,
+  localAutoRunActivity,
+  runtimeDispatchable,
   handleOpenRunRecord,
   onOpenTerminal,
   onOpenRunTerminal,
@@ -133,10 +137,6 @@ export function BlockInspector({
   tmuxAvailable = false,
   t
 }: BlockInspectorProps) {
-  const localAutoRunActive = useMemo(
-    () => isLocalAutoRunActiveFromBlockRecords(blockRunRecords),
-    [blockRunRecords]
-  );
   const latestBlockRun = blockRunRecords[0];
   const latestTmuxBlockRun = blockRunRecords.find(
     (record) => terminalAvailabilityByRecordId[record.recordId]?.available
@@ -448,7 +448,8 @@ export function BlockInspector({
               }
               runtimeRemoteExecution={selectedBlock.remoteExecution}
               refreshRuntimeRemoteExecution={refreshRuntimeRemoteExecution}
-              localAutoRunActive={localAutoRunActive}
+              localAutoRunActivity={localAutoRunActivity}
+              runtimeDispatchable={runtimeDispatchable}
               canvasRef={canvasRef}
               executionLocator={executionLocator}
               localAgentEndpoints={localAgentEndpoints}

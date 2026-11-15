@@ -428,21 +428,29 @@ describe("preload bridge invocation", () => {
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(packageFileChangedChannel, listener);
   });
 
-  it("exposes auto-run change subscription with unsubscribe", async () => {
+  it("delivers phase and activity notifications to their own Auto Run subscriptions", async () => {
     await import("../preload/preload");
     const api = electronMock.exposed.get("planweave") as {
       onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
+      onAutoRunActivityChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
     };
     const callback = vi.fn();
+    const activityCallback = vi.fn();
 
     const unsubscribe = api.onAutoRunChanged(callback);
+    const unsubscribeActivity = api.onAutoRunActivityChanged(activityCallback);
 
-    expect(electronMock.ipcRenderer.on).toHaveBeenCalledTimes(1);
+    expect(electronMock.ipcRenderer.on).toHaveBeenCalledTimes(2);
     const [channel, listener] = electronMock.ipcRenderer.on.mock.calls[0] as [
       string,
       IpcRendererListener
     ];
+    const [activityChannel, activityListener] = electronMock.ipcRenderer.on.mock.calls[1] as [
+      string,
+      IpcRendererListener
+    ];
     expect(channel).toBe(autoRunChangedChannel);
+    expect(activityChannel).toBe(autoRunChangedChannel);
     const event: DesktopAutoRunEvent = {
       projectRoot: "/tmp/project",
       workspaceRoot: "/tmp/home/projects/project",
@@ -494,10 +502,20 @@ describe("preload bridge invocation", () => {
       triggeredAt: "2026-06-16T00:00:01.000Z"
     };
     listener({}, event);
+    activityListener({}, event);
+    const activityEvent = { ...event, eventType: "active_blocks_changed" };
+    listener({}, activityEvent);
+    activityListener({}, activityEvent);
 
-    expect(callback).toHaveBeenCalledWith(event);
+    expect(callback).toHaveBeenCalledExactlyOnceWith(event);
+    expect(activityCallback).toHaveBeenCalledExactlyOnceWith(activityEvent);
     unsubscribe();
+    unsubscribeActivity();
     expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(autoRunChangedChannel, listener);
+    expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(
+      autoRunChangedChannel,
+      activityListener
+    );
   });
 
   it("exposes runtime state change subscription with unsubscribe", async () => {

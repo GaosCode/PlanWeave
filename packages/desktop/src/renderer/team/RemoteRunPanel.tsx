@@ -19,7 +19,10 @@ import {
   type RemoteRunExecutionLocator
 } from "../hooks/useRemoteRunPanelController";
 import type { PlanWeaveWorkspaceExecutionApi } from "../../shared/workspaceExecution.js";
-import type { RemoteRunAuthorizedActionKind } from "../collaboration/remoteRunViewModels";
+import type {
+  LocalAutoRunActivity,
+  RemoteRunAuthorizedActionKind
+} from "../collaboration/remoteRunViewModels";
 import { remoteRunLifecyclePhaseLabel } from "../collaboration/remoteRunLifecycleCopy";
 import { formatAgentEndpointUnavailableReason } from "../collaboration/formatAgentEndpointUnavailableReason";
 import {
@@ -38,7 +41,8 @@ export type RemoteRunPanelProps = {
   workItem: WorkItemRef | null;
   runtimeRemoteExecution?: RemoteBlockExecutionReadModel | null;
   refreshRuntimeRemoteExecution?: () => Promise<RemoteBlockExecutionReadModel | null>;
-  localAutoRunActive?: boolean;
+  localAutoRunActivity?: LocalAutoRunActivity;
+  runtimeDispatchable?: boolean;
   canvasRef?: DesktopCanvasReference | null;
   executionLocator?: RemoteRunExecutionLocator | null;
   localAgentEndpoints?: readonly LocalAgentEndpointInput[];
@@ -84,7 +88,8 @@ export function RemoteRunPanel({
   workItem,
   runtimeRemoteExecution = null,
   refreshRuntimeRemoteExecution,
-  localAutoRunActive = false,
+  localAutoRunActivity = "inactive",
+  runtimeDispatchable,
   canvasRef = null,
   executionLocator = null,
   localAgentEndpoints = [],
@@ -107,7 +112,8 @@ export function RemoteRunPanel({
     workItem,
     runtimeRemoteExecution,
     refreshRuntimeRemoteExecution,
-    localAutoRunActive,
+    localAutoRunActivity,
+    runtimeDispatchable,
     canvasRef,
     executionLocator,
     localAgentEndpoints,
@@ -179,6 +185,19 @@ export function RemoteRunPanel({
           data-testid="remote-run-local-coexistence"
         >
           {t("remoteRunLocalCoexistence")}
+        </p>
+      ) : null}
+      {localAutoRunActivity === "checking" || localAutoRunActivity === "unavailable" ? (
+        <p
+          role="status"
+          className="text-[11px] text-muted-foreground"
+          data-testid="remote-run-local-activity"
+        >
+          {t(
+            localAutoRunActivity === "checking"
+              ? "remoteRunLocalActivityChecking"
+              : "remoteRunLocalActivityUnavailable"
+          )}
         </p>
       ) : null}
 
@@ -256,13 +275,13 @@ export function RemoteRunPanel({
           <dt className="text-muted-foreground">{t("remoteRunAttemptVersion")}</dt>
           <dd className="font-mono">{identity.attemptVersion}</dd>
         </dl>
-      ) : (
+      ) : localAutoRunActivity === "inactive" ? (
         <p className="text-[11px] text-muted-foreground" data-testid="remote-run-no-operation">
-          {viewModel.assignmentEligibleForDispatch
+          {availableActions.some((action) => action.kind === "dispatch")
             ? t("remoteRunReadyToDispatch")
             : t("remoteRunNoActiveOperation")}
         </p>
-      )}
+      ) : null}
 
       {viewModel.runtimeBindingSummary ? (
         <p className="text-[11px]" data-testid="remote-run-runtime-result">

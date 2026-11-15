@@ -69,6 +69,13 @@ export async function assertRemoteBlockDispatchable(
   }
 }
 
+export async function assertRemoteBlockDispatchableInWorkspace(
+  projectRoot: PackageWorkspaceRef,
+  ref: string
+): Promise<void> {
+  await assertRemoteBlockDispatchable(await loadRuntimeReadonly({ projectRoot }), ref);
+}
+
 export async function inspectRemoteBlockCandidate(
   projectRoot: PackageWorkspaceRef,
   ref: string

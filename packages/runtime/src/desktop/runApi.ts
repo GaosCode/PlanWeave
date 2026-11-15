@@ -108,6 +108,7 @@ const runWorkspaces = new Map<string, ProjectWorkspace>();
 const stopOperations = new Map<string, Promise<DesktopAutoRunState>>();
 const stopIntents = new Set<string>();
 const activeLoops = new Set<string>();
+const activeStepBlockRefs = new Map<string, Set<string>>();
 const stateMutations = new Map<string, Set<symbol>>();
 const runtimeResetStateFiles = new Set<string>();
 
@@ -312,6 +313,51 @@ export function subscribeAutoRunEvents(listener: DesktopAutoRunEventListener): (
   };
 }
 
+function updateActiveStepBlocks(
+  runId: string,
+  workspace: ProjectWorkspace,
+  refs: readonly string[],
+  active: boolean
+): void {
+  const blocks = activeStepBlockRefs.get(runId) ?? new Set<string>();
+  const count = blocks.size;
+  for (const ref of refs) {
+    if (active) blocks.add(ref);
+    else blocks.delete(ref);
+  }
+  if (blocks.size === count) return;
+  if (blocks.size === 0) activeStepBlockRefs.delete(runId);
+  else activeStepBlockRefs.set(runId, blocks);
+  const state = runs.get(runId);
+  if (state) {
+    emitAutoRunChanged(
+      { ...state, projectRoot: workspace.rootPath },
+      "active_blocks_changed",
+      workspace
+    );
+  }
+}
+
+export function activeAutoRunBlockRefsInWorkspace(workspace: ProjectWorkspace): string[] {
+  return memoryForWorkspace(workspace)
+    .values()
+    .flatMap(({ runId }) => {
+      const owner = runWorkspaces.get(runId);
+      if (
+        owner?.projectCreatedAt !== workspace.projectCreatedAt ||
+        owner?.packageStorageIdentity !== workspace.packageStorageIdentity ||
+        owner?.resultsStorageIdentity !== workspace.resultsStorageIdentity
+      )
+        return [];
+      return [...(activeStepBlockRefs.get(runId) ?? [])];
+    });
+}
+
+export async function listActiveAutoRunBlockRefs(ref: DesktopCanvasReference): Promise<string[]> {
+  const workspace = await resolveTaskCanvasWorkspace(ref.projectRoot, ref.canvasId);
+  return activeAutoRunBlockRefsInWorkspace(workspace);
+}
+
 async function runLoop(runId: string): Promise<void> {
   if (activeLoops.has(runId)) {
     return;
@@ -367,7 +413,11 @@ async function runLoop(runId: string): Promise<void> {
           signal: runAbortControllers.get(runId)?.signal,
           cliSignal: runCliAbortControllers.get(runId)?.signal,
           interactionBroker: desktopInteractionBroker,
-          acpRecovery: current.options.acpRecovery ?? undefined
+          acpRecovery: current.options.acpRecovery ?? undefined,
+          onClaimActivity: (refs, active) => updateActiveStepBlocks(runId, workspace, refs, active)
+        }).finally(() => {
+          const refs = activeStepBlockRefs.get(runId);
+          if (refs) updateActiveStepBlocks(runId, workspace, [...refs], false);
         });
         if (operation) operation.inFlight = false;
         invalidateDesktopProjectProjection(current.projectRoot);

@@ -134,7 +134,16 @@ const api: DesktopBridgeApi = {
     return () => ipcRenderer.off(runtimeStateChangedChannel, listener);
   },
   onAutoRunChanged: (callback) => {
-    const listener = (_event: IpcRendererEvent, payload: DesktopAutoRunEvent) => callback(payload);
+    const listener = (_event: IpcRendererEvent, payload: DesktopAutoRunEvent) => {
+      if (payload.eventType !== "active_blocks_changed") callback(payload);
+    };
+    ipcRenderer.on(autoRunChangedChannel, listener);
+    return () => ipcRenderer.off(autoRunChangedChannel, listener);
+  },
+  onAutoRunActivityChanged: (callback) => {
+    const listener = (_event: IpcRendererEvent, payload: DesktopAutoRunEvent) => {
+      if (payload.eventType === "active_blocks_changed") callback(payload);
+    };
     ipcRenderer.on(autoRunChangedChannel, listener);
     return () => ipcRenderer.off(autoRunChangedChannel, listener);
   },

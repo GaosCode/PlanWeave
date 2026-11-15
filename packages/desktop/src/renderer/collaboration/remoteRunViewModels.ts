@@ -56,6 +56,7 @@ export type RemoteRunActionAvailability =
         | "no_pending_interaction"
         | "offline"
         | "local_run_active"
+        | "local_run_unconfirmed"
         | "assignment_ineligible";
     };
 
@@ -76,12 +77,7 @@ export type RemoteRunIdentitySummary = {
   projectId: string;
 };
 
-/** True when the selected Block has an unfinished local run record (local Auto Run active). */
-export function isLocalAutoRunActiveFromBlockRecords(
-  records: readonly { finishedAt: string | null | undefined }[]
-): boolean {
-  return records.some((record) => record.finishedAt == null);
-}
+export type LocalAutoRunActivity = "checking" | "inactive" | "active" | "unavailable";
 
 export type RemoteRunPanelViewModel = {
   authority: RunAuthorityKind;
@@ -316,7 +312,7 @@ export function projectRemoteRunActions(input: {
   pendingInteractions: readonly RemoteInteractionView[];
   authorized: boolean;
   offline: boolean;
-  localAutoRunActive: boolean;
+  localAutoRunActivity: LocalAutoRunActivity;
   assignmentEligible: boolean;
   interruptionResumable: boolean;
 }): RemoteRunActionAvailability[] {
@@ -353,8 +349,11 @@ export function projectRemoteRunActions(input: {
 
   return kinds.map((kind) => {
     if (kind === "dispatch") {
-      if (input.localAutoRunActive) {
+      if (input.localAutoRunActivity === "active") {
         return { kind, available: false as const, reason: "local_run_active" as const };
+      }
+      if (input.localAutoRunActivity !== "inactive") {
+        return { kind, available: false as const, reason: "local_run_unconfirmed" as const };
       }
       if (!input.assignmentEligible) {
         return { kind, available: false as const, reason: "assignment_ineligible" as const };
@@ -437,11 +436,12 @@ export function projectRemoteRunPanelViewModel(input: {
   eventsHasMore: boolean;
   authorized: boolean;
   offline: boolean;
-  localAutoRunActive: boolean;
+  localAutoRunActivity: LocalAutoRunActivity;
   hostOnline?: boolean | null;
   endpointDispatchAvailable: boolean;
 }): RemoteRunPanelViewModel {
   const assignmentEligible = input.endpointDispatchAvailable;
+  const localAutoRunActive = input.localAutoRunActivity === "active";
   const interruptionResumable = Boolean(
     input.observation?.runtime.interruption?.resumable ||
       (input.observation?.state === "interrupted" &&
@@ -450,20 +450,20 @@ export function projectRemoteRunPanelViewModel(input: {
   const phase = projectRemoteLifecyclePhase({
     observation: input.observation,
     runtime: input.runtime,
-    canDispatch: assignmentEligible && !input.localAutoRunActive && !input.offline
+    canDispatch: assignmentEligible && input.localAutoRunActivity === "inactive" && !input.offline
   });
   const actions = projectRemoteRunActions({
     observation: input.observation,
     pendingInteractions: input.pendingInteractions,
     authorized: input.authorized,
     offline: input.offline,
-    localAutoRunActive: input.localAutoRunActive,
+    localAutoRunActivity: input.localAutoRunActivity,
     assignmentEligible,
     interruptionResumable
   });
   const adaptedEvents = adaptRemoteAcpEvents(input.events);
   const diagnostics: string[] = [];
-  if (input.localAutoRunActive) {
+  if (localAutoRunActive) {
     diagnostics.push("local_auto_run_coexisting");
   }
   if (input.runtime?.status === "source_drift") {
@@ -508,7 +508,7 @@ export function projectRemoteRunPanelViewModel(input: {
       phase === "interrupted" ||
       Boolean(input.runtime?.actionRequired),
     interruptionResumable,
-    localAutoRunCoexisting: input.localAutoRunActive,
+    localAutoRunCoexisting: localAutoRunActive,
     diagnostics
   };
 }

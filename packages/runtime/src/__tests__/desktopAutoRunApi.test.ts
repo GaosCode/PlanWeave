@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getAutoRunState,
+  createTaskCanvas,
   getLatestAutoRunSummary,
+  listActiveAutoRunBlockRefs,
   listAutoRunEvents,
   pauseAutoRun,
   resetDesktopRuntimeState,
@@ -769,16 +771,20 @@ describe("desktop auto run API", () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
       expect(executorReady).toBe(true);
+      const canvas = { projectRoot: root, canvasId: null };
+      await expect(listActiveAutoRunBlockRefs(canvas)).resolves.toEqual(["T-001#B-001"]);
 
       const firstStop = stopAutoRun(started.runId);
       const repeatedStop = stopAutoRun(started.runId);
       await expect(firstStop).resolves.toMatchObject({ phase: "stopped" });
       await expect(repeatedStop).resolves.toMatchObject({ phase: "stopped" });
+      await expect(listActiveAutoRunBlockRefs(canvas)).resolves.toEqual(["T-001#B-001"]);
       await writeFile(releasePath, "release");
       await waitForAutoRunEvent(
         started.eventLogPath,
         (event) => event.type === "stopped_step_ignored"
       );
+      await expect(listActiveAutoRunBlockRefs(canvas)).resolves.toEqual([]);
       const stopped = await getLatestAutoRunSummary(root, null);
       if (!stopped) {
         throw new Error("Expected stopped Auto Run summary.");
@@ -1042,31 +1048,64 @@ describe("desktop auto run API", () => {
   });
 
   it("uses manifest parallel mode for project-level Auto Run", async () => {
-    const manifest = manifestTestBuilder({ includeSecondTask: true })
-      .withParallelExecution({ maxConcurrent: 2 })
-      .withExecutor("fake-codex", {
-        adapter: "codex-exec",
-        command: process.execPath,
-        args: [
-          "-e",
-          "let input=''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => { console.log('parallel auto run ' + input.split('\\n')[0]); });"
-        ]
-      })
-      .withDefaultExecutor("fake-codex")
-      .build();
-    const { root } = await createTestWorkspace(manifest);
-
-    const run = await startAutoRun(root, null, { kind: "project" }, 1, noTmux);
-    startedRunIds.add(run.runId);
-    const state = await waitForRun(run.runId, (nextState) => nextState.phase !== "running");
-
-    expect(state).toMatchObject({
-      phase: "paused",
-      currentRef: "T-001#B-001",
-      currentExecutor: "fake-codex",
-      latestOutputSummary: "2 block(s) submitted.",
-      stepCount: 1
+    const barrierDir = await mkdtemp(join(tmpdir(), "planweave-auto-run-parallel-"));
+    const releases = [join(barrierDir, "release-a"), join(barrierDir, "release-b")];
+    const executor = (release: string) => ({
+      adapter: "codex-exec" as const,
+      command: process.execPath,
+      args: [
+        "-e",
+        [
+          "const { existsSync } = require('node:fs');",
+          "process.stdin.resume();",
+          "process.stdin.on('end', () => {",
+          "  const poll = setInterval(() => {",
+          "    if (existsSync(process.argv[1])) {",
+          "      clearInterval(poll);",
+          "      console.log('parallel Auto Run completed');",
+          "    }",
+          "  }, 10);",
+          "  setTimeout(() => process.exit(1), 5000).unref();",
+          "});"
+        ].join("\n"),
+        release
+      ]
     });
+    try {
+      const manifest = manifestTestBuilder({ includeSecondTask: true })
+        .withParallelExecution({ maxConcurrent: 2 })
+        .withExecutor("fake-codex", executor(releases[0]))
+        .withExecutor("second-codex", executor(releases[1]))
+        .withDefaultExecutor("fake-codex")
+        .withBlock("T-002", "B-001", (block) => ({ ...block, executor: "second-codex" }))
+        .build();
+      const { root } = await createTestWorkspace(manifest);
+      const otherCanvas = await createTaskCanvas(root, { name: "Second canvas" });
+      const canvas = { projectRoot: root, canvasId: "default" };
+      const activity = () => listActiveAutoRunBlockRefs(canvas);
+
+      const run = await startAutoRun(root, canvas.canvasId, { kind: "project" }, 1, noTmux);
+      startedRunIds.add(run.runId);
+      await expect.poll(activity).toEqual(["T-001#B-001", "T-002#B-001"]);
+      await expect(
+        listActiveAutoRunBlockRefs({ projectRoot: root, canvasId: otherCanvas.canvasId })
+      ).resolves.toEqual([]);
+      await writeFile(releases[0], "release");
+      await expect.poll(activity).toEqual(["T-002#B-001"]);
+      await writeFile(releases[1], "release");
+      const state = await waitForRun(run.runId, (nextState) => nextState.phase !== "running");
+
+      expect(state).toMatchObject({
+        phase: "paused",
+        currentRef: "T-001#B-001",
+        currentExecutor: "fake-codex",
+        latestOutputSummary: "2 block(s) submitted.",
+        stepCount: 1
+      });
+      await expect(activity()).resolves.toEqual([]);
+    } finally {
+      await Promise.all(releases.map((release) => writeFile(release, "release")));
+    }
   });
 
   it("blocks the desktop run when review warnings remain after no claimable work", async () => {

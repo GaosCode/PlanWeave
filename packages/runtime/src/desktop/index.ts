@@ -223,12 +223,14 @@ export type { RunnerNextActions } from "../autoRun/runnerNextActions.js";
 export { reconcileOrphanedAcpRun } from "./acpOrphanReconciliation.js";
 export type { AcpOrphanReconciliationResult } from "./acpOrphanReconciliation.js";
 export {
+  activeAutoRunBlockRefsInWorkspace,
   cancelDesktopAgentRun,
   getDesktopRuntimeRefresh,
   getAutoRunState,
   getLatestAutoRunSummary,
   getLatestAutoRunSummaryWithDiagnostics,
   listDesktopPendingAgentRequests,
+  listActiveAutoRunBlockRefs,
   listAutoRunEvents,
   pauseAutoRun,
   resetDesktopRuntimeState,

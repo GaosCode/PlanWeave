@@ -4,6 +4,7 @@ export type DesktopBridgeSubscriptionMethod =
   | "onPackageFileChanged"
   | "onRuntimeStateChanged"
   | "onAutoRunChanged"
+  | "onAutoRunActivityChanged"
   | "subscribeRunnerRecord";
 export type DesktopBridgeInvokeMethod = Exclude<
   keyof DesktopBridgeApi,
@@ -84,6 +85,7 @@ export const desktopBridgeInvokeChannels = {
   listPendingImportRecoveries: "planweave:listPendingImportRecoveries",
   listProjects: "planweave:listProjects",
   linkProjectSourceRoot: "planweave:linkProjectSourceRoot",
+  listActiveAutoRunBlockRefs: "planweave:listActiveAutoRunBlockRefs",
   openBlockInspectorWindow: "planweave:openBlockInspectorWindow",
   openProjectInDevelopmentTool: "planweave:openProjectInDevelopmentTool",
   openTerminal: "planweave:openTerminal",

@@ -25,6 +25,7 @@ import { changeAgentEndpointSelection } from "./collaboration/changeAgentEndpoin
 import { createTranslator, type Language } from "./i18n";
 import { BlockInspector } from "./inspector/BlockInspector";
 import { useAutoRunSelectionGuard } from "./hooks/useAutoRunSelectionGuard";
+import { useBlockLocalAutoRunActivity } from "./hooks/useBlockLocalAutoRunActivity";
 import { useBlockInspectorRuntimeSubscription } from "./hooks/useBlockInspectorRuntimeSubscription";
 import { useDetectedAgents } from "./hooks/useDetectedAgents";
 import { useDesktopSettingsBridge } from "./hooks/useDesktopSettingsBridge";
@@ -58,7 +59,7 @@ export function BlockInspectorWindow() {
   const params = useMemo(() => new URLSearchParams(search), [search]);
   const projectRoot = params.get("projectRoot") ?? "";
   const initialBlockRef = params.get("blockRef") ?? "";
-  const canvasId = params.get("canvasId");
+  const canvasId = params.get("canvasId") || null;
   const language = supportedLanguage(params.get("language"));
   const t = useMemo(() => createTranslator(language), [language]);
   const [blockRef, setBlockRef] = useState(initialBlockRef);
@@ -359,17 +360,29 @@ export function BlockInspectorWindow() {
     setError
   });
 
+  const { activity: localAutoRunActivity, refresh: refreshLocalAutoRunActivity } =
+    useBlockLocalAutoRunActivity(projectRoot, canvasId, graph ? blockRef : null);
+
   const refreshRuntimeRemoteExecution = useCallback(async () => {
     const owner = captureBlockSelection();
-    await loadBlock(blockRef, {
-      resetSelectedRunRecord: false,
-      preserveDirtyDraft: true,
-      propagateReadError: true
-    });
+    await Promise.all([
+      loadBlock(blockRef, {
+        resetSelectedRunRecord: false,
+        preserveDirtyDraft: true,
+        propagateReadError: true
+      }),
+      refreshLocalAutoRunActivity()
+    ]);
     if (!owner.isCurrent()) return null;
     await retryRuntimeSubscription();
     return owner.isCurrent() ? (selection.current.block?.remoteExecution ?? null) : null;
-  }, [blockRef, captureBlockSelection, loadBlock, retryRuntimeSubscription]);
+  }, [
+    blockRef,
+    captureBlockSelection,
+    loadBlock,
+    refreshLocalAutoRunActivity,
+    retryRuntimeSubscription
+  ]);
 
   const workspaceCanvas = null;
   const ownerControlPlane = useOwnerControlPlaneAvailability();
@@ -773,6 +786,8 @@ export function BlockInspectorWindow() {
       agentDetections={agentDetections}
       canvasRef={{ projectRoot, canvasId }}
       executionLocator={executionLocator}
+      localAutoRunActivity={selectedBlock?.ref === blockRef ? localAutoRunActivity : "checking"}
+      runtimeDispatchable={selectedBlock?.ref === blockRef && selectedBlock.remoteDispatchable}
       refreshRuntimeRemoteExecution={refreshRuntimeRemoteExecution}
       className="inset-0 h-screen w-screen min-w-0 rounded-none border-0 shadow-none ring-0"
       error={

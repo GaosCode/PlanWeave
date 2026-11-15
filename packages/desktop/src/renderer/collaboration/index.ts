@@ -116,7 +116,6 @@ export {
 export {
   adaptRemoteAcpEvents,
   buildRemoteActionIdentity,
-  isLocalAutoRunActiveFromBlockRecords,
   projectRemoteLifecyclePhase,
   projectRemoteRunActions,
   projectRemoteRunIdentity,

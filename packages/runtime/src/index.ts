@@ -203,6 +203,7 @@ export {
   type ReadAuthorizedCanvasRuntimeStatusInput
 } from "./desktop/canvasRuntimeStatus.js";
 export { migrateBlockRunIndexes } from "./autoRun/blockRunIndex.js";
+export { assertRemoteBlockDispatchableInWorkspace } from "./taskManager/remoteBlockInspection.js";
 export { editBlock, editTask } from "./package/manifestEdit.js";
 export { readMarkdown } from "./package/readMarkdown.js";
 export { resolvePackagePath, PackagePathError } from "./package/resolvePackagePath.js";
@@ -776,6 +777,8 @@ export {
   getLatestAutoRunRetrospective,
   getLatestAutoRunSummary,
   getLatestAutoRunSummaryWithDiagnostics,
+  activeAutoRunBlockRefsInWorkspace,
+  listActiveAutoRunBlockRefs,
   listDesktopPendingAgentRequests,
   listAutoRunEvents,
   tailAutoRunEvents,

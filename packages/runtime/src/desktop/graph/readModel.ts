@@ -12,6 +12,8 @@ import {
   type ProjectGraphClaimGuard
 } from "../../taskManager/projectGraphClaimGuard.js";
 import { loadRuntimeReadonly, type RuntimeContext } from "../../taskManager/runtimeContext.js";
+import { projectBlockerReason } from "../../taskManager/claimReadinessRules.js";
+import { remoteBlockDispatchReadiness } from "../../taskManager/remoteBlockDispatchReadiness.js";
 import { listExecutorProfilesForManifest } from "../../autoRun/executors.js";
 import { optionalAgentDefinition } from "../../autoRun/agentRegistry.js";
 import { selectedDesktopAgentTransport } from "../../autoRun/desktopAgentSettings.js";
@@ -372,6 +374,10 @@ export async function buildBlockDetail(
     activeFeedbackId: blockStatus.activeFeedbackId ?? null,
     exceptionReason: blockStatus.reason ?? null,
     reviewGate: claimHint?.reviewGate ?? null,
+    remoteDispatchable:
+      projectBlockerReason(context.claimGuard, taskId) === null &&
+      remoteBlockDispatchReadiness({ graph, manifest, state: context.runtime.state, ref })
+        .dispatchable,
     remoteExecution: blockStatus.remoteExecution
   };
 }

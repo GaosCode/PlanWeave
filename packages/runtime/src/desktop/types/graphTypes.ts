@@ -269,6 +269,7 @@ export type DesktopBlockDetail = {
   activeFeedbackId: string | null;
   exceptionReason: string | null;
   reviewGate: ReviewGateHint | null;
+  remoteDispatchable: boolean;
   remoteExecution: RemoteBlockExecutionReadModel | null;
 };
 

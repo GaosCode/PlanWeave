@@ -1914,8 +1914,10 @@ export const enCatalog = {
   logicalExecutor: "Logical executor",
   logicalExecutorHint:
     "Sets the reproducible Plan Package default. It does not select where this run executes.",
-  remoteRunLocalCoexistence:
-    "A local Auto Run is active for this Block. Local and remote authorities are not merged.",
+  remoteRunLocalCoexistence: "A local Auto Run is active for this Block.",
+  remoteRunLocalActivityChecking: "Checking for a local Auto Run…",
+  remoteRunLocalActivityUnavailable:
+    "Could not check local Auto Run activity. Refresh to try again.",
   remoteRunOperationId: "Operation",
   remoteRunDispatchId: "Dispatch",
   remoteRunAttemptId: "Attempt",

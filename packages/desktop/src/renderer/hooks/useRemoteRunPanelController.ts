@@ -42,6 +42,7 @@ import {
 import {
   projectRemoteLifecyclePhase,
   projectRemoteRunPanelViewModel,
+  type LocalAutoRunActivity,
   type RemoteRunActionAvailability,
   type RemoteRunAuthorizedActionKind,
   type RemoteRunPanelViewModel
@@ -85,7 +86,8 @@ export type UseRemoteRunPanelControllerArgs = {
   workItem: WorkItemRef | null;
   runtimeRemoteExecution?: RemoteBlockExecutionReadModel | null;
   refreshRuntimeRemoteExecution?: () => Promise<RemoteBlockExecutionReadModel | null>;
-  localAutoRunActive?: boolean;
+  localAutoRunActivity?: LocalAutoRunActivity;
+  runtimeDispatchable?: boolean;
   canvasRef?: DesktopCanvasReference | null;
   executionLocator?: RemoteRunExecutionLocator | null;
   localAgentEndpoints?: readonly LocalAgentEndpointInput[];
@@ -161,11 +163,12 @@ function phase(
 function actions(
   view: DesktopWorkspaceExecutionResponse,
   pending: number,
-  canResume: boolean
+  canResume: boolean,
+  dispatch: RemoteRunActionAvailability | undefined
 ): RemoteRunActionAvailability[] {
   const active = view.session.phase === "running" || view.session.phase === "blocked";
   return [
-    { kind: "dispatch", available: false, reason: "wrong_lifecycle" },
+    dispatch ?? { kind: "dispatch", available: false, reason: "wrong_lifecycle" },
     pending
       ? { kind: "answer_interaction", available: true, requiresConfirm: false }
       : { kind: "answer_interaction", available: false, reason: "no_pending_interaction" },
@@ -645,34 +648,6 @@ export function useRemoteRunPanelController(
     },
     [args.t]
   );
-  const dispatch = useCallback(async () => {
-    const workItem = args.workItem;
-    if (workItem?.kind !== "block" || !selectedEndpoint?.available)
-      return setActionError("agent_endpoint_selection_required");
-    if (selectedEndpoint.source === "local")
-      return run("dispatch", async () => {
-        if (!bridge || !args.canvasRef || !selectedEndpoint.localExecutorName)
-          throw new Error("local_agent_endpoint_unavailable");
-        await bridge.startAutoRun(
-          args.canvasRef,
-          { kind: "block", blockRef: workItem.blockRef },
-          20,
-          { executorOverride: selectedEndpoint.localExecutorName }
-        );
-        return undefined;
-      });
-    if (!executionApi || !args.executionLocator)
-      return setActionError("workspace_execution_locator_unavailable");
-    return run("dispatch", () =>
-      executionApi.startWorkspaceExecution(
-        desktopWorkspaceExecutionStartInputSchema.parse({
-          locator: args.executionLocator!,
-          blockRef: workItem.blockRef,
-          ...descriptor(selectedEndpoint, args)
-        })
-      )
-    );
-  }, [args, executionApi, run, selectedEndpoint]);
   const cancel = useCallback(
     async (reason: string) => {
       const workItem = args.workItem;
@@ -779,8 +754,11 @@ export function useRemoteRunPanelController(
         ? Boolean(bridge && args.canvasRef)
         : Boolean(executionApi && args.executionLocator),
     offline: selectedEndpoint?.source === "remote" && !executionApi,
-    localAutoRunActive: Boolean(args.localAutoRunActive),
-    endpointDispatchAvailable: Boolean(selectedEndpoint?.available)
+    localAutoRunActivity: args.localAutoRunActivity ?? "inactive",
+    endpointDispatchAvailable: Boolean(
+      selectedEndpoint?.available &&
+        (selectedEndpoint.source === "local" || args.runtimeDispatchable !== false)
+    )
   });
   const viewModel = useMemo<RemoteRunPanelViewModel>(() => {
     if (!view || view.handle.target !== "remote") return base;
@@ -808,6 +786,14 @@ export function useRemoteRunPanelController(
     )[view.session.phase];
     const h = view.handle;
     const observation = remoteRunOperationObservation(view);
+    const terminal =
+      view.session.phase === "completed" ||
+      view.session.phase === "failed" ||
+      view.session.phase === "stopped";
+    const dispatch =
+      terminal && args.runtimeDispatchable
+        ? base.actions.find((action) => action.kind === "dispatch")
+        : undefined;
     return {
       ...base,
       phase: phase(view, observation),
@@ -839,13 +825,43 @@ export function useRemoteRunPanelController(
       events,
       eventCursor: h.cursor.eventCursor,
       eventsHasMore: false,
-      actions: actions(view, pending.length, canResume),
+      actions: actions(view, pending.length, canResume, dispatch),
       actionRequired: view.session.phase === "blocked" || pending.length > 0,
       interruptionResumable: canResume,
       runtimeBindingSummary: `${view.session.phase}/${view.session.evidence.status}`,
       diagnostics: view.session.evidence.diagnostics.map((item) => item.code)
     };
-  }, [args.executionLocator, args.workItem, base, canResume, view]);
+  }, [args.executionLocator, args.runtimeDispatchable, args.workItem, base, canResume, view]);
+  const canDispatch = viewModel.actions.some(
+    (action) => action.kind === "dispatch" && action.available
+  );
+  const dispatch = useCallback(async () => {
+    const workItem = args.workItem;
+    if (!canDispatch || workItem?.kind !== "block" || !selectedEndpoint?.available) return;
+    if (selectedEndpoint.source === "local")
+      return run("dispatch", async () => {
+        if (!bridge || !args.canvasRef || !selectedEndpoint.localExecutorName)
+          throw new Error("local_agent_endpoint_unavailable");
+        await bridge.startAutoRun(
+          args.canvasRef,
+          { kind: "block", blockRef: workItem.blockRef },
+          20,
+          { executorOverride: selectedEndpoint.localExecutorName }
+        );
+        return undefined;
+      });
+    const locator = args.executionLocator;
+    if (!executionApi || !locator) return setActionError("workspace_execution_locator_unavailable");
+    return run("dispatch", () =>
+      executionApi.startWorkspaceExecution(
+        desktopWorkspaceExecutionStartInputSchema.parse({
+          locator,
+          blockRef: workItem.blockRef,
+          ...descriptor(selectedEndpoint, args)
+        })
+      )
+    );
+  }, [args, canDispatch, executionApi, run, selectedEndpoint]);
   const resumeNotice =
     resumeOutcome === "awaiting" && resumeTarget?.paused
       ? args.t("remoteRunResumeObservationFailed")

@@ -29,6 +29,8 @@ export const workspaceExecutionIpcErrorCodeSchema = z.enum([
   "workspace_execution_resume_mismatch",
   "workspace_execution_locator_mismatch",
   "workspace_execution_request_failed",
+  "local_auto_run_active",
+  "remote_block_not_dispatchable",
   "remote_resume_unavailable",
   "remote_resume_status_unavailable",
   "remote_resume_execution_unavailable",

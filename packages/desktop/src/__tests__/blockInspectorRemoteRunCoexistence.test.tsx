@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   DesktopAgentDetection,
   DesktopBlockDetail,
-  DesktopBlockRunRecordSummary,
   DesktopGraphViewModel
 } from "@planweave-ai/runtime";
 import { BlockInspector } from "../renderer/inspector/BlockInspector";
@@ -23,7 +22,6 @@ vi.mock("../renderer/team/RemoteRunPanel", () => ({
       displayName: string;
       locationName: string;
     }>;
-    localAutoRunActive?: boolean;
     localAgentEndpoints?: Array<{
       executorName: string;
       available: boolean;
@@ -37,10 +35,7 @@ vi.mock("../renderer/team/RemoteRunPanel", () => ({
   }) => {
     remoteRunPanelPropsSpy(props);
     return (
-      <div
-        data-testid="remote-run-panel-mock"
-        data-local-auto-run-active={String(Boolean(props.localAutoRunActive))}
-      >
+      <div data-testid="remote-run-panel-mock">
         <label>
           Agent Endpoint
           <select
@@ -143,30 +138,6 @@ function codexDetection(runnerKind: "cli" | "acp", installed: boolean): DesktopA
   };
 }
 
-function unfinishedRecord(): DesktopBlockRunRecordSummary {
-  return {
-    recordId: "T-001#B-001::run-1",
-    ref: "T-001#B-001",
-    taskId: "T-001",
-    blockId: "B-001",
-    runId: "run-1",
-    executor: "codex",
-    adapter: null,
-    executionCwd: null,
-    projectRoot: null,
-    agentSessionId: null,
-    codexSessionId: null,
-    exitCode: null,
-    startedAt: "2030-01-01T00:00:00.000Z",
-    finishedAt: null,
-    promptPath: null,
-    reportPath: null,
-    metadataPath: "meta.json",
-    stdoutSummary: "",
-    stderrSummary: ""
-  };
-}
-
 describe("BlockInspector remote run coexistence wiring", () => {
   it("consumes the shared local and remote Endpoint catalog with distinct IDs", () => {
     const onAgentEndpointChange = vi.fn();
@@ -219,6 +190,9 @@ describe("BlockInspector remote run coexistence wiring", () => {
 
     const selector = screen.getByRole("combobox", { name: "Agent Endpoint" });
     expect(screen.getByRole("option", { name: "Codex" })).toHaveValue("local:codex");
+    const configuration = screen.getByTestId("block-task-configuration");
+    expect(configuration).not.toHaveAttribute("open");
+    expect(configuration).not.toContainElement(selector);
     expect(screen.getByRole("option", { name: "Codex · LINANIML" })).toHaveValue(
       "remote:codex-windows"
     );
@@ -231,76 +205,6 @@ describe("BlockInspector remote run coexistence wiring", () => {
           expect.objectContaining({ id: "remote:codex-windows" })
         ])
       })
-    );
-  });
-
-  it("passes localAutoRunActive when the selected Block has an unfinished local run", () => {
-    render(
-      <BlockInspector
-        blockFeedbackRecords={[]}
-        blockReviewAttempts={[]}
-        blockRunRecords={[unfinishedRecord()]}
-        error={null}
-        executorOptions={["codex"]}
-        graph={null}
-        handleOpenRunRecord={vi.fn()}
-        onBlockSelect={vi.fn()}
-        onClose={vi.fn()}
-        saveSelectedBlockPrompt={vi.fn()}
-        saveSelectedBlockTitle={vi.fn()}
-        selectedBlock={selectedBlock()}
-        selectedRunRecord={null}
-        setSelectedBlock={vi.fn()}
-        setSelectedRunRecord={vi.fn()}
-        t={createTranslator("en")}
-      />
-    );
-
-    expect(screen.getByTestId("remote-run-panel-mock")).toHaveAttribute(
-      "data-local-auto-run-active",
-      "true"
-    );
-    expect(remoteRunPanelPropsSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        localAutoRunActive: true,
-        localAgentEndpoints: [expect.objectContaining({ executorName: "codex" })],
-        requiredProfileId: "codex",
-        requiredAgentId: "codex"
-      })
-    );
-    expect(screen.getByRole("combobox", { name: "Agent Endpoint" })).toBeInTheDocument();
-    expect(screen.getByTestId("block-task-configuration")).not.toHaveAttribute("open");
-    expect(
-      screen.getByTestId("block-task-configuration").querySelector('[aria-label="Agent Endpoint"]')
-    ).toBeNull();
-    expect(screen.getByText("Task configuration")).toBeInTheDocument();
-  });
-
-  it("does not mark local Auto Run active when all block run records are finished", () => {
-    render(
-      <BlockInspector
-        blockFeedbackRecords={[]}
-        blockReviewAttempts={[]}
-        blockRunRecords={[{ ...unfinishedRecord(), finishedAt: "2030-01-01T01:00:00.000Z" }]}
-        error={null}
-        executorOptions={["codex"]}
-        graph={null}
-        handleOpenRunRecord={vi.fn()}
-        onBlockSelect={vi.fn()}
-        onClose={vi.fn()}
-        saveSelectedBlockPrompt={vi.fn()}
-        saveSelectedBlockTitle={vi.fn()}
-        selectedBlock={selectedBlock()}
-        selectedRunRecord={null}
-        setSelectedBlock={vi.fn()}
-        setSelectedRunRecord={vi.fn()}
-        t={createTranslator("en")}
-      />
-    );
-
-    expect(screen.getByTestId("remote-run-panel-mock")).toHaveAttribute(
-      "data-local-auto-run-active",
-      "false"
     );
   });
 

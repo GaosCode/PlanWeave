@@ -495,6 +495,7 @@ export type DesktopBridgeApi = {
   onPackageFileChanged(callback: (event: DesktopPackageFileChangeEvent) => void): () => void;
   onRuntimeStateChanged(callback: (event: DesktopRuntimeStateChangeEvent) => void): () => void;
   onAutoRunChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
+  onAutoRunActivityChanged(callback: (event: DesktopAutoRunEvent) => void): () => void;
   subscribeRunnerRecord(
     input: Omit<DesktopRunnerRecordSubscriptionInput, "subscriptionId">,
     callback: (update: DesktopRunnerRecordSubscriptionUpdate) => void
@@ -575,6 +576,7 @@ export type DesktopBridgeApi = {
   stopAutoRun(runId: string, expectedStatePath?: string): Promise<DesktopAutoRunState>;
   getAutoRunState(runId: string): Promise<DesktopAutoRunState>;
   getLatestAutoRunSummary(ref: DesktopCanvasReference): Promise<DesktopAutoRunState | null>;
+  listActiveAutoRunBlockRefs(ref: DesktopCanvasReference): Promise<string[]>;
   getLatestAutoRunSummaryWithDiagnostics(
     ref: DesktopCanvasReference
   ): Promise<DesktopLatestAutoRunSummary>;
