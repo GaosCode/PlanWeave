@@ -158,10 +158,13 @@ export const desktopSettingsInvokeChannels = {
   migrateLegacyDesktopSettings: "planweave-desktop-settings:migrateLegacyDesktopSettings"
 } as const;
 
+export const desktopAgentHostChangedChannel = "planweave-desktop-settings:agentHostChanged";
+
 export type PlanWeaveDesktopSettingsApi = {
   getDesktopSettings: () => Promise<DesktopUiSettings>;
   saveDesktopSettings: (patch: DesktopSettingsPatch) => Promise<DesktopUiSettings>;
   migrateLegacyDesktopSettings: (payload: unknown) => Promise<DesktopUiSettings>;
+  onAgentHostChanged: (callback: (agentHost: DesktopAgentHost) => void) => () => void;
 };
 
 export const desktopSidebarWidthBounds = {

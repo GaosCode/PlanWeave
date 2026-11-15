@@ -121,6 +121,7 @@ async function mountProject() {
       } else throw new Error("Unexpected settings patch.");
       return persisted;
     }),
+    onAgentHostChanged: () => () => undefined,
     migrateLegacyDesktopSettings: vi.fn(async () => persisted)
   };
   const source = createDesktopBridgeMock({

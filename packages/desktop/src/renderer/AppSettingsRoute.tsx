@@ -7,16 +7,18 @@ import type {
   ProjectPromptPolicy
 } from "@planweave-ai/runtime";
 import type { createTranslator, Language } from "./i18n";
+import type { RefreshAgentDetections } from "./hooks/useDetectedAgents";
 import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "./types";
 import { SettingsView } from "./views/SettingsView";
 
 type AppSettingsRouteProps = {
+  agentDetectionError?: string | null;
   agentDetectionRefreshing: boolean;
   agents: DesktopAgentDetection[];
   graph: DesktopGraphViewModel | null;
   globalPromptMarkdown: string | null;
   language: Language;
-  refreshAgentDetections: () => Promise<void>;
+  refreshAgentDetections: RefreshAgentDetections;
   refreshRuntimeTools: () => Promise<void>;
   runtimeTools: DesktopRuntimeToolAvailability;
   projects: DesktopProjectSummary[];

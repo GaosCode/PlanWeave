@@ -89,8 +89,11 @@ export function BlockInspectorWindow() {
   const [tmuxAvailable, setTmuxAvailable] = useState(false);
   const [error, setError] = useState<string | null>(bridge ? null : t("bridgeUnavailable"));
   const [draftDirty, setDraftDirty] = useState(false);
-  const { settings, updateSettingsAndWait } = useDesktopSettingsBridge({ setError });
-  const { agentDetections } = useDetectedAgents();
+  const { settings, settingsHydrated, updateSettingsAndWait } = useDesktopSettingsBridge({
+    setError
+  });
+  const { agentDetectionError, agentDetectionRefreshing, agentDetections, refreshAgentDetections } =
+    useDetectedAgents(settingsHydrated ? settings.execution.agentHost : null);
   const draftDirtyRef = useRef(false);
 
   const captureScope = useAutoRunSelectionGuard(projectRoot, canvasId);
@@ -772,7 +775,12 @@ export function BlockInspectorWindow() {
       executionLocator={executionLocator}
       refreshRuntimeRemoteExecution={refreshRuntimeRemoteExecution}
       className="inset-0 h-screen w-screen min-w-0 rounded-none border-0 shadow-none ring-0"
-      error={error}
+      error={
+        error ??
+        (agentDetectionError
+          ? t("agentDetectionFailed").replace("{error}", agentDetectionError)
+          : null)
+      }
       executorOptions={graph?.executorOptions ?? []}
       agentTransport={settings.execution.agentTransport}
       graph={graph}
@@ -784,8 +792,10 @@ export function BlockInspectorWindow() {
       onClose={() => window.close()}
       onDraftDirtyChange={updateDraftDirty}
       onTerminalDefaultAppChange={handleTerminalDefaultAppChange}
-      onRefreshAgentEndpoints={agentEndpointCatalog.refresh}
-      refreshingAgentEndpoints={agentEndpointCatalog.refreshing}
+      onRefreshAgentEndpoints={async () => {
+        await Promise.all([agentEndpointCatalog.refresh(), refreshAgentDetections()]);
+      }}
+      refreshingAgentEndpoints={agentEndpointCatalog.refreshing || agentDetectionRefreshing}
       saveSelectedBlockPrompt={saveSelectedBlockPrompt}
       saveSelectedBlockTitle={saveSelectedBlockTitle}
       selectedBlock={selectedBlock}

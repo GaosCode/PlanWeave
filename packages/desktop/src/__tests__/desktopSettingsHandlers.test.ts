@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopSettingsStore } from "../main/desktopSettingsStore";
-import { defaultDesktopSettings, desktopSettingsInvokeChannels } from "../shared/desktopSettings";
+import {
+  defaultDesktopSettings,
+  desktopAgentHostChangedChannel,
+  desktopSettingsInvokeChannels
+} from "../shared/desktopSettings";
 
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown;
 
@@ -11,6 +15,11 @@ const electronMock = vi.hoisted(() => {
   const handlers = new Map<string, IpcHandler>();
   return {
     handlers,
+    getAllWindows: vi.fn(
+      (): Array<{
+        webContents: { isDestroyed: () => boolean; send: ReturnType<typeof vi.fn> };
+      }> => []
+    ),
     ipcMain: {
       handle: vi.fn((channel: string, handler: IpcHandler) => {
         handlers.set(channel, (event, ...args) =>
@@ -25,6 +34,7 @@ const electronMock = vi.hoisted(() => {
 });
 
 vi.mock("electron", () => ({
+  BrowserWindow: { getAllWindows: electronMock.getAllWindows },
   ipcMain: electronMock.ipcMain
 }));
 
@@ -52,10 +62,50 @@ afterEach(async () => {
   vi.resetModules();
   electronMock.handlers.clear();
   electronMock.ipcMain.handle.mockClear();
+  electronMock.getAllWindows.mockReset();
   await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("desktop settings handlers", () => {
+  it("notifies live windows only after the requested Host is persisted", async () => {
+    const { registerDesktopSettingsHandlers } = await import("../main/desktopSettingsHandlers");
+    const store = await tempStore();
+    const createWindow = (destroyed = false) => ({
+      webContents: {
+        isDestroyed: () => destroyed,
+        send: vi.fn(() => store.read())
+      }
+    });
+    const windows = [createWindow(), createWindow(), createWindow(), createWindow(true)];
+    const main = windows[0]!;
+    electronMock.getAllWindows.mockReturnValue(windows);
+    registerDesktopSettingsHandlers(store);
+    const save = handler(desktopSettingsInvokeChannels.saveDesktopSettings);
+    const sender = { sender: main.webContents };
+    const ubuntu = { kind: "wsl", distribution: "Ubuntu" } as const;
+    const debian = { kind: "wsl", distribution: "Debian" } as const;
+
+    await save(sender, { execution: { agentHost: ubuntu } });
+    for (const { webContents } of windows.slice(0, 3)) {
+      expect(webContents.send).toHaveBeenCalledExactlyOnceWith(
+        desktopAgentHostChangedChannel,
+        ubuntu
+      );
+      await expect(webContents.send.mock.results[0]?.value).resolves.toMatchObject({
+        execution: { agentHost: ubuntu }
+      });
+      webContents.send.mockClear();
+    }
+    expect(windows[3]!.webContents.send).not.toHaveBeenCalled();
+    await save(sender, { appearance: "dark" });
+    vi.spyOn(store, "mergePatch").mockRejectedValueOnce(new Error("write failed"));
+    await expect(save(sender, { execution: { agentHost: debian } })).rejects.toThrow(
+      "write failed"
+    );
+    for (const { webContents } of windows) expect(webContents.send).not.toHaveBeenCalled();
+    await expect(store.read()).resolves.toMatchObject({ execution: { agentHost: ubuntu } });
+  });
+
   it("registers desktop settings IPC handlers", async () => {
     const { registerDesktopSettingsHandlers } = await import("../main/desktopSettingsHandlers");
     registerDesktopSettingsHandlers(await tempStore());

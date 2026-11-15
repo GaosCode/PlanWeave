@@ -1,47 +1,82 @@
-import { useCallback, useEffect, useState } from "react";
-import type { DesktopAgentDetection } from "@planweave-ai/runtime";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import type { DesktopAgentDetection, ExecutionHost } from "@planweave-ai/runtime";
 import { bridge } from "../bridge";
 
-function normalizeAgentDetections(
-  value: DesktopAgentDetection[] | null | undefined
-): DesktopAgentDetection[] {
-  return Array.isArray(value) ? value : [];
+type DetectionContext = { hostKey: string };
+
+type DetectionState = {
+  context: DetectionContext;
+  detections: DesktopAgentDetection[];
+  error: string | null;
+  refreshing: boolean;
+};
+
+export type RefreshAgentDetections = (
+  onPublished?: (detections: DesktopAgentDetection[]) => void
+) => Promise<void>;
+
+const noDetections: DesktopAgentDetection[] = [];
+
+function executionHostKey(host: ExecutionHost | null | undefined): string | null {
+  return host?.kind === "wsl" ? `wsl:${host.distribution}` : (host?.kind ?? null);
 }
 
-export function useDetectedAgents() {
-  const [agentDetections, setAgentDetections] = useState<DesktopAgentDetection[]>([]);
-  const [agentDetectionRefreshing, setAgentDetectionRefreshing] = useState(false);
+export function useDetectedAgents(host: ExecutionHost | null) {
+  const hostKey = executionHostKey(host);
+  const contextRef = useRef<DetectionContext | null>(null);
+  const generationRef = useRef(0);
+  const [state, setState] = useState<DetectionState | null>(null);
 
-  const refreshAgentDetections = useCallback(async () => {
-    if (!bridge) {
-      return;
-    }
-    setAgentDetectionRefreshing(true);
-    try {
-      const detectedAgents = await bridge.detectAgentTools();
-      setAgentDetections(normalizeAgentDetections(detectedAgents));
-    } finally {
-      setAgentDetectionRefreshing(false);
-    }
-  }, []);
+  const refreshAgentDetections = useCallback<RefreshAgentDetections>(
+    async (onPublished) => {
+      const context = contextRef.current;
+      if (!bridge || !context || context.hostKey !== hostKey) return;
 
-  useEffect(() => {
-    let cancelled = false;
-    const refreshInitialAgents = async () => {
-      if (!bridge) {
-        return;
+      const generation = ++generationRef.current;
+      setState((previous) => ({
+        context,
+        detections: previous?.context === context ? previous.detections : noDetections,
+        error: null,
+        refreshing: true
+      }));
+
+      let detections = noDetections;
+      let error: string | null = null;
+      try {
+        const result = await bridge.detectAgentTools();
+        if (result.some((agent) => executionHostKey(agent.executionHost) !== context.hostKey)) {
+          throw new Error("Agent detection returned results for a different execution host.");
+        }
+        detections = result;
+      } catch (caught) {
+        error = caught instanceof Error ? caught.message : String(caught);
       }
-      const detectedAgents = await bridge.detectAgentTools();
-      if (!cancelled) {
-        setAgentDetections(normalizeAgentDetections(detectedAgents));
-      }
-    };
 
-    void refreshInitialAgents();
+      if (contextRef.current !== context || generationRef.current !== generation) return;
+      setState({ context, detections, error, refreshing: false });
+      if (error === null) onPublished?.(detections);
+    },
+    [hostKey]
+  );
+
+  useLayoutEffect(() => {
+    if (!bridge || hostKey === null) return;
+    contextRef.current = { hostKey };
+    void refreshAgentDetections();
     return () => {
-      cancelled = true;
+      contextRef.current = null;
     };
-  }, []);
+  }, [hostKey, refreshAgentDetections]);
 
-  return { agentDetectionRefreshing, agentDetections, refreshAgentDetections };
+  const dismissAgentDetectionError = useCallback(() => {
+    setState((previous) => (previous?.error ? { ...previous, error: null } : previous));
+  }, []);
+  const current = state?.context.hostKey === hostKey ? state : null;
+  return {
+    agentDetections: current?.detections ?? noDetections,
+    agentDetectionError: current?.error ?? null,
+    agentDetectionRefreshing: current?.refreshing ?? false,
+    dismissAgentDetectionError,
+    refreshAgentDetections
+  };
 }

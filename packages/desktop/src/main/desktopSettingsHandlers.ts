@@ -1,14 +1,25 @@
 import { access } from "node:fs/promises";
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
+import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import {
+  desktopAgentHostChangedChannel,
   desktopSettingsInvokeChannels,
-  normalizeDesktopSettingsPatch
+  normalizeDesktopSettingsPatch,
+  type DesktopAgentHost
 } from "../shared/desktopSettings.js";
 import { DesktopSettingsStore } from "./desktopSettingsStore.js";
 import {
   assertDesktopInspectorHomeCurrent,
-  captureDesktopInspectorHome
+  captureDesktopInspectorHome,
+  isDesktopInspectorHomeCurrent
 } from "./desktopInspectorHome.js";
+
+function broadcastAgentHost(agentHost: DesktopAgentHost): void {
+  for (const { webContents } of BrowserWindow.getAllWindows()) {
+    if (!webContents.isDestroyed() && isDesktopInspectorHomeCurrent(webContents)) {
+      webContents.send(desktopAgentHostChangedChannel, agentHost);
+    }
+  }
+}
 
 function errorCode(caught: unknown): string | null {
   if (!caught || typeof caught !== "object" || !("code" in caught)) {
@@ -67,7 +78,12 @@ export function registerDesktopSettingsHandlers(
     enqueue(() => settingsStore.read())
   );
   ipcMain.handle(desktopSettingsInvokeChannels.saveDesktopSettings, (event, patch: unknown) =>
-    enqueueWrite(event, () => settingsStore.mergePatch(normalizeDesktopSettingsPatch(patch)))
+    enqueueWrite(event, async () => {
+      const normalized = normalizeDesktopSettingsPatch(patch);
+      const saved = await settingsStore.mergePatch(normalized);
+      if (normalized.execution?.agentHost) broadcastAgentHost(saved.execution.agentHost);
+      return saved;
+    })
   );
   ipcMain.handle(
     desktopSettingsInvokeChannels.migrateLegacyDesktopSettings,
@@ -76,7 +92,9 @@ export function registerDesktopSettingsHandlers(
         if (await settingsFileExists(settingsStore.settingsFile)) {
           return settingsStore.read();
         }
-        return settingsStore.migrateLegacy(payload);
+        const saved = await settingsStore.migrateLegacy(payload);
+        broadcastAgentHost(saved.execution.agentHost);
+        return saved;
       })
   );
 }

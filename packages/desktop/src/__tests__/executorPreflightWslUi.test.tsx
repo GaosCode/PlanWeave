@@ -105,6 +105,6 @@ describe("executor preflight WSL desktop UI", () => {
     expect(updateSettings).toHaveBeenCalledWith({
       execution: { agentHost: { kind: "wsl", distribution: "Ubuntu" } }
     });
-    await waitFor(() => expect(refreshAgentDetections).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(hostSelect).toBeEnabled());
   });
 });

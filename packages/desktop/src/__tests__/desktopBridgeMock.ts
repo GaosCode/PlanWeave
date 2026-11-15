@@ -5,6 +5,7 @@ export function createDesktopBridgeMock(
   overrides: Partial<DesktopBridgeApi> = {}
 ): DesktopBridgeApi {
   const defaults: Partial<DesktopBridgeApi> = {
+    detectAgentTools: vi.fn().mockResolvedValue([]),
     detectRuntimeTools: vi.fn().mockResolvedValue({ tmux: { available: false, command: "tmux" } }),
     getDesktopGraphDiagnostics: vi.fn().mockResolvedValue({
       graphQuality: { ok: true, diagnostics: [] },

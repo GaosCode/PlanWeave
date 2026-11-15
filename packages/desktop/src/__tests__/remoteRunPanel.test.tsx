@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { DesktopBridgeApi } from "@planweave-ai/runtime";
 import { defaultDesktopSettings } from "../shared/desktopSettings";
@@ -38,9 +38,6 @@ vi.mock("../renderer/hooks/useDesktopSettingsBridge", () => ({
     settings: defaultDesktopSettings,
     updateSettingsAndWait: vi.fn()
   })
-}));
-vi.mock("../renderer/hooks/useDetectedAgents", () => ({
-  useDetectedAgents: () => ({ agentDetections: [] })
 }));
 vi.mock("../renderer/hooks/useOwnerControlPlaneAvailability", () => ({
   useOwnerControlPlaneAvailability: () => ({
@@ -265,6 +262,35 @@ describe("RemoteRunPanel", () => {
 });
 
 describe("RemoteRunPanel navigation", () => {
+  it("refreshes endpoints on open or user request, without refreshing when the callback changes", async () => {
+    const firstRefresh = vi.fn(async () => undefined);
+    const currentRefresh = vi.fn(async () => undefined);
+    const renderPanel = (onRefreshAgentEndpoints: () => Promise<void>, open: boolean) => (
+      <RemoteRunPanel
+        agentEndpoints={[endpoint]}
+        workItem={{ kind: "block", canvasId: "default", blockRef: "T-1#B-1" }}
+        onRefreshAgentEndpoints={onRefreshAgentEndpoints}
+        open={open}
+        t={createTranslator("en")}
+      />
+    );
+    const { rerender } = render(renderPanel(firstRefresh, true));
+    await waitFor(() => expect(firstRefresh).toHaveBeenCalledOnce());
+    rerender(renderPanel(currentRefresh, true));
+    expect(currentRefresh).not.toHaveBeenCalled();
+
+    await userEvent.setup().click(
+      within(screen.getByTestId("agent-endpoint-selector")).getByRole("button", {
+        name: "Refresh"
+      })
+    );
+    expect(currentRefresh).toHaveBeenCalledOnce();
+    rerender(renderPanel(currentRefresh, false));
+    expect(currentRefresh).toHaveBeenCalledOnce();
+    rerender(renderPanel(currentRefresh, true));
+    expect(currentRefresh).toHaveBeenCalledTimes(2);
+  });
+
   it("closes A's cancel confirmation and enables B dispatch without remounting", async () => {
     const { api, cancel } = createApi();
     const { rerender } = renderPanel(api);

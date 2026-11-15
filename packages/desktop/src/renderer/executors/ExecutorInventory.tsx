@@ -85,12 +85,15 @@ export function ExecutorInventory({
           className="ml-auto"
           variant="ghost"
           size="icon-sm"
-          aria-label={t("managementRefresh")}
+          aria-label={t(refreshing ? "agentRefreshing" : "managementRefresh")}
           disabled={refreshing || remote.loading}
           onClick={onRefresh}
         >
-          <RefreshCwIcon className="size-4" />
+          <RefreshCwIcon className={refreshing ? "size-4 animate-spin" : "size-4"} />
         </Button>
+        <span className="sr-only" role="status">
+          {refreshing ? t("agentRefreshing") : null}
+        </span>
       </div>
       <div className="overflow-x-auto">
         <div className="min-w-[680px]">

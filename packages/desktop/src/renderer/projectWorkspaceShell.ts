@@ -1,5 +1,6 @@
 import type { CaptureDesktopErrorClear } from "./hooks/useDesktopErrorState";
 import type { DesktopAgentDetection, DesktopRuntimeToolAvailability } from "@planweave-ai/runtime";
+import type { RefreshAgentDetections } from "./hooks/useDetectedAgents";
 import type { Dispatch, SetStateAction } from "react";
 import type { createTranslator } from "./i18n";
 import type {
@@ -24,10 +25,11 @@ export type ProjectWorkspaceShellInput = {
   activeView: AppView;
   appHistory: AppViewHistoryController;
   agentDetectionRefreshing: boolean;
+  agentDetectionError?: string | null;
   agentDetections: DesktopAgentDetection[];
   globalPromptMarkdown: string | null;
   language: DesktopUiSettings["language"];
-  refreshAgentDetections: () => Promise<void>;
+  refreshAgentDetections: RefreshAgentDetections;
   refreshRuntimeTools: () => Promise<void>;
   runtimeTools: DesktopRuntimeToolAvailability;
   setActiveView: Dispatch<SetStateAction<AppView>>;

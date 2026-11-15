@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { PlanWeaveDesktopSettingsApi } from "../../shared/desktopSettings";
+import type { DesktopAgentHost, PlanWeaveDesktopSettingsApi } from "../../shared/desktopSettings";
 import {
   defaultDesktopSettings,
   legacyDesktopSettingsKey,
@@ -41,6 +41,13 @@ function writeLegacyMigrationMarker(): void {
 
 const missingSettingsBridgeMessage = "Desktop settings bridge is unavailable.";
 
+function withAgentHost(
+  settings: DesktopUiSettings,
+  agentHost: DesktopAgentHost
+): DesktopUiSettings {
+  return { ...settings, execution: { ...settings.execution, agentHost } };
+}
+
 export function useDesktopSettingsBridge({
   setError,
   settingsApi = settingsBridge,
@@ -60,9 +67,17 @@ export function useDesktopSettingsBridge({
   const pendingHomeSavesRef = useRef(0);
   const settledHomeTransitions = useRef<Array<() => void>>([]);
   const confirmedVersionRef = useRef(0);
+  const agentHostVersionRef = useRef(0);
   const effectVersionRef = useRef(0);
   const mountedRef = useRef(false);
   const initializationRef = useRef<Promise<void>>(Promise.resolve());
+  const retainNewerAgentHost = useCallback(
+    (snapshot: DesktopUiSettings, agentHostVersion: number) =>
+      agentHostVersionRef.current === agentHostVersion
+        ? snapshot
+        : withAgentHost(snapshot, lastConfirmedSettingsRef.current.execution.agentHost),
+    []
+  );
   useLayoutEffect(() => {
     if (pendingHomeSaves === 0) {
       for (const release of settledHomeTransitions.current.splice(0)) release();
@@ -89,37 +104,46 @@ export function useDesktopSettingsBridge({
     }
     let cancelled = false;
     setSettingsHydrated(false);
+    const unsubscribeAgentHost = settingsApi.onAgentHostChanged((agentHost) => {
+      agentHostVersionRef.current += 1;
+      lastConfirmedSettingsRef.current = withAgentHost(lastConfirmedSettingsRef.current, agentHost);
+      latestSettingsRef.current = withAgentHost(latestSettingsRef.current, agentHost);
+      setSettings(latestSettingsRef.current);
+    });
 
     const loadSettings = async (options: { migrateLegacy: boolean }) => {
       const revision = localRevisionRef.current;
       const confirmedVersion = confirmedVersionRef.current;
-      const applyLoaded = (loaded: DesktopUiSettings) => {
+      const applyLoaded = (loaded: DesktopUiSettings, agentHostVersion: number) => {
         if (confirmedVersionRef.current !== confirmedVersion) {
           return;
         }
-        lastConfirmedSettingsRef.current = loaded;
+        const confirmed = retainNewerAgentHost(loaded, agentHostVersion);
+        lastConfirmedSettingsRef.current = confirmed;
         if (localRevisionRef.current === revision && pendingSavesRef.current === 0) {
-          latestSettingsRef.current = loaded;
-          setSettings(loaded);
+          latestSettingsRef.current = confirmed;
+          setSettings(confirmed);
         }
       };
       try {
+        const readAgentHostVersion = agentHostVersionRef.current;
         const loaded = await settingsApi.getDesktopSettings();
         if (cancelled) {
           return;
         }
-        applyLoaded(loaded);
+        applyLoaded(loaded, readAgentHostVersion);
 
         const legacyPayload = options.migrateLegacy ? readLegacyDesktopSettingsPayload() : null;
         if (!legacyPayload) {
           return;
         }
 
+        const migrationAgentHostVersion = agentHostVersionRef.current;
         const migrated = await settingsApi.migrateLegacyDesktopSettings(legacyPayload);
         if (cancelled) {
           return;
         }
-        applyLoaded(migrated);
+        applyLoaded(migrated, migrationAgentHostVersion);
         writeLegacyMigrationMarker();
       } catch (caught) {
         if (!cancelled) {
@@ -153,9 +177,10 @@ export function useDesktopSettingsBridge({
     return () => {
       cancelled = true;
       mountedRef.current = false;
+      unsubscribeAgentHost();
       window.removeEventListener("focus", refreshOnFocus);
     };
-  }, [allowInMemoryFallback, settingsApi]);
+  }, [allowInMemoryFallback, retainNewerAgentHost, settingsApi]);
 
   const updateSettingsAndWait = useCallback(
     (update: DesktopSettingsUpdate) => {
@@ -167,6 +192,9 @@ export function useDesktopSettingsBridge({
       const nextRevision = localRevisionRef.current + 1;
       localRevisionRef.current = nextRevision;
       const optimisticSettings = mergeDesktopSettings(latestSettingsRef.current, patch);
+      if (settingsApi && patch.execution?.agentHost) {
+        optimisticSettings.execution.agentHost = latestSettingsRef.current.execution.agentHost;
+      }
       const changesHome = settingsApi !== null && patch.planweaveHome !== undefined;
       const releaseHomeTransition = changesHome ? beginDesktopHomeTransition() : null;
       if (changesHome) {
@@ -194,16 +222,24 @@ export function useDesktopSettingsBridge({
       pendingSavesRef.current += 1;
       const save = saveQueueRef.current
         .then(() => initializationRef.current)
-        .then(() => settingsApi.saveDesktopSettings(patch));
+        .then(async () => {
+          const agentHostVersion = agentHostVersionRef.current;
+          return { nextSettings: await settingsApi.saveDesktopSettings(patch), agentHostVersion };
+        });
       const callerSave = save
-        .then((nextSettings) => {
+        .then(({ nextSettings, agentHostVersion }) => {
           if (!isCurrentEffect()) {
             return;
           }
+          const confirmed = retainNewerAgentHost(nextSettings, agentHostVersion);
           confirmedVersionRef.current += 1;
-          lastConfirmedSettingsRef.current = nextSettings;
+          lastConfirmedSettingsRef.current = confirmed;
           if (localRevisionRef.current === nextRevision) {
-            publishSettings(nextSettings);
+            publishSettings(confirmed);
+          } else if (patch.execution?.agentHost) {
+            publishSettings(
+              withAgentHost(latestSettingsRef.current, confirmed.execution.agentHost)
+            );
           }
         })
         .catch((caught: unknown) => {
@@ -240,7 +276,7 @@ export function useDesktopSettingsBridge({
       );
       return callerSave;
     },
-    [allowInMemoryFallback, setError, settingsApi]
+    [allowInMemoryFallback, retainNewerAgentHost, setError, settingsApi]
   );
 
   const updateSettings = useCallback(

@@ -57,6 +57,7 @@ describe("desktop settings bridge", () => {
           })
       ),
       saveDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings)
     };
     const setError = vi.fn();
@@ -86,6 +87,7 @@ describe("desktop settings bridge", () => {
     const settingsApi: PlanWeaveDesktopSettingsApi = {
       getDesktopSettings: vi.fn().mockResolvedValue(loadedSettings),
       saveDesktopSettings: vi.fn().mockResolvedValue(loadedSettings),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(migratedSettings)
     };
     const setError = vi.fn();
@@ -111,6 +113,7 @@ describe("desktop settings bridge", () => {
     const settingsApi: PlanWeaveDesktopSettingsApi = {
       getDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings),
       saveDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings)
     };
     window.localStorage.setItem(desktopSettingsKey, JSON.stringify({ appearance: "dark" }));
@@ -133,6 +136,7 @@ describe("desktop settings bridge", () => {
     const settingsApi: PlanWeaveDesktopSettingsApi = {
       getDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings),
       saveDesktopSettings: vi.fn().mockResolvedValue(savedSettings),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(savedSettings)
     };
     const setError = vi.fn();
@@ -163,6 +167,7 @@ describe("desktop settings bridge", () => {
     const settingsApi: PlanWeaveDesktopSettingsApi = {
       getDesktopSettings,
       saveDesktopSettings: vi.fn().mockResolvedValue(acpSettings),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings
     };
     const { result } = renderHook(() =>
@@ -193,6 +198,7 @@ describe("desktop settings bridge", () => {
     const settingsApi: PlanWeaveDesktopSettingsApi = {
       getDesktopSettings,
       saveDesktopSettings: vi.fn().mockResolvedValue(acpSettings),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(acpSettings)
     };
     const { result } = renderHook(() =>
@@ -236,6 +242,7 @@ describe("desktop settings bridge", () => {
         activeSaves -= 1;
         return persistedSettings;
       }),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings)
     };
     const { result } = renderHook(() =>
@@ -278,6 +285,7 @@ describe("desktop settings bridge", () => {
         };
         return persistedSettings;
       }),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings)
     };
     const { result } = renderHook(() =>
@@ -326,6 +334,7 @@ describe("desktop settings bridge", () => {
           ...patch
         };
       }),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn(async () => {
         calls.push("migrate");
         return migratedSettings;
@@ -361,6 +370,7 @@ describe("desktop settings bridge", () => {
     const settingsApi: PlanWeaveDesktopSettingsApi = {
       getDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings),
       saveDesktopSettings: vi.fn().mockRejectedValue(new Error("settings file is read-only")),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings)
     };
     const setError = vi.fn();
@@ -399,6 +409,7 @@ describe("desktop settings bridge", () => {
         events.push("second save");
         return persistedSettings;
       }),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings)
     };
     const setError = vi.fn(() => events.push("failure handled"));
@@ -429,6 +440,7 @@ describe("desktop settings bridge", () => {
     const settingsApi: PlanWeaveDesktopSettingsApi = {
       getDesktopSettings: vi.fn().mockResolvedValue(confirmedSettings),
       saveDesktopSettings: vi.fn().mockRejectedValue(new Error("settings disk unavailable")),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(confirmedSettings)
     };
     const setError = vi.fn();
@@ -478,6 +490,7 @@ describe("desktop settings bridge", () => {
         }
         return finalSettings;
       }),
+      onAgentHostChanged: () => () => undefined,
       migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(confirmedSettings)
     };
     const setError = vi.fn();

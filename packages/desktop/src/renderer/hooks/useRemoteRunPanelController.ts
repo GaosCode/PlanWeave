@@ -13,7 +13,15 @@ import {
   projectRemoteAcpReplay,
   projectWorkspaceExecutionTimeline
 } from "@planweave-ai/runtime/browser";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import {
   desktopWorkspaceExecutionStartInputSchema,
   desktopWorkspaceExecutionFollowInputSchema,
@@ -333,13 +341,14 @@ export function useRemoteRunPanelController(
   const refreshAgentEndpoints = useCallback(async () => {
     if (args.refreshAgentEndpoints) return args.refreshAgentEndpoints();
   }, [args.refreshAgentEndpoints]);
+  const refreshAgentEndpointsOnOpen = useEffectEvent(refreshAgentEndpoints);
   useEffect(() => {
     const generation = scopeGenerationRef.current;
     if (args.open)
-      void refreshAgentEndpoints().catch((error) => {
+      void refreshAgentEndpointsOnOpen().catch((error) => {
         if (scopeGenerationRef.current === generation) setActionError(String(error));
       });
-  }, [args.open, refreshAgentEndpoints]);
+  }, [args.open]);
 
   const currentRemoteEndpointId = remoteEndpointId(view);
   const endpointForView = currentRemoteEndpointId

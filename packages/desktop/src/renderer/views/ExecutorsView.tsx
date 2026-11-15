@@ -23,6 +23,7 @@ const HostAdministrationContent = lazy(() =>
 
 export function ExecutorsView({
   agents,
+  agentDetectionError,
   agentDetectionRefreshing,
   graph,
   settings,
@@ -31,7 +32,6 @@ export function ExecutorsView({
   refreshAgentDetections,
   updateSettings,
   updateSettingsAndWait,
-  setError,
   t
 }: ComponentProps<typeof AppSettingsRoute>) {
   const [tab, setTab] = useState("agents");
@@ -64,6 +64,11 @@ export function ExecutorsView({
             t={t}
           />
           <TabsContent value="agents">
+            {agentDetectionError && !configurationOpen ? (
+              <p className="mb-4 text-sm text-destructive" role="alert">
+                {t("agentDetectionFailed").replace("{error}", agentDetectionError)}
+              </p>
+            ) : null}
             <ExecutorInventory
               agents={agents}
               transport={settings.execution.agentTransport}
@@ -115,6 +120,7 @@ export function ExecutorsView({
           <Suspense fallback={<p role="status">{t("peopleWorking")}</p>}>
             <SettingsAgentsSection
               agents={agents}
+              agentDetectionError={agentDetectionError}
               agentDetectionRefreshing={agentDetectionRefreshing}
               canvasRef={
                 selectedProject
@@ -126,7 +132,6 @@ export function ExecutorsView({
               refreshAgentDetections={refreshAgentDetections}
               updateSettings={updateSettings}
               persistSettings={updateSettingsAndWait}
-              setError={setError}
               showHeader={false}
               t={t}
             />

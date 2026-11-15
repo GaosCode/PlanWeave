@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type {
   DesktopAgentCapabilityProbeResult,
   DesktopAgentDetection,
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { bridge } from "../bridge";
+import type { RefreshAgentDetections } from "../hooks/useDetectedAgents";
 import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 import {
@@ -52,7 +53,7 @@ type AgentSettingsPanelProps = {
   };
   bridgeUnavailableMessage?: string;
   projectRoot?: string | null;
-  refreshAgentDetections: () => Promise<void>;
+  refreshAgentDetections: RefreshAgentDetections;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
@@ -115,9 +116,11 @@ export function AgentSettingsPanel({
   );
   const probeGenerationRef = useRef(0);
 
-  useEffect(() => {
-    probeGenerationRef.current += 1;
+  useLayoutEffect(() => {
     setAcpProbes(readAgentCapabilityProbeSession(projectRoot));
+    return () => {
+      probeGenerationRef.current += 1;
+    };
   }, [projectRoot]);
 
   const probeAcpAgent = async (agentKind: DesktopAgentKind, force = false) => {
@@ -184,14 +187,17 @@ export function AgentSettingsPanel({
           size="sm"
           variant="outline"
           onClick={() => {
-            void refreshAgentDetections().then(() => {
+            const generation = probeGenerationRef.current;
+            void refreshAgentDetections((detections) => {
+              if (probeGenerationRef.current !== generation) return;
               probeGenerationRef.current += 1;
               clearAgentCapabilityProbeSession(projectRoot);
               setAcpProbes({});
-              for (const agent of agents) {
+              for (const agent of detections) {
                 if (
                   expandedAgents.has(agent.kind) &&
                   agent.runnerKind === "acp" &&
+                  settings.execution.agentTransport === "acp" &&
                   agent.installed
                 ) {
                   void probeAcpAgent(agent.kind, true);
@@ -204,7 +210,9 @@ export function AgentSettingsPanel({
             className={cn("size-4", agentDetectionRefreshing ? "animate-spin" : "")}
             data-icon="inline-start"
           />
-          {agentDetectionRefreshing ? labels.agentRefreshing : labels.agentRefresh}
+          <span aria-live="polite">
+            {agentDetectionRefreshing ? labels.agentRefreshing : labels.agentRefresh}
+          </span>
         </Button>
       </div>
       {agents.map((agent) => {

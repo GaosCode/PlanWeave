@@ -18,8 +18,10 @@ import {
 } from "../shared/appUpdate";
 import {
   defaultDesktopSettings,
+  desktopAgentHostChangedChannel,
   desktopSettingsInvokeChannels,
-  type DesktopUiSettings
+  type DesktopUiSettings,
+  type PlanWeaveDesktopSettingsApi
 } from "../shared/desktopSettings";
 import {
   credentialStorageSettingsInvokeChannels,
@@ -696,11 +698,7 @@ describe("preload bridge invocation", () => {
     electronMock.ipcRenderer.invoke.mockResolvedValue(settings);
 
     await import("../preload/preload");
-    const api = electronMock.exposed.get("planweaveDesktopSettings") as {
-      getDesktopSettings(): Promise<DesktopUiSettings>;
-      saveDesktopSettings(patch: { appearance: "dark" }): Promise<DesktopUiSettings>;
-      migrateLegacyDesktopSettings(payload: unknown): Promise<DesktopUiSettings>;
-    };
+    const api = electronMock.exposed.get("planweaveDesktopSettings") as PlanWeaveDesktopSettingsApi;
 
     await expect(api.getDesktopSettings()).resolves.toBe(settings);
     await api.saveDesktopSettings({ appearance: "dark" });
@@ -717,6 +715,15 @@ describe("preload bridge invocation", () => {
       desktopSettingsInvokeChannels.migrateLegacyDesktopSettings,
       '{"appearance":"dark"}'
     );
+    const receiveHost = vi.fn();
+    const unsubscribe = api.onAgentHostChanged(receiveHost);
+    const [channel, listener] = electronMock.ipcRenderer.on.mock.lastCall ?? [];
+    expect(channel).toBe(desktopAgentHostChangedChannel);
+    const agentHost = { kind: "wsl", distribution: "Ubuntu" };
+    listener({ sender: "private" }, agentHost);
+    expect(receiveHost).toHaveBeenCalledExactlyOnceWith(agentHost);
+    unsubscribe();
+    expect(electronMock.ipcRenderer.off).toHaveBeenCalledWith(channel, listener);
   });
 
   it("exposes credential storage settings without sending credential material", async () => {

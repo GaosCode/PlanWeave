@@ -78,8 +78,11 @@ export function TaskInspectorWindow() {
   );
   const [error, setError] = useState<string | null>(bridge ? null : t("bridgeUnavailable"));
   const [draftDirty, setDraftDirty] = useState(false);
-  const { settings, updateSettingsAndWait } = useDesktopSettingsBridge({ setError });
-  const { agentDetections } = useDetectedAgents();
+  const { settings, settingsHydrated, updateSettingsAndWait } = useDesktopSettingsBridge({
+    setError
+  });
+  const { agentDetectionError, agentDetectionRefreshing, agentDetections, refreshAgentDetections } =
+    useDetectedAgents(settingsHydrated ? settings.execution.agentHost : null);
   const draftDirtyRef = useRef(false);
 
   const updateDraftDirty = useCallback((nextDraftDirty: boolean) => {
@@ -297,7 +300,12 @@ export function TaskInspectorWindow() {
       agentEndpoints={agentEndpointCatalog.endpoints}
       canvasRef={{ projectRoot, canvasId }}
       className="inset-0 h-screen w-screen min-w-0 rounded-none border-0 shadow-none ring-0"
-      error={error}
+      error={
+        error ??
+        (agentDetectionError
+          ? t("agentDetectionFailed").replace("{error}", agentDetectionError)
+          : null)
+      }
       graph={graph}
       onAgentEndpointChange={(endpointId) => {
         if (!selectedTask) return;
@@ -305,8 +313,10 @@ export function TaskInspectorWindow() {
       }}
       onClose={() => window.close()}
       onDraftDirtyChange={updateDraftDirty}
-      onRefreshAgentEndpoints={agentEndpointCatalog.refresh}
-      refreshingAgentEndpoints={agentEndpointCatalog.refreshing}
+      onRefreshAgentEndpoints={async () => {
+        await Promise.all([agentEndpointCatalog.refresh(), refreshAgentDetections()]);
+      }}
+      refreshingAgentEndpoints={agentEndpointCatalog.refreshing || agentDetectionRefreshing}
       saveSelectedTaskPrompt={saveSelectedTaskPrompt}
       saveSelectedTaskTitle={saveSelectedTaskTitle}
       selectedAgentEndpointId={selectedEndpointId}

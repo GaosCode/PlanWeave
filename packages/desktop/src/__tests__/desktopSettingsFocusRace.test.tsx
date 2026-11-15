@@ -6,6 +6,7 @@ import { useDesktopSettingsBridge } from "../renderer/hooks/useDesktopSettingsBr
 import {
   defaultDesktopSettings,
   legacyDesktopSettingsKey,
+  type DesktopAgentHost,
   type PlanWeaveDesktopSettingsApi
 } from "../shared/desktopSettings";
 import type { DesktopUiSettings } from "../renderer/types";
@@ -26,11 +27,14 @@ const external: DesktopUiSettings = {
   appearance: "light",
   language: "en"
 };
-function api(): PlanWeaveDesktopSettingsApi {
+function api(
+  subscribe: (listener: (host: DesktopAgentHost) => void) => () => void = () => () => undefined
+): PlanWeaveDesktopSettingsApi {
   return {
     getDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings),
     saveDesktopSettings: vi.fn().mockResolvedValue(dark),
-    migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings)
+    migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(defaultDesktopSettings),
+    onAgentHostChanged: subscribe
   };
 }
 function focus() {
@@ -75,6 +79,65 @@ afterEach(() => {
 });
 
 describe("desktop settings focus and draft lifecycle", () => {
+  it("keeps the confirmed Host through a delayed initial read, focus reads, and a queued save", async () => {
+    const initialRead = deferred();
+    const focusRead = deferred();
+    const save = deferred();
+    const queuedSave = deferred();
+    const listeners = new Set<(host: DesktopAgentHost) => void>();
+    const settingsApi = api((listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    });
+    const notify = (host: DesktopAgentHost) =>
+      act(() => {
+        for (const listener of listeners) listener(host);
+      });
+    vi.mocked(settingsApi.getDesktopSettings)
+      .mockReturnValueOnce(initialRead.promise)
+      .mockReturnValueOnce(focusRead.promise);
+    vi.mocked(settingsApi.saveDesktopSettings)
+      .mockReturnValueOnce(save.promise)
+      .mockReturnValueOnce(queuedSave.promise);
+    const { result } = renderHook(() =>
+      useDesktopSettingsBridge({ setError: vi.fn(), settingsApi })
+    );
+    const ubuntu = { kind: "wsl", distribution: "Ubuntu" } as const;
+    const debian = { kind: "wsl", distribution: "Debian" } as const;
+    const ubuntuSettings = { ...dark, execution: { ...dark.execution, agentHost: ubuntu } };
+    notify(ubuntu);
+    await settle(initialRead, dark);
+    expect(result.current.settingsHydrated).toBe(true);
+    expect(result.current.settings).toEqual(ubuntuSettings);
+
+    focus();
+    await waitFor(() => expect(settingsApi.getDesktopSettings).toHaveBeenCalledTimes(2));
+    act(() => {
+      result.current.updateSettings({ appearance: "light" });
+      result.current.updateSettings({ language: "en" });
+    });
+    await waitFor(() => expect(settingsApi.saveDesktopSettings).toHaveBeenCalledTimes(1));
+    notify(debian);
+    expect(result.current.settings).toMatchObject({
+      appearance: "light",
+      language: "en",
+      execution: { agentHost: debian }
+    });
+    await settle(focusRead, ubuntuSettings);
+    await settle(save, { ...ubuntuSettings, appearance: "light" });
+    await waitFor(() => expect(settingsApi.saveDesktopSettings).toHaveBeenCalledTimes(2));
+    expect(result.current.settings.execution.agentHost).toEqual(debian);
+    await act(async () => {
+      queuedSave.reject(new Error("queued save failed"));
+      await queuedSave.promise.catch(() => undefined);
+    });
+    expect(result.current.settings).toMatchObject({
+      appearance: "light",
+      language: defaultDesktopSettings.language,
+      execution: { agentHost: debian }
+    });
+  });
+
   it("reloads external settings on focus after a successful local save", async () => {
     const settingsApi = api();
     const { result } = await mount(settingsApi);

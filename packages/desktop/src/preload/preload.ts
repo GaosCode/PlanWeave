@@ -41,8 +41,12 @@ import type {
 } from "@planweave-ai/runtime";
 import type { AppUpdateState, PlanWeaveAppUpdateApi } from "../shared/appUpdate.js";
 import { appUpdateChangedChannel, appUpdateInvokeChannels } from "../shared/appUpdate.js";
-import type { PlanWeaveDesktopSettingsApi } from "../shared/desktopSettings.js";
-import { desktopSettingsInvokeChannels } from "../shared/desktopSettings.js";
+import {
+  desktopAgentHostChangedChannel,
+  desktopSettingsInvokeChannels,
+  type DesktopAgentHost,
+  type PlanWeaveDesktopSettingsApi
+} from "../shared/desktopSettings.js";
 import type { PlanWeaveCredentialStorageSettingsApi } from "../shared/credentialStorageSettings.js";
 import { credentialStorageSettingsInvokeChannels } from "../shared/credentialStorageSettings.js";
 import {
@@ -219,7 +223,12 @@ const desktopSettingsApi: PlanWeaveDesktopSettingsApi = {
   saveDesktopSettings: async (patch) =>
     ipcRenderer.invoke(desktopSettingsInvokeChannels.saveDesktopSettings, patch),
   migrateLegacyDesktopSettings: async (payload) =>
-    ipcRenderer.invoke(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings, payload)
+    ipcRenderer.invoke(desktopSettingsInvokeChannels.migrateLegacyDesktopSettings, payload),
+  onAgentHostChanged: (callback) => {
+    const listener = (_event: IpcRendererEvent, agentHost: DesktopAgentHost) => callback(agentHost);
+    ipcRenderer.on(desktopAgentHostChangedChannel, listener);
+    return () => ipcRenderer.off(desktopAgentHostChangedChannel, listener);
+  }
 };
 
 contextBridge.exposeInMainWorld("planweaveDesktopSettings", desktopSettingsApi);

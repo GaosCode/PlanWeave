@@ -692,24 +692,25 @@ describe("executor preflight desktop UI", () => {
       checks: successfulAcpChecks,
       sessionConfig: { modes: null, configOptions: [] }
     });
-    const refreshAgentDetections = vi.fn().mockResolvedValue(undefined);
+    const codexAcp = {
+      runnerKind: "acp",
+      kind: "codex",
+      name: "Codex ACP",
+      command: "codex-acp",
+      versionArgs: ["--version"],
+      execArgs: [],
+      fullAccessArgs: [],
+      installed: true,
+      version: "1.0.0",
+      unavailableReason: null
+    } satisfies DesktopAgentDetection;
+    const refreshAgentDetections = vi.fn(async (onPublished) => {
+      onPublished([codexAcp]);
+    });
     render(
       <SettingsAgentsSection
         agentDetectionRefreshing={false}
-        agents={[
-          {
-            runnerKind: "acp",
-            kind: "codex",
-            name: "Codex ACP",
-            command: "codex-acp",
-            versionArgs: ["--version"],
-            execArgs: [],
-            fullAccessArgs: [],
-            installed: true,
-            version: "1.0.0",
-            unavailableReason: null
-          }
-        ]}
+        agents={[codexAcp]}
         graph={null}
         refreshAgentDetections={refreshAgentDetections}
         settings={defaultDesktopSettings}

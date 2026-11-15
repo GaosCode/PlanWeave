@@ -126,7 +126,13 @@ export function App() {
   const language = settings.language;
   const t = useMemo(() => createTranslator(language), [language]);
   const [activeView, setActiveView, appHistory] = useAppViewHistory("graph");
-  const { agentDetectionRefreshing, agentDetections, refreshAgentDetections } = useDetectedAgents();
+  const {
+    agentDetectionError,
+    agentDetectionRefreshing,
+    agentDetections,
+    dismissAgentDetectionError,
+    refreshAgentDetections
+  } = useDetectedAgents(settingsHydrated ? settings.execution.agentHost : null);
   const { refreshRuntimeTools, runtimeTools } = useRuntimeTools();
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const { globalPromptMarkdown, updateGlobalPrompt } = useGlobalPrompt(
@@ -165,6 +171,7 @@ export function App() {
     () => ({
       activeView,
       appHistory,
+      agentDetectionError,
       agentDetectionRefreshing,
       agentDetections,
       captureErrorClear,
@@ -187,6 +194,7 @@ export function App() {
     [
       activeView,
       appHistory,
+      agentDetectionError,
       agentDetectionRefreshing,
       agentDetections,
       captureErrorClear,
@@ -236,6 +244,15 @@ export function App() {
             />
           </div>
           <AppErrorBanner message={error} onDismiss={() => setError(null)} t={t} />
+          <AppErrorBanner
+            message={
+              agentDetectionError && activeView !== "executors"
+                ? t("agentDetectionFailed").replace("{error}", agentDetectionError)
+                : null
+            }
+            onDismiss={dismissAgentDetectionError}
+            t={t}
+          />
         </div>
       </AppUpdateProvider>
     </ProjectWorkspaceProvider>

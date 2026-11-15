@@ -129,6 +129,7 @@ export function ProjectWorkspaceProvider({
     activeView,
     captureErrorClear,
     appHistory,
+    agentDetectionError = null,
     agentDetectionRefreshing,
     agentDetections,
     globalPromptMarkdown,
@@ -965,6 +966,7 @@ export function ProjectWorkspaceProvider({
   const settingsRouteProps = buildAppSettingsRouteProps({
     graph,
     agents: agentDetections,
+    agentDetectionError,
     agentDetectionRefreshing,
     globalPromptMarkdown,
     language,

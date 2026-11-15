@@ -59,6 +59,7 @@ function createSettingsApi(): PlanWeaveDesktopSettingsApi {
   return {
     getDesktopSettings: vi.fn().mockResolvedValue(settingsA),
     saveDesktopSettings: vi.fn().mockResolvedValue(settingsA),
+    onAgentHostChanged: () => () => undefined,
     migrateLegacyDesktopSettings: vi.fn().mockResolvedValue(settingsA)
   };
 }

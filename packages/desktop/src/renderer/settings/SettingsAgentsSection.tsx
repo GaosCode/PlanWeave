@@ -22,19 +22,20 @@ import { AgentSettingsPanel } from "../components/AgentSettingsPanel";
 import { ExecutorPreflightSummary } from "../components/ExecutorPreflightSummary";
 import { buildExecutorOptionViews } from "../executors/executorOptionViewModel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
+import type { RefreshAgentDetections } from "../hooks/useDetectedAgents";
 import type { createTranslator } from "../i18n";
 import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
 import { bridge } from "../bridge";
 
 type SettingsAgentsSectionProps = {
   showHeader?: boolean;
+  agentDetectionError?: string | null;
   agentDetectionRefreshing: boolean;
   agents: DesktopAgentDetection[];
   canvasRef?: DesktopCanvasReference | null;
   graph: DesktopGraphViewModel | null;
-  refreshAgentDetections: () => Promise<void>;
+  refreshAgentDetections: RefreshAgentDetections;
   persistSettings?: (update: DesktopSettingsUpdate) => Promise<void>;
-  setError?: (message: string | null) => void;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
@@ -42,28 +43,6 @@ type SettingsAgentsSectionProps = {
 
 function checkStatusVariant(status: ExecutorPreflightCheck["status"]) {
   return status === "failed" ? "destructive" : status === "passed" ? "secondary" : "outline";
-}
-
-function errorMessage(caught: unknown): string {
-  return caught instanceof Error ? caught.message : String(caught);
-}
-
-function settleSettingsSave(
-  save: Promise<void>,
-  onSettled: () => void,
-  refreshAgentDetections?: () => Promise<void>,
-  setError?: (message: string | null) => void
-): void {
-  void save
-    .then(
-      () =>
-        refreshAgentDetections?.().then(
-          () => undefined,
-          (caught: unknown) => setError?.(errorMessage(caught))
-        ),
-      () => undefined
-    )
-    .finally(onSettled);
 }
 
 function ExecutorPreflightCheckList({
@@ -135,21 +114,23 @@ function ExecutorPreflightCheckList({
 
 export function SettingsAgentsSection({
   showHeader = true,
+  agentDetectionError,
   agentDetectionRefreshing,
   agents,
   canvasRef,
   graph,
   persistSettings,
   refreshAgentDetections,
-  setError,
   settings,
   t,
   updateSettings
 }: SettingsAgentsSectionProps) {
   const selectedTransport = settings.execution.agentTransport;
   const selectedHost = settings.execution.agentHost;
-  const [hostMode, setHostMode] = useState<"native" | "wsl">(selectedHost.kind);
+  const [choosingWsl, setChoosingWsl] = useState(false);
   const [hostSaving, setHostSaving] = useState(false);
+  const hostMode = choosingWsl ? "wsl" : selectedHost.kind;
+  const hostUnconfirmed = hostSaving || hostMode !== selectedHost.kind;
   const [wslEnvironment, setWslEnvironment] = useState<DesktopWslEnvironment | null>(null);
   const transportAgents = useMemo(
     () => agents.filter((agent) => agent.runnerKind === selectedTransport),
@@ -173,6 +154,16 @@ export function SettingsAgentsSection({
     selectableExecutorOptions[0]?.name ?? ""
   );
   const [transportSaving, setTransportSaving] = useState(false);
+  const saveHost = (agentHost: DesktopUiSettings["execution"]["agentHost"]) => {
+    setHostSaving(true);
+    const patch = { execution: { agentHost } };
+    const save = persistSettings ? persistSettings(patch) : Promise.resolve(updateSettings(patch));
+    const finishSave = () => {
+      setChoosingWsl(false);
+      setHostSaving(false);
+    };
+    void save.then(finishSave, finishSave);
+  };
   const graphPreflightKey = graph
     ? `${graph.graphVersion}:${graph.packageFingerprint}:${selectedTransport}:${JSON.stringify(selectedHost)}`
     : null;
@@ -190,9 +181,6 @@ export function SettingsAgentsSection({
   );
   const resultBadgeVariant = preflight.result?.ok ? "secondary" : "destructive";
   const selectedExecutorLabel = selectedExecutor || t("none");
-  useEffect(() => {
-    setHostMode(selectedHost.kind);
-  }, [selectedHost.kind]);
   useEffect(() => {
     let cancelled = false;
     if (!bridge || typeof bridge.detectWslEnvironment !== "function") {
@@ -235,18 +223,11 @@ export function SettingsAgentsSection({
             disabled={hostSaving}
             value={hostMode}
             onValueChange={(kind: "native" | "wsl") => {
-              setHostMode(kind);
-              if (kind === "wsl") return;
-              setHostSaving(true);
-              const save = persistSettings
-                ? persistSettings({ execution: { agentHost: { kind: "native" } } })
-                : Promise.resolve(updateSettings({ execution: { agentHost: { kind: "native" } } }));
-              settleSettingsSave(
-                save,
-                () => setHostSaving(false),
-                refreshAgentDetections,
-                setError
-              );
+              if (kind === "wsl" || selectedHost.kind === "native") {
+                setChoosingWsl(kind === "wsl" && selectedHost.kind === "native");
+                return;
+              }
+              saveHost({ kind: "native" });
             }}
           >
             <SelectTrigger className="mt-3 w-56" id="agent-host-select" aria-label={t("agentHost")}>
@@ -272,24 +253,7 @@ export function SettingsAgentsSection({
               <Select
                 disabled={hostSaving || !wslEnvironment.available}
                 value={selectedHost.kind === "wsl" ? selectedHost.distribution : undefined}
-                onValueChange={(distribution) => {
-                  setHostSaving(true);
-                  const save = persistSettings
-                    ? persistSettings({
-                        execution: { agentHost: { kind: "wsl", distribution } }
-                      })
-                    : Promise.resolve(
-                        updateSettings({
-                          execution: { agentHost: { kind: "wsl", distribution } }
-                        })
-                      );
-                  settleSettingsSave(
-                    save,
-                    () => setHostSaving(false),
-                    refreshAgentDetections,
-                    setError
-                  );
-                }}
+                onValueChange={(distribution) => saveHost({ kind: "wsl", distribution })}
               >
                 <SelectTrigger
                   className="mt-2 w-72"
@@ -309,6 +273,13 @@ export function SettingsAgentsSection({
                 </SelectContent>
               </Select>
             </div>
+          ) : null}
+          {hostSaving ? (
+            <p className="mt-3 text-xs text-muted-foreground" role="status">
+              {t("saving")}
+            </p>
+          ) : hostUnconfirmed ? (
+            <p className="mt-3 text-xs text-muted-foreground">{t("agentHostDraftHint")}</p>
           ) : null}
           {!wslEnvironment.available && wslEnvironment.unavailableReason ? (
             <p className="mt-3 text-xs text-destructive">
@@ -330,7 +301,8 @@ export function SettingsAgentsSection({
             const save = persistSettings
               ? persistSettings({ execution: { agentTransport } })
               : Promise.resolve(updateSettings({ execution: { agentTransport } }));
-            settleSettingsSave(save, () => setTransportSaving(false));
+            const finishSave = () => setTransportSaving(false);
+            void save.then(finishSave, finishSave);
           }}
         >
           <SelectTrigger
@@ -348,37 +320,48 @@ export function SettingsAgentsSection({
           </SelectContent>
         </Select>
       </div>
-      <AgentSettingsPanel
-        agentDetectionRefreshing={agentDetectionRefreshing}
-        agents={transportAgents}
-        bridgeUnavailableMessage={t("bridgeUnavailable")}
-        projectRoot={canvasRef?.projectRoot ?? null}
-        labels={{
-          agentDetected: t("agentDetected"),
-          agentInstallStatus: t("agentInstallStatus"),
-          agentRefresh: t("agentRefresh"),
-          agentRefreshing: t("agentRefreshing"),
-          agentMissing: t("agentMissing"),
-          agentMissingCannotEnable: t("agentMissingCannotEnable"),
-          agentEnableDescription: t("agentEnableDescription"),
-          agentAcpOptionsHint: t("agentAcpOptionsHint"),
-          agentAcpAdapterHint: t("agentAcpAdapterHint"),
-          agentInstallCommandLabel: t("agentInstallCommandLabel"),
-          agentLoginCommandLabel: t("agentLoginCommandLabel"),
-          agentFullAccess: t("agentFullAccess"),
-          agentFullAccessDescription: t("agentFullAccessDescription"),
-          acpModelManaged: t("acpModelManaged"),
-          acpPermissionsManaged: t("acpPermissionsManaged"),
-          acpSessionMode: t("acpSessionMode"),
-          acpNotProbed: t("acpNotProbed"),
-          acpProbing: t("preflightRunning")
-        }}
-        refreshAgentDetections={refreshAgentDetections}
-        settings={settings}
-        t={t}
-        updateSettings={updateSettings}
-      />
-      <div className="rounded-lg border bg-card p-4" data-testid="settings-executor-preflight">
+      {agentDetectionError ? (
+        <p className="text-sm text-destructive" role="alert" hidden={hostUnconfirmed}>
+          {t("agentDetectionFailed").replace("{error}", agentDetectionError)}
+        </p>
+      ) : null}
+      <div hidden={hostUnconfirmed}>
+        <AgentSettingsPanel
+          agentDetectionRefreshing={agentDetectionRefreshing}
+          agents={transportAgents}
+          bridgeUnavailableMessage={t("bridgeUnavailable")}
+          projectRoot={canvasRef?.projectRoot ?? null}
+          labels={{
+            agentDetected: t("agentDetected"),
+            agentInstallStatus: t("agentInstallStatus"),
+            agentRefresh: t("agentRefresh"),
+            agentRefreshing: t("agentRefreshing"),
+            agentMissing: t("agentMissing"),
+            agentMissingCannotEnable: t("agentMissingCannotEnable"),
+            agentEnableDescription: t("agentEnableDescription"),
+            agentAcpOptionsHint: t("agentAcpOptionsHint"),
+            agentAcpAdapterHint: t("agentAcpAdapterHint"),
+            agentInstallCommandLabel: t("agentInstallCommandLabel"),
+            agentLoginCommandLabel: t("agentLoginCommandLabel"),
+            agentFullAccess: t("agentFullAccess"),
+            agentFullAccessDescription: t("agentFullAccessDescription"),
+            acpModelManaged: t("acpModelManaged"),
+            acpPermissionsManaged: t("acpPermissionsManaged"),
+            acpSessionMode: t("acpSessionMode"),
+            acpNotProbed: t("acpNotProbed"),
+            acpProbing: t("preflightRunning")
+          }}
+          refreshAgentDetections={refreshAgentDetections}
+          settings={settings}
+          t={t}
+          updateSettings={updateSettings}
+        />
+      </div>
+      <div
+        className="rounded-lg border bg-card p-4"
+        data-testid="settings-executor-preflight"
+        hidden={hostUnconfirmed}
+      >
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-text-strong">{t("executorPreflight")}</h2>
