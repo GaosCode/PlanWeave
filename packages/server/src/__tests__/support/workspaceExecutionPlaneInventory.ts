@@ -43,6 +43,14 @@ export const WORKSPACE_EXECUTION_PLANE_INVENTORY: readonly WorkspaceExecutionPla
       "WS transport isolation clients report empty mapping observations in Host hello."
     ),
     inventoryEntry(
+      "wm-remoteBlockRecoverySource-test",
+      "workspaceMappings",
+      "endpoint_readiness",
+      "packages/distributed-integration/src/__tests__/remoteBlockRecoverySource.test.ts",
+      "interruptedWorkspaceAttempt reportOnline readiness.workspaceMappings",
+      "Recovery tests report a ready workspace mapping for the Host that materializes the shared canvas."
+    ),
+    inventoryEntry(
       "rna-wsServerErrorIsolation-test",
       "runtime_not_attached",
       "runtime_attachment",
