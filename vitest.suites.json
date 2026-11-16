@@ -1058,6 +1058,7 @@
         "mailboxReplayFlowControl.test.ts",
         "exactPermissionRelay.test.ts",
         "canvasRuntimeAdapterContract.test.ts",
+        "remoteBlockRecoverySource.test.ts",
         "canvasRuntimeArtifactLoopback.test.ts",
         "runtimeArtifactRetentionLoopback.test.ts",
         "contentVersionTransferIntegration.test.ts",

@@ -55,6 +55,7 @@ import {
 } from "./remoteReenterRecovery.js";
 
 type ResumeAction = Extract<RemoteExecutionActionRequest, { kind: "resume_same_session" }>;
+type RetryAction = Extract<RemoteExecutionActionRequest, { kind: "retry_new_attempt" }>;
 type CancelAction = Extract<RemoteExecutionActionRequest, { kind: "cancel" }>;
 
 class RemoteCancelResumePendingError extends Error {
@@ -486,28 +487,10 @@ export class RemoteBlockActionCoordinator {
           context === undefined ? undefined : dispatchHostSelectionSnapshotSchema.parse(context);
         if (operation.endpointSelection) this.lifecycle.authorizeEndpointOperation(operation);
         const agentAccess = this.lifecycle.reauthorizeAgentAccessForRetry(operation);
-        const retryRuntime = async () =>
-          await this.withRuntime(operation, (runtime) =>
-            runtime.retryAttempt({
-              ...remoteBlockIdentity(operation),
-              newDispatchId: action.newDispatchId,
-              newExecutionAttemptId: action.newExecutionAttemptId
-            })
-          );
-        if (this.options.dispatches.inspect(operation).dispatch) {
-          await retryRuntime();
-        } else {
-          try {
-            await retryRuntime();
-          } catch (error) {
-            if (
-              !(error instanceof RemoteOwnershipConflictError) ||
-              error.code !== "remote_ownership_not_active"
-            ) {
-              throw error;
-            }
-          }
-        }
+        const allowUnbound = this.options.dispatches.inspect(operation).dispatch === undefined;
+        await this.withRuntime(operation, (runtime) =>
+          this.commitRetryRuntime(action, operation, runtime, allowUnbound)
+        );
         this.options.operations.retryAttempt({
           operationId: operation.id,
           priorExecutionAttemptId: action.executionAttemptId,
@@ -520,6 +503,51 @@ export class RemoteBlockActionCoordinator {
         await this.lifecycle.reenter(operation.id);
         return "settled";
       }
+    }
+  }
+
+  private async commitRetryRuntime(
+    action: RetryAction,
+    operation: RemoteOperation,
+    runtime: RemoteBlockRuntimePort,
+    allowUnbound: boolean
+  ): Promise<void> {
+    const identity = remoteBlockIdentity(operation);
+    try {
+      await runtime.retryAttempt({
+        ...identity,
+        newDispatchId: action.newDispatchId,
+        newExecutionAttemptId: action.newExecutionAttemptId
+      });
+    } catch (error) {
+      if (allowUnbound && isMissingActiveOwnership(error)) return;
+      let rejected =
+        error instanceof RemoteBlockRuntimeError && error.code === "remote_block_source_changed";
+      if (
+        error instanceof RemoteOwnershipConflictError &&
+        error.code === "remote_ownership_status_conflict"
+      ) {
+        const binding = await runtime.query({
+          ref: identity.ref,
+          operationId: identity.operationId
+        });
+        const owner = binding.ownership;
+        rejected =
+          binding.ref === identity.ref &&
+          binding.status === "diverged" &&
+          binding.interruption === undefined &&
+          owner?.phase === "active" &&
+          owner.operationId === identity.operationId &&
+          (owner.controlPlane ?? "collaboration") === (identity.controlPlane ?? "collaboration") &&
+          owner.sourceRevision === identity.sourceRevision &&
+          owner.graphFingerprint === identity.graphFingerprint &&
+          owner.dispatchId === action.newDispatchId &&
+          owner.executionAttemptId === action.newExecutionAttemptId;
+      }
+      if (!rejected) throw error;
+      throw new RemoteExecutionActionRejectedError("remote_resume_attempt_conflict", {
+        cause: error
+      });
     }
   }
 

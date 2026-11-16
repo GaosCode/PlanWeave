@@ -35,6 +35,7 @@ import {
   remoteBlockOperationQuerySchema,
   remoteBlockRefIdentitySchema,
   remoteBlockRetryAttemptInputSchema,
+  RemoteBlockRuntimeError,
   RemoteOwnershipConflictError,
   type RemoteBlockArtifactSource,
   type RemoteBlockRuntimePort
@@ -104,6 +105,17 @@ function runtimeRpcErrorFromPeer(
 function responseError(response: RuntimeResponse): Error {
   if (response.outcome !== "error") throw new Error("canvas_runtime_response_error_expected");
   switch (response.error.code) {
+    case "remote_block_source_changed":
+      if (
+        (response.operation === "resume_attempt" ||
+          response.operation === "retry_attempt" ||
+          response.operation === "mark_interrupted") &&
+        !response.error.retryable &&
+        !response.error.reconcileRequired
+      ) {
+        return new RemoteBlockRuntimeError(response.error.code, response.error.message);
+      }
+      break;
     case "remote_ownership_requires_executable_block":
     case "remote_ownership_requires_implementation":
     case "remote_ownership_requires_ready_block":

@@ -1,4 +1,4 @@
-import { appendFile, readFile, readdir, stat } from "node:fs/promises";
+import { appendFile, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -656,35 +656,71 @@ describe("remote block runtime terminal transitions", () => {
     expect(terminal).not.toHaveProperty("interruption");
   });
 
-  it("rebinds only an exact non-resumable interrupted attempt for a manual retry", async () => {
-    const { port, identity } = await activateReadyBlock();
+  it("fences manual retry replays by active identity and current source", async () => {
+    const { init, port, identity } = await activateReadyBlock();
     await port.markInterrupted({
       ref: "T-001#B-001",
       ...identity,
       interruption: { reason: "acp_session_lost", resumable: false }
     });
 
-    const retried = await port.retryAttempt({
+    const retry = {
       ref: "T-001#B-001",
       ...identity,
       newDispatchId: "dispatch-002",
       newExecutionAttemptId: "attempt-002"
-    });
+    };
+    const retried = await port.retryAttempt(retry);
     expect(retried).toMatchObject({
       status: "in_progress",
       ownership: { ...identity, dispatchId: "dispatch-002", executionAttemptId: "attempt-002" }
     });
     expect(retried).not.toHaveProperty("interruption");
     expect(retried).not.toHaveProperty("divergenceReason");
+    await expect(port.retryAttempt(retry)).resolves.toEqual(retried);
 
+    const stateBeforeDrift = await readFile(init.workspace.stateFile, "utf8");
+    const promptPath = join(init.workspace.packageDir, "nodes/T-001/prompt.md");
+    const originalPrompt = await readFile(promptPath, "utf8");
+    await appendFile(promptPath, "\nchanged after retry\n");
     await expect(
       port.retryAttempt({
-        ref: "T-001#B-001",
-        ...identity,
+        ...retry,
         newDispatchId: "dispatch-003",
         newExecutionAttemptId: "attempt-003"
       })
     ).rejects.toMatchObject({ code: "remote_ownership_activation_conflict" });
+    await expect(
+      port.retryAttempt({ ...retry, operationId: "operation-foreign" })
+    ).rejects.toMatchObject({ code: "remote_ownership_operation_conflict" });
+    expect(await readFile(init.workspace.stateFile, "utf8")).toBe(stateBeforeDrift);
+
+    await expect(port.retryAttempt(retry)).rejects.toMatchObject({
+      code: "remote_block_source_changed"
+    });
+    await expect(port.query({ ref: retry.ref, operationId: retry.operationId })).resolves.toEqual({
+      ...retried,
+      status: "diverged",
+      divergenceReason: expect.stringContaining("Remote source changed")
+    });
+
+    const divergedState = await readFile(init.workspace.stateFile, "utf8");
+    const divergedFile = await stat(init.workspace.stateFile);
+    await expect(port.retryAttempt(retry)).rejects.toMatchObject({
+      code: "remote_block_source_changed"
+    });
+    await expect(
+      port.retryAttempt({ ...retry, operationId: "operation-foreign" })
+    ).rejects.toMatchObject({ code: "remote_ownership_operation_conflict" });
+    await writeFile(promptPath, originalPrompt, "utf8");
+    await expect(port.retryAttempt(retry)).rejects.toMatchObject({
+      code: "remote_ownership_status_conflict"
+    });
+    expect(await readFile(init.workspace.stateFile, "utf8")).toBe(divergedState);
+    expect(await stat(init.workspace.stateFile)).toMatchObject({
+      ino: divergedFile.ino,
+      mtimeMs: divergedFile.mtimeMs
+    });
   });
 
   it("resumes only the exact resumable attempt and clears only its active interruption marker", async () => {

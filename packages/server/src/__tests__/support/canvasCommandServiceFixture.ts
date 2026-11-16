@@ -23,7 +23,7 @@ import {
   projectCanvasReplicaDocument
 } from "@planweave-ai/runtime";
 import type { PlanPackageManifest } from "@planweave-ai/runtime";
-import type { HumanAuthContext } from "../../identity/schemas.js";
+import { humanAuthContextSchema, type HumanAuthContext } from "../../identity/schemas.js";
 import { WorkspaceIdentityRepository } from "../../identity/workspaceRepository.js";
 import { applyMigrations } from "../../migrations.js";
 import { ProjectAccessRepository } from "../../projectAccessRepository.js";
@@ -197,14 +197,14 @@ export async function canvasCommandServiceFixture(options?: {
 }
 
 export function actor(id: "owner" | "editor" | "viewer"): HumanAuthContext {
-  return {
+  return humanAuthContextSchema.parse({
     humanPrincipalId: id,
     displayName: id,
     deviceCredentialId: `device-${id}`,
     projectId: "p",
     role: id === "owner" ? "owner" : "member",
     membershipId: `m-${id}`
-  };
+  });
 }
 
 export function submitBody(
