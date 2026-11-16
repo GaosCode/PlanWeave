@@ -4,6 +4,7 @@ import {
   remoteInterruptionSchema,
   remoteOperationReceiptSchema,
   type ActiveRemoteBlockOwnershipInput,
+  type BoundRemoteRetryReceipt,
   type PreparingRemoteBlockOwnershipInput,
   type RemoteBlockOwnership,
   type RemoteInterruption,
@@ -245,7 +246,7 @@ export function markRemoteBlockOwnershipSourceDrift(options: {
   sourceRevision: string;
   graphFingerprint: string;
   reason: string;
-  retryReceipt?: RemoteRetryReceipt;
+  retryReceipt?: BoundRemoteRetryReceipt;
 }): BlockState {
   assertRemoteExecutableBlockType(options.blockType);
   assertRemoteBlockOwnershipInvariant(options);
@@ -266,7 +267,8 @@ export function markRemoteBlockOwnershipSourceDrift(options: {
   ) {
     return options.blockState;
   }
-  if (options.blockState.remoteRetryReceipt?.outcome === "source_rejected") {
+  const currentRetry = options.blockState.remoteRetryReceipt;
+  if (currentRetry && currentRetry.outcome !== "committed") {
     return options.blockState;
   }
   const reason = options.reason.trim();
@@ -276,14 +278,23 @@ export function markRemoteBlockOwnershipSourceDrift(options: {
       "Remote ownership source drift requires a non-empty reason."
     );
   }
-  const retry = options.retryReceipt ?? options.blockState.remoteRetryReceipt;
+  const retry = options.retryReceipt ?? currentRetry;
+  const receipt: RemoteRetryReceipt | undefined = retry
+    ? { ...retry, outcome: "source_rejected" }
+    : owner.phase === "active" && options.blockState.remoteInterruption?.resumable === false
+      ? {
+          outcome: "source_invalidated",
+          dispatchId: owner.dispatchId,
+          executionAttemptId: owner.executionAttemptId
+        }
+      : undefined;
   return {
     ...options.blockState,
     status: "diverged",
     divergenceReason: reason,
     remoteOwnership: owner,
     remoteInterruption: undefined,
-    ...(retry ? { remoteRetryReceipt: { ...retry, outcome: "source_rejected" } } : {})
+    ...(receipt ? { remoteRetryReceipt: receipt } : {})
   };
 }
 
@@ -331,6 +342,26 @@ export function interruptRemoteBlockOwnership(options: {
   };
 }
 
+type RemoteAttemptIdentity = Pick<
+  ActiveRemoteOperationIdentity,
+  "dispatchId" | "executionAttemptId"
+>;
+
+export function assertRemoteRetryReplacement(
+  original: RemoteAttemptIdentity,
+  replacement: RemoteAttemptIdentity
+): void {
+  if (
+    replacement.dispatchId === original.dispatchId ||
+    replacement.executionAttemptId === original.executionAttemptId
+  ) {
+    throw new RemoteOwnershipConflictError(
+      "remote_ownership_activation_conflict",
+      "A remote retry must use new dispatch and execution attempt identities."
+    );
+  }
+}
+
 export function retryRemoteBlockOwnership(options: {
   blockType: BlockType;
   blockState: BlockState;
@@ -354,15 +385,7 @@ export function retryRemoteBlockOwnership(options: {
     dispatchId: options.newDispatchId,
     executionAttemptId: options.newExecutionAttemptId
   });
-  if (
-    retried.dispatchId === current.dispatchId ||
-    retried.executionAttemptId === current.executionAttemptId
-  ) {
-    throw new RemoteOwnershipConflictError(
-      "remote_ownership_activation_conflict",
-      "A remote retry must use new dispatch and execution attempt identities."
-    );
-  }
+  assertRemoteRetryReplacement(current, retried);
   const {
     divergenceReason: _divergenceReason,
     remoteInterruption: _remoteInterruption,

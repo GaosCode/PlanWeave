@@ -808,6 +808,7 @@ describe("remote block runtime terminal transitions", () => {
 
   it("rejects retry for resumable interruption and changed source evidence", async () => {
     const resumable = await activateReadyBlock();
+    const ref = "T-001#B-001";
     await resumable.port.markInterrupted({
       ref: "T-001#B-001",
       ...resumable.identity,
@@ -821,6 +822,14 @@ describe("remote block runtime terminal transitions", () => {
         newExecutionAttemptId: "attempt-002"
       })
     ).rejects.toMatchObject({ code: "remote_ownership_status_conflict" });
+    await appendFile(
+      join(resumable.init.workspace.packageDir, "nodes/T-001/prompt.md"),
+      "\nDrift during a resumable interruption.\n"
+    );
+    await resumable.port.reconcile({ ref, operationId: resumable.identity.operationId });
+    expect(
+      (await readState(resumable.init.workspace.stateFile)).blocks[ref].remoteRetryReceipt
+    ).toBeUndefined();
 
     const drifted = await activateReadyBlock();
     await drifted.port.markInterrupted({
@@ -860,10 +869,25 @@ describe("remote block runtime terminal transitions", () => {
     const promptPath = join(init.workspace.packageDir, "nodes/T-001/prompt.md");
     const originalPrompt = await readFile(promptPath, "utf8");
     await appendFile(promptPath, "\nDrift before the original Retry.\n");
+    await port.reconcile({ ref, operationId: identity.operationId });
+    await writeFile(promptPath, originalPrompt, "utf8");
+    const observed = await readFile(init.workspace.stateFile, "utf8");
+    await expect(port.retryAttempt({ ...retry, controlPlane: "owner" })).rejects.toMatchObject({
+      code: "remote_ownership_source_conflict"
+    });
+    await expect(
+      port.retryAttempt({ ...retry, newDispatchId: identity.dispatchId })
+    ).rejects.toMatchObject({ code: "remote_ownership_activation_conflict" });
+    await expect(
+      port.retryAttempt({ ...retry, dispatchId: "foreign-dispatch" })
+    ).rejects.toMatchObject({ code: "remote_ownership_activation_conflict" });
+    expect(await readFile(init.workspace.stateFile, "utf8")).toBe(observed);
     await expect(port.retryAttempt(retry)).rejects.toMatchObject({
       code: "remote_block_source_changed"
     });
-    await writeFile(promptPath, originalPrompt, "utf8");
+    await expect(
+      port.retryAttempt({ ...retry, newDispatchId: "another-dispatch" })
+    ).rejects.toMatchObject({ code: "remote_ownership_activation_conflict" });
 
     const replacement = async () => {
       await resolveBlockDivergence({

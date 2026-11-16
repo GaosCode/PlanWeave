@@ -187,7 +187,7 @@ async function interruptedWorkspaceAttempt(resumable: boolean) {
   if (!endpoint) throw new Error("test_workspace_endpoint_missing");
   async function interruptAttempt(blockRef: string, canResume: boolean) {
     const current = evidence();
-    const outcome = await coordination.coordinator.dispatch({
+    const dispatchRequest = {
       ...scope,
       contentRevision: current.sourceRevision,
       graphFingerprint: current.target.graphFingerprint,
@@ -199,7 +199,8 @@ async function interruptedWorkspaceAttempt(resumable: boolean) {
       expectedResponsibilityRevision: 0,
       expectedReviewerRevision: 0,
       executionTargetRevision: 0
-    });
+    } as const;
+    const outcome = await coordination.coordinator.dispatch(dispatchRequest);
     const dispatch = coordination.dispatches.getRequired(outcome.operation.dispatchId);
     coordination.dispatches.accept(
       host.id,
@@ -231,7 +232,12 @@ async function interruptedWorkspaceAttempt(resumable: boolean) {
     });
     const interrupted = coordination.operations.getRequired(outcome.operation.id);
     const identity = remoteBlockIdentity(interrupted);
-    return { interrupted, identity, priorLeaseId: priorLease.leaseId };
+    return {
+      interrupted,
+      identity,
+      priorLeaseId: priorLease.leaseId,
+      replayDispatch: () => coordination.coordinator.dispatch(dispatchRequest)
+    };
   }
   const initial = await interruptAttempt(ref, resumable);
   expect(deliveryErrors).toEqual([]);
@@ -509,15 +515,17 @@ function retryAction(
 
 describe("shared Workspace Retry source", () => {
   it.each([
-    ["before_commit", "received_rejection", "changed_source"],
-    ["before_commit", "received_rejection", "restored_source"],
-    ["before_commit", "lost_rejection", "changed_source"],
-    ["before_commit", "lost_rejection", "restored_source"],
-    ["after_commit", "received_rejection", "changed_source"],
-    ["after_commit", "received_rejection", "restored_source"],
-    ["after_commit", "lost_rejection", "changed_source"],
-    ["after_commit", "lost_rejection", "restored_source"]
-  ] as const)("settles a Retry after source drift (%s, %s, %s)", async (firstFault, rejection, source) => {
+    ["before_commit", "received_rejection", "changed_source", "retry"],
+    ["before_commit", "received_rejection", "restored_source", "retry"],
+    ["before_commit", "lost_rejection", "changed_source", "retry"],
+    ["before_commit", "lost_rejection", "restored_source", "retry"],
+    ["after_commit", "received_rejection", "changed_source", "retry"],
+    ["after_commit", "received_rejection", "restored_source", "retry"],
+    ["after_commit", "lost_rejection", "changed_source", "retry"],
+    ["after_commit", "lost_rejection", "restored_source", "retry"],
+    ["before_commit", "lost_rejection", "changed_source", "dispatch_replay"],
+    ["before_commit", "lost_rejection", "restored_source", "dispatch_replay"]
+  ] as const)("settles a Retry after source drift (%s, %s, %s, %s)", async (firstFault, rejection, source, observer) => {
     const loseRejection = rejection === "lost_rejection";
     const fixture = await startedWorkspaceRetry(loseRejection, firstFault);
     const {
@@ -534,6 +542,21 @@ describe("shared Workspace Retry source", () => {
     const promptPath = join(canvas.packageDir, "nodes/T-001/prompt.md");
     const originalPrompt = await readFile(promptPath, "utf8");
     const current = await updateTaskPrompt(fixture);
+    if (observer === "dispatch_replay") {
+      await expect(fixture.replayDispatch()).rejects.toThrow("remote_source_changed");
+      expect(
+        hostResponses.filter(({ request }) => request.operation === "reconcile").at(-1)
+      ).toMatchObject({
+        reply: { outcome: "success", result: { status: "diverged", ownership: binding.ownership } }
+      });
+      const observed = (await readState(canvas.stateFile)).blocks[ref];
+      expect(observed.remoteRetryReceipt).toEqual({
+        outcome: "source_invalidated",
+        dispatchId: identity.dispatchId,
+        executionAttemptId: identity.executionAttemptId
+      });
+      expect(observed.remoteInterruption).toBeUndefined();
+    }
     const firstReplay = coordination.coordinator.executeAction(action);
     if (loseRejection) {
       await expect(firstReplay).rejects.toMatchObject({
@@ -563,7 +586,11 @@ describe("shared Workspace Retry source", () => {
     expect(drifted).toMatchObject({
       status: "diverged",
       ownership: binding.ownership,
-      divergenceReason: expect.stringContaining("Remote source changed before retry")
+      divergenceReason: expect.stringContaining(
+        observer === "dispatch_replay"
+          ? "Remote source changed while operation"
+          : "Remote source changed before retry"
+      )
     });
     expect(drifted.interruption).toBeUndefined();
     const driftedState = (await readState(canvas.stateFile)).blocks[ref];
@@ -738,10 +765,21 @@ describe("shared Workspace Retry source", () => {
 
   it.each([
     "before_commit",
-    "after_commit"
-  ] as const)("preserves the status conflict for manual divergence (%s)", async (firstFault) => {
-    const { action, binding, canvas, coordination, identity, runtime } =
-      await startedWorkspaceRetry(false, firstFault);
+    "after_commit",
+    "after_source_invalidation"
+  ] as const)("preserves the status conflict for manual divergence (%s)", async (scenario) => {
+    const fixture = await startedWorkspaceRetry(
+      false,
+      scenario === "after_commit" ? "after_commit" : "before_commit"
+    );
+    const { action, binding, canvas, coordination, identity, runtime } = fixture;
+    if (scenario === "after_source_invalidation") {
+      await updateTaskPrompt(fixture);
+      await expect(fixture.replayDispatch()).rejects.toThrow("remote_source_changed");
+      expect((await readState(canvas.stateFile)).blocks[ref].remoteRetryReceipt?.outcome).toBe(
+        "source_invalidated"
+      );
+    }
     const reason = `Remote source changed before retry of '${ref}'.`;
     await markBlockDiverged({
       projectRoot: canvas,

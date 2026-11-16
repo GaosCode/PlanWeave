@@ -6,7 +6,7 @@ import { withPreparedBlockRunIndex } from "../autoRun/blockRunIndex.js";
 import { withExecutionStateLock } from "./executionStateBoundary.js";
 import { parseBlockRef } from "../graph/compileTaskGraph.js";
 import { loadPackage } from "../package/loadPackage.js";
-import type { RemoteRetryReceipt } from "../schema/remoteOwnership.js";
+import type { BoundRemoteRetryReceipt } from "../schema/remoteOwnership.js";
 import { writeState } from "../state.js";
 import type { BlockType, PackageWorkspaceRef } from "../types.js";
 import { submitRemoteBlockResult } from "./blockSubmission.js";
@@ -22,6 +22,7 @@ import {
 import {
   activateRemoteBlockOwnership,
   assertActiveRemoteBlockOwnership,
+  assertRemoteRetryReplacement,
   failRemoteBlockOwnership,
   interruptRemoteBlockOwnership,
   markRemoteBlockOwnershipSourceDrift,
@@ -126,7 +127,7 @@ async function requireCurrentRecoverySource(
   blockType: BlockType,
   input: RemoteBlockRefIdentity,
   action: "resume" | "retry",
-  retryReceipt?: RemoteRetryReceipt
+  retryReceipt?: BoundRemoteRetryReceipt
 ): Promise<void> {
   const source = await remoteBlockSourceEvidence(context, input.ref);
   if (sameRemoteBlockAuthority(source, input)) return;
@@ -466,27 +467,36 @@ export function createRemoteBlockRuntimePort(options: {
           receipt &&
           (receipt.dispatchId !== input.dispatchId ||
             receipt.executionAttemptId !== input.executionAttemptId ||
-            receipt.newDispatchId !== input.newDispatchId ||
-            receipt.newExecutionAttemptId !== input.newExecutionAttemptId)
+            (receipt.outcome !== "source_invalidated" &&
+              (receipt.newDispatchId !== input.newDispatchId ||
+                receipt.newExecutionAttemptId !== input.newExecutionAttemptId)))
         ) {
           throw new RemoteOwnershipConflictError(
             "remote_ownership_activation_conflict",
             `Retry of '${input.ref}' conflicts with the recorded dispatch and attempt identities.`
           );
         }
-        if (receipt?.outcome === "source_rejected") {
-          throw new RemoteBlockRuntimeError(
-            "remote_block_source_changed",
-            `Remote source changed before retry of '${input.ref}'.`
-          );
-        }
-        const committedReceipt: RemoteRetryReceipt = {
+        const committedReceipt: BoundRemoteRetryReceipt = {
           outcome: "committed",
           dispatchId: input.dispatchId,
           executionAttemptId: input.executionAttemptId,
           newDispatchId: input.newDispatchId,
           newExecutionAttemptId: input.newExecutionAttemptId
         };
+        if (receipt && receipt.outcome !== "committed") {
+          if (receipt.outcome === "source_invalidated") {
+            assertRemoteRetryReplacement(requested, retriedIdentity);
+            context.state.blocks[input.ref] = {
+              ...current,
+              remoteRetryReceipt: { ...committedReceipt, outcome: "source_rejected" }
+            };
+            await writeLockedState(context);
+          }
+          throw new RemoteBlockRuntimeError(
+            "remote_block_source_changed",
+            `Remote source changed before retry of '${input.ref}'.`
+          );
+        }
         if (replay && current.status === "in_progress") {
           await requireCurrentRecoverySource(context, blockType, input, "retry", committedReceipt);
           return bindingView(context, input.ref);

@@ -75,6 +75,7 @@ export const blockStateSchema = z
       const receipt = block.remoteRetryReceipt;
       const owner = block.remoteOwnership;
       const ownsRetry =
+        receipt.outcome !== "source_invalidated" &&
         owner?.phase === "active" &&
         owner.dispatchId === receipt.newDispatchId &&
         owner.executionAttemptId === receipt.newExecutionAttemptId;

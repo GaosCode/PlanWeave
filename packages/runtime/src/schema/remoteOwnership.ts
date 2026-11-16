@@ -80,11 +80,15 @@ export const remoteInterruptionSchema = z
   })
   .strict();
 
-export const remoteRetryReceiptSchema = z
+const remoteRetryOriginalAttemptShape = {
+  dispatchId: dispatchIdSchema,
+  executionAttemptId: executionAttemptIdSchema
+};
+
+const boundRemoteRetryReceiptSchema = z
   .object({
     outcome: z.enum(["committed", "source_rejected"]),
-    dispatchId: dispatchIdSchema,
-    executionAttemptId: executionAttemptIdSchema,
+    ...remoteRetryOriginalAttemptShape,
     newDispatchId: dispatchIdSchema,
     newExecutionAttemptId: executionAttemptIdSchema
   })
@@ -96,6 +100,16 @@ export const remoteRetryReceiptSchema = z
     "Remote retry must replace both dispatch and execution attempt identities."
   );
 
+export const remoteRetryReceiptSchema = z.discriminatedUnion("outcome", [
+  boundRemoteRetryReceiptSchema,
+  z
+    .object({
+      outcome: z.literal("source_invalidated"),
+      ...remoteRetryOriginalAttemptShape
+    })
+    .strict()
+]);
+
 export type PreparingRemoteBlockOwnership = z.infer<typeof preparingRemoteBlockOwnershipSchema>;
 export type PreparingRemoteBlockOwnershipInput = z.input<
   typeof preparingRemoteBlockOwnershipSchema
@@ -105,4 +119,5 @@ export type ActiveRemoteBlockOwnershipInput = z.input<typeof activeRemoteBlockOw
 export type RemoteBlockOwnership = z.infer<typeof remoteBlockOwnershipSchema>;
 export type RemoteOperationReceipt = z.infer<typeof remoteOperationReceiptSchema>;
 export type RemoteInterruption = z.infer<typeof remoteInterruptionSchema>;
+export type BoundRemoteRetryReceipt = z.infer<typeof boundRemoteRetryReceiptSchema>;
 export type RemoteRetryReceipt = z.infer<typeof remoteRetryReceiptSchema>;
