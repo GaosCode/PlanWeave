@@ -490,6 +490,14 @@ export const workspaceMappingsInventory = [
     "Coordinator fleet-unbound fixtures report empty mapping observations."
   ),
   inventoryEntry(
+    "wm-remoteBlockCoordinatorAuthority-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/server/src/__tests__/remoteBlockCoordinatorAuthority.test.ts",
+    "reportOnline readiness.workspaceMappings ready",
+    "Batched admission recovery reports a ready mapping for the unaffected Host."
+  ),
+  inventoryEntry(
     "wm-remoteBlockCoordinatorCrash-test",
     "workspaceMappings",
     "endpoint_readiness",
@@ -512,6 +520,14 @@ export const workspaceMappingsInventory = [
     "packages/server/src/__tests__/remoteControlService.test.ts",
     "workspaceMappings: []",
     "Operator control tests report empty mapping observations."
+  ),
+  inventoryEntry(
+    "wm-remoteEndpointSqliteDispatch-test",
+    "workspaceMappings",
+    "endpoint_readiness",
+    "packages/server/src/__tests__/remoteEndpointSqliteDispatch.test.ts",
+    "workspaceMappings: []",
+    "SQLite Endpoint dispatch and profile identity fixtures report empty mapping observations."
   ),
   inventoryEntry(
     "wm-remoteHostRuntimeAdapter-test",
