@@ -72,12 +72,14 @@ export const stateSchemaDocument: SchemaDocument<"state"> = {
         remoteRetryReceipt: {
           description:
             "optional Retry idempotency evidence bound to the block's active remote owner",
-          outcome: "committed | source_rejected | source_invalidated",
-          dispatchId: "original dispatch identifier",
-          executionAttemptId: "original execution-attempt identifier",
-          newDispatchId: "proposed replacement dispatch identifier; absent for source_invalidated",
+          outcome: "committed | source_rejected | source_invalidated | active_source_invalidated",
+          dispatchId:
+            "original dispatch identifier; observed active dispatch for active_source_invalidated",
+          executionAttemptId:
+            "original execution-attempt identifier; observed active attempt for active_source_invalidated",
+          newDispatchId: "proposed replacement dispatch identifier; only on bound Retry receipts",
           newExecutionAttemptId:
-            "proposed replacement execution-attempt identifier; absent for source_invalidated"
+            "proposed replacement execution-attempt identifier; only on bound Retry receipts"
         },
         remoteOperationReceipt: {
           description:

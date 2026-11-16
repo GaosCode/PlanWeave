@@ -25,7 +25,7 @@ import {
   basicManifest,
   createTestWorkspace
 } from "../../../runtime/src/__tests__/promptTestHelpers.js";
-import { readState } from "../../../runtime/src/state.js";
+import { readState, writeState } from "../../../runtime/src/state.js";
 import { ArtifactStore } from "../../../server/src/artifacts.js";
 import {
   readStableCanvasRuntimeContentTarget,
@@ -524,7 +524,9 @@ describe("shared Workspace Retry source", () => {
     ["after_commit", "lost_rejection", "changed_source", "retry"],
     ["after_commit", "lost_rejection", "restored_source", "retry"],
     ["before_commit", "lost_rejection", "changed_source", "dispatch_replay"],
-    ["before_commit", "lost_rejection", "restored_source", "dispatch_replay"]
+    ["before_commit", "lost_rejection", "restored_source", "dispatch_replay"],
+    ["after_commit", "lost_rejection", "changed_source", "legacy_dispatch_replay"],
+    ["after_commit", "lost_rejection", "restored_source", "legacy_dispatch_replay"]
   ] as const)("settles a Retry after source drift (%s, %s, %s, %s)", async (firstFault, rejection, source, observer) => {
     const loseRejection = rejection === "lost_rejection";
     const fixture = await startedWorkspaceRetry(loseRejection, firstFault);
@@ -539,10 +541,33 @@ describe("shared Workspace Retry source", () => {
       priorLeaseId,
       runtime
     } = fixture;
+    const legacy = observer === "legacy_dispatch_replay";
+    const dispatchReplay = observer !== "retry";
+    if (legacy) {
+      const state = await readState(canvas.stateFile);
+      delete state.blocks[ref].remoteRetryReceipt;
+      await writeState(canvas.stateFile, state);
+    }
     const promptPath = join(canvas.packageDir, "nodes/T-001/prompt.md");
     const originalPrompt = await readFile(promptPath, "utf8");
     const current = await updateTaskPrompt(fixture);
-    if (observer === "dispatch_replay") {
+    const restoreOriginalSource = async () => {
+      const restored = await fixture.authority.service.submit(
+        actor("editor"),
+        submitBody("restore-before-replay", 1, {
+          kind: "update_task_prompt",
+          taskId: "T-001",
+          promptMarkdown: originalPrompt
+        })
+      );
+      expect(restored.type).toBe("canvas.command.accepted");
+      expect(identity.sourceRevision).toMatch(/^snapshot:/);
+      expect(fixture.evidence().target).toMatchObject({
+        revision: current.target.revision + 1,
+        graphFingerprint: fixture.original.target.graphFingerprint
+      });
+    };
+    if (dispatchReplay) {
       await expect(fixture.replayDispatch()).rejects.toThrow("remote_source_changed");
       expect(
         hostResponses.filter(({ request }) => request.operation === "reconcile").at(-1)
@@ -551,12 +576,15 @@ describe("shared Workspace Retry source", () => {
       });
       const observed = (await readState(canvas.stateFile)).blocks[ref];
       expect(observed.remoteRetryReceipt).toEqual({
-        outcome: "source_invalidated",
-        dispatchId: identity.dispatchId,
-        executionAttemptId: identity.executionAttemptId
+        outcome: legacy ? "active_source_invalidated" : "source_invalidated",
+        dispatchId: legacy ? action.newDispatchId : action.dispatchId,
+        executionAttemptId: legacy ? action.newExecutionAttemptId : action.executionAttemptId
       });
       expect(observed.remoteInterruption).toBeUndefined();
     }
+    const restoreBeforeRetry = legacy && source === "restored_source";
+    if (restoreBeforeRetry) await restoreOriginalSource();
+    const replaySource = fixture.evidence();
     const firstReplay = coordination.coordinator.executeAction(action);
     if (loseRejection) {
       await expect(firstReplay).rejects.toMatchObject({
@@ -576,18 +604,20 @@ describe("shared Workspace Retry source", () => {
       reply: {
         outcome: "success",
         result: {
-          sourceRevision: current.sourceRevision,
-          graphFingerprint: current.target.graphFingerprint
+          sourceRevision: replaySource.sourceRevision,
+          graphFingerprint: replaySource.target.graphFingerprint
         }
       }
     });
-    expect(await readFile(promptPath, "utf8")).toBe(updatedPrompt);
+    expect(await readFile(promptPath, "utf8")).toBe(
+      restoreBeforeRetry ? originalPrompt : updatedPrompt
+    );
     const drifted = await runtime.query({ ref, operationId: identity.operationId });
     expect(drifted).toMatchObject({
       status: "diverged",
       ownership: binding.ownership,
       divergenceReason: expect.stringContaining(
-        observer === "dispatch_replay"
+        dispatchReplay
           ? "Remote source changed while operation"
           : "Remote source changed before retry"
       )
@@ -597,11 +627,15 @@ describe("shared Workspace Retry source", () => {
     expect(driftedState).toMatchObject({
       remoteOwnership: binding.ownership,
       remoteRetryReceipt: {
-        outcome: "source_rejected",
-        dispatchId: action.dispatchId,
-        executionAttemptId: action.executionAttemptId,
-        newDispatchId: action.newDispatchId,
-        newExecutionAttemptId: action.newExecutionAttemptId
+        outcome: legacy ? "active_source_invalidated" : "source_rejected",
+        dispatchId: legacy ? action.newDispatchId : action.dispatchId,
+        executionAttemptId: legacy ? action.newExecutionAttemptId : action.executionAttemptId,
+        ...(legacy
+          ? {}
+          : {
+              newDispatchId: action.newDispatchId,
+              newExecutionAttemptId: action.newExecutionAttemptId
+            })
       }
     });
     expect(driftedState.remoteInterruption).toBeUndefined();
@@ -610,24 +644,9 @@ describe("shared Workspace Retry source", () => {
       status: "interrupted",
       leaseId: priorLeaseId
     });
-    if (source === "restored_source") {
-      const restored = await fixture.authority.service.submit(
-        actor("editor"),
-        submitBody("restore-before-replay", 1, {
-          kind: "update_task_prompt",
-          taskId: "T-001",
-          promptMarkdown: originalPrompt
-        })
-      );
-      expect(restored.type).toBe("canvas.command.accepted");
-      expect(identity.sourceRevision).toMatch(/^snapshot:/);
-      expect(fixture.evidence().target).toMatchObject({
-        revision: current.target.revision + 1,
-        graphFingerprint: fixture.original.target.graphFingerprint
-      });
-    }
+    if (source === "restored_source" && !restoreBeforeRetry) await restoreOriginalSource();
     const keepPending =
-      firstFault === "before_commit" && loseRejection && source === "restored_source";
+      legacy || (firstFault === "before_commit" && loseRejection && source === "restored_source");
     let otherAction: ReturnType<typeof retryAction> | undefined;
     if (keepPending) {
       const unrelated = await fixture.interruptAttempt(unrelatedRef, false);
@@ -662,6 +681,14 @@ describe("shared Workspace Retry source", () => {
           )
           .all(otherAction.newDispatchId)
       ).toHaveLength(1);
+      expect(fixture.hostState.pendingExecutions(10)).toContainEqual(
+        expect.objectContaining({
+          command: expect.objectContaining({
+            dispatchId: otherAction.newDispatchId,
+            executionAttemptId: otherAction.newExecutionAttemptId
+          })
+        })
+      );
     }
     expect(
       database.prepare("SELECT owner_token, process_id FROM server_instance_ownership").get()

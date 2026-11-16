@@ -463,11 +463,13 @@ export function createRemoteBlockRuntimePort(options: {
           ownership
         });
         const receipt = current.remoteRetryReceipt;
+        const activeSourceInvalidated = receipt?.outcome === "active_source_invalidated";
         if (
           receipt &&
+          !activeSourceInvalidated &&
           (receipt.dispatchId !== input.dispatchId ||
             receipt.executionAttemptId !== input.executionAttemptId ||
-            (receipt.outcome !== "source_invalidated" &&
+            ("newDispatchId" in receipt &&
               (receipt.newDispatchId !== input.newDispatchId ||
                 receipt.newExecutionAttemptId !== input.newExecutionAttemptId)))
         ) {
@@ -483,8 +485,12 @@ export function createRemoteBlockRuntimePort(options: {
           newDispatchId: input.newDispatchId,
           newExecutionAttemptId: input.newExecutionAttemptId
         };
-        if (receipt && receipt.outcome !== "committed") {
-          if (receipt.outcome === "source_invalidated") {
+        if (
+          receipt?.outcome === "source_rejected" ||
+          receipt?.outcome === "source_invalidated" ||
+          (activeSourceInvalidated && replay)
+        ) {
+          if (receipt?.outcome === "source_invalidated") {
             assertRemoteRetryReplacement(requested, retriedIdentity);
             context.state.blocks[input.ref] = {
               ...current,
@@ -498,7 +504,13 @@ export function createRemoteBlockRuntimePort(options: {
           );
         }
         if (replay && current.status === "in_progress") {
-          await requireCurrentRecoverySource(context, blockType, input, "retry", committedReceipt);
+          await requireCurrentRecoverySource(
+            context,
+            blockType,
+            input,
+            "retry",
+            receipt?.outcome === "committed" ? receipt : undefined
+          );
           return bindingView(context, input.ref);
         }
 

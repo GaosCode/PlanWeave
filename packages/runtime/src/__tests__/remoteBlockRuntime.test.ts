@@ -659,7 +659,8 @@ describe("remote block runtime terminal transitions", () => {
   it.each([
     "retry",
     "reconcile",
-    "legacy_retry"
+    "legacy_retry",
+    "legacy_reconcile"
   ] as const)("fences manual retry replays when %s observes drift after the replacement", async (observer) => {
     const { init, port, identity } = await activateReadyBlock();
     await port.markInterrupted({
@@ -681,7 +682,8 @@ describe("remote block runtime terminal transitions", () => {
     });
     expect(retried).not.toHaveProperty("interruption");
     expect(retried).not.toHaveProperty("divergenceReason");
-    if (observer === "legacy_retry") {
+    const legacyOwner = observer === "legacy_retry" || observer === "legacy_reconcile";
+    if (legacyOwner) {
       const legacy = await readState(init.workspace.stateFile);
       delete legacy.blocks[retry.ref].remoteRetryReceipt;
       await writeState(init.workspace.stateFile, legacy);
@@ -705,7 +707,7 @@ describe("remote block runtime terminal transitions", () => {
     ).rejects.toMatchObject({ code: "remote_ownership_operation_conflict" });
     expect(await readFile(init.workspace.stateFile, "utf8")).toBe(stateBeforeDrift);
 
-    if (observer === "reconcile") {
+    if (observer === "reconcile" || observer === "legacy_reconcile") {
       await expect(
         port.reconcile({ ref: retry.ref, operationId: retry.operationId })
       ).resolves.toMatchObject({
@@ -734,12 +736,24 @@ describe("remote block runtime terminal transitions", () => {
       code: "remote_ownership_source_conflict"
     });
     await expect(
+      port.retryAttempt({ ...retry, graphFingerprint: "foreign" })
+    ).rejects.toMatchObject({
+      code: "remote_ownership_source_conflict"
+    });
+    await expect(
+      port.retryAttempt({ ...retry, executionAttemptId: retry.newExecutionAttemptId })
+    ).rejects.toMatchObject({
+      issues: [expect.objectContaining({ path: ["newExecutionAttemptId"] })]
+    });
+    await expect(
       port.retryAttempt({
         ...retry,
         dispatchId: "dispatch-foreign",
         executionAttemptId: "attempt-foreign"
       })
-    ).rejects.toMatchObject({ code: "remote_ownership_activation_conflict" });
+    ).rejects.toMatchObject({
+      code: legacyOwner ? "remote_block_source_changed" : "remote_ownership_activation_conflict"
+    });
     await writeFile(promptPath, originalPrompt, "utf8");
     await expect(port.retryAttempt(retry)).rejects.toMatchObject({
       code: "remote_block_source_changed"
@@ -749,6 +763,24 @@ describe("remote block runtime terminal transitions", () => {
       ino: divergedFile.ino,
       mtimeMs: divergedFile.mtimeMs
     });
+    if (observer === "legacy_reconcile") {
+      await expect(
+        port.markInterrupted({
+          ref: retry.ref,
+          ...identity,
+          dispatchId: retry.newDispatchId,
+          executionAttemptId: retry.newExecutionAttemptId,
+          interruption: { reason: "acp_session_lost", resumable: false }
+        })
+      ).rejects.toMatchObject({ code: "remote_ownership_terminal_conflict" });
+      expect(await readFile(init.workspace.stateFile, "utf8")).toBe(divergedState);
+      await resetRuntimeState({ projectRoot: init.workspace });
+      expect((await readState(init.workspace.stateFile)).blocks[retry.ref]).toEqual({
+        status: "ready",
+        lastRunId: null
+      });
+      return;
+    }
     await markBlockDiverged({
       projectRoot: init.workspace,
       ref: retry.ref,

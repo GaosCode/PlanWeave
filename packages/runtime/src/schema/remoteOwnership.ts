@@ -80,7 +80,7 @@ export const remoteInterruptionSchema = z
   })
   .strict();
 
-const remoteRetryOriginalAttemptShape = {
+const remoteAttemptIdentityShape = {
   dispatchId: dispatchIdSchema,
   executionAttemptId: executionAttemptIdSchema
 };
@@ -88,7 +88,7 @@ const remoteRetryOriginalAttemptShape = {
 const boundRemoteRetryReceiptSchema = z
   .object({
     outcome: z.enum(["committed", "source_rejected"]),
-    ...remoteRetryOriginalAttemptShape,
+    ...remoteAttemptIdentityShape,
     newDispatchId: dispatchIdSchema,
     newExecutionAttemptId: executionAttemptIdSchema
   })
@@ -104,8 +104,8 @@ export const remoteRetryReceiptSchema = z.discriminatedUnion("outcome", [
   boundRemoteRetryReceiptSchema,
   z
     .object({
-      outcome: z.literal("source_invalidated"),
-      ...remoteRetryOriginalAttemptShape
+      outcome: z.enum(["source_invalidated", "active_source_invalidated"]),
+      ...remoteAttemptIdentityShape
     })
     .strict()
 ]);

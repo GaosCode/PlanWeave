@@ -279,15 +279,20 @@ export function markRemoteBlockOwnershipSourceDrift(options: {
     );
   }
   const retry = options.retryReceipt ?? currentRetry;
-  const receipt: RemoteRetryReceipt | undefined = retry
-    ? { ...retry, outcome: "source_rejected" }
-    : owner.phase === "active" && options.blockState.remoteInterruption?.resumable === false
-      ? {
-          outcome: "source_invalidated",
-          dispatchId: owner.dispatchId,
-          executionAttemptId: owner.executionAttemptId
-        }
-      : undefined;
+  let receipt: RemoteRetryReceipt | undefined;
+  if (retry) {
+    receipt = { ...retry, outcome: "source_rejected" };
+  } else if (owner.phase === "active") {
+    const attempt = {
+      dispatchId: owner.dispatchId,
+      executionAttemptId: owner.executionAttemptId
+    };
+    if (options.blockState.remoteInterruption?.resumable === false) {
+      receipt = { ...attempt, outcome: "source_invalidated" };
+    } else if (options.blockState.status === "in_progress") {
+      receipt = { ...attempt, outcome: "active_source_invalidated" };
+    }
+  }
   return {
     ...options.blockState,
     status: "diverged",

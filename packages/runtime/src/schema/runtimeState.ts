@@ -75,18 +75,20 @@ export const blockStateSchema = z
       const receipt = block.remoteRetryReceipt;
       const owner = block.remoteOwnership;
       const ownsRetry =
-        receipt.outcome !== "source_invalidated" &&
+        "newDispatchId" in receipt &&
         owner?.phase === "active" &&
         owner.dispatchId === receipt.newDispatchId &&
         owner.executionAttemptId === receipt.newExecutionAttemptId;
-      const ownsOriginal =
+      const ownsRecordedAttempt =
         owner?.phase === "active" &&
         owner.dispatchId === receipt.dispatchId &&
         owner.executionAttemptId === receipt.executionAttemptId;
       const matchesBinding =
         receipt.outcome === "committed"
           ? block.status === "in_progress" && ownsRetry
-          : block.status === "diverged" && !block.remoteInterruption && (ownsOriginal || ownsRetry);
+          : block.status === "diverged" &&
+            !block.remoteInterruption &&
+            (ownsRecordedAttempt || ownsRetry);
       if (!matchesBinding) {
         context.addIssue({
           code: "custom",
