@@ -135,17 +135,19 @@ export async function runManagedTestCommand(
   return { stdout, stderr };
 }
 
+type CliTestOptions = { cwd?: string; hardTimeoutMs?: number };
+
 export async function runCli(
   args: string[],
   env: NodeJS.ProcessEnv,
-  options: { hardTimeoutMs?: number } = {}
+  options: CliTestOptions = {}
 ): Promise<{ stdout: string; stderr: string }> {
   const tsxCli = join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
   const cliEntrypoint = join(repoRoot, "packages", "cli", "src", "index.ts");
   return runManagedTestCommand({
     command: process.execPath,
     args: [tsxCli, cliEntrypoint, ...args],
-    cwd: repoRoot,
+    cwd: options.cwd ?? repoRoot,
     env,
     hardTimeoutMs: options.hardTimeoutMs
   });
@@ -190,7 +192,7 @@ export function isCliFailure(error: unknown): error is CliFailure {
 export async function runCliExpectFailure(
   args: string[],
   env: NodeJS.ProcessEnv,
-  options: { hardTimeoutMs?: number } = {}
+  options: CliTestOptions = {}
 ): Promise<CliFailure> {
   try {
     await runCli(args, env, options);

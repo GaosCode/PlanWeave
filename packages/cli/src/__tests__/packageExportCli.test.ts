@@ -7,6 +7,7 @@ import {
   readdir,
   readFile,
   readlink,
+  realpath,
   symlink,
   writeFile
 } from "node:fs/promises";
@@ -65,16 +66,18 @@ async function expectProtectedExportTarget(
   project: TestProject,
   target: string,
   sentinelRoot: string,
-  errorPattern: RegExp
+  errorPattern: RegExp,
+  cwd?: string
 ): Promise<void> {
   const sentinel = join(sentinelRoot, "export-guard-sentinel.txt");
   await writeFile(sentinel, "keep", "utf8");
   const failure = await runCliExpectFailure(
     projectArgs(project, ["package", "export", "--target", target, "--force", "--json"]),
-    project.env
+    project.env,
+    { cwd }
   );
-  expect(failure.code).not.toBe(0);
-  expect(`${failure.stdout}\n${failure.stderr}`).toMatch(errorPattern);
+  expect(failure.code, target).not.toBe(0);
+  expect(`${failure.stdout}\n${failure.stderr}`, target).toMatch(errorPattern);
   await expect(readFile(sentinel, "utf8")).resolves.toBe("keep");
 }
 
@@ -493,19 +496,50 @@ describe("CLI package export", () => {
     cliTestTimeoutMs
   );
 
-  it(
-    "normalizes a relative protected target before checking it",
-    async () => {
+  it.each([
+    { workingDirectory: "the repository root", fromRepoRoot: true },
+    { workingDirectory: "a separate directory", fromRepoRoot: false }
+  ])(
+    "normalizes protected and dedicated export targets from $workingDirectory",
+    async ({ fromRepoRoot }) => {
       const project = await createTestProject("planweave-export-relative-");
-      const normalizationChild = join(project.sourceRoot, "normalization-child");
-      await mkdir(normalizationChild);
-      const relativeTarget = `${relative(cliPackageRoot, normalizationChild)}${sep}..`;
-      await expectProtectedExportTarget(
-        project,
-        relativeTarget,
-        project.sourceRoot,
-        protectedProjectRootErrorPattern
-      );
+      const workingDirectory = fromRepoRoot
+        ? repoRoot
+        : join(project.sandboxRoot, "cli working directory");
+      if (!fromRepoRoot) await mkdir(workingDirectory);
+      const cwd = await realpath(workingDirectory);
+      const protectedRoot = dirname(project.sourceRoot);
+      const protectedChild = join(protectedRoot, "normalization child");
+      await mkdir(protectedChild);
+      const sourceFiles = await listRelativeFiles(project.init.workspace.packageDir);
+      expect(sourceFiles).toContain("manifest.json");
+
+      for (const form of ["absolute", "relative"]) {
+        const targetArg = (child: string) =>
+          `${form === "relative" ? relative(cwd, child) : child}${sep}..`;
+        await expectProtectedExportTarget(
+          project,
+          targetArg(protectedChild),
+          protectedRoot,
+          protectedProjectRootErrorPattern,
+          cwd
+        );
+
+        const exportTarget = join(project.sourceRoot, "artifacts", `${form} export`);
+        const target = targetArg(join(exportTarget, "normalization child"));
+        const { stdout } = await runCli(
+          projectArgs(project, ["package", "export", "--target", target, "--json"]),
+          project.env,
+          { cwd }
+        );
+        expect(JSON.parse(stdout)).toMatchObject({ ok: true, target });
+        expect(await listRelativeFiles(exportTarget), target).toEqual(sourceFiles);
+        for (const path of sourceFiles) {
+          expect(await readFile(join(exportTarget, path)), path).toEqual(
+            await readFile(join(project.init.workspace.packageDir, path))
+          );
+        }
+      }
     },
     cliTestTimeoutMs
   );
@@ -523,29 +557,6 @@ describe("CLI package export", () => {
         exportTarget,
         project.sourceRoot,
         protectedProjectRootErrorPattern
-      );
-    },
-    cliTestTimeoutMs
-  );
-
-  it(
-    "allows a dedicated export directory below the source project root",
-    async () => {
-      const project = await createTestProject("planweave-export-child-");
-      const exportTarget = join(project.sourceRoot, "artifacts", "package-export");
-
-      const exported = JSON.parse(
-        (
-          await runCli(
-            projectArgs(project, ["package", "export", "--target", exportTarget, "--json"]),
-            project.env
-          )
-        ).stdout
-      ) as { ok: boolean; target: string };
-
-      expect(exported).toMatchObject({ ok: true, target: exportTarget });
-      await expect(readFile(join(exportTarget, "manifest.json"), "utf8")).resolves.toContain(
-        '"version": "plan-package/v1"'
       );
     },
     cliTestTimeoutMs
