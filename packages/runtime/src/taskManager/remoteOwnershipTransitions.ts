@@ -7,7 +7,8 @@ import {
   type PreparingRemoteBlockOwnershipInput,
   type RemoteBlockOwnership,
   type RemoteInterruption,
-  type RemoteOperationReceipt
+  type RemoteOperationReceipt,
+  type RemoteRetryReceipt
 } from "../schema/remoteOwnership.js";
 import type { NormalizedFailure } from "@planweave-ai/agent-host-protocol/browser";
 import type { BlockState, BlockStatus, BlockType } from "../types.js";
@@ -244,6 +245,7 @@ export function markRemoteBlockOwnershipSourceDrift(options: {
   sourceRevision: string;
   graphFingerprint: string;
   reason: string;
+  retryReceipt?: RemoteRetryReceipt;
 }): BlockState {
   assertRemoteExecutableBlockType(options.blockType);
   assertRemoteBlockOwnershipInvariant(options);
@@ -264,6 +266,9 @@ export function markRemoteBlockOwnershipSourceDrift(options: {
   ) {
     return options.blockState;
   }
+  if (options.blockState.remoteRetryReceipt?.outcome === "source_rejected") {
+    return options.blockState;
+  }
   const reason = options.reason.trim();
   if (!reason) {
     throw new RemoteOwnershipConflictError(
@@ -271,12 +276,14 @@ export function markRemoteBlockOwnershipSourceDrift(options: {
       "Remote ownership source drift requires a non-empty reason."
     );
   }
+  const retry = options.retryReceipt ?? options.blockState.remoteRetryReceipt;
   return {
     ...options.blockState,
     status: "diverged",
     divergenceReason: reason,
     remoteOwnership: owner,
-    remoteInterruption: undefined
+    remoteInterruption: undefined,
+    ...(retry ? { remoteRetryReceipt: { ...retry, outcome: "source_rejected" } } : {})
   };
 }
 
@@ -319,6 +326,7 @@ export function interruptRemoteBlockOwnership(options: {
     ...options.blockState,
     status: "diverged",
     divergenceReason: reason,
+    remoteRetryReceipt: undefined,
     remoteInterruption: interruption
   };
 }
@@ -497,6 +505,7 @@ export function clearRemoteBlockOperationState(blockState: BlockState): BlockSta
   const {
     remoteOwnership: _remoteOwnership,
     remoteInterruption: _remoteInterruption,
+    remoteRetryReceipt: _remoteRetryReceipt,
     remoteOperationReceipt: _remoteOperationReceipt,
     ...rest
   } = blockState;

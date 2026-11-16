@@ -1,7 +1,8 @@
 import type {
   RemoteBlockOwnership,
   RemoteInterruption,
-  RemoteOperationReceipt
+  RemoteOperationReceipt,
+  RemoteRetryReceipt
 } from "../schema/remoteOwnership.js";
 export type {
   ActiveRemoteBlockOwnership,
@@ -50,6 +51,7 @@ export type BlockState = {
   remoteOwnership?: RemoteBlockOwnership;
   /** Present only while an activated remote operation is interrupted and unresolved. */
   remoteInterruption?: RemoteInterruption;
+  remoteRetryReceipt?: RemoteRetryReceipt;
   /** Idempotency evidence for the most recent terminal remote operation; never an active owner. */
   remoteOperationReceipt?: RemoteOperationReceipt;
 };

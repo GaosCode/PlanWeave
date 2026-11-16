@@ -8,7 +8,8 @@ import {
 import {
   remoteBlockOwnershipSchema,
   remoteInterruptionSchema,
-  remoteOperationReceiptSchema
+  remoteOperationReceiptSchema,
+  remoteRetryReceiptSchema
 } from "./remoteOwnership.js";
 
 const taskStateSchema = z
@@ -41,6 +42,7 @@ export const blockStateSchema = z
     passedWorkRevision: z.string().nullable().optional(),
     remoteOwnership: remoteBlockOwnershipSchema.optional(),
     remoteInterruption: remoteInterruptionSchema.optional(),
+    remoteRetryReceipt: remoteRetryReceiptSchema.optional(),
     remoteOperationReceipt: remoteOperationReceiptSchema.optional()
   })
   .strict()
@@ -68,6 +70,29 @@ export const blockStateSchema = z
         path: ["remoteInterruption"],
         message: "remote interruption requires a diverged block with active remote ownership"
       });
+    }
+    if (block.remoteRetryReceipt) {
+      const receipt = block.remoteRetryReceipt;
+      const owner = block.remoteOwnership;
+      const ownsRetry =
+        owner?.phase === "active" &&
+        owner.dispatchId === receipt.newDispatchId &&
+        owner.executionAttemptId === receipt.newExecutionAttemptId;
+      const ownsOriginal =
+        owner?.phase === "active" &&
+        owner.dispatchId === receipt.dispatchId &&
+        owner.executionAttemptId === receipt.executionAttemptId;
+      const matchesBinding =
+        receipt.outcome === "committed"
+          ? block.status === "in_progress" && ownsRetry
+          : block.status === "diverged" && !block.remoteInterruption && (ownsOriginal || ownsRetry);
+      if (!matchesBinding) {
+        context.addIssue({
+          code: "custom",
+          path: ["remoteRetryReceipt"],
+          message: "remote retry receipt must match the active remote ownership and block status"
+        });
+      }
     }
     if (
       block.remoteOperationReceipt &&

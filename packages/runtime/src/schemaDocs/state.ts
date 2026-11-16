@@ -69,6 +69,15 @@ export const stateSchemaDocument: SchemaDocument<"state"> = {
           reason: "bounded distributed interruption reason",
           resumable: "boolean; whether only the exact attempt may resume"
         },
+        remoteRetryReceipt: {
+          description:
+            "optional Retry idempotency evidence bound to the block's active remote owner",
+          outcome: "committed | source_rejected",
+          dispatchId: "original dispatch identifier",
+          executionAttemptId: "original execution-attempt identifier",
+          newDispatchId: "proposed replacement dispatch identifier",
+          newExecutionAttemptId: "proposed replacement execution-attempt identifier"
+        },
         remoteOperationReceipt: {
           description:
             "optional terminal idempotency evidence for remote implementation/review operations; never an active owner; completed or failed only",

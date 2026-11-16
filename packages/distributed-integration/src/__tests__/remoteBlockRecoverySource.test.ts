@@ -21,7 +21,11 @@ import {
   response,
   setup
 } from "../../../agent-host/src/__tests__/support/canvasRuntimeServiceFixture.js";
-import { createTestWorkspace } from "../../../runtime/src/__tests__/promptTestHelpers.js";
+import {
+  basicManifest,
+  createTestWorkspace
+} from "../../../runtime/src/__tests__/promptTestHelpers.js";
+import { readState } from "../../../runtime/src/state.js";
 import { ArtifactStore } from "../../../server/src/artifacts.js";
 import {
   readStableCanvasRuntimeContentTarget,
@@ -47,12 +51,19 @@ import { ownHostRemoteAgents } from "../../../server/src/__tests__/support/remot
 
 const scope = { workspaceId: "w", projectId: "p", canvasId: "default" };
 const ref = "T-001#B-001";
+const unrelatedRef = "T-002#B-001";
 const recovery = { acpSessionId: "original-session", recoveryId: "original-recovery" };
 const updatedPrompt = "Current task prompt from the Workspace editor.\n";
 
 async function interruptedWorkspaceAttempt(resumable: boolean) {
   const manifest = remoteAcpFixtureManifest();
-  const authority = await canvasCommandServiceFixture({ manifest });
+  manifest.nodes.push(...basicManifest({ includeSecondTask: true }).nodes.slice(1));
+  const hostWorkspace = await createTestWorkspace(manifest);
+  directories.push(hostWorkspace.home, hostWorkspace.root);
+  const authority = await canvasCommandServiceFixture({
+    manifest,
+    databasePath: join(hostWorkspace.root, "server.sqlite")
+  });
   const { database, access, contentVersions } = authority;
   const evidence = () => {
     const current = readStableCanvasRuntimeEvidence(contentVersions, scope);
@@ -65,8 +76,6 @@ async function interruptedWorkspaceAttempt(resumable: boolean) {
   const original = evidence();
   const { ownerToken } = acquireServerInstanceOwnership(database);
   const { state } = await setup();
-  const hostWorkspace = await createTestWorkspace(manifest);
-  directories.push(hostWorkspace.home, hostWorkspace.root);
   const canvas = hostWorkspace.init.workspace;
   const runtime = createRemoteBlockRuntimePort({ projectRoot: canvas });
   const service = new CanvasRuntimeService({
@@ -176,50 +185,55 @@ async function interruptedWorkspaceAttempt(resumable: boolean) {
 
   const endpoint = coordination.agentEndpoints.listVisible(scope.workspaceId).items[0];
   if (!endpoint) throw new Error("test_workspace_endpoint_missing");
-  const outcome = await coordination.coordinator.dispatch({
-    ...scope,
-    contentRevision: original.sourceRevision,
-    graphFingerprint: original.target.graphFingerprint,
-    blockRef: ref,
-    idempotencyKey: "workspace-source-dispatch",
-    agentEndpointId: endpoint.endpointId,
-    callerHumanPrincipalId: agentOwner,
-    targetKind: "workspace_canvas",
-    expectedResponsibilityRevision: 0,
-    expectedReviewerRevision: 0,
-    executionTargetRevision: 0
-  });
-  const dispatch = coordination.dispatches.getRequired(outcome.operation.dispatchId);
-  coordination.dispatches.accept(
-    host.id,
-    "initial-accept",
-    dispatch.id,
-    dispatch.leaseId,
-    dispatch.executionAttemptId
-  );
-  const interruption = hostEventSchema.parse({
-    type: "dispatch.interrupted",
-    protocolVersion: agentHostProtocolVersion,
-    messageId: "initial-interrupt",
-    dispatchId: dispatch.id,
-    leaseId: dispatch.leaseId,
-    executionAttemptId: dispatch.executionAttemptId,
-    reason: resumable ? "transport_lost" : "acp_session_lost",
-    resumable,
-    ...(resumable ? { recovery } : {})
-  });
-  if (interruption.type !== "dispatch.interrupted") throw new Error("test_interruption_missing");
-  coordination.dispatches.interrupt(host.id, interruption.messageId, interruption);
-  await coordination.coordinator.reenter(outcome.operation.id);
-  const priorLease = coordination.reservations.getRequired(dispatch.leaseId);
-  coordination.reservations.release({
-    leaseId: priorLease.leaseId,
-    fencingToken: priorLease.fencingToken,
-    expectedVersion: priorLease.version,
-    reason: "expired"
-  });
-  const interrupted = coordination.operations.getRequired(outcome.operation.id);
-  const identity = remoteBlockIdentity(interrupted);
+  async function interruptAttempt(blockRef: string, canResume: boolean) {
+    const current = evidence();
+    const outcome = await coordination.coordinator.dispatch({
+      ...scope,
+      contentRevision: current.sourceRevision,
+      graphFingerprint: current.target.graphFingerprint,
+      blockRef,
+      idempotencyKey: `workspace-source-dispatch-${blockRef}`,
+      agentEndpointId: endpoint.endpointId,
+      callerHumanPrincipalId: agentOwner,
+      targetKind: "workspace_canvas",
+      expectedResponsibilityRevision: 0,
+      expectedReviewerRevision: 0,
+      executionTargetRevision: 0
+    });
+    const dispatch = coordination.dispatches.getRequired(outcome.operation.dispatchId);
+    coordination.dispatches.accept(
+      host.id,
+      `accept-${dispatch.id}`,
+      dispatch.id,
+      dispatch.leaseId,
+      dispatch.executionAttemptId
+    );
+    const interruption = hostEventSchema.parse({
+      type: "dispatch.interrupted",
+      protocolVersion: agentHostProtocolVersion,
+      messageId: `interrupt-${dispatch.id}`,
+      dispatchId: dispatch.id,
+      leaseId: dispatch.leaseId,
+      executionAttemptId: dispatch.executionAttemptId,
+      reason: canResume ? "transport_lost" : "acp_session_lost",
+      resumable: canResume,
+      ...(canResume ? { recovery } : {})
+    });
+    if (interruption.type !== "dispatch.interrupted") throw new Error("test_interruption_missing");
+    coordination.dispatches.interrupt(host.id, interruption.messageId, interruption);
+    await coordination.coordinator.reenter(outcome.operation.id);
+    const priorLease = coordination.reservations.getRequired(dispatch.leaseId);
+    coordination.reservations.release({
+      leaseId: priorLease.leaseId,
+      fencingToken: priorLease.fencingToken,
+      expectedVersion: priorLease.version,
+      reason: "expired"
+    });
+    const interrupted = coordination.operations.getRequired(outcome.operation.id);
+    const identity = remoteBlockIdentity(interrupted);
+    return { interrupted, identity, priorLeaseId: priorLease.leaseId };
+  }
+  const initial = await interruptAttempt(ref, resumable);
   expect(deliveryErrors).toEqual([]);
   return {
     authority,
@@ -233,9 +247,10 @@ async function interruptedWorkspaceAttempt(resumable: boolean) {
     adapter,
     host,
     canvas,
-    interrupted,
-    priorLeaseId: priorLease.leaseId,
-    identity
+    hostState: state,
+    ownerToken,
+    interruptAttempt,
+    ...initial
   };
 }
 
@@ -260,6 +275,7 @@ function failRecoveryRpc(
     }
     throw new CanvasRuntimeRpcError("canvas_runtime_reconcile_required", true, true);
   });
+  return (...nextFaults: RecoveryFault[]) => faults.push(...nextFaults);
 }
 
 async function interruptedWorkspaceResume(firstResume: "before_commit" | "after_commit") {
@@ -443,21 +459,10 @@ async function startedWorkspaceRetry(
   firstFault: "after_commit" | "before_commit" = "after_commit"
 ) {
   const fixture = await interruptedWorkspaceAttempt(false);
-  const { broker, coordination, interrupted, runtime, identity, priorLeaseId } = fixture;
+  const { broker, coordination, runtime, identity } = fixture;
   const faults: RecoveryFault[] = loseRejection ? [firstFault, "after_rejection"] : [firstFault];
-  failRecoveryRpc(broker, "retry_attempt", ...faults);
-  const action = {
-    operationId: identity.operationId,
-    dispatchId: identity.dispatchId,
-    executionAttemptId: identity.executionAttemptId,
-    expectedAttemptVersion: interrupted.attempt.stateVersion,
-    priorLeaseId,
-    actionId: "workspace-source-retry",
-    kind: "retry_new_attempt",
-    newDispatchId: "retry-dispatch",
-    newExecutionAttemptId: "retry-attempt",
-    reason: "Retry after a non-resumable interruption."
-  } as const;
+  const queueFaults = failRecoveryRpc(broker, "retry_attempt", ...faults);
+  const action = retryAction(fixture);
   await expect(coordination.coordinator.executeAction(action)).rejects.toMatchObject({
     code: "canvas_runtime_reconcile_required"
   });
@@ -474,17 +479,47 @@ async function startedWorkspaceRetry(
   } else {
     expect(binding).toMatchObject({ status: "diverged", interruption: { resumable: false } });
   }
-  return { ...fixture, action, binding };
+  return { ...fixture, action, binding, queueFaults };
+}
+
+function retryAction(
+  {
+    identity,
+    interrupted,
+    priorLeaseId
+  }: Pick<
+    Awaited<ReturnType<typeof interruptedWorkspaceAttempt>>,
+    "identity" | "interrupted" | "priorLeaseId"
+  >,
+  suffix = ""
+) {
+  return {
+    operationId: identity.operationId,
+    dispatchId: identity.dispatchId,
+    executionAttemptId: identity.executionAttemptId,
+    expectedAttemptVersion: interrupted.attempt.stateVersion,
+    priorLeaseId,
+    actionId: `workspace-source-retry${suffix}`,
+    kind: "retry_new_attempt",
+    newDispatchId: `retry-dispatch${suffix}`,
+    newExecutionAttemptId: `retry-attempt${suffix}`,
+    reason: "Retry after a non-resumable interruption."
+  } as const;
 }
 
 describe("shared Workspace Retry source", () => {
   it.each([
-    "received_rejection",
-    "lost_rejection",
-    "restored_source"
-  ])("rejects a committed Retry after source drift and continues ordinary maintenance (%s)", async (scenario) => {
-    const loseRejection = scenario !== "received_rejection";
-    const fixture = await startedWorkspaceRetry(loseRejection);
+    ["before_commit", "received_rejection", "changed_source"],
+    ["before_commit", "received_rejection", "restored_source"],
+    ["before_commit", "lost_rejection", "changed_source"],
+    ["before_commit", "lost_rejection", "restored_source"],
+    ["after_commit", "received_rejection", "changed_source"],
+    ["after_commit", "received_rejection", "restored_source"],
+    ["after_commit", "lost_rejection", "changed_source"],
+    ["after_commit", "lost_rejection", "restored_source"]
+  ] as const)("settles a Retry after source drift (%s, %s, %s)", async (firstFault, rejection, source) => {
+    const loseRejection = rejection === "lost_rejection";
+    const fixture = await startedWorkspaceRetry(loseRejection, firstFault);
     const {
       action,
       binding,
@@ -524,17 +559,31 @@ describe("shared Workspace Retry source", () => {
       }
     });
     expect(await readFile(promptPath, "utf8")).toBe(updatedPrompt);
-    expect(await runtime.query({ ref, operationId: identity.operationId })).toEqual({
-      ...binding,
+    const drifted = await runtime.query({ ref, operationId: identity.operationId });
+    expect(drifted).toMatchObject({
       status: "diverged",
+      ownership: binding.ownership,
       divergenceReason: expect.stringContaining("Remote source changed before retry")
     });
+    expect(drifted.interruption).toBeUndefined();
+    const driftedState = (await readState(canvas.stateFile)).blocks[ref];
+    expect(driftedState).toMatchObject({
+      remoteOwnership: binding.ownership,
+      remoteRetryReceipt: {
+        outcome: "source_rejected",
+        dispatchId: action.dispatchId,
+        executionAttemptId: action.executionAttemptId,
+        newDispatchId: action.newDispatchId,
+        newExecutionAttemptId: action.newExecutionAttemptId
+      }
+    });
+    expect(driftedState.remoteInterruption).toBeUndefined();
     expect(coordination.operations.getRequired(identity.operationId).attempt).toMatchObject({
       executionAttemptId: identity.executionAttemptId,
       status: "interrupted",
       leaseId: priorLeaseId
     });
-    if (scenario === "restored_source") {
+    if (source === "restored_source") {
       const restored = await fixture.authority.service.submit(
         actor("editor"),
         submitBody("restore-before-replay", 1, {
@@ -550,20 +599,54 @@ describe("shared Workspace Retry source", () => {
         graphFingerprint: fixture.original.target.graphFingerprint
       });
     }
-    await expect(coordination.reconcile()).resolves.toEqual([
+    const keepPending =
+      firstFault === "before_commit" && loseRejection && source === "restored_source";
+    let otherAction: ReturnType<typeof retryAction> | undefined;
+    if (keepPending) {
+      const unrelated = await fixture.interruptAttempt(unrelatedRef, false);
+      otherAction = retryAction(unrelated, "-unrelated");
+      fixture.queueFaults("before_commit");
+      await expect(coordination.coordinator.executeAction(otherAction)).rejects.toMatchObject({
+        code: "canvas_runtime_reconcile_required"
+      });
+      expect(coordination.actions.getRequired(otherAction.actionId).state).toBe("recorded");
+    }
+    await expect(coordination.reconcile()).resolves.toContainEqual(
       expect.objectContaining({
         operation: expect.objectContaining({ id: identity.operationId, state: "failed" }),
         status: "terminal"
       })
-    ]);
-    await expect(coordination.reconcile()).resolves.toEqual([]);
-    const retries = hostResponses.filter(({ request }) => request.operation === "retry_attempt");
-    expect(retries).toHaveLength(loseRejection ? 3 : 2);
-    for (const [index, retry] of retries.slice(1).entries()) {
-      const code =
-        scenario === "restored_source" && index === 1
-          ? "remote_ownership_status_conflict"
-          : "remote_block_source_changed";
+    );
+    await expect(coordination.reconcile()).resolves.not.toContainEqual(
+      expect.objectContaining({
+        operation: expect.objectContaining({ id: identity.operationId })
+      })
+    );
+    if (otherAction) {
+      expect(coordination.actions.getRequired(otherAction.actionId).state).toBe("settled");
+      expect(coordination.operations.getRequired(otherAction.operationId)).toMatchObject({
+        dispatchId: otherAction.newDispatchId,
+        executionAttemptId: otherAction.newExecutionAttemptId
+      });
+      expect(
+        database
+          .prepare(
+            "SELECT message_id FROM mailbox_messages WHERE json_extract(command_json, '$.type')='execute_block' AND json_extract(command_json, '$.dispatchId')=?"
+          )
+          .all(otherAction.newDispatchId)
+      ).toHaveLength(1);
+    }
+    expect(
+      database.prepare("SELECT owner_token, process_id FROM server_instance_ownership").get()
+    ).toEqual({ owner_token: fixture.ownerToken, process_id: process.pid });
+    const retries = hostResponses.filter(
+      ({ request }) =>
+        request.operation === "retry_attempt" &&
+        request.evidence.operationId === identity.operationId
+    );
+    const successfulRetries = firstFault === "before_commit" ? 0 : 1;
+    expect(retries).toHaveLength(successfulRetries + (loseRejection ? 2 : 1));
+    for (const retry of retries.slice(successfulRetries)) {
       expect(retry).toMatchObject({
         request: {
           evidence: {
@@ -574,7 +657,7 @@ describe("shared Workspace Retry source", () => {
         },
         reply: {
           outcome: "error",
-          error: { code, retryable: false }
+          error: { code: "remote_block_source_changed", retryable: false }
         }
       });
     }
@@ -592,14 +675,22 @@ describe("shared Workspace Retry source", () => {
     ).toEqual({ application_owner_token: null });
     expect(coordination.reservations.getRequired(priorLeaseId).status).toBe("expired");
     expect(
-      database.prepare("SELECT lease_id, status FROM host_capacity_reservations").all()
+      database
+        .prepare(
+          "SELECT r.lease_id, r.status FROM host_capacity_reservations r JOIN remote_execution_attempts a USING (execution_attempt_id) WHERE a.operation_id=?"
+        )
+        .all(identity.operationId)
     ).toEqual([{ lease_id: priorLeaseId, status: "expired" }]);
     expect(
-      database.prepare("SELECT execution_attempt_id FROM remote_execution_attempts").all()
+      database
+        .prepare("SELECT execution_attempt_id FROM remote_execution_attempts WHERE operation_id=?")
+        .all(identity.operationId)
     ).toEqual([{ execution_attempt_id: identity.executionAttemptId }]);
-    expect(database.prepare("SELECT id FROM dispatches").all()).toEqual([
-      { id: identity.dispatchId }
-    ]);
+    expect(
+      database
+        .prepare("SELECT id FROM dispatches WHERE id IN (?, ?)")
+        .all(identity.dispatchId, action.newDispatchId)
+    ).toEqual([{ id: identity.dispatchId }]);
     expect(
       database
         .prepare(
@@ -607,6 +698,22 @@ describe("shared Workspace Retry source", () => {
         )
         .all(action.newDispatchId)
     ).toEqual([]);
+    const hostExecutions = fixture.hostState.pendingExecutions(10);
+    expect(hostExecutions.filter(({ command }) => command.envelope.blockRef === ref)).toHaveLength(
+      1
+    );
+    const originalExecution = hostExecutions.find(
+      ({ command }) => command.dispatchId === identity.dispatchId
+    );
+    if (!originalExecution) throw new Error("test_original_host_dispatch_missing");
+    const hostEvidence = fixture.hostState.executionEvidence(originalExecution.sequence);
+    expect(hostEvidence).toMatchObject({
+      dispatchId: identity.dispatchId,
+      executionAttemptId: identity.executionAttemptId,
+      leaseId: priorLeaseId
+    });
+    expect(hostEvidence?.acpSessionId).toBeUndefined();
+    expect((await readState(canvas.stateFile)).blocks[ref]).toEqual(driftedState);
     expect(
       database
         .prepare("SELECT diagnostic_code FROM remote_operations WHERE id=?")
@@ -616,32 +723,30 @@ describe("shared Workspace Retry source", () => {
       status: "diverged",
       ownership: binding.ownership
     });
-    if (scenario === "restored_source") {
+    if (source === "restored_source") {
       expect(await readFile(promptPath, "utf8")).toBe(originalPrompt);
       expect(
-        hostResponses.filter(({ request }) => request.operation === "query").at(-1)
+        hostResponses.filter(({ request }) => request.operation === "acquire").at(-1)
       ).toMatchObject({
         reply: {
           outcome: "success",
-          result: {
-            status: "diverged",
-            ownership: binding.ownership,
-            divergenceReason: expect.any(String)
-          }
+          result: { graphFingerprint: fixture.original.target.graphFingerprint }
         }
       });
     }
   });
 
-  it("preserves the status conflict when the authoritative diverged owner is the old attempt", async () => {
-    const { action, canvas, coordination, identity, runtime } = await startedWorkspaceRetry(
-      false,
-      "before_commit"
-    );
+  it.each([
+    "before_commit",
+    "after_commit"
+  ] as const)("preserves the status conflict for manual divergence (%s)", async (firstFault) => {
+    const { action, binding, canvas, coordination, identity, runtime } =
+      await startedWorkspaceRetry(false, firstFault);
+    const reason = `Remote source changed before retry of '${ref}'.`;
     await markBlockDiverged({
       projectRoot: canvas,
       ref,
-      reason: "Original attempt requires operator review."
+      reason
     });
     await expect(coordination.coordinator.executeAction(action)).rejects.toMatchObject({
       code: "remote_ownership_status_conflict"
@@ -649,12 +754,10 @@ describe("shared Workspace Retry source", () => {
     expect(coordination.actions.getRequired(action.actionId)).toMatchObject({ state: "recorded" });
     expect(await runtime.query({ ref, operationId: identity.operationId })).toMatchObject({
       status: "diverged",
-      ownership: {
-        dispatchId: identity.dispatchId,
-        executionAttemptId: identity.executionAttemptId
-      },
-      divergenceReason: "Original attempt requires operator review."
+      ownership: binding.ownership,
+      divergenceReason: reason
     });
+    expect((await readState(canvas.stateFile)).blocks[ref].remoteRetryReceipt).toBeUndefined();
   });
 
   it("delivers one new attempt when the Runtime Retry committed and the source is unchanged", async () => {

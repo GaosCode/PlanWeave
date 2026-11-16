@@ -521,30 +521,10 @@ export class RemoteBlockActionCoordinator {
       });
     } catch (error) {
       if (allowUnbound && isMissingActiveOwnership(error)) return;
-      let rejected =
-        error instanceof RemoteBlockRuntimeError && error.code === "remote_block_source_changed";
       if (
-        error instanceof RemoteOwnershipConflictError &&
-        error.code === "remote_ownership_status_conflict"
-      ) {
-        const binding = await runtime.query({
-          ref: identity.ref,
-          operationId: identity.operationId
-        });
-        const owner = binding.ownership;
-        rejected =
-          binding.ref === identity.ref &&
-          binding.status === "diverged" &&
-          binding.interruption === undefined &&
-          owner?.phase === "active" &&
-          owner.operationId === identity.operationId &&
-          (owner.controlPlane ?? "collaboration") === (identity.controlPlane ?? "collaboration") &&
-          owner.sourceRevision === identity.sourceRevision &&
-          owner.graphFingerprint === identity.graphFingerprint &&
-          owner.dispatchId === action.newDispatchId &&
-          owner.executionAttemptId === action.newExecutionAttemptId;
-      }
-      if (!rejected) throw error;
+        !(error instanceof RemoteBlockRuntimeError && error.code === "remote_block_source_changed")
+      )
+        throw error;
       throw new RemoteExecutionActionRejectedError("remote_resume_attempt_conflict", {
         cause: error
       });

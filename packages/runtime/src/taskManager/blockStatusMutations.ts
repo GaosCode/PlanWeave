@@ -99,7 +99,12 @@ export async function markBlockDiverged(options: {
     const current = context.state.blocks[options.ref];
     context.state.blocks[options.ref] = {
       ...(current.remoteOwnership
-        ? { ...current, remoteInterruption: undefined, remoteOperationReceipt: undefined }
+        ? {
+            ...current,
+            remoteInterruption: undefined,
+            remoteRetryReceipt: undefined,
+            remoteOperationReceipt: undefined
+          }
         : clearRemoteBlockOperationState(current)),
       status: "diverged",
       divergenceReason: options.reason.trim(),
