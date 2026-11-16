@@ -9,13 +9,15 @@ import { locateProjectWorkspace } from "./project.js";
 import {
   compileProjectGraph,
   detectDefaultCanvasWorkspaceMigration,
-  loadProjectGraphForWorkspace,
   projectCanvasWorkspace,
   type CompiledProjectGraph,
   type LoadedProjectGraph,
   type ProjectCanvasNode
 } from "./projectGraph/index.js";
-import { LegacyProjectGraphSourceReadError } from "./projectGraph/loadProjectGraph.js";
+import {
+  LegacyProjectGraphSourceReadError,
+  loadProjectGraphWithLegacySourceContext
+} from "./projectGraph/loadProjectGraph.js";
 import { ProjectCanvasWorkspacePathError } from "./projectGraph/projectGraphWorkspace.js";
 import { manifestSchema } from "./schema/manifest.js";
 import { isBuiltinExecutorName } from "./executorNames.js";
@@ -410,7 +412,7 @@ export async function validatePackage(options: {
   const workspace = await locateProjectWorkspace(options.projectRoot);
   let loaded: LoadedProjectGraph;
   try {
-    loaded = await loadProjectGraphForWorkspace(workspace);
+    loaded = await loadProjectGraphWithLegacySourceContext(workspace);
   } catch (error) {
     if (error instanceof ZodError) {
       for (const zodIssue of error.issues) {

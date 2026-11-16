@@ -86,7 +86,7 @@ async function legacyProjectGraph(
   return projectGraphFromLegacyRegistry(registry);
 }
 
-export async function loadProjectGraphForWorkspace(
+export async function loadProjectGraphWithLegacySourceContext(
   workspaceRef: ProjectWorkspace
 ): Promise<LoadedProjectGraph> {
   const workspace = projectGraphWorkspace(workspaceRef);
@@ -128,6 +128,16 @@ export async function loadProjectGraphForWorkspace(
       )
     ]
   };
+}
+
+export async function loadProjectGraphForWorkspace(
+  workspaceRef: ProjectWorkspace
+): Promise<LoadedProjectGraph> {
+  try {
+    return await loadProjectGraphWithLegacySourceContext(workspaceRef);
+  } catch (error) {
+    throw error instanceof LegacyProjectGraphSourceReadError ? error.cause : error;
+  }
 }
 
 export async function loadProjectGraph(projectRoot: string): Promise<LoadedProjectGraph> {
