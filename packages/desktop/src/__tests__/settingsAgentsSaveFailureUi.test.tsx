@@ -96,6 +96,144 @@ function renderSettings(
   return setError;
 }
 
+function renderAcpSettings() {
+  let savedSettings = mergeDesktopSettings(initialSettings, {
+    execution: { agentHost: nativeHost, agentTransport: "acp" }
+  });
+  let receiveHost: ((host: ExecutionHost) => void) | undefined;
+  const first = deferred<void>();
+  const second = deferred<void>();
+  const saveDesktopSettings = vi
+    .fn<PlanWeaveDesktopSettingsApi["saveDesktopSettings"]>()
+    .mockImplementation(async (patch) => {
+      savedSettings = mergeDesktopSettings(savedSettings, patch);
+      return savedSettings;
+    })
+    .mockImplementationOnce(async (patch) => {
+      await first.promise;
+      savedSettings = mergeDesktopSettings(savedSettings, patch);
+      return savedSettings;
+    })
+    .mockImplementationOnce(async (patch) => {
+      await second.promise;
+      savedSettings = mergeDesktopSettings(savedSettings, patch);
+      return savedSettings;
+    });
+  const settingsApi: PlanWeaveDesktopSettingsApi = {
+    getDesktopSettings: vi.fn(async () => structuredClone(savedSettings)),
+    onAgentHostChanged: (listener) => {
+      receiveHost = listener;
+      return () => {
+        receiveHost = undefined;
+      };
+    },
+    migrateLegacyDesktopSettings: async () => savedSettings,
+    saveDesktopSettings
+  };
+  const setError = vi.fn();
+  const agents: DesktopAgentDetection[] = [
+    { ...detectedCodex(nativeHost, true), runnerKind: "acp" }
+  ];
+  const probe: DesktopAgentCapabilityProbeResult = {
+    agentKind: "codex",
+    executionHost: nativeHost,
+    ok: true,
+    message: "Ready",
+    failureCode: null,
+    agentInfo: null,
+    authentication: { status: "not_advertised" },
+    capabilities: [],
+    checks: [],
+    sessionConfig: {
+      modes: {
+        currentModeId: "read",
+        availableModes: [
+          { id: "read", name: "Read" },
+          { id: "write", name: "Write" }
+        ]
+      },
+      configOptions: [
+        {
+          id: "model",
+          type: "select",
+          category: "model",
+          name: "Model",
+          description: null,
+          currentValue: "standard",
+          options: [
+            { value: "standard", name: "Standard" },
+            { value: "fast", name: "Fast" },
+            { value: "precise", name: "Precise" }
+          ]
+        },
+        {
+          id: "reasoning",
+          type: "select",
+          name: "Reasoning",
+          description: null,
+          currentValue: "low",
+          options: [
+            { value: "low", name: "Low" },
+            { value: "high", name: "High" }
+          ]
+        },
+        {
+          id: "verbose",
+          type: "boolean",
+          name: "Verbose",
+          description: null,
+          currentValue: false
+        }
+      ]
+    }
+  };
+  bridgeMock.probeDesktopAgentCapabilities.mockResolvedValue(probe);
+  function Harness({ projectRoot }: { projectRoot: string | null }) {
+    const current = useDesktopSettingsBridge({ settingsApi, setError });
+    return projectRoot && current.settingsHydrated ? (
+      <SettingsAgentsSection
+        agentDetectionRefreshing={false}
+        agents={agents}
+        canvasRef={{ ...canvasRef, projectRoot }}
+        graph={graph}
+        persistSettings={current.updateSettingsAndWait}
+        refreshAgentDetections={async (refreshProbes) => {
+          refreshProbes?.();
+        }}
+        settings={current.settings}
+        t={t}
+        updateSettings={current.updateSettings}
+      />
+    ) : null;
+  }
+  const view = render(<Harness projectRoot={canvasRef.projectRoot} />);
+  return {
+    first,
+    second,
+    saveDesktopSettings,
+    readSettings: settingsApi.getDesktopSettings,
+    setError,
+    saved: () => savedSettings.agents.codex.acp.configOptions,
+    savedMode: () => savedSettings.agents.codex.acp.modeId,
+    show: (projectRoot: string | null) => view.rerender(<Harness projectRoot={projectRoot} />),
+    changeHost: (agentHost: ExecutionHost) => {
+      savedSettings = mergeDesktopSettings(savedSettings, { execution: { agentHost } });
+      receiveHost?.(agentHost);
+    },
+    unmount: view.unmount
+  };
+}
+
+async function openCodexOptions() {
+  await userEvent.click(await screen.findByRole("button", { name: "Codex options" }));
+  await screen.findByRole("combobox", { name: "Model" });
+}
+
+async function chooseAcpOption(name: string, value: string) {
+  await userEvent.click(screen.getByRole("combobox", { name }));
+  await userEvent.click(screen.getByRole("option", { name: value, exact: true }));
+}
+
 beforeEach(() => {
   stubSelectLayoutApis();
   bridgeMock.detectAgentTools.mockResolvedValue([detectedCodex(ubuntuHost, true)]);
@@ -116,6 +254,181 @@ afterEach(() => {
 });
 
 describe("settings agents save failures", () => {
+  it("shows a failed model choice while allowing a queued reasoning choice to save", async () => {
+    const settings = renderAcpSettings();
+    await openCodexOptions();
+    await chooseAcpOption("Model", "Fast");
+    await chooseAcpOption("Reasoning", "High");
+    expect(settings.saveDesktopSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("Fast");
+    expect(screen.getByRole("combobox", { name: "Reasoning" })).toHaveTextContent("High");
+
+    await act(() => settings.first.reject(new Error("model write failed")));
+    expect(screen.getByRole("alert")).toHaveTextContent(/Model.*model write failed/);
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("Standard");
+    expect(settings.saveDesktopSettings).toHaveBeenCalledTimes(2);
+    await act(() => settings.second.resolve());
+
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("Standard");
+    expect(screen.getByRole("combobox", { name: "Reasoning" })).toHaveTextContent("High");
+    expect(screen.getByRole("alert")).toHaveTextContent(/Model.*model write failed/);
+    expect(settings.saved()).toEqual({ reasoning: "high" });
+  });
+
+  it.each([
+    { modelSaved: true, modelLabel: "Fast" },
+    { modelSaved: false, modelLabel: "Standard" }
+  ])("keeps the confirmed model when later reasoning fails, model saved=$modelSaved", async ({
+    modelSaved,
+    modelLabel
+  }) => {
+    const settings = renderAcpSettings();
+    await openCodexOptions();
+    await chooseAcpOption("Model", "Fast");
+    await chooseAcpOption("Reasoning", "High");
+
+    await act(() =>
+      modelSaved ? settings.first.resolve() : settings.first.reject(new Error("model rejected"))
+    );
+    await act(() => settings.second.reject(new Error("reasoning rejected")));
+
+    expect(screen.getAllByRole("alert").map((alert) => alert.textContent)).toEqual(
+      modelSaved
+        ? ["Reasoning · reasoning rejected"]
+        : ["Model · model rejected", "Reasoning · reasoning rejected"]
+    );
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent(modelLabel);
+    expect(screen.getByRole("combobox", { name: "Reasoning" })).toHaveTextContent("Low");
+    expect(settings.saved()).toEqual(modelSaved ? { model: "fast" } : {});
+
+    await chooseAcpOption("Reasoning", "High");
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Reasoning" })).toHaveTextContent("High")
+    );
+    expect(screen.queryByText(/reasoning rejected/)).toBeNull();
+    expect(settings.saved()).toEqual({
+      ...(modelSaved ? { model: "fast" } : {}),
+      reasoning: "high"
+    });
+  });
+
+  it.each([
+    { lastSaved: true },
+    { lastSaved: false }
+  ])("preserves a return to the original model during a pending save, last saved=$lastSaved", async ({
+    lastSaved
+  }) => {
+    const settings = renderAcpSettings();
+    await openCodexOptions();
+    await chooseAcpOption("Model", "Fast");
+    await chooseAcpOption("Model", "Standard");
+
+    await act(() =>
+      lastSaved ? settings.first.reject(new Error("Fast rejected")) : settings.first.resolve()
+    );
+    expect(settings.saveDesktopSettings).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(() =>
+      lastSaved ? settings.second.resolve() : settings.second.reject(new Error("Standard rejected"))
+    );
+
+    expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent(
+      lastSaved ? "Standard" : "Fast"
+    );
+    expect(settings.saved()).toEqual({ model: lastSaved ? "standard" : "fast" });
+    if (lastSaved) expect(screen.queryByRole("alert")).toBeNull();
+    else expect(screen.getByRole("alert")).toHaveTextContent("Standard rejected");
+  });
+
+  it.each([
+    "mode",
+    "boolean"
+  ] as const)("persists a return to the original %s while the first choice is pending", async (field) => {
+    const settings = renderAcpSettings();
+    await openCodexOptions();
+    if (field === "mode") {
+      await chooseAcpOption("Session mode", "Write");
+      await chooseAcpOption("Session mode", "Read");
+    } else {
+      const toggle = screen.getByRole("switch", { name: "Verbose" });
+      await userEvent.click(toggle);
+      await userEvent.click(toggle);
+    }
+    await act(() => settings.first.resolve());
+    expect(settings.saveDesktopSettings).toHaveBeenCalledTimes(2);
+    await act(() => settings.second.resolve());
+
+    if (field === "mode") {
+      expect(settings.savedMode()).toBe("read");
+      expect(screen.getByRole("combobox", { name: "Session mode" })).toHaveTextContent("Read");
+    } else {
+      expect(settings.saved()).toEqual({ verbose: false });
+      expect(screen.getByRole("switch", { name: "Verbose" })).not.toBeChecked();
+    }
+  });
+
+  it.each(
+    (["host", "project", "probe", "page", "unmount"] as const).flatMap((context) =>
+      (["success", "failure"] as const).map((result) => ({ context, result }))
+    )
+  )("retires a queued ACP choice and ignores an in-flight $result after $context changes", async ({
+    context,
+    result
+  }) => {
+    const settings = renderAcpSettings();
+    await openCodexOptions();
+    await chooseAcpOption("Model", "Fast");
+    await chooseAcpOption("Reasoning", "High");
+    expect(settings.saveDesktopSettings).toHaveBeenCalledTimes(1);
+
+    if (context === "host") {
+      await act(async () => {
+        settings.changeHost(ubuntuHost);
+        settings.changeHost(nativeHost);
+      });
+    } else if (context === "project") {
+      settings.show("/tmp/other-project");
+    } else if (context === "probe") {
+      await userEvent.click(screen.getByRole("button", { name: t("agentRefresh") }));
+    } else if (context === "page") {
+      settings.show(null);
+      settings.show(canvasRef.projectRoot);
+      await openCodexOptions();
+    } else {
+      settings.unmount();
+    }
+
+    if (context !== "unmount") {
+      expect(await screen.findByRole("combobox", { name: "Model" })).toHaveTextContent("Standard");
+      expect(screen.getByRole("combobox", { name: "Reasoning" })).toHaveTextContent("Low");
+    }
+
+    await act(() =>
+      result === "success"
+        ? settings.first.resolve()
+        : settings.first.reject(new Error("obsolete model failure"))
+    );
+    await act(() => settings.second.resolve());
+
+    expect(settings.saveDesktopSettings).toHaveBeenCalledTimes(1);
+    expect(settings.setError).not.toHaveBeenCalled();
+    expect(settings.saved()).toEqual(result === "success" ? { model: "fast" } : {});
+    expect(settings.readSettings).toHaveBeenCalledTimes(
+      result === "success" && context !== "unmount" ? 2 : 1
+    );
+    if (context !== "unmount") {
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(await screen.findByRole("combobox", { name: "Model" })).toHaveTextContent(
+        result === "success" ? "Fast" : "Standard"
+      );
+      expect(screen.getByRole("combobox", { name: "Reasoning" })).toHaveTextContent("Low");
+
+      await chooseAcpOption("Model", "Precise");
+      await waitFor(() => expect(settings.saved()).toEqual({ model: "precise" }));
+      expect(screen.getByRole("combobox", { name: "Model" })).toHaveTextContent("Precise");
+    }
+  });
+
   it("keeps a probe through same-host settings reads and replaces it after batched cross-window host changes", async () => {
     const savedSettings = mergeDesktopSettings(initialSettings, {
       execution: { agentHost: nativeHost, agentTransport: "acp" }

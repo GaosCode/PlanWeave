@@ -6,7 +6,11 @@ import type {
   DesktopCanvasNodeViewModel,
   DesktopTaskNodeViewModel
 } from "@planweave-ai/runtime";
-import type { DesktopSettingsPatch, DesktopUiSettings } from "../shared/desktopSettings";
+import type {
+  DesktopAgentHost,
+  DesktopSettingsPatch,
+  DesktopUiSettings
+} from "../shared/desktopSettings";
 import type { CompactAssigneeChip } from "./collaboration/assigneeSurfaceViewModels";
 import type { AvailableAgentEndpoint } from "./collaboration/agentEndpointViewModel";
 import type { createTranslator } from "./i18n";
@@ -24,6 +28,12 @@ export { appViewSchema, type AppView } from "./appViewContract";
 export type DesktopSettingsUpdate =
   | DesktopSettingsPatch
   | ((current: DesktopUiSettings) => DesktopSettingsPatch);
+
+export type PersistDesktopSettings = (
+  update: DesktopSettingsUpdate,
+  expectedAgentHost?: DesktopAgentHost,
+  scope?: { isCurrent: () => boolean; onError: (message: string) => void }
+) => Promise<void>;
 
 export type TaskNodeLabels = {
   blockStack: string;

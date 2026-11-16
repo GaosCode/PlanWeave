@@ -287,6 +287,7 @@ describe("desktop renderer settings interactions", () => {
       <ExecutorsView
         agentDetectionRefreshing={false}
         agents={[]}
+        refreshSettings={vi.fn()}
         graph={null}
         language="en"
         refreshAgentDetections={vi.fn().mockResolvedValue(undefined)}
@@ -319,9 +320,11 @@ describe("desktop renderer settings interactions", () => {
   });
 
   it("opens local execution settings without navigating away from the inventory", async () => {
+    const refreshSettings = vi.fn();
     render(
       <ExecutorsView
         agentDetectionRefreshing={false}
+        refreshSettings={refreshSettings}
         agents={[
           {
             kind: "codex",
@@ -352,6 +355,7 @@ describe("desktop renderer settings interactions", () => {
     );
     expect(screen.getByTestId("executor-local-row")).toHaveTextContent("Codex");
     await userEvent.click(screen.getByRole("button", { name: "Configure" }));
+    expect(refreshSettings).toHaveBeenCalledOnce();
     expect(screen.getByRole("dialog")).toHaveAccessibleName("Local execution settings");
     expect(await screen.findByTestId("settings-section-agents")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Close", exact: true }));

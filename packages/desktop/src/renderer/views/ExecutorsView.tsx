@@ -30,6 +30,7 @@ export function ExecutorsView({
   selectedProject,
   selectedCanvasId,
   refreshAgentDetections,
+  refreshSettings,
   updateSettings,
   updateSettingsAndWait,
   t
@@ -81,7 +82,10 @@ export function ExecutorsView({
                 void remote.refresh();
                 void hosts.refreshHosts();
               }}
-              onConfigure={() => setConfigurationOpen(true)}
+              onConfigure={() => {
+                refreshSettings();
+                setConfigurationOpen(true);
+              }}
               t={t}
             />
           </TabsContent>

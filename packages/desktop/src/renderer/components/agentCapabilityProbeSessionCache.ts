@@ -4,7 +4,7 @@ import type {
   DesktopAgentKind,
   ExecutionHost
 } from "@planweave-ai/runtime";
-import { desktopAgentHostKey } from "../../shared/desktopSettings";
+import { desktopAgentHostKey, type DesktopAgentTransport } from "../../shared/desktopSettings";
 import { bridge } from "../bridge";
 
 type AcpProbeState = {
@@ -29,9 +29,15 @@ export function useAgentCapabilityProbeSession(
   projectRoot: string | null,
   sourceRoot: string | null,
   executionHost: ExecutionHost,
+  agentTransport: DesktopAgentTransport,
   bridgeUnavailableMessage: string
 ) {
-  const cacheKey = JSON.stringify([projectRoot, sourceRoot, desktopAgentHostKey(executionHost)]);
+  const cacheKey = JSON.stringify([
+    projectRoot,
+    sourceRoot,
+    desktopAgentHostKey(executionHost),
+    agentTransport
+  ]);
   const sessionRef = useRef<ProbeSession | null>(null);
   const [view, setView] = useState<{ session: ProbeSession; probes: AgentProbes } | null>(null);
 
@@ -107,6 +113,7 @@ export function useAgentCapabilityProbeSession(
     session !== null && sessionRef.current === session && session.probes[agentKind] === state;
 
   return {
+    session,
     probes: session ? (view?.probes ?? noProbes) : noProbes,
     probe,
     refreshProbes,

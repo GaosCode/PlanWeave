@@ -24,9 +24,8 @@ import { buildExecutorOptionViews } from "../executors/executorOptionViewModel";
 import { useExecutorPreflight } from "../hooks/useExecutorPreflight";
 import type { RefreshAgentDetections } from "../hooks/useDetectedAgents";
 import type { createTranslator } from "../i18n";
-import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
+import type { DesktopSettingsUpdate, DesktopUiSettings, PersistDesktopSettings } from "../types";
 import { bridge } from "../bridge";
-import type { DesktopAgentHost } from "../../shared/desktopSettings";
 
 type SettingsAgentsSectionProps = {
   showHeader?: boolean;
@@ -36,10 +35,7 @@ type SettingsAgentsSectionProps = {
   canvasRef?: DesktopCanvasReference | null;
   graph: DesktopGraphViewModel | null;
   refreshAgentDetections: RefreshAgentDetections;
-  persistSettings?: (
-    update: DesktopSettingsUpdate,
-    expectedAgentHost?: DesktopAgentHost
-  ) => Promise<void>;
+  persistSettings?: PersistDesktopSettings;
   sourceRoot?: string | null;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;

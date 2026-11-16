@@ -8,7 +8,12 @@ import type {
 } from "@planweave-ai/runtime";
 import type { createTranslator, Language } from "./i18n";
 import type { RefreshAgentDetections } from "./hooks/useDetectedAgents";
-import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "./types";
+import type {
+  AppView,
+  DesktopSettingsUpdate,
+  DesktopUiSettings,
+  PersistDesktopSettings
+} from "./types";
 import { SettingsView } from "./views/SettingsView";
 
 type AppSettingsRouteProps = {
@@ -20,6 +25,7 @@ type AppSettingsRouteProps = {
   language: Language;
   refreshAgentDetections: RefreshAgentDetections;
   refreshRuntimeTools: () => Promise<void>;
+  refreshSettings: () => void;
   runtimeTools: DesktopRuntimeToolAvailability;
   projects: DesktopProjectSummary[];
   selectedCanvasId: string | null;
@@ -35,7 +41,7 @@ type AppSettingsRouteProps = {
   updateProjectPromptPolicy: (patch: Partial<ProjectPromptPolicy>) => Promise<void>;
   updateGlobalPrompt: (markdown: string) => Promise<boolean>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
-  updateSettingsAndWait: (update: DesktopSettingsUpdate) => Promise<void>;
+  updateSettingsAndWait: PersistDesktopSettings;
 };
 
 export function AppSettingsRoute({

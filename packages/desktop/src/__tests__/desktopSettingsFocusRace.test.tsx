@@ -6,6 +6,7 @@ import { useDesktopSettingsBridge } from "../renderer/hooks/useDesktopSettingsBr
 import {
   defaultDesktopSettings,
   legacyDesktopSettingsKey,
+  mergeDesktopSettings,
   type DesktopAgentHost,
   type PlanWeaveDesktopSettingsApi
 } from "../shared/desktopSettings";
@@ -79,6 +80,168 @@ afterEach(() => {
 });
 
 describe("desktop settings focus and draft lifecycle", () => {
+  it("keeps a retired save response out of a current failure rollback before re-reading disk", async () => {
+    const settingsApi = api();
+    const retiredReply = deferred();
+    const appearanceSave = deferred();
+    const refreshRead = deferred();
+    const { result, setError } = await mount(settingsApi);
+    let persisted = mergeDesktopSettings(defaultDesktopSettings, { appearance: "light" });
+    vi.mocked(settingsApi.saveDesktopSettings)
+      .mockImplementationOnce((patch) => {
+        persisted = mergeDesktopSettings(persisted, patch);
+        return retiredReply.promise;
+      })
+      .mockReturnValueOnce(appearanceSave.promise);
+    vi.mocked(settingsApi.getDesktopSettings).mockReturnValueOnce(refreshRead.promise);
+    let current = true;
+    const onError = vi.fn();
+    act(() => {
+      void result.current.updateSettingsAndWait(
+        { agents: { codex: { acp: { configOptions: { model: "fast" } } } } },
+        result.current.settings.execution.agentHost,
+        { isCurrent: () => current, onError }
+      );
+    });
+    await waitFor(() => expect(settingsApi.saveDesktopSettings).toHaveBeenCalledTimes(1));
+    expect(persisted).toMatchObject({
+      appearance: "light",
+      agents: { codex: { acp: { configOptions: { model: "fast" } } } }
+    });
+    const retiredSnapshot = persisted;
+    current = false;
+    persisted = mergeDesktopSettings(persisted, { appearance: "system" });
+    act(() => result.current.updateSettings({ appearance: "dark" }));
+
+    await settle(retiredReply, retiredSnapshot);
+    await waitFor(() => expect(settingsApi.saveDesktopSettings).toHaveBeenCalledTimes(2));
+    expect(result.current.settings.appearance).toBe("dark");
+    await act(async () => {
+      appearanceSave.reject(new Error("appearance not saved"));
+      await appearanceSave.promise.catch(() => undefined);
+    });
+    await waitFor(() => expect(settingsApi.getDesktopSettings).toHaveBeenCalledTimes(2));
+    expect(result.current.settings.appearance).toBe("system");
+    expect(result.current.settings.agents.codex.acp.configOptions).toEqual({});
+    expect(setError).toHaveBeenCalledExactlyOnceWith("appearance not saved");
+    expect(onError).not.toHaveBeenCalled();
+
+    await settle(refreshRead, persisted);
+    expect(result.current.settings).toEqual(persisted);
+    expect(settingsApi.getDesktopSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-reads before settling a refresh that crossed a failed current ACP write", async () => {
+    const settingsApi = api();
+    const retiredReply = deferred();
+    const reasoningSave = deferred();
+    const refreshRead = deferred();
+    const retryRead = deferred();
+    const { result, setError } = await mount(settingsApi);
+    let persisted = defaultDesktopSettings;
+    vi.mocked(settingsApi.saveDesktopSettings)
+      .mockImplementationOnce((patch) => {
+        persisted = mergeDesktopSettings(persisted, patch);
+        return retiredReply.promise;
+      })
+      .mockReturnValueOnce(reasoningSave.promise);
+    vi.mocked(settingsApi.getDesktopSettings)
+      .mockReturnValueOnce(refreshRead.promise)
+      .mockReturnValueOnce(retryRead.promise);
+    let current = true;
+    const retiredError = vi.fn();
+    act(() => {
+      void result.current.updateSettingsAndWait(
+        { agents: { codex: { acp: { configOptions: { model: "fast" } } } } },
+        result.current.settings.execution.agentHost,
+        { isCurrent: () => current, onError: retiredError }
+      );
+    });
+    await waitFor(() => expect(settingsApi.saveDesktopSettings).toHaveBeenCalledTimes(1));
+    current = false;
+    await settle(retiredReply, persisted);
+    await waitFor(() => expect(settingsApi.getDesktopSettings).toHaveBeenCalledTimes(2));
+    const reasoningError = vi.fn();
+    let save: Promise<void> | undefined;
+    act(() => {
+      save = result.current.updateSettingsAndWait(
+        { agents: { codex: { acp: { configOptions: { reasoning: "high" } } } } },
+        result.current.settings.execution.agentHost,
+        { isCurrent: () => true, onError: reasoningError }
+      );
+      void save.catch(() => undefined);
+    });
+    await waitFor(() => expect(settingsApi.saveDesktopSettings).toHaveBeenCalledTimes(2));
+    await settle(refreshRead, persisted);
+    expect(settingsApi.getDesktopSettings).toHaveBeenCalledTimes(2);
+    expect(result.current.settings.agents.codex.acp.configOptions).toEqual({});
+
+    persisted = mergeDesktopSettings(persisted, { appearance: "light" });
+    await act(async () => {
+      reasoningSave.reject(new Error("reasoning not saved"));
+      await save?.catch(() => undefined);
+    });
+    await waitFor(() => expect(settingsApi.getDesktopSettings).toHaveBeenCalledTimes(3));
+    await settle(retryRead, persisted);
+    expect(result.current.settings).toEqual(persisted);
+    expect(result.current.settings.agents.codex.acp.configOptions).toEqual({ model: "fast" });
+    expect(reasoningError).toHaveBeenCalledExactlyOnceWith("reasoning not saved");
+    expect(retiredError).not.toHaveBeenCalled();
+    expect(setError).not.toHaveBeenCalled();
+    expect(settingsApi.getDesktopSettings).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    { laterAppearance: null, visibleAppearance: "system" },
+    { laterAppearance: "light", visibleAppearance: "light" }
+  ] as const)("retires an ACP write without changing the outcome of adjacent appearance saves ($visibleAppearance)", async ({
+    laterAppearance,
+    visibleAppearance
+  }) => {
+    const settingsApi = api();
+    const failed = deferred();
+    const next = deferred();
+    vi.mocked(settingsApi.saveDesktopSettings)
+      .mockReturnValueOnce(failed.promise)
+      .mockReturnValueOnce(next.promise);
+    const { result, setError } = await mount(settingsApi);
+    let current = true;
+    const onError = vi.fn();
+    let acpSave: Promise<void> | undefined;
+    act(() => {
+      result.current.updateSettings({ appearance: "dark" });
+      acpSave = result.current.updateSettingsAndWait(
+        { agents: { codex: { acp: { configOptions: { model: "fast" } } } } },
+        result.current.settings.execution.agentHost,
+        { isCurrent: () => current, onError }
+      );
+      if (laterAppearance) result.current.updateSettings({ appearance: laterAppearance });
+    });
+    await waitFor(() => expect(settingsApi.saveDesktopSettings).toHaveBeenCalledTimes(1));
+    expect(settingsApi.saveDesktopSettings).toHaveBeenCalledWith({ appearance: "dark" });
+    expect(result.current.settings.appearance).toBe(laterAppearance ?? "dark");
+
+    current = false;
+    await act(async () => {
+      failed.reject(new Error("appearance not saved"));
+      await acpSave;
+    });
+
+    expect(result.current.settings.appearance).toBe(visibleAppearance);
+    expect(setError).toHaveBeenCalledExactlyOnceWith("appearance not saved");
+    expect(onError).not.toHaveBeenCalled();
+    if (laterAppearance) {
+      expect(settingsApi.saveDesktopSettings).toHaveBeenCalledTimes(2);
+      expect(settingsApi.saveDesktopSettings).toHaveBeenLastCalledWith({
+        appearance: laterAppearance
+      });
+      await settle(next, external);
+      expect(result.current.settings).toEqual(external);
+    } else {
+      expect(settingsApi.saveDesktopSettings).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("keeps the confirmed Host through a delayed initial read, focus reads, and a queued save", async () => {
     const initialRead = deferred();
     const focusRead = deferred();

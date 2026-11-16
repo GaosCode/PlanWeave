@@ -117,6 +117,7 @@ export function App() {
   const rendererPlatform = detectRendererPlatform();
   const { error, setError, captureErrorClear } = useDesktopErrorState();
   const {
+    refreshSettings,
     settings,
     settingsHydrated,
     updateLayoutSettings,
@@ -179,6 +180,7 @@ export function App() {
       language,
       refreshAgentDetections,
       refreshRuntimeTools,
+      refreshSettings,
       runtimeTools,
       setActiveView,
       setError,
@@ -202,6 +204,7 @@ export function App() {
       language,
       refreshAgentDetections,
       refreshRuntimeTools,
+      refreshSettings,
       runtimeTools,
       setActiveView,
       setError,

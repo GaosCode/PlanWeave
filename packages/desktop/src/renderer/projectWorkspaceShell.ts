@@ -7,7 +7,8 @@ import type {
   AppView,
   DesktopSettingsUpdate,
   DesktopUiSettings,
-  FloatingControlPosition
+  FloatingControlPosition,
+  PersistDesktopSettings
 } from "./types";
 import type { AppViewHistoryController } from "./hooks/useAppViewHistory";
 
@@ -31,6 +32,7 @@ export type ProjectWorkspaceShellInput = {
   language: DesktopUiSettings["language"];
   refreshAgentDetections: RefreshAgentDetections;
   refreshRuntimeTools: () => Promise<void>;
+  refreshSettings: () => void;
   runtimeTools: DesktopRuntimeToolAvailability;
   setActiveView: Dispatch<SetStateAction<AppView>>;
   setError: Dispatch<SetStateAction<string | null>>;
@@ -41,5 +43,5 @@ export type ProjectWorkspaceShellInput = {
   updateLayoutSettings: (patch: LayoutSettingsPatch) => void;
   updateGlobalPrompt: (markdown: string) => Promise<boolean>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
-  updateSettingsAndWait: (update: DesktopSettingsUpdate) => Promise<void>;
+  updateSettingsAndWait: PersistDesktopSettings;
 };

@@ -14,12 +14,11 @@ import {
 import { cn } from "@/lib/utils";
 import {
   desktopAgentHostKey,
-  type DesktopAcpAgentSettingsPatch,
-  type DesktopAgentHost
+  type DesktopAcpAgentSettingsPatch
 } from "../../shared/desktopSettings";
 import type { RefreshAgentDetections } from "../hooks/useDetectedAgents";
 import type { createTranslator } from "../i18n";
-import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
+import type { DesktopSettingsUpdate, DesktopUiSettings, PersistDesktopSettings } from "../types";
 import { useAgentCapabilityProbeSession } from "./agentCapabilityProbeSessionCache";
 import { ExecutorPreflightSummary } from "./ExecutorPreflightSummary";
 
@@ -50,14 +49,20 @@ type AgentSettingsPanelProps = {
   projectRoot?: string | null;
   sourceRoot?: string | null;
   hostUnconfirmed?: boolean;
-  persistSettings?: (
-    update: DesktopSettingsUpdate,
-    expectedAgentHost?: DesktopAgentHost
-  ) => Promise<void>;
+  persistSettings?: PersistDesktopSettings;
   refreshAgentDetections: RefreshAgentDetections;
   settings: DesktopUiSettings;
   t: ReturnType<typeof createTranslator>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
+};
+
+type AcpSaveAttempt = {
+  agentKind: DesktopAgentKind;
+  label: string;
+  error: string | null;
+  patch: DesktopAcpAgentSettingsPatch;
+  probe: ReturnType<typeof useAgentCapabilityProbeSession>["probes"][DesktopAgentKind];
+  session: ReturnType<typeof useAgentCapabilityProbeSession>["session"];
 };
 
 function RemoveSavedAcpOption({
@@ -98,11 +103,13 @@ export function AgentSettingsPanel({
   const [expandedAgents, setExpandedAgents] = useState<ReadonlySet<DesktopAgentKind>>(
     () => new Set()
   );
+  const [acpSaves, setAcpSaves] = useState<Record<string, AcpSaveAttempt>>({});
   const executionHost = settings.execution.agentHost;
-  const { probes, probe, refreshProbes, isCurrentProbe } = useAgentCapabilityProbeSession(
+  const { session, probes, probe, refreshProbes, isCurrentProbe } = useAgentCapabilityProbeSession(
     projectRoot,
     sourceRoot,
     executionHost,
+    settings.execution.agentTransport,
     bridgeUnavailableMessage
   );
 
@@ -165,12 +172,27 @@ export function AgentSettingsPanel({
             ? acpProbe.result.sessionConfig
             : null;
         const acpSettings = agentSettings.acp;
+        const saveKey = (fieldId: string | null) => JSON.stringify([agent.kind, fieldId]);
+        const isCurrentSave = (save: AcpSaveAttempt) =>
+          save.agentKind === agent.kind && save.session === session && save.probe === acpProbe;
+        const pendingPatch = (fieldId: string | null) => {
+          const save = acpSaves[saveKey(fieldId)];
+          return save?.error === null && isCurrentSave(save) ? save.patch : undefined;
+        };
+        const configuredOption = (id: string) => {
+          const pendingValue = pendingPatch(id)?.configOptions?.[id];
+          if (pendingValue !== undefined) return pendingValue ?? undefined;
+          return Object.hasOwn(acpSettings.configOptions, id)
+            ? acpSettings.configOptions[id]
+            : undefined;
+        };
         const legacyModes = sessionConfig?.modes;
-        const configuredMode = acpSettings.modeId;
+        const pendingMode = pendingPatch(null)?.modeId;
+        const configuredMode = pendingMode === undefined ? acpSettings.modeId : pendingMode;
         const protocolModeOptions =
           sessionConfig?.configOptions.filter((option) => option.category === "mode") ?? [];
-        const configuredProtocolMode = protocolModeOptions.some((option) =>
-          Object.hasOwn(acpSettings.configOptions, option.id)
+        const configuredProtocolMode = protocolModeOptions.some(
+          (option) => configuredOption(option.id) !== undefined
         );
         const incompatibleMode = Boolean(
           sessionConfig &&
@@ -191,11 +213,47 @@ export function AgentSettingsPanel({
           isDefault ? t("acpHostDefaultChoice").replace("{value}", label) : label;
         const incompatibleValueMessage = (value: string | boolean) =>
           t("acpSavedValueUnavailable").replace("{value}", String(value));
-        const saveAcpSelection = (acp: DesktopAcpAgentSettingsPatch) => {
+        const saveAcpSelection = (
+          fieldId: string | null,
+          label: string,
+          acp: DesktopAcpAgentSettingsPatch
+        ) => {
           if (!sessionConfig || !acpProbe || !isCurrentProbe(agent.kind, acpProbe)) return;
           const update = () => ({ agents: { [agent.kind]: { acp } } });
-          if (persistSettings) void persistSettings(update, executionHost).catch(() => undefined);
-          else updateSettings(update);
+          if (!persistSettings) {
+            updateSettings(update);
+            return;
+          }
+          const key = saveKey(fieldId);
+          const isCurrent = () => isCurrentProbe(agent.kind, acpProbe);
+          const attempt = {
+            agentKind: agent.kind,
+            label,
+            error: null,
+            patch: acp,
+            probe: acpProbe,
+            session
+          };
+          setAcpSaves((current) => ({ ...current, [key]: attempt }));
+          void persistSettings(update, executionHost, {
+            isCurrent,
+            onError: (error) => {
+              setAcpSaves((current) =>
+                current[key] === attempt ? { ...current, [key]: { ...attempt, error } } : current
+              );
+            }
+          }).then(
+            () => {
+              if (!isCurrent()) return;
+              setAcpSaves((current) => {
+                if (current[key] !== attempt) return current;
+                const pending = { ...current };
+                delete pending[key];
+                return pending;
+              });
+            },
+            () => undefined
+          );
         };
         return (
           <div
@@ -317,6 +375,13 @@ export function AgentSettingsPanel({
                     loginCommands={agent.loginCommands ?? null}
                   />
                 ) : null}
+                {Object.entries(acpSaves).map(([key, save]) =>
+                  save.error && isCurrentSave(save) ? (
+                    <p className="break-words text-xs text-destructive" key={key} role="alert">
+                      {save.label} · {save.error}
+                    </p>
+                  ) : null
+                )}
                 {missingOptionIds.map((id) => (
                   <div className="flex items-center justify-between gap-4" key={id}>
                     <p className="min-w-0 break-words text-sm text-destructive">
@@ -324,15 +389,13 @@ export function AgentSettingsPanel({
                     </p>
                     <RemoveSavedAcpOption
                       name={id}
-                      onRemove={() => saveAcpSelection({ configOptions: { [id]: null } })}
+                      onRemove={() => saveAcpSelection(id, id, { configOptions: { [id]: null } })}
                       t={t}
                     />
                   </div>
                 ))}
                 {sessionConfig?.configOptions.map((option) => {
-                  const configured = Object.hasOwn(acpSettings.configOptions, option.id)
-                    ? acpSettings.configOptions[option.id]
-                    : undefined;
+                  const configured = configuredOption(option.id);
                   const incompatible =
                     configured !== undefined &&
                     (option.type === "boolean"
@@ -364,7 +427,9 @@ export function AgentSettingsPanel({
                           }
                           size="sm"
                           onCheckedChange={(checked) =>
-                            saveAcpSelection({ configOptions: { [option.id]: checked } })
+                            saveAcpSelection(option.id, option.name, {
+                              configOptions: { [option.id]: checked }
+                            })
                           }
                         />
                       ) : option.type === "select" &&
@@ -373,7 +438,9 @@ export function AgentSettingsPanel({
                         <RemoveSavedAcpOption
                           name={option.name}
                           onRemove={() =>
-                            saveAcpSelection({ configOptions: { [option.id]: null } })
+                            saveAcpSelection(option.id, option.name, {
+                              configOptions: { [option.id]: null }
+                            })
                           }
                           t={t}
                         />
@@ -387,7 +454,9 @@ export function AgentSettingsPanel({
                                 : option.options.some((candidate) => candidate.value === value)
                             ) {
                               const choice = option.type === "boolean" ? value === "true" : value;
-                              saveAcpSelection({ configOptions: { [option.id]: choice } });
+                              saveAcpSelection(option.id, option.name, {
+                                configOptions: { [option.id]: choice }
+                              });
                             }
                           }}
                         >
@@ -439,7 +508,7 @@ export function AgentSettingsPanel({
                         value={incompatibleMode ? "" : configuredMode || legacyModes.currentModeId}
                         onValueChange={(modeId) => {
                           if (legacyModes.availableModes.some(({ id }) => id === modeId)) {
-                            saveAcpSelection({ modeId });
+                            saveAcpSelection(null, labels.acpSessionMode, { modeId });
                           }
                         }}
                       >
@@ -466,7 +535,9 @@ export function AgentSettingsPanel({
                     ) : (
                       <RemoveSavedAcpOption
                         name={labels.acpSessionMode}
-                        onRemove={() => saveAcpSelection({ modeId: null })}
+                        onRemove={() =>
+                          saveAcpSelection(null, labels.acpSessionMode, { modeId: null })
+                        }
                         t={t}
                       />
                     )}

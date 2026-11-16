@@ -191,6 +191,7 @@ async function mountSource(source: GraphNavigationSnapshot = snapshot) {
     language: "en",
     refreshAgentDetections: vi.fn(),
     refreshRuntimeTools: vi.fn(),
+    refreshSettings: vi.fn(),
     runtimeTools: { tmux: { available: false, command: "tmux" } },
     setError,
     setSuccessMessage: vi.fn(),

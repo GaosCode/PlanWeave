@@ -9,7 +9,7 @@ import {
 import { settingsBridge } from "../bridge";
 import { beginDesktopHomeTransition } from "../desktopHomeTransition";
 import { mergeDesktopSettings } from "../settings";
-import type { DesktopSettingsUpdate, DesktopUiSettings } from "../types";
+import type { DesktopSettingsUpdate, DesktopUiSettings, PersistDesktopSettings } from "../types";
 
 type LayoutSettingsPatch = {
   leftSidebar?: Partial<DesktopUiSettings["layout"]["leftSidebar"]>;
@@ -63,6 +63,9 @@ export function useDesktopSettingsBridge({
   const lastConfirmedSettingsRef = useRef<DesktopUiSettings>(defaultDesktopSettings);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const refreshQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const refreshSettingsRef = useRef<((options?: { reconcileAfterSave: boolean }) => void) | null>(
+    null
+  );
   const localRevisionRef = useRef(0);
   const pendingSavesRef = useRef(0);
   const pendingHomeSavesRef = useRef(0);
@@ -121,37 +124,44 @@ export function useDesktopSettingsBridge({
       setSettings(latestSettingsRef.current);
     });
 
-    const loadSettings = async (options: { migrateLegacy: boolean }) => {
+    const loadSettings = async (options: {
+      migrateLegacy: boolean;
+    }): Promise<"superseded" | "finished"> => {
       const revision = localRevisionRef.current;
       const confirmedVersion = confirmedVersionRef.current;
       const applyLoaded = (loaded: DesktopUiSettings, agentHostVersion: number) => {
         if (confirmedVersionRef.current !== confirmedVersion) {
-          return;
+          return false;
         }
         const confirmed = retainNewerAgentHost(loaded, agentHostVersion);
         lastConfirmedSettingsRef.current = confirmed;
-        if (localRevisionRef.current === revision && pendingSavesRef.current === 0) {
-          latestSettingsRef.current = confirmed;
-          setSettings(confirmed);
+        if (localRevisionRef.current !== revision || pendingSavesRef.current !== 0) {
+          return false;
         }
+        latestSettingsRef.current = confirmed;
+        setSettings(confirmed);
+        return true;
       };
       try {
         const readAgentHostVersion = agentHostVersionRef.current;
         const loaded = await settingsApi.getDesktopSettings();
         if (cancelled) {
-          return;
+          return "finished";
         }
-        applyLoaded(loaded, readAgentHostVersion);
+        const published = applyLoaded(loaded, readAgentHostVersion);
+        if (!options.migrateLegacy) {
+          return published ? "finished" : "superseded";
+        }
 
-        const legacyPayload = options.migrateLegacy ? readLegacyDesktopSettingsPayload() : null;
+        const legacyPayload = readLegacyDesktopSettingsPayload();
         if (!legacyPayload) {
-          return;
+          return "finished";
         }
 
         const migrationAgentHostVersion = agentHostVersionRef.current;
         const migrated = await settingsApi.migrateLegacyDesktopSettings(legacyPayload);
         if (cancelled) {
-          return;
+          return "finished";
         }
         applyLoaded(migrated, migrationAgentHostVersion);
         writeLegacyMigrationMarker();
@@ -160,47 +170,65 @@ export function useDesktopSettingsBridge({
           setErrorRef.current(errorMessage(caught));
         }
       }
+      return "finished";
     };
 
-    const initialization = loadSettings({ migrateLegacy: true }).finally(() => {
-      if (!cancelled) {
-        setSettingsHydrated(true);
-      }
-    });
+    const initialization = loadSettings({ migrateLegacy: true })
+      .then(() => undefined)
+      .finally(() => {
+        if (!cancelled) {
+          setSettingsHydrated(true);
+        }
+      });
     initializationRef.current = initialization;
     refreshQueueRef.current = initialization;
     void initialization;
-    const refreshOnFocus = () => {
+    const refreshCurrentSettings = ({ reconcileAfterSave } = { reconcileAfterSave: false }) => {
       refreshQueueRef.current = refreshQueueRef.current
         .catch(() => undefined)
         .then(async () => {
-          while (!cancelled && pendingSavesRef.current > 0) {
-            await saveQueueRef.current;
-          }
-          if (!cancelled) {
-            await loadSettings({ migrateLegacy: false });
+          while (!cancelled) {
+            if (pendingSavesRef.current > 0) {
+              await saveQueueRef.current;
+            } else {
+              const loaded = await loadSettings({ migrateLegacy: false });
+              if (!reconcileAfterSave || loaded === "finished") return;
+            }
           }
         });
       void refreshQueueRef.current;
     };
+    refreshSettingsRef.current = refreshCurrentSettings;
+    const refreshOnFocus = () => refreshCurrentSettings();
     window.addEventListener("focus", refreshOnFocus);
     return () => {
       cancelled = true;
       mountedRef.current = false;
+      refreshSettingsRef.current = null;
       unsubscribeAgentHost();
       window.removeEventListener("focus", refreshOnFocus);
     };
   }, [allowInMemoryFallback, retainNewerAgentHost, settingsApi]);
 
-  const updateSettingsAndWait = useCallback(
-    (update: DesktopSettingsUpdate, expectedAgentHost?: DesktopAgentHost) => {
+  const refreshSettings = useCallback(() => {
+    refreshSettingsRef.current?.();
+  }, []);
+
+  const updateSettingsAndWait = useCallback<PersistDesktopSettings>(
+    (update, expectedAgentHost, scope) => {
       if (!settingsApi && !allowInMemoryFallback) {
-        setError(missingSettingsBridgeMessage);
+        if (scope) {
+          if (scope.isCurrent()) scope.onError(missingSettingsBridgeMessage);
+        } else {
+          setError(missingSettingsBridgeMessage);
+        }
         return Promise.reject(new Error(missingSettingsBridgeMessage));
       }
       const patch = typeof update === "function" ? update(latestSettingsRef.current) : update;
-      const nextRevision = localRevisionRef.current + 1;
-      localRevisionRef.current = nextRevision;
+      const publishesOptimistically = !expectedAgentHost || !settingsApi;
+      const optimisticRevision = publishesOptimistically
+        ? ++localRevisionRef.current
+        : localRevisionRef.current;
       const optimisticSettings = mergeDesktopSettings(latestSettingsRef.current, patch);
       if (settingsApi && patch.execution?.agentHost) {
         optimisticSettings.execution.agentHost = latestSettingsRef.current.execution.agentHost;
@@ -212,7 +240,7 @@ export function useDesktopSettingsBridge({
         setPendingHomeSaves(pendingHomeSavesRef.current);
         optimisticSettings.planweaveHome = latestSettingsRef.current.planweaveHome;
       }
-      if (!expectedAgentHost || !settingsApi) {
+      if (publishesOptimistically) {
         latestSettingsRef.current = optimisticSettings;
         setSettings(optimisticSettings);
       }
@@ -221,11 +249,15 @@ export function useDesktopSettingsBridge({
         return Promise.resolve();
       }
       const effectVersion = effectVersionRef.current;
+      const expectedAgentHostVersion = agentHostVersionRef.current;
       const isCurrentEffect = () =>
         mountedRef.current && effectVersionRef.current === effectVersion;
       const isExpectedHostCurrent = () =>
         !expectedAgentHost ||
-        lastConfirmedSettingsRef.current.execution.agentHost === expectedAgentHost;
+        (agentHostVersionRef.current === expectedAgentHostVersion &&
+          lastConfirmedSettingsRef.current.execution.agentHost === expectedAgentHost);
+      const isSaveCurrent = () =>
+        isCurrentEffect() && isExpectedHostCurrent() && (!scope || scope.isCurrent());
       const publishSettings = (nextSettings: DesktopUiSettings) => {
         const visibleSettings =
           pendingHomeSavesRef.current > 0
@@ -239,7 +271,7 @@ export function useDesktopSettingsBridge({
         .then(() => initializationRef.current)
         .then(async () => {
           const agentHostVersion = agentHostVersionRef.current;
-          if (!isExpectedHostCurrent()) {
+          if ((expectedAgentHost || scope) && !isSaveCurrent()) {
             return null;
           }
           const nextSettings = expectedAgentHost
@@ -252,12 +284,15 @@ export function useDesktopSettingsBridge({
           if (!result || !isCurrentEffect()) {
             return;
           }
+          confirmedVersionRef.current += 1;
+          if (!isSaveCurrent()) {
+            refreshSettingsRef.current?.({ reconcileAfterSave: true });
+            return;
+          }
           const { nextSettings, agentHostVersion } = result;
           const confirmed = retainNewerAgentHost(nextSettings, agentHostVersion);
-          confirmedVersionRef.current += 1;
           lastConfirmedSettingsRef.current = confirmed;
-          if (!isExpectedHostCurrent()) return;
-          if (localRevisionRef.current === nextRevision) {
+          if (localRevisionRef.current === optimisticRevision) {
             publishSettings(confirmed);
           } else if (patch.execution?.agentHost) {
             publishSettings(
@@ -266,15 +301,12 @@ export function useDesktopSettingsBridge({
           }
         })
         .catch((caught: unknown) => {
-          const currentSave =
-            isCurrentEffect() &&
-            isExpectedHostCurrent() &&
-            localRevisionRef.current === nextRevision;
-          if (currentSave) {
-            publishSettings(lastConfirmedSettingsRef.current);
-          }
-          if (expectedAgentHost ? currentSave : isCurrentEffect()) {
-            setErrorRef.current(errorMessage(caught));
+          if (isSaveCurrent()) {
+            if (publishesOptimistically && localRevisionRef.current === optimisticRevision) {
+              publishSettings(lastConfirmedSettingsRef.current);
+            }
+            const reportError = scope ? scope.onError : setErrorRef.current;
+            reportError(errorMessage(caught));
           }
           throw caught;
         })
@@ -321,6 +353,7 @@ export function useDesktopSettingsBridge({
   );
 
   return {
+    refreshSettings,
     settings,
     settingsHydrated: settingsHydrated && pendingHomeSaves === 0,
     updateLayoutSettings,

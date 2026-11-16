@@ -8,7 +8,6 @@ import type {
   ProjectPromptPolicy
 } from "@planweave-ai/runtime";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { DesktopAgentHost } from "../../shared/desktopSettings";
 import { usePromptDraft } from "../hooks/usePromptDraft";
 import { SettingsComponentsSection } from "../settings/SettingsComponentsSection";
 import { SettingsGeneralSection } from "../settings/SettingsGeneralSection";
@@ -24,7 +23,12 @@ import {
 } from "../settings/settingsEntry";
 import { SettingsSecuritySection } from "../settings/SettingsSecuritySection";
 import type { createTranslator, Language } from "../i18n";
-import type { AppView, DesktopSettingsUpdate, DesktopUiSettings } from "../types";
+import type {
+  AppView,
+  DesktopSettingsUpdate,
+  DesktopUiSettings,
+  PersistDesktopSettings
+} from "../types";
 
 type SettingsViewProps = {
   agentDetectionRefreshing: boolean;
@@ -49,10 +53,7 @@ type SettingsViewProps = {
   updateProjectPromptPolicy?: (patch: Partial<ProjectPromptPolicy>) => Promise<void>;
   updateGlobalPrompt?: (markdown: string) => Promise<boolean>;
   updateSettings: (update: DesktopSettingsUpdate) => void;
-  updateSettingsAndWait: (
-    update: DesktopSettingsUpdate,
-    expectedAgentHost?: DesktopAgentHost
-  ) => Promise<void>;
+  updateSettingsAndWait: PersistDesktopSettings;
 };
 
 export function SettingsView({

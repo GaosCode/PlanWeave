@@ -486,6 +486,7 @@ export function ProviderHarness({
       language: "en",
       refreshAgentDetections: vi.fn().mockResolvedValue(undefined),
       refreshRuntimeTools: vi.fn().mockResolvedValue(undefined),
+      refreshSettings: vi.fn(),
       runtimeTools: { tmux: { available: false, command: "tmux" } },
       setActiveView,
       setError: onError ?? stubs.sync,
