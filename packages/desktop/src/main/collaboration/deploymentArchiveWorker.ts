@@ -1,8 +1,17 @@
-import { constants, lstatSync, realpathSync, type BigIntStats } from "node:fs";
-import { open, opendir } from "node:fs/promises";
+import {
+  type BigIntStats,
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  opendirSync,
+  readSync,
+  realpathSync
+} from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
-import { zipSync } from "fflate";
+import { deflateSync, type Zippable, zipSync } from "fflate";
 import {
   deploymentArchiveInputSchema,
   type DeploymentArchiveInput,
@@ -70,12 +79,12 @@ function verifyFilePath(path: string, metadata: BigIntStats, directory: Director
   verifyDirectory(directory);
 }
 
-async function readArchiveFile(
+function readArchiveFile(
   path: string,
   metadata: BigIntStats,
   directory: DirectorySnapshot,
   total: ArchiveBudget
-): Promise<Uint8Array> {
+): Uint8Array {
   if (
     !metadata.isFile() ||
     total.entries >= maxZipEntries ||
@@ -84,54 +93,76 @@ async function readArchiveFile(
     throw new InvalidArchiveInput();
   }
   verifyDirectory(directory);
-  await using file = await open(path, readFlags);
-  const opened = await file.stat({ bigint: true });
-  if (!matchesFile(opened, metadata)) throw new InvalidArchiveInput();
-  verifyFilePath(path, opened, directory);
+  const file = openSync(path, readFlags);
+  try {
+    const opened = fstatSync(file, { bigint: true });
+    if (!matchesFile(opened, metadata)) throw new InvalidArchiveInput();
+    verifyFilePath(path, opened, directory);
 
-  const bytes = new Uint8Array(Number(opened.size));
-  let offset = 0;
-  while (offset < bytes.byteLength) {
-    const { bytesRead } = await file.read(bytes, offset, bytes.byteLength - offset, offset);
-    if (bytesRead === 0) throw new InvalidArchiveInput();
-    offset += bytesRead;
+    const bytes = new Uint8Array(Number(opened.size));
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const bytesRead = readSync(file, bytes, offset, bytes.byteLength - offset, offset);
+      if (bytesRead === 0) throw new InvalidArchiveInput();
+      offset += bytesRead;
+    }
+    const extraBytes = readSync(file, new Uint8Array(1), 0, 1, offset);
+    if (extraBytes !== 0 || !matchesFile(fstatSync(file, { bigint: true }), opened)) {
+      throw new InvalidArchiveInput();
+    }
+    verifyFilePath(path, opened, directory);
+    total.bytes += offset;
+    total.entries += 1;
+    return bytes;
+  } finally {
+    closeSync(file);
   }
-  const { bytesRead: extraBytes } = await file.read(new Uint8Array(1), 0, 1, offset);
-  if (extraBytes !== 0 || !matchesFile(await file.stat({ bigint: true }), opened)) {
-    throw new InvalidArchiveInput();
-  }
-  verifyFilePath(path, opened, directory);
-  total.bytes += offset;
-  total.entries += 1;
-  return bytes;
 }
 
-async function archiveDirectory(
+function archiveDirectory(
   directory: DirectorySnapshot,
   prefix: string,
   output: Record<string, Uint8Array>,
   total: ArchiveBudget
-): Promise<void> {
+): void {
   verifyDirectory(directory);
-  const entries = await opendir(directory.path);
-  for await (const { name: entry } of entries) {
-    verifyDirectory(directory);
-    const path = resolve(directory.path, entry);
-    if (relative(directory.path, path).startsWith("..") || entry.includes("\\")) {
-      throw new InvalidArchiveInput();
+  const entries = opendirSync(directory.path);
+  try {
+    for (let entry = entries.readSync(); entry; entry = entries.readSync()) {
+      verifyDirectory(directory);
+      const path = resolve(directory.path, entry.name);
+      if (relative(directory.path, path).startsWith("..") || entry.name.includes("\\")) {
+        throw new InvalidArchiveInput();
+      }
+      const metadata = lstatSync(path, { bigint: true });
+      const name = `${prefix}/${entry.name}`;
+      if (metadata.isDirectory()) {
+        archiveDirectory({ path, metadata, parent: directory }, name, output, total);
+      } else {
+        output[name] = readArchiveFile(path, metadata, directory, total);
+      }
     }
-    const metadata = lstatSync(path, { bigint: true });
-    const name = `${prefix}/${entry}`;
-    if (metadata.isDirectory()) {
-      await archiveDirectory({ path, metadata, parent: directory }, name, output, total);
-    } else {
-      output[name] = await readArchiveFile(path, metadata, directory, total);
-    }
+  } finally {
+    entries.closeSync();
   }
   verifyDirectory(directory);
 }
 
-async function createArchive(input: DeploymentArchiveInput): Promise<ArrayBuffer> {
+function shouldStoreArchiveEntry(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < 2 * 1024 * 1024) return false;
+
+  const sampleSize = 16 * 1024;
+  const sampleCount = 17;
+  const lastSampleOffset = bytes.byteLength - sampleSize;
+  for (let index = 0; index < sampleCount; index++) {
+    const offset = Math.floor((lastSampleOffset * index) / (sampleCount - 1));
+    const sample = bytes.subarray(offset, offset + sampleSize);
+    if (deflateSync(sample, { level: 1 }).byteLength < sampleSize * 0.99) return false;
+  }
+  return true;
+}
+
+function createArchive(input: DeploymentArchiveInput): ArrayBuffer {
   if (!isAbsolute(input.resourceDirectory)) throw new InvalidArchiveInput();
   const metadata = lstatSync(input.resourceDirectory, { bigint: true });
   if (!metadata.isDirectory()) throw new InvalidArchiveInput();
@@ -151,21 +182,25 @@ async function createArchive(input: DeploymentArchiveInput): Promise<ArrayBuffer
   };
   if (total.bytes > maxBundleInputBytes) throw new InvalidArchiveInput();
   const compose = resolve(root.path, "compose.yaml");
-  files["compose.yaml"] = await readArchiveFile(
+  files["compose.yaml"] = readArchiveFile(
     compose,
     lstatSync(compose, { bigint: true }),
     root,
     total
   );
   const image = resolve(root.path, "image");
-  await archiveDirectory(
+  archiveDirectory(
     { path: image, metadata: lstatSync(image, { bigint: true }), parent: root },
     "image",
     files,
     total
   );
   verifyResourcePath(input.resourceDirectory, root);
-  const archive = zipSync(files, { level: 6 });
+  const zipEntries: Zippable = {};
+  for (const [name, bytes] of Object.entries(files)) {
+    zipEntries[name] = shouldStoreArchiveEntry(bytes) ? [bytes, { level: 0 }] : bytes;
+  }
+  const archive = zipSync(zipEntries, { level: 6 });
   if (
     !(archive.buffer instanceof ArrayBuffer) ||
     archive.byteOffset !== 0 ||
@@ -188,11 +223,11 @@ function isInvalidArchiveInput(error: unknown): boolean {
   );
 }
 
-async function sendArchive(port: MessagePort, data: unknown): Promise<void> {
+function sendArchive(port: MessagePort, data: unknown): void {
   let response: DeploymentArchiveReply;
   try {
     const input = deploymentArchiveInputSchema.parse(data);
-    response = { state: "ready", bytes: await createArchive(input) };
+    response = { state: "ready", bytes: createArchive(input) };
   } catch (error) {
     response = { state: isInvalidArchiveInput(error) ? "invalid_project" : "failed" };
   }
@@ -201,4 +236,4 @@ async function sendArchive(port: MessagePort, data: unknown): Promise<void> {
 }
 
 if (!parentPort) throw new Error("deployment_archive_worker_requires_parent");
-void sendArchive(parentPort, workerData);
+sendArchive(parentPort, workerData);

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createCipheriv } from "node:crypto";
 import {
   chmod,
   link,
@@ -388,6 +389,43 @@ describe("DeploymentActions", () => {
     expect(spawnSync("sh", ["-n", restoreScriptPath], { encoding: "utf8" }).status).toBe(0);
   });
 
+  it("stores incompressible resources and deflates resources with compressible regions", async () => {
+    const { resourceDirectory, bundlePath, exportBundle } = await exportFixture();
+    const incompressible = createCipheriv("aes-256-ctr", Buffer.alloc(32), Buffer.alloc(16)).update(
+      Buffer.alloc(4 * 1024 * 1024)
+    );
+    const middleCompressible = Buffer.from(incompressible);
+    middleCompressible.fill(
+      65,
+      Math.floor(incompressible.length * 0.275),
+      Math.floor(incompressible.length * 0.365)
+    );
+    const lateCompressible = Buffer.from(incompressible);
+    lateCompressible.fill(65, lateCompressible.length - 16 * 1024);
+    const resources = [
+      { name: "incompressible.bin", bytes: incompressible, compression: 0 },
+      { name: "middle-compressible.bin", bytes: middleCompressible, compression: 8 },
+      { name: "late-compressible.bin", bytes: lateCompressible, compression: 8 }
+    ];
+    for (const { name, bytes } of resources) {
+      await writeFile(join(resourceDirectory, "image", name), bytes);
+    }
+
+    await expect(exportBundle()).resolves.toMatchObject({ state: "exported" });
+    const compressionMethods = new Map<string, number>();
+    const archive = unzipSync(await readFile(bundlePath), {
+      filter: ({ name, compression }) => {
+        compressionMethods.set(name, compression);
+        return true;
+      }
+    });
+    for (const { name, bytes, compression } of resources) {
+      const entry = `image/${name}`;
+      expect(compressionMethods.get(entry), entry).toBe(compression);
+      expect(Buffer.from(archive[entry]).equals(bytes), entry).toBe(true);
+    }
+  });
+
   it("rejects a bundle whose operator token does not match server.json", async () => {
     const { root, bundlePath, exportBundle } = await exportFixture(otherToken, operatorToken);
     await writeFile(bundlePath, oldBundle);
@@ -571,9 +609,8 @@ asyncFs.lstat = async (path, ...args) => observe(path, await lstat(path, ...args
     const entry = await archiveWorkerWithFileSystem(
       root,
       `
-const fs = require("node:fs/promises");
-const syncFs = require("node:fs");
-const { existsSync, lstatSync, realpathSync } = syncFs;
+const fs = require("node:fs");
+const { closeSync, existsSync, fstatSync, lstatSync, openSync, opendirSync, readSync, realpathSync } = fs;
 const { dirname, join, basename } = require("node:path");
 const canonicalPath = realpathSync.native;
 const image = canonicalPath(${JSON.stringify(join(resourceDirectory, "image"))});
@@ -581,32 +618,28 @@ const empty = ${JSON.stringify(emptyFile)};
 const extra = existsSync(${JSON.stringify(extraEntry)});
 const entries = Array.from({ length: 65535 - 6 + Number(extra) }, (_, n) => "resource-" + n);
 const isVirtualFile = path => dirname(path) === image && basename(path).startsWith("resource-");
-const lstat = fs.lstat;
-const open = fs.open;
-const readdir = fs.readdir;
-const opendir = fs.opendir;
+const virtualFd = -1;
 const directorySnapshots = new Map([image, dirname(image)].map(path => [
   path, lstatSync(path, { bigint: true })
 ]));
 const metadata = lstatSync(empty);
 const bigintMetadata = lstatSync(empty, { bigint: true });
 const fileStats = options => options?.bigint ? bigintMetadata : metadata;
-fs.lstat = async (path, options) => isVirtualFile(path) ? fileStats(options)
-  : lstat(path, options);
-syncFs.lstatSync = (path, options) => isVirtualFile(path) ? fileStats(options)
+fs.lstatSync = (path, options) => isVirtualFile(path) ? fileStats(options)
   : (options?.bigint ? directorySnapshots.get(path) : undefined) ?? lstatSync(path, options);
-fs.open = async (path, ...args) => isVirtualFile(path) ? {
-  stat: async options => fileStats(options),
-  read: async () => ({ bytesRead: 0 }),
-  [Symbol.asyncDispose]: async () => undefined
-} : open(path, ...args);
+fs.openSync = (path, ...args) => isVirtualFile(path) ? virtualFd : openSync(path, ...args);
+fs.fstatSync = (fd, options) => fd === virtualFd ? fileStats(options) : fstatSync(fd, options);
+fs.readSync = (fd, ...args) => fd === virtualFd ? 0 : readSync(fd, ...args);
+fs.closeSync = fd => fd === virtualFd ? undefined : closeSync(fd);
 realpathSync.native = (path, ...args) => directorySnapshots.has(path) ? path : canonicalPath(path, ...args);
-fs.readdir = async (path, ...args) => path === image ? entries : readdir(path, ...args);
-fs.opendir = async (path, ...args) => path === image ? {
-  async *[Symbol.asyncIterator]() {
-    for (const name of entries) yield { name };
-  }
-} : opendir(path, ...args);
+fs.opendirSync = (path, ...args) => {
+  if (path !== image) return opendirSync(path, ...args);
+  let index = 0;
+  return {
+    readSync: () => index < entries.length ? { name: entries[index++] } : null,
+    closeSync: () => undefined
+  };
+};
 `
     );
     const exportBundle = () =>
