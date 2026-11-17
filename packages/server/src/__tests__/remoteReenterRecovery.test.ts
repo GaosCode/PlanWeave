@@ -5,6 +5,7 @@ import { CanvasRuntimeRpcError } from "../canvas/runtimeRpcBroker.js";
 import { CanvasRuntimeUnavailableError } from "../canvas/executionRuntimePort.js";
 import { RemoteCoordinatorCheckpointCrash } from "../remoteBlockCoordinatorPorts.js";
 import { classifyRemoteOperationDiagnosticRetryability } from "../remoteOperationDiagnosticRetryability.js";
+import { RuntimeAttachmentContentTargetError } from "../remoteRuntimeAttachmentCoordinator.js";
 import {
   classifyReenterFailure,
   diagnosticFromReenterFailure,
@@ -25,6 +26,17 @@ describe("remoteReenterRecovery", () => {
     "agent_endpoint_incompatible"
   ] as const)("keeps durable Endpoint identity failure %s fatal", (code) => {
     expect(classifyReenterFailure(new AgentEndpointCatalogError(code))).toBe("fatal");
+  });
+
+  it.each([
+    "runtime_attachment_content_target_changed",
+    "runtime_attachment_content_target_conflict"
+  ] as const)("requires an explicit action after the preparation fence %s", (code) => {
+    const error = new RuntimeAttachmentContentTargetError(code);
+    expect(classifyReenterFailure(error)).toBe("wait_for_action");
+    expect(diagnosticFromReenterFailure(error)).toEqual({ code, message: code });
+    expect(classifyRemoteOperationDiagnosticRetryability(code)).toBe(false);
+    expect(classifyReenterFailure(new Error(code))).toBe("fatal");
   });
 
   it.each([
@@ -55,6 +67,7 @@ describe("remoteReenterRecovery", () => {
   it.each([
     ["canvas_runtime_response_host_mismatch", false, false],
     ["canvas_runtime_response_operation_mismatch", false, false],
+    ["content_out_of_sync", false, false],
     ["canvas_runtime_reconcile_required", false, true],
     ["canvas_runtime_host_revoked", true, false],
     ["protocol_error", true, true],

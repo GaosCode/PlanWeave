@@ -216,14 +216,17 @@ describe("workspace execution plane HTTP gaps", () => {
 
   it.each([
     { runtime: "no local attachment", staleLocalRuntime: false },
-    { runtime: "a stale local attachment", staleLocalRuntime: true }
+    { runtime: "a stale local attachment", staleLocalRuntime: true },
+    { runtime: "a previous Server projection", staleServerProjection: true }
   ])("auto-prepares remote execution and reads remote authority with $runtime", async ({
-    staleLocalRuntime
+    staleLocalRuntime,
+    staleServerProjection
   }) => {
     const fixture = await startPathlessCompositionWithGrantedHost({
       mapWorkspace: true,
       liveCanvasRuntime: true,
-      staleLocalRuntime
+      ...(staleLocalRuntime === undefined ? {} : { staleLocalRuntime }),
+      ...(staleServerProjection === undefined ? {} : { staleServerProjection })
     });
     expect(fixture.listRuntimeBindings()).toEqual([]);
     const dispatched = await fetch(dispatchUrl(fixture.origin, fixture.projectId), {

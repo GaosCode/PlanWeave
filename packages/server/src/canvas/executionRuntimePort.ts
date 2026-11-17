@@ -18,6 +18,19 @@ export class CanvasRuntimeUnavailableError extends Error {
   }
 }
 
+export class CanvasRuntimeContentDriftError extends Error {
+  constructor(
+    readonly code: "content_out_of_sync" | "canvas_runtime_reconcile_required",
+    options?: ErrorOptions
+  ) {
+    super(
+      code === "content_out_of_sync" ? code : "canvas_runtime_status_content_out_of_sync",
+      options
+    );
+    this.name = "CanvasRuntimeContentDriftError";
+  }
+}
+
 export class CanvasRuntimeResetConflictError extends Error {
   constructor(readonly code: "active_lease" | "source_drift") {
     super(`canvas_runtime_reset_${code}`);

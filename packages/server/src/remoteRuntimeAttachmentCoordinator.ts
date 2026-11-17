@@ -27,7 +27,10 @@ export type RemoteRuntimeAttachmentRecordPorts = {
 export type RemoteRuntimeMaterializationPorts = {
   contentTargets: RemoteRuntimeContentTargetPort;
   project?(
-    input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
+    input: RuntimeAttachmentRequest & {
+      lease: CanvasExecutionRuntimeLease;
+      validateBeforeCommit(): void;
+    }
   ): void | Promise<void>;
 };
 
@@ -91,10 +94,16 @@ export async function materializeAttachedWorkspaceRuntime(input: {
   lease: CanvasExecutionRuntimeLease;
   ports: RemoteRuntimeMaterializationPorts;
 }): Promise<void> {
-  assertRuntimeAttachmentContentTarget({
-    attachment: input.attachment,
-    candidate: input.candidate,
-    contentTargets: input.ports.contentTargets
+  const validateBeforeCommit = () =>
+    assertRuntimeAttachmentContentTarget({
+      attachment: input.attachment,
+      candidate: input.candidate,
+      contentTargets: input.ports.contentTargets
+    });
+  validateBeforeCommit();
+  await input.ports.project?.({
+    ...input.attachment,
+    lease: input.lease,
+    validateBeforeCommit
   });
-  await input.ports.project?.({ ...input.attachment, lease: input.lease });
 }

@@ -1,10 +1,14 @@
 import { RemoteBlockRuntimeError, RemoteOwnershipConflictError } from "@planweave-ai/runtime";
 import { AgentEndpointCatalogError } from "./agentEndpointCatalog.js";
-import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
+import {
+  CanvasRuntimeContentDriftError,
+  CanvasRuntimeUnavailableError
+} from "./canvas/executionRuntimePort.js";
 import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
 import { RemoteAgentAuthorizationError } from "./remoteAgent/errors.js";
 import { RemoteCoordinatorCheckpointCrash } from "./remoteBlockCoordinatorPorts.js";
 import { PersistedRemoteDispatchAdmissionDenial } from "./remoteDispatchAdmissionDenial.js";
+import { RuntimeAttachmentContentTargetError } from "./remoteRuntimeAttachmentCoordinator.js";
 import type { RemoteOperation } from "./remoteOperations.js";
 
 export type RemoteDispatchOutcome = {
@@ -26,6 +30,7 @@ export type ReenterFailureDecision =
   | "admission_denied"
   | "defer_host"
   | "defer_authorization"
+  | "wait_for_action"
   | "seal_failed"
   | "fatal";
 
@@ -116,6 +121,12 @@ export function diagnosticFromReenterFailure(error: unknown): { code: string; me
   if (error instanceof CanvasRuntimeUnavailableError) {
     return { code: error.reason, message: error.reason };
   }
+  if (
+    error instanceof CanvasRuntimeContentDriftError ||
+    error instanceof RuntimeAttachmentContentTargetError
+  ) {
+    return { code: error.code, message: error.message };
+  }
   if (error instanceof RemoteBlockRuntimeError || error instanceof RemoteOwnershipConflictError) {
     return { code: error.code, message: error.message };
   }
@@ -136,12 +147,14 @@ export function diagnosticFromReenterFailure(error: unknown): { code: string; me
 export function classifyReenterFailure(error: unknown): ReenterFailureDecision {
   if (error instanceof PersistedRemoteDispatchAdmissionDenial) return "admission_denied";
   if (error instanceof RemoteAgentAuthorizationError) return "defer_authorization";
+  if (error instanceof RuntimeAttachmentContentTargetError) return "wait_for_action";
   if (error instanceof CanvasRuntimeRpcError) {
     return isRecoverableRuntimeRpcFailure(error) ? "defer_host" : "fatal";
   }
   if (
     (error instanceof AgentEndpointCatalogError && error.code === "agent_endpoint_unavailable") ||
-    error instanceof CanvasRuntimeUnavailableError
+    error instanceof CanvasRuntimeUnavailableError ||
+    error instanceof CanvasRuntimeContentDriftError
   ) {
     return "defer_host";
   }

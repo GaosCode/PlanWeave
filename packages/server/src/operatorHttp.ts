@@ -33,8 +33,12 @@ import { DispatchAssignmentError } from "./work/dispatchIntegration.js";
 import { RemoteExecutionActionRejectedError } from "./remoteExecutionActions.js";
 import { remoteResumeHttpError } from "./remoteResumeHttpErrors.js";
 import { CanvasRuntimeRpcError } from "./canvas/runtimeRpcBroker.js";
-import { CanvasRuntimeUnavailableError } from "./canvas/executionRuntimePort.js";
+import {
+  CanvasRuntimeContentDriftError,
+  CanvasRuntimeUnavailableError
+} from "./canvas/executionRuntimePort.js";
 import { readOwnerCanvasMaterializationUpload } from "./canvas/ownerCanvasMaterializationHttp.js";
+import { RuntimeAttachmentContentTargetError } from "./remoteRuntimeAttachmentCoordinator.js";
 import {
   OPERATOR_OWNER_TERMINAL_RESULT_MEDIA_TYPE,
   OPERATOR_OWNER_TERMINAL_RESULT_METADATA_HEADER,
@@ -391,6 +395,12 @@ function safeError(error: unknown): { status: number; code: string } {
   if (error instanceof z.ZodError) return { status: 400, code: "operator_request_invalid" };
   if (error instanceof CanvasRuntimeUnavailableError) {
     return { status: 503, code: "canvas_runtime_unavailable" };
+  }
+  if (error instanceof CanvasRuntimeContentDriftError) {
+    return { status: 503, code: error.code };
+  }
+  if (error instanceof RuntimeAttachmentContentTargetError) {
+    return { status: 409, code: "operator_request_conflict" };
   }
   if (error instanceof CanvasRuntimeRpcError) {
     if (error.code === "remote_block_not_found") return { status: 404, code: error.code };

@@ -187,7 +187,11 @@ export async function createDistributedServerComposition(
             if (!input.graphFingerprint) return;
             await projectCanvasRuntimeFromAcquiredLease({
               runtimeStatuses,
-              commitTransaction: (action) => inWriteTransaction(database, action),
+              commitTransaction: (action) =>
+                inWriteTransaction(database, () => {
+                  input.validateBeforeCommit();
+                  return action();
+                }),
               scope: canvasScopeRefSchema.parse({
                 workspaceId: input.workspaceId,
                 projectId: input.projectId,

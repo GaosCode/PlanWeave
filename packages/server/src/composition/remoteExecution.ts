@@ -28,15 +28,14 @@ import {
 import type { HumanIdentityRepository } from "../identity/index.js";
 import { RemoteOperationRetention } from "../remoteOperationRetention.js";
 import { AcpConversationRetention } from "../acpConversationRetention.js";
-import type { RuntimeAttachmentRequest } from "../canvas/runtimeAttachment.js";
 import type {
-  CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeRoutePort,
   CanvasRuntimeScopeAvailabilityPort,
   OwnerCanvasRuntimeScopeResolverPort
 } from "../canvas/executionRuntimePort.js";
 import type { AuthoritySelectingWorkRuntimeFactsAdapter } from "../work/runtimeFactsAdapters.js";
 import type { RemoteRuntimeContentTargetPort } from "../remoteBlockCoordinatorPorts.js";
+import type { RemoteRuntimeMaterializationPorts } from "../remoteRuntimeAttachmentCoordinator.js";
 import type { RemoteArtifactContentPort } from "../remoteBlockCoordinatorPorts.js";
 import type { OwnerCanvasMaterializationRepository } from "../canvas/ownerCanvasMaterializationRepository.js";
 import type { OwnerCanvasMaterializationService } from "../canvas/ownerCanvasMaterializationService.js";
@@ -52,9 +51,7 @@ export function createRemoteCoordinationOptions(input: {
   getAuthorization(): OperatorTokenRegistry;
   getHumanIdentity(): HumanIdentityRepository | undefined;
   getWorkspaceIdentity(): WorkspaceIdentityRepository;
-  ensureRuntimeProjection?: (
-    input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
-  ) => void | Promise<void>;
+  ensureRuntimeProjection?: RemoteRuntimeMaterializationPorts["project"];
   runtimeContentTargets?: RemoteRuntimeContentTargetPort;
   ownerMaterializedScopeAvailable?: (scope: {
     workspaceId: string;

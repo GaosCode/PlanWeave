@@ -81,8 +81,9 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
   it.each([
     "acquire",
     "activate",
+    "content_out_of_sync",
     "protocol_error"
-  ] as const)("isolates Host A's lost %s response and recovers its exact attempt without duplicate activation", async (lostOperation) => {
+  ] as const)("handles Host A's %s fault at the correct recovery boundary", async (lostOperation) => {
     const fixture = await setup(false, remoteManifest(true));
     const database = fixture.server.database;
     const hostA = fixture.hosts.register("Recovery Host A").host;
@@ -201,6 +202,10 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
     const callbacks: Promise<void>[] = [];
     const failures: unknown[] = [];
     const faultPhases = new Set<string>();
+    const peerRefusal =
+      lostOperation === "protocol_error" || lostOperation === "content_out_of_sync"
+        ? lostOperation
+        : undefined;
     const request = broker.request.bind(broker);
     vi.spyOn(broker, "request").mockImplementation(
       (hostId, scope, operation, attachmentVersion, options) => {
@@ -208,7 +213,9 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
           hostId === hostA.id &&
           !faultPhases.has(phase) &&
           ((phase === "initial" && operation.operation === lostOperation) ||
-            (phase === "action" && operation.operation === "acquire"));
+            (lostOperation === "activate" &&
+              phase === "action" &&
+              operation.operation === "acquire"));
         if (fault) faultPhases.add(phase);
         return request(hostId, scope, operation, attachmentVersion, {
           ...options,
@@ -234,7 +241,8 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
           if (
             hostId === hostA.id &&
             operation.operation === "acquire" &&
-            lostOperation === "protocol_error"
+            peerRefusal &&
+            (phase === "initial" || phase === "action")
           ) {
             broker.handleResponse(
               hostId,
@@ -246,12 +254,15 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
                 response: {
                   outcome: "error",
                   operation: "acquire",
-                  error: {
-                    code: "protocol_error",
-                    message: "Invalid peer protocol.",
-                    retryable: true,
-                    reconcileRequired: true
-                  }
+                  error:
+                    peerRefusal === "protocol_error"
+                      ? {
+                          code: peerRefusal,
+                          message: "Invalid peer protocol.",
+                          retryable: true,
+                          reconcileRequired: true
+                        }
+                      : { code: peerRefusal, message: "Content is out of sync.", retryable: false }
                 }
               })
             );
@@ -333,7 +344,7 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
         const code =
           lostOperation === "acquire"
             ? "canvas_runtime_rpc_deadline_exceeded"
-            : "canvas_runtime_reconcile_required";
+            : (peerRefusal ?? "canvas_runtime_reconcile_required");
         expect(coordination.operations.latestDiagnostic(first.id)?.error).toEqual({
           code,
           retryable: true
@@ -375,7 +386,7 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
             .filter((message) => message.command.type === "execute_block")
         ).toHaveLength(1);
         expect(coordination.operations.latestDiagnostic(first.id)?.error).toBeUndefined();
-        if (lostOperation === "activate") {
+        if (lostOperation === "activate" || lostOperation === "content_out_of_sync") {
           phase = "interruption";
           for (const [index, initial] of operations.entries()) {
             const hostId = index === 0 ? hostA.id : hostB.id;
@@ -430,7 +441,7 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
           expect(coordination.actions.getRequired("fail-action-0").state).toBe("recorded");
           expect(coordination.operations.getRequired(first.id).state).toBe("interrupted");
           expect(coordination.operations.latestDiagnostic(first.id)?.error).toEqual({
-            code: "canvas_runtime_rpc_deadline_exceeded",
+            code: peerRefusal ?? "canvas_runtime_rpc_deadline_exceeded",
             retryable: true
           });
           expect(coordination.operations.getRequired(second.id).state).toBe("failed");
@@ -464,7 +475,7 @@ describe("RemoteBlockCoordinator Runtime availability reentry", () => {
           .filter((call) => call.timeoutMs === 100)
           .map(({ hostId, operation, phase }) => ({ hostId, operation, phase }))
       ).toEqual(
-        lostOperation === "protocol_error"
+        peerRefusal
           ? []
           : [
               { hostId: hostA.id, operation: lostOperation, phase: "initial" },

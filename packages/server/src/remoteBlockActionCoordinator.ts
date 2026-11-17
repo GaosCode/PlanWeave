@@ -86,7 +86,13 @@ function classifyActionDeferral(action: RemoteExecutionActionRequest, error: unk
   }
   const decision = classifyReenterFailure(error);
   if (decision === "admission_denied") return "defer";
-  if (decision === "defer_host" || decision === "defer_authorization") return "diagnose";
+  if (
+    decision === "defer_host" ||
+    decision === "defer_authorization" ||
+    decision === "wait_for_action"
+  ) {
+    return "diagnose";
+  }
   return undefined;
 }
 

@@ -4,6 +4,7 @@ import type {
   CanvasRuntimeStatusSnapshot
 } from "@planweave-ai/collaboration-protocol/canvas/status";
 import type { PlanPackageManifest, RemoteBlockRuntimePort } from "@planweave-ai/runtime";
+import { CanvasRuntimeContentDriftError } from "./executionRuntimePort.js";
 import type {
   CanvasExecutionRuntimeLease,
   CanvasExecutionRuntimeRoutePort,
@@ -78,21 +79,19 @@ export class AuthoritativeExecutionRuntimeAdapter implements CanvasExecutionRunt
       throw error;
     }
     const persist = async (blockRef: string) => {
-      const authority = this.options.readContentAuthority({
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        canvasId: scope.canvasId
-      });
-      if (!authority) return;
+      if (!this.options.readContentAuthority(scope)) return;
       if (!lease.readStatus) throw new Error("canvas_runtime_status_capture_unavailable");
       const status = await lease.readStatus();
       if (
         status.scope.workspaceId !== scope.workspaceId ||
         status.scope.projectId !== scope.projectId ||
-        status.scope.canvasId !== scope.canvasId ||
-        status.packageFingerprint !== authority.packageFingerprint
+        status.scope.canvasId !== scope.canvasId
       ) {
         throw new Error("canvas_runtime_status_content_out_of_sync");
+      }
+      const authority = this.options.readContentAuthority(scope);
+      if (!authority || status.packageFingerprint !== authority.packageFingerprint) {
+        throw new CanvasRuntimeContentDriftError("canvas_runtime_reconcile_required");
       }
       this.options.runtimeStatuses.mergeRemoteMutationFromExecution(
         status,

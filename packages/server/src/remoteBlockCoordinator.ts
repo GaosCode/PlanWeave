@@ -33,7 +33,8 @@ import type {
 } from "./canvas/runtimeAttachment.js";
 import {
   assertRuntimeAttachmentContentTarget,
-  materializeAttachedWorkspaceRuntime
+  materializeAttachedWorkspaceRuntime,
+  type RemoteRuntimeMaterializationPorts
 } from "./remoteRuntimeAttachmentCoordinator.js";
 import { HostReservationRepository, type HostCapacityReservation } from "./hostReservations.js";
 import { RemoteOperationRepository, type RemoteOperation } from "./remoteOperations.js";
@@ -131,9 +132,7 @@ export type RemoteBlockCoordinatorOptions = {
     executionAttemptId: string
   ) => RuntimeAttachmentRequest | undefined;
   runtimeContentTargets?: import("./remoteBlockCoordinatorPorts.js").RemoteRuntimeContentTargetPort;
-  ensureRuntimeProjection?: (
-    input: RuntimeAttachmentRequest & { lease: CanvasExecutionRuntimeLease }
-  ) => void | Promise<void>;
+  ensureRuntimeProjection?: RemoteRuntimeMaterializationPorts["project"];
   serverInstanceOwnerToken: string;
   humanIdentity: HumanPrincipalIdentity;
 };
@@ -401,6 +400,24 @@ export class RemoteBlockCoordinator {
       return persistedOutcome;
     }
 
+    const managedRuntimeExecution = usesManagedCanvasRuntime(operation);
+    if (managedRuntimeExecution) {
+      if (!runtimeAttachment) throw new Error("runtime_attachment_missing");
+      const runtimeContentTargets = this.options.runtimeContentTargets;
+      if (!runtimeContentTargets) throw new Error("runtime_content_target_port_missing");
+      await materializeAttachedWorkspaceRuntime({
+        attachment: runtimeAttachment,
+        candidate,
+        lease: runtimeLease,
+        ports: {
+          contentTargets: runtimeContentTargets,
+          ...(this.options.ensureRuntimeProjection
+            ? { project: this.options.ensureRuntimeProjection }
+            : {})
+        }
+      });
+    }
+
     if (operation.state === "preparing" || operation.state === "reserved") {
       this.options.operations.recordDiagnosticStage(operation.id, "preparing_runtime");
       try {
@@ -425,24 +442,6 @@ export class RemoteBlockCoordinator {
       if (operation.state === "preparing" || operation.state === "reserved") {
         operation = this.options.operations.markClaimed(operation.id);
       }
-    }
-
-    const managedRuntimeExecution = usesManagedCanvasRuntime(operation);
-    if (managedRuntimeExecution) {
-      if (!runtimeAttachment) throw new Error("runtime_attachment_missing");
-      const runtimeContentTargets = this.options.runtimeContentTargets;
-      if (!runtimeContentTargets) throw new Error("runtime_content_target_port_missing");
-      await materializeAttachedWorkspaceRuntime({
-        attachment: runtimeAttachment,
-        candidate,
-        lease: runtimeLease,
-        ports: {
-          contentTargets: runtimeContentTargets,
-          ...(this.options.ensureRuntimeProjection
-            ? { project: this.options.ensureRuntimeProjection }
-            : {})
-        }
-      });
     }
 
     let ownerPackageLocator: OwnerPackageLocator | undefined;
@@ -599,9 +598,26 @@ export class RemoteBlockCoordinator {
           outcomes.push({ operation: current, status: "terminal" });
           continue;
         }
+        if (decision === "wait_for_action") {
+          if (current.executionAttemptId !== operation.executionAttemptId) continue;
+          if (
+            current.state !== "interrupted" ||
+            current.attempt.status !== "interrupted" ||
+            this.options.dispatches.inspect(current).dispatch
+          ) {
+            throw error;
+          }
+        }
         const diagnostic = diagnosticFromReenterFailure(error);
         this.options.operations.recordDiagnostic(operation.id, diagnostic.code, diagnostic.message);
         if (decision === "defer_authorization") continue;
+        if (decision === "wait_for_action") {
+          outcomes.push({
+            operation: this.options.operations.getRequired(operation.id),
+            status: "wait_for_action"
+          });
+          continue;
+        }
         if (decision === "defer_host") {
           outcomes.push({
             operation: this.options.operations.getRequired(operation.id),

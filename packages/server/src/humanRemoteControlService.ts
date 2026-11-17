@@ -83,6 +83,9 @@ function throwMappedDispatchRuntimeFailure(error: unknown): never {
     throw new HumanRemoteControlError("human_remote_materialization_failed");
   }
   if (error instanceof Error) {
+    if (error.message === "remote_source_changed") {
+      throw new HumanRemoteControlError("human_remote_operation_conflict");
+    }
     if (
       error.message === "canvas_content_head_changed" ||
       error.message === "canvas_runtime_status_content_out_of_sync"

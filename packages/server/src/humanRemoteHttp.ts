@@ -27,6 +27,8 @@ import { agentEndpointCatalogErrorCode } from "./agentEndpointCatalog.js";
 import { remoteAgentAuthorizationErrorCode } from "./remoteAgent/errors.js";
 import { CanvasRuntimeAttachmentConflictError } from "./canvas/runtimeAttachment.js";
 import { CanvasRuntimeHostAmbiguousError } from "./canvas/runtimeHostLocator.js";
+import { CanvasRuntimeContentDriftError } from "./canvas/executionRuntimePort.js";
+import { RuntimeAttachmentContentTargetError } from "./remoteRuntimeAttachmentCoordinator.js";
 
 export type HumanRemoteHttpOptions = {
   service: HumanRemoteControlService;
@@ -167,6 +169,12 @@ function safeError(error: unknown): { status: number; code: string } {
   if (error instanceof z.ZodError) return { status: 400, code: "human_remote_request_invalid" };
   if (error instanceof RemoteExecutionActionRejectedError) return { status: 409, code: error.code };
   if (error instanceof DispatchAssignmentError) return { status: 409, code: error.code };
+  if (error instanceof CanvasRuntimeContentDriftError) {
+    return { status: 503, code: "human_remote_revision_drift" };
+  }
+  if (error instanceof RuntimeAttachmentContentTargetError) {
+    return { status: 409, code: "human_remote_operation_conflict" };
+  }
   const endpointErrorCode = agentEndpointCatalogErrorCode(error);
   if (endpointErrorCode) return { status: 409, code: endpointErrorCode };
   if (error instanceof CanvasRuntimeAttachmentConflictError) {

@@ -51,6 +51,7 @@ import type {
   RuntimeCanvasScope
 } from "./executionRuntimePort.js";
 import {
+  CanvasRuntimeContentDriftError,
   CanvasRuntimeUnavailableError,
   CanvasRuntimeResetConflictError
 } from "./executionRuntimePort.js";
@@ -439,6 +440,17 @@ export class RemoteHostCanvasRuntimeAdapter
       },
       attachmentVersion
     );
+    if (
+      response.outcome === "error" &&
+      response.operation === "acquire" &&
+      response.error.code === "content_out_of_sync" &&
+      !response.error.retryable &&
+      !response.error.reconcileRequired
+    ) {
+      throw new CanvasRuntimeContentDriftError("content_out_of_sync", {
+        cause: runtimeRpcErrorFromPeer(response.error)
+      });
+    }
     if (response.outcome === "error") throw responseError(response);
     if (response.operation !== "acquire") {
       throw new Error("canvas_runtime_response_operation_mismatch");

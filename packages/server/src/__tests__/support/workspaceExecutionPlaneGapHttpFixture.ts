@@ -21,6 +21,7 @@ import {
   readStableCanvasRuntimeEvidence
 } from "../../canvas/contentFingerprint.js";
 import { RuntimeArtifactGrantRepository } from "../../canvas/runtimeArtifactGrantRepository.js";
+import { CanvasRuntimeStatusRepository } from "../../canvas/runtimeStatusRepository.js";
 import { parseServerConfig } from "../../config.js";
 import { createRemoteBlockCoordination } from "../../distributedCoordination.js";
 import { handleHumanRemoteHttpRequest } from "../../humanRemoteHttp.js";
@@ -375,6 +376,7 @@ export async function startPathlessCompositionWithGrantedHost(options: {
   mapWorkspace: boolean;
   liveCanvasRuntime?: boolean | { failOperation?: PathlessCanvasRuntimeFailure };
   staleLocalRuntime?: boolean;
+  staleServerProjection?: boolean;
 }) {
   const workspace = await createTestWorkspace(remoteManifest());
   directories.push(workspace.home, workspace.root);
@@ -504,6 +506,18 @@ export async function startPathlessCompositionWithGrantedHost(options: {
   if (!contentEvidence) throw new Error("workspace_gap_content_evidence_missing");
   const contentTarget = contentEvidence.target;
   const contentGraphFingerprint = contentTarget.graphFingerprint;
+  if (options.staleServerProjection) {
+    const previousStatus = await readAuthorizedCanvasRuntimeStatus({
+      projectRoot: workspace.root,
+      canvasId,
+      expectedPackageDir: workspace.init.workspace.packageDir,
+      scope: { workspaceId, projectId, canvasId }
+    });
+    new CanvasRuntimeStatusRepository(database).replaceFromExecution({
+      ...previousStatus,
+      packageFingerprint: `pkg-${"a".repeat(64)}`
+    });
+  }
   const liveOptions =
     options.liveCanvasRuntime === undefined
       ? undefined

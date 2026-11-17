@@ -158,7 +158,6 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
 
     const lease = await adapter.acquire(scope);
     await expect(lease.runtime.claim(claimInput)).resolves.toEqual(binding);
-    expect(readContentAuthority).toHaveBeenCalledOnce();
     expect(readStatus).toHaveBeenCalledOnce();
     expect(mergeRemoteMutationFromExecution).toHaveBeenCalledWith(
       status(),
@@ -661,22 +660,26 @@ describe("AuthoritativeExecutionRuntimeAdapter", () => {
     expect(mergeRemoteMutationFromExecution).not.toHaveBeenCalled();
   });
 
-  it("refuses to overwrite Server state with a different content fingerprint", async () => {
+  it("refuses to publish a Runtime projection when content changes during status capture", async () => {
     const mergeRemoteMutationFromExecution = vi.fn(
       (value: CanvasRuntimeStatusProjection, _blockRef: string, _manifest: PlanPackageManifest) =>
         value
     );
+    let currentFingerprint = fingerprint;
     const adapter = new AuthoritativeExecutionRuntimeAdapter({
       delegate: {
         acquire: vi.fn(async () => ({
           runtime: runtime(),
           artifacts: { read: vi.fn() },
-          readStatus: vi.fn(async () => status(`pkg-${"b".repeat(64)}`)),
+          readStatus: async () => {
+            currentFingerprint = `pkg-${"b".repeat(64)}`;
+            return status();
+          },
           release: vi.fn()
         }))
       },
       readContentAuthority: () => ({
-        packageFingerprint: fingerprint,
+        packageFingerprint: currentFingerprint,
         manifest: manifestForStatus(status())
       }),
       resetBaselines: noResetBaselines,
