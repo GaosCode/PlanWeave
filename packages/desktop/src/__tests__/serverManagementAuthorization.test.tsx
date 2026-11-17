@@ -563,8 +563,9 @@ it("does not recheck or erase authorization for repeated identical identity even
   expect(api.getManagementAuthorization).toHaveBeenCalledTimes(count);
   expect(screen.getByText(t("serverManagementAdministrator"))).toBeInTheDocument();
 });
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
   vi.useRealTimers();
 });
 const t = createTranslator("zh-CN");
@@ -780,7 +781,6 @@ it("clears a previous transport error after automatic rechecking succeeds", asyn
     await vi.advanceTimersByTimeAsync(5 * 60_000);
   });
   expect(screen.getByText(t("serverManagementAdministrator"))).toBeInTheDocument();
-  vi.useRealTimers();
 });
 
 it("does not reuse the active administrator from another Server", async () => {
