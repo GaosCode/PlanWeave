@@ -1,4 +1,4 @@
-import { isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { ZodError } from "zod";
 import { optionalStat } from "./fs/optionalFile.js";
 import { compilePackageGraph } from "./graph/compileTaskGraph.js";
@@ -59,6 +59,13 @@ function prefixPackageIssue(
       ...validationIssue,
       path: workspaceRelative(projectWorkspace, join(workspace.packageDir, path))
     };
+  }
+  if (code === "package_path_outside" && !isAbsolute(path)) {
+    const candidate = resolve(workspace.packageDir, path);
+    const packageRelativePath = relative(workspace.packageDir, candidate);
+    if (!isAbsolute(packageRelativePath) && !packageRelativePath.startsWith("..")) {
+      return { ...validationIssue, path: workspaceRelative(projectWorkspace, candidate) };
+    }
   }
   return {
     ...validationIssue,

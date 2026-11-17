@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTaskCanvas, resolveTaskCanvasWorkspace } from "../desktop/index.js";
@@ -94,6 +94,82 @@ describe("validatePackage", () => {
       expect.objectContaining({
         code: "prompt_not_file",
         path: "canvases/default/package/shared/review.md"
+      })
+    ]);
+  });
+
+  it("reports escaping prompt symlinks at their package paths", async ({ skip }) => {
+    const { root, init } = await createTestWorkspace();
+    const { manifestFile, packageDir } = init.workspace;
+    const manifest = basicManifest();
+    const [task] = manifest.nodes;
+    task.prompt = "nodes/outside.md";
+    task.blocks[0].prompt = "shared/outside.md";
+    task.blocks[1].prompt = "shared/inside.md";
+    task.blocks[1].depends_on = ["B-MISSING"];
+    await writeJsonFile(manifestFile, manifest);
+
+    const outside = join(root, "outside.md");
+    await writeFile(outside, "Outside prompt\n");
+    await mkdir(join(packageDir, "shared"));
+    try {
+      await symlink(
+        join(packageDir, "nodes/T-001/prompt.md"),
+        join(packageDir, "shared/inside.md"),
+        "file"
+      );
+    } catch (error) {
+      if (
+        process.platform === "win32" &&
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "EPERM" || error.code === "EACCES")
+      ) {
+        skip("The Windows test process lacks permission to create file symlinks.");
+      }
+      throw error;
+    }
+    await symlink(outside, join(packageDir, task.prompt), "file");
+    await symlink(outside, join(packageDir, task.blocks[0].prompt), "file");
+
+    const report = await validatePackage({ projectRoot: root, canvasId: "default" });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual([
+      expect.objectContaining({
+        code: "block_dependency_missing",
+        path: "canvases/default/package/manifest.json:T-001#R-001"
+      }),
+      expect.objectContaining({
+        code: "package_path_outside",
+        path: "canvases/default/package/nodes/outside.md"
+      }),
+      expect.objectContaining({
+        code: "package_path_outside",
+        path: "canvases/default/package/shared/outside.md"
+      })
+    ]);
+  });
+
+  it("reports absolute and traversing prompt references at the manifest", async () => {
+    const { root, init } = await createTestWorkspace();
+    const manifest = basicManifest();
+    const [task] = manifest.nodes;
+    task.prompt = join(root, "absolute.md");
+    task.blocks[0].prompt = "nodes/../../outside.md";
+    await writeJsonFile(init.workspace.manifestFile, manifest);
+
+    const report = await validatePackage({ projectRoot: root });
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toEqual([
+      expect.objectContaining({
+        code: "package_path_outside",
+        path: `canvases/default/package/manifest.json:${task.prompt}`
+      }),
+      expect.objectContaining({
+        code: "package_path_outside",
+        path: "canvases/default/package/manifest.json:nodes/../../outside.md"
       })
     ]);
   });
